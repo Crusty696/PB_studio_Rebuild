@@ -413,3 +413,51 @@ def test_fingerprint_is_json_stable() -> None:
     fp1 = make_context_fingerprint("Psytrance", "DROP", 139.98)
     fp2 = make_context_fingerprint("psytrance", "drop", 140.01)
     assert fp1 == fp2  # genre/section lowercased, BPM bucketed
+
+
+# ---------------------------------------------------------------------------
+# mem_decision.user_rating (1-5) — bis 2026-07-27 SELECTet, aber nie
+# ausgewertet: jedes Einzel-Cut-Rating verpuffte, kein Muster entstand.
+# ---------------------------------------------------------------------------
+def _decision(**over: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "scene_id": 42,
+        "at_genre": "psytrance",
+        "at_section_type": "drop",
+        "at_bpm": 140.0,
+        "user_verdict": None,
+        "user_rating": None,
+        "run_rating": None,
+    }
+    base.update(over)
+    return base
+
+
+def test_high_user_rating_counts_as_accept() -> None:
+    ups = PatternAggregator._aggregate([_decision(user_rating=5)])
+    assert len(ups) == 1
+    assert (ups[0].accept_count, ups[0].reject_count, ups[0].sample_size) == (1, 0, 1)
+
+
+def test_low_user_rating_counts_as_reject() -> None:
+    ups = PatternAggregator._aggregate([_decision(user_rating=1)])
+    assert len(ups) == 1
+    assert (ups[0].accept_count, ups[0].reject_count, ups[0].sample_size) == (0, 1, 1)
+
+
+def test_neutral_user_rating_yields_no_pattern() -> None:
+    """Rating 3 ist ein explizites 'weder noch' und wird NICHT vom
+    pauschalen Run-Rating ueberstimmt."""
+    assert PatternAggregator._aggregate([_decision(user_rating=3, run_rating=5)]) == []
+
+
+def test_user_verdict_beats_user_rating() -> None:
+    ups = PatternAggregator._aggregate(
+        [_decision(user_verdict="reject", user_rating=5)]
+    )
+    assert (ups[0].accept_count, ups[0].reject_count) == (0, 1)
+
+
+def test_user_rating_beats_dampened_run_rating() -> None:
+    ups = PatternAggregator._aggregate([_decision(user_rating=5, run_rating=1)])
+    assert (ups[0].accept_count, ups[0].reject_count, ups[0].sample_size) == (1, 0, 1)

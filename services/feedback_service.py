@@ -8,10 +8,11 @@ must not crash on a transient DB lock).
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from sqlalchemy import text
 
@@ -23,6 +24,113 @@ VERDICT_FROM_KEY: dict[str, str] = {
     "R": "reject",
     "S": "skip",
 }
+
+
+# Zusatz-Spalten fuer Kontext + Credit-Assignment. Bewusst als SEPARATE,
+# best-effort-Query: aeltere/abgespeckte mem_decision-Schemata (Unit-Test-
+# Fixtures) haben diese Spalten nicht, und ein Feedback-Write darf daran
+# nicht scheitern.
+_LEARNING_SIGNAL_SQL = text(
+    "SELECT at_energy, at_mood_audio, at_bpm, clip_motion_score, "
+    "       at_section_type, agent_rationale "
+    "FROM mem_decision WHERE id = :id"
+)
+
+
+def load_decision_learning_signal(
+    session: Any, decision_id: int
+) -> tuple[Any, dict[str, float]]:
+    """Liest CutContext + Achsen-Beitraege einer Entscheidung.
+
+    Beides kommt aus derselben ``mem_decision``-Zeile:
+      - Kontext (Section/Mood/Energie/Motion/Pace) fuer den 6-stufigen
+        Backoff der Brain-V3-Gewichte,
+      - ``agent_rationale`` -> ``brain_v3_scores`` bzw. ``contribs`` fuer
+        das Credit-Assignment.
+
+    Returns:
+        ``(CutContext | None, axis_contributions)``. Bei fehlenden Spalten
+        oder DB-Fehlern ``(None, {})`` — der Aufrufer faellt dann auf den
+        alten, groberen Pfad zurueck statt zu crashen.
+    """
+    from services.brain.feedback_logger import axis_contributions_from_rationale
+
+    try:
+        row = session.execute(
+            _LEARNING_SIGNAL_SQL, {"id": int(decision_id)}
+        ).mappings().fetchone()
+    except Exception as exc:
+        logger.info(
+            "feedback_service: Lern-Signal fuer decision=%s nicht lesbar "
+            "(%s) — Kontext/Credit fallen auf Default zurueck.",
+            decision_id, exc,
+        )
+        try:
+            session.rollback()
+        except Exception:  # nosec B110 - Rollback-Fehler darf Feedback nicht killen
+            pass
+        return None, {}
+    if row is None:
+        return None, {}
+
+    rationale: Any = row.get("agent_rationale")
+    if isinstance(rationale, str):
+        try:
+            rationale = json.loads(rationale)
+        except (TypeError, ValueError):
+            rationale = None
+    contributions = axis_contributions_from_rationale(
+        rationale if isinstance(rationale, Mapping) else None
+    )
+    return build_cut_context_from_decision(row), contributions
+
+
+def build_cut_context_from_decision(row: Mapping[str, Any]) -> Any:
+    """Baut einen echten ``CutContext`` aus einer mem_decision-Zeile.
+
+    Nutzt ausschliesslich den vorhandenen Kontextbegriff
+    (``services.brain.context_mapping`` + ``context_resolver``), kein
+    zweites Vokabular. Fehlende Felder fallen auf die neutralen
+    CutContext-Defaults zurueck.
+    """
+    from services.brain.context_mapping import (
+        ContextMappingConfig,
+        build_cut_context,
+    )
+    from services.brain.context_resolver import (
+        quantize_quartile,
+        quantize_tertile,
+    )
+
+    energy = _as_float(row.get("at_energy"))
+    motion = _as_float(row.get("clip_motion_score"))
+    bpm = _as_float(row.get("at_bpm"))
+
+    return build_cut_context(
+        raw_section=str(row.get("at_section_type") or "verse"),
+        raw_mood=str(row.get("at_mood_audio") or "neutral"),
+        raw_subtrack_position="middle",  # nicht in mem_decision gespeichert
+        raw_energy_level=(
+            quantize_tertile(energy, 0.33, 0.66) if energy is not None else "medium"
+        ),
+        raw_motion_class=(
+            quantize_quartile(motion, 0.25, 0.5, 0.75)
+            if motion is not None else "medium"
+        ),
+        # pace aus dem gespeicherten BPM statt aus 'recent_cuts' — beim
+        # Feedback gibt es keine Live-Cut-Historie mehr.
+        cfg=ContextMappingConfig(pace_source="audio_bpm"),
+        audio_bpm=bpm,
+    )
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -113,6 +221,14 @@ class FeedbackService:
                 verdict,
                 event_id,
             )
+            # Credit-Assignment (2026-07-27): echter CutContext + Achsen-
+            # Beitraege aus derselben mem_decision-Zeile nachladen. Nach dem
+            # Commit, best-effort — schlaegt das fehl, bleibt es beim alten,
+            # groben Section-Only-Kontext.
+            cut_context, axis_contributions = load_decision_learning_signal(
+                session, decision_id
+            )
+
             # T1.4 (USE-006): Verdict in den RL-v2-Stack + WeightStore
             # propagieren (best-effort, nach erfolgreichem Commit).
             self._propagate_rl_v2(
@@ -123,6 +239,8 @@ class FeedbackService:
                 sequence_idx=_seq_idx,
                 section_type=_section_type,
                 timestamp_sec=_ts_sec,
+                cut_context=cut_context,
+                axis_contributions=axis_contributions,
             )
             return FeedbackResult(True, event_id, decision_id)
 
@@ -171,6 +289,8 @@ class FeedbackService:
         sequence_idx: int,
         section_type: str,
         timestamp_sec: float,
+        cut_context: Any = None,
+        axis_contributions: Mapping[str, float] | None = None,
     ) -> None:
         """T1.4 (USE-006): Timeline-Verdict an den RL-Stack v2 anschliessen.
 
@@ -181,9 +301,12 @@ class FeedbackService:
            stille Doppel-Write. Das alte services/pacing_memory.py bleibt
            unberuehrt (Track-Level-Sentiment, anderer Scope).
         2. Brain-V3-WeightStore: accept -> 'fits', reject -> 'no_match'
-           via BrainV3Service.feedback (gleicher Pfad wie das
-           Brain-V3-Feedback-Popup) — damit veraendern A/R-Verdicts
-           nachweisbar die Reranker-Gewichte (T1.2-Pfad).
+           via ``feedback_logger.submit_feedback`` — mit den Achsen-
+           Beitraegen dieser Entscheidung, damit alpha/beta GEWICHTET statt
+           uniform verteilt werden. Der Umweg um ``BrainV3Service.feedback``
+           ist noetig, weil dessen Signatur die Beitraege nicht durchreicht;
+           der Schreibpfad (FeedbackLogger + prozessweiter Lock) ist
+           derselbe.
 
         Best-effort: Fehler werden geloggt, nie geraised (Feedback darf
         die UI nicht crashen).
@@ -210,18 +333,26 @@ class FeedbackService:
         if rating is None:
             return  # skip/modify/replace: kein Gewichts-Signal
         try:
-            from services.brain.brain_v3_service import BrainV3Service
+            from services.brain import feedback_logger
             from services.brain.context_resolver import CutContext
-            from services.brain.schemas.brain_v3_schemas import FeedbackRequest
-            section = self._SECTION_TO_BRAIN.get(
-                section_type.strip().lower(), "verse")
-            resp = BrainV3Service().feedback(
-                FeedbackRequest(cut_id=decision_id, rating=rating),
-                context=CutContext(audio_section_type=section),
+
+            ctx = cut_context
+            if ctx is None:
+                section = self._SECTION_TO_BRAIN.get(
+                    section_type.strip().lower(), "verse")
+                ctx = CutContext(audio_section_type=section)
+            diag = feedback_logger.submit_feedback(
+                rating=rating,
+                context=ctx,
+                axis_contributions=axis_contributions or None,
             )
             logger.info(
-                "T1.4: Verdict %s -> WeightStore (%d Buckets aktualisiert).",
-                verdict, resp.n_buckets_updated,
+                "T1.4: Verdict %s -> WeightStore (%d Buckets, mode=%s, "
+                "%d Achsen mit Credit).",
+                verdict,
+                diag.get("n_buckets_updated", 0),
+                diag.get("credit_mode"),
+                diag.get("n_axes_credited", 0),
             )
         except Exception as exc:
             logger.warning("T1.4: WeightStore-Update fehlgeschlagen: %s", exc)

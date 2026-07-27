@@ -37,6 +37,12 @@ DEFAULT_SECTION_MAP: dict[str, str] = {
     "drop": "drop",
     "break": "break",
     "transition": "transition",
+    # Pacing-/mem_decision-Vokabular (services/pacing) kennt zusaetzlich
+    # 'buildup' und 'breakdown'. Ohne diese beiden Zeilen fielen echte
+    # Drop-Vorlauf-/Breakdown-Cuts auf den 'verse'-Default zurueck und der
+    # Backoff-Key war falsch (Credit-Assignment, 2026-07-27).
+    "buildup": "build",
+    "breakdown": "break",
 }
 
 DEFAULT_MOOD_MAP: dict[str, str] = {

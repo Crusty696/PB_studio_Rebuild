@@ -63,22 +63,32 @@ def _make_db(tmp_path):
     return factory
 
 
+def _patch_submit(monkeypatch) -> dict:
+    """Faengt den WeightStore-Schreibpfad ab (kein echtes weights.db im Unit-Test).
+
+    Credit-Assignment (2026-07-27): geschrieben wird nicht mehr ueber
+    ``BrainV3Service.feedback`` (das reicht die Achsen-Beitraege nicht durch),
+    sondern ueber ``feedback_logger.submit_feedback``.
+    """
+    import services.brain.feedback_logger as fl
+
+    seen: dict = {"calls": []}
+
+    def _fake_submit(rating, context=None, axis_contributions=None, weight_store=None):
+        seen["calls"].append({
+            "rating": rating,
+            "context": context,
+            "axis_contributions": axis_contributions,
+        })
+        return {"n_buckets_updated": 5, "credit_mode": "weighted", "n_axes_credited": 2}
+
+    monkeypatch.setattr(fl, "submit_feedback", _fake_submit)
+    return seen
+
+
 def test_accept_feeds_rl_v2_singleton(tmp_path, monkeypatch):
     svc = FeedbackService(session_factory=_make_db(tmp_path))
-    # WeightStore-Pfad wegmocken (kein echtes weights.db im Unit-Test)
-    monkeypatch.setattr(
-        FeedbackService, "_SECTION_TO_BRAIN", FeedbackService._SECTION_TO_BRAIN)
-    import services.brain.brain_v3_service as bv3
-
-    class _FakeSvc:
-        def feedback(self, request, context=None):
-            _FakeSvc.last = (request, context)
-
-            class R:
-                n_buckets_updated = 5
-            return R()
-
-    monkeypatch.setattr(bv3, "BrainV3Service", _FakeSvc)
+    seen = _patch_submit(monkeypatch)
 
     result = svc.record_verdict(7, 42, "accept")
     assert result.success
@@ -87,57 +97,50 @@ def test_accept_feeds_rl_v2_singleton(tmp_path, monkeypatch):
     assert mem.count(run_id=7, verdict="good") == 1
     assert mem.section_acceptance_rate("DROP") == 1.0
     # WeightStore-Pfad wurde mit 'fits' + gemapptem Section-Context gerufen
-    req, ctx = _FakeSvc.last
-    assert req.rating == "fits"
-    assert ctx.audio_section_type == "drop"
+    call = seen["calls"][0]
+    assert call["rating"] == "fits"
+    assert call["context"].audio_section_type == "drop"
 
 
 def test_reject_maps_to_bad_and_no_match(tmp_path, monkeypatch):
     svc = FeedbackService(session_factory=_make_db(tmp_path))
-    import services.brain.brain_v3_service as bv3
-
-    class _FakeSvc:
-        last = None
-
-        def feedback(self, request, context=None):
-            _FakeSvc.last = (request, context)
-
-            class R:
-                n_buckets_updated = 5
-            return R()
-
-    monkeypatch.setattr(bv3, "BrainV3Service", _FakeSvc)
+    seen = _patch_submit(monkeypatch)
 
     assert svc.record_verdict(7, 42, "reject").success
     mem = get_default_rl_memory()
     assert mem.count(run_id=7, verdict="bad") == 1
     assert mem.section_acceptance_rate("DROP") == 0.0
-    assert _FakeSvc.last[0].rating == "no_match"
+    assert seen["calls"][0]["rating"] == "no_match"
+
+
+def test_minimal_schema_falls_back_to_section_only_context(tmp_path, monkeypatch):
+    """Fehlen at_energy/at_bpm/agent_rationale, darf record_verdict nicht
+    scheitern — es faellt auf den groben Section-Kontext ohne Credits zurueck."""
+    svc = FeedbackService(session_factory=_make_db(tmp_path))
+    seen = _patch_submit(monkeypatch)
+
+    assert svc.record_verdict(7, 42, "accept").success
+    call = seen["calls"][0]
+    assert call["axis_contributions"] is None
+    assert call["context"].audio_section_type == "drop"
 
 
 def test_skip_records_no_weight_signal(tmp_path, monkeypatch):
     svc = FeedbackService(session_factory=_make_db(tmp_path))
-    import services.brain.brain_v3_service as bv3
-
-    called = {"n": 0}
-
-    class _FakeSvc:
-        def feedback(self, request, context=None):
-            called["n"] += 1
-
-    monkeypatch.setattr(bv3, "BrainV3Service", _FakeSvc)
+    seen = _patch_submit(monkeypatch)
 
     assert svc.record_verdict(7, 42, "skip").success
+    assert seen["calls"] == []
     # Verdict-Replay ohne good/bad, kein Policy/Weight-Signal
     mem = get_default_rl_memory()
     assert mem.count(run_id=7) == 1
     assert mem.count(run_id=7, verdict="good") == 0
-    assert called["n"] == 0
 
 
 def test_rl_failure_does_not_break_feedback(tmp_path, monkeypatch):
     """RL/WeightStore-Fehler duerfen record_verdict nicht scheitern lassen."""
     svc = FeedbackService(session_factory=_make_db(tmp_path))
+    _patch_submit(monkeypatch)
     import services.pacing.rl_memory_v2 as rlv2
 
     def boom():

@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from services.brain.cold_start import COLD_START_DEFAULTS, BRIDGE_AXES
 from services.brain.storage.sqlite_init import open_connection
@@ -25,6 +25,20 @@ from services.brain.storage.sqlite_init import open_connection
 logger = logging.getLogger(__name__)
 
 MIN_CONFIDENT_SAMPLES = 10
+
+# Deltas unterhalb dieser Schwelle gelten als "kein Beitrag" -> kein Write.
+_ZERO_DELTA_EPS = 1e-12
+
+_UPSERT_SQL = """
+    INSERT INTO axis_weights
+        (axis, context_level, context_key,
+         positive_count, negative_count, last_updated)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(axis, context_level, context_key) DO UPDATE SET
+        positive_count = positive_count + ?,
+        negative_count = negative_count + ?,
+        last_updated   = excluded.last_updated
+"""
 
 
 @dataclass(frozen=True)
@@ -134,25 +148,63 @@ class WeightStore:
     # ------------------------------------------------------------------
     def update(self, axis: str, level: int, key: str,
                alpha_delta: float, beta_delta: float) -> None:
-        """Update einen einzelnen Bucket. Atomic via UPSERT."""
-        if axis not in COLD_START_DEFAULTS:
-            raise ValueError(f"Unbekannte Achse: {axis!r}")
+        """Update einen einzelnen Bucket. Atomic via UPSERT.
+
+        Duenner Wrapper um :meth:`update_many` — beide Wege teilen sich
+        exakt eine SQL-Stelle, damit es keinen zweiten, achsen-blinden
+        Schreibpfad mehr geben kann (Credit-Assignment, 2026-07-27).
+        """
+        self.update_many([(axis, level, key, alpha_delta, beta_delta)])
+
+    def update_many(
+        self,
+        updates: Sequence[tuple[str, int, str, float, float]],
+    ) -> int:
+        """Achsenspezifischer Multi-Bucket-Update in EINER Transaktion.
+
+        Args:
+            updates: Tupel ``(axis, context_level, context_key,
+                alpha_delta, beta_delta)``. Die Deltas duerfen pro Achse
+                unterschiedlich sein — genau das ist der Unterschied zum
+                frueheren Uniform-Pfad im FeedbackLogger.
+
+        Buckets mit ``alpha_delta == beta_delta == 0`` werden komplett
+        uebersprungen: eine Achse, die an dieser Entscheidung keinen
+        Beitrag hatte, darf NICHT mitlernen (auch keine 0-Zeile anlegen,
+        sonst verwaessert sie ``n_samples`` und damit die Konfidenz).
+
+        Returns:
+            Anzahl tatsaechlich geschriebener Buckets.
+
+        Raises:
+            ValueError bei unbekannter Achse.
+        """
+        rows: list[tuple[str, int, str, float, float]] = []
+        for axis, level, key, alpha_delta, beta_delta in updates:
+            if axis not in COLD_START_DEFAULTS:
+                raise ValueError(f"Unbekannte Achse: {axis!r}")
+            a = float(alpha_delta)
+            b = float(beta_delta)
+            if abs(a) < _ZERO_DELTA_EPS and abs(b) < _ZERO_DELTA_EPS:
+                continue
+            rows.append((axis, int(level), str(key), a, b))
+        if not rows:
+            return 0
+
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self._get_conn().execute(
-            """
-            INSERT INTO axis_weights
-                (axis, context_level, context_key,
-                 positive_count, negative_count, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(axis, context_level, context_key) DO UPDATE SET
-                positive_count = positive_count + ?,
-                negative_count = negative_count + ?,
-                last_updated   = excluded.last_updated
-            """,
-            (axis, level, key, alpha_delta, beta_delta, now,
-             alpha_delta, beta_delta),
-        )
-        self._get_conn().commit()
+        conn = self._get_conn()
+        try:
+            conn.execute("BEGIN")
+            for axis, level, key, a, b in rows:
+                conn.execute(_UPSERT_SQL, (axis, level, key, a, b, now, a, b))
+            conn.commit()
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:  # nosec B110 - Rollback-Fehler darf den echten Fehler nicht verdecken
+                pass
+            raise
+        return len(rows)
 
     # ------------------------------------------------------------------
     # Diagnostics

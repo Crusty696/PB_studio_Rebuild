@@ -482,3 +482,78 @@ def test_interactive_timeline_applies_brain_v3_state_metadata(qt_app):
     assert item._brain_v3_confidence == pytest.approx(0.66)
     assert item._brain_v3_confidence_bar.isVisible()
     timeline.deleteLater()
+
+
+# ---- Tasten-Kollision 1-4 (2026-07-27) ----------------------------------
+class _FakeFeedbackService:
+    """Ersetzt FeedbackService in der Timeline; ohne DB."""
+
+    _session_factory = None
+
+    def __init__(self):
+        self.ratings: list[tuple[int, int, int]] = []
+        self.verdicts: list[tuple[int, int, str]] = []
+
+    def record_rating(self, run_id, scene_id, rating):
+        self.ratings.append((run_id, scene_id, rating))
+        return SimpleNamespace(success=True, event_id=None, decision_id=1, error=None)
+
+    def record_verdict(self, run_id, scene_id, verdict):
+        self.verdicts.append((run_id, scene_id, verdict))
+        return SimpleNamespace(success=True, event_id=None, decision_id=1, error=None)
+
+
+def _timeline_with_selected_clip(monkeypatch):
+    from ui.timeline import InteractiveTimeline, TimelineClipItem
+
+    brain = _FakeBrainV3TimelineService()
+    fake_fb = _FakeFeedbackService()
+    timeline = InteractiveTimeline()
+    item = TimelineClipItem(
+        entry_id=91, media_id=17, track_type="video", title="clip",
+        x=0, y=0, width=120, height=50, anchors=[],
+    )
+    timeline._scene.addItem(item)
+    timeline.clip_items.append(item)
+    timeline.set_brain_v3_feedback_service(brain, context=CutContext(audio_section_type="drop"))
+    timeline._feedback_service = fake_fb
+    timeline.set_active_pacing_run(7)
+    monkeypatch.setattr(timeline, "_resolve_scene_id", lambda _i: 42)
+    # kein DB-Zugriff im Unit-Test
+    monkeypatch.setattr(timeline, "_brain_v3_learning_signal", lambda _i: (None, {}))
+    item.setSelected(True)
+    return timeline, item, brain, fake_fb
+
+
+def _press(timeline, key, modifier=Qt.KeyboardModifier.NoModifier):
+    event = QKeyEvent(QEvent.Type.KeyPress, key, modifier)
+    timeline.keyPressEvent(event)
+    return event
+
+
+def test_plain_digit_still_goes_to_brain_v3(qt_app, monkeypatch):
+    timeline, _item, brain, fake_fb = _timeline_with_selected_clip(monkeypatch)
+    _press(timeline, Qt.Key.Key_2)
+    assert [c[1] for c in brain.calls] == ["fits"]
+    assert fake_fb.ratings == []
+    timeline.deleteLater()
+
+
+def test_ctrl_digit_reaches_pacing_rating(qt_app, monkeypatch):
+    """Vorher tot: 1-4 wurden von Brain-V3 abgefangen und mit return beendet."""
+    timeline, _item, brain, fake_fb = _timeline_with_selected_clip(monkeypatch)
+    for digit, key in (
+        (1, Qt.Key.Key_1), (2, Qt.Key.Key_2), (3, Qt.Key.Key_3), (4, Qt.Key.Key_4),
+    ):
+        _press(timeline, key, Qt.KeyboardModifier.ControlModifier)
+        assert fake_fb.ratings[-1] == (7, 42, digit)
+    assert brain.calls == []
+    timeline.deleteLater()
+
+
+def test_plain_five_still_reaches_pacing_rating(qt_app, monkeypatch):
+    timeline, _item, brain, fake_fb = _timeline_with_selected_clip(monkeypatch)
+    _press(timeline, Qt.Key.Key_5)
+    assert fake_fb.ratings == [(7, 42, 5)]
+    assert brain.calls == []
+    timeline.deleteLater()

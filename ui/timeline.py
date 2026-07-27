@@ -1062,15 +1062,48 @@ class TimelineClipItem(QGraphicsRectItem):
             self._brain_v3_feedback_service = BrainV3Service()
         return self._brain_v3_feedback_service
 
-    def _submit_brain_v3_feedback(self, rating: str) -> int:
+    def _submit_brain_v3_feedback(
+        self,
+        rating: str,
+        axis_contributions: dict | None = None,
+        context=None,
+    ) -> int:
+        """Sendet einen Brain-V3-Klick.
+
+        Mit ``axis_contributions`` (Beitrag pro Bridge-Achse an genau dieser
+        Entscheidung) geht der Schreibpfad direkt ueber den FeedbackLogger,
+        damit alpha/beta GEWICHTET statt uniform verteilt werden —
+        ``BrainV3Service.feedback`` reicht die Beitraege nicht durch. Ohne
+        Beitraege bleibt der bisherige Service-Pfad unveraendert.
+        """
+        ctx = context if context is not None else self._brain_v3_feedback_context
+        if axis_contributions:
+            from services.brain.feedback_logger import submit_feedback
+
+            diag = submit_feedback(
+                rating=rating,
+                context=ctx,
+                axis_contributions=axis_contributions,
+            )
+            return int(diag.get("n_buckets_updated", 0))
+
         from services.brain.schemas.brain_v3_schemas import FeedbackRequest
 
         svc = self._get_brain_v3_feedback_service()
         resp = svc.feedback(
             FeedbackRequest(cut_id=self._brain_v3_feedback_cut_id(), rating=rating),
-            context=self._brain_v3_feedback_context,
+            context=ctx,
         )
         return int(getattr(resp, "n_buckets_updated", 0))
+
+    def _owning_timeline(self):
+        """Die InteractiveTimeline-View, in der dieses Item liegt (oder None)."""
+        try:
+            scene = self.scene()
+            views = scene.views() if scene is not None else []
+            return views[0] if views else None
+        except Exception:
+            return None
 
     def _open_brain_v3_feedback_popup(self) -> None:
         from ui.widgets.brain_v3_feedback_popup import BrainV3FeedbackPopup
@@ -1079,11 +1112,21 @@ class TimelineClipItem(QGraphicsRectItem):
             self._brain_v3_feedback_popup.raise_()
             self._brain_v3_feedback_popup.activateWindow()
             return
+        # Credit-Assignment: dieselbe Signal-Quelle wie der 1-4-Hotkey.
+        # Die InteractiveTimeline kennt Run + Scene, der Clip selbst nicht.
+        learn_ctx, contribs = None, {}
+        resolver = getattr(self._owning_timeline(), "_brain_v3_learning_signal", None)
+        if callable(resolver):
+            try:
+                learn_ctx, contribs = resolver(self)
+            except Exception as exc:
+                logger.warning("Brain-V3 Lern-Signal (Popup) fehlgeschlagen: %s", exc)
         popup = BrainV3FeedbackPopup(
             cut_id=self._brain_v3_feedback_cut_id(),
             service=self._brain_v3_feedback_service,
-            context=self._brain_v3_feedback_context,
+            context=learn_ctx if learn_ctx is not None else self._brain_v3_feedback_context,
             cut_label=f"{self.title} | Timeline #{self.entry_id}",
+            axis_contributions=contribs or None,
         )
         self._brain_v3_feedback_popup = popup
         popup.finished.connect(lambda _code: setattr(self, "_brain_v3_feedback_popup", None))
@@ -3382,7 +3425,15 @@ class InteractiveTimeline(QGraphicsView):
             for item in self._scene.selectedItems()
             if isinstance(item, TimelineClipItem)
         ]
-        if len(selected) == 1 and not shift:
+        # Tasten-Kollision (2026-07-27): die Ziffern 1-4 wurden hier
+        # bedingungslos vom Brain-V3-Feedback abgefangen und mit ``return``
+        # beendet — die Pacing-Ratings 1-4 weiter unten waren dadurch
+        # unerreichbar (nur die 5 kam durch). Aufloesung ohne Funktionsverlust:
+        #   * 1-4 ohne Modifier  -> Brain-V3 (unveraendert)
+        #   * Ctrl+1..5          -> Pacing-Rating (vorher tot)
+        #   * 5 ohne Modifier    -> Pacing-Rating (unveraendert)
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if len(selected) == 1 and not shift and not ctrl:
             brain_rating_map = {
                 Qt.Key.Key_1: "perfect",
                 Qt.Key.Key_2: "fits",
@@ -3391,7 +3442,18 @@ class InteractiveTimeline(QGraphicsView):
             }
             if key in brain_rating_map and selected[0]._brain_v3_feedback_enabled:
                 try:
-                    selected[0]._submit_brain_v3_feedback(brain_rating_map[key])
+                    # Credit-Assignment: Kontext + Achsen-Beitraege dieser
+                    # Entscheidung nachladen, damit der Klick alpha/beta
+                    # gewichtet statt uniform verteilt. Ohne aktiven Run
+                    # gibt es kein mem_decision -> alter Pfad.
+                    learn_ctx, contribs = self._brain_v3_learning_signal(
+                        selected[0]
+                    )
+                    selected[0]._submit_brain_v3_feedback(
+                        brain_rating_map[key],
+                        axis_contributions=contribs,
+                        context=learn_ctx,
+                    )
                     event.accept()
                 except Exception as exc:
                     logger.warning("Brain-V3 timeline feedback failed: %s", exc)
@@ -3415,7 +3477,9 @@ class InteractiveTimeline(QGraphicsView):
                             self.feedback_event_emitted.emit(result.event_id)
                             self._notify_memory_updater()
                         return
-                    # Ratings 1-5
+                    # Ratings 1-5. 1-4 erreichen diese Stelle nur mit Ctrl
+                    # (oder wenn Brain-V3-Feedback am Clip deaktiviert ist);
+                    # die 5 auch ohne — siehe Kollisions-Kommentar oben.
                     for i in range(1, 6):
                         if key == getattr(Qt.Key, f"Key_{i}"):
                             result = self._feedback_service.record_rating(
@@ -3530,6 +3594,54 @@ class InteractiveTimeline(QGraphicsView):
         Must be called after every pacing run for feedback shortcuts to work.
         None disables the shortcuts."""
         self._active_pacing_run_id = run_id
+
+    def _brain_v3_learning_signal(self, clip_item) -> tuple:
+        """Kontext + Achsen-Beitraege der Entscheidung hinter einem Clip.
+
+        Quelle ist die juengste ``mem_decision``-Zeile zu (aktiver Run,
+        Scene) — dieselbe Zeile, die auch ``FeedbackService.record_verdict``
+        trifft. Daraus kommen der echte ``CutContext`` (Section/Mood/
+        Energie/Motion/Pace, damit der 6-stufige Backoff ueberhaupt
+        greift) und die Achsen-Beitraege fuers Credit-Assignment.
+
+        Best-effort: ohne aktiven Run, ohne Scene oder bei DB-Fehler
+        ``(None, {})`` — der Aufrufer nutzt dann den alten Pfad.
+        """
+        if self._active_pacing_run_id is None:
+            return None, {}
+        try:
+            scene_id = self._resolve_scene_id(clip_item)
+        except Exception:
+            return None, {}
+        if scene_id is None:
+            return None, {}
+
+        session_factory = getattr(self._feedback_service, "_session_factory", None)
+        if session_factory is None:
+            return None, {}
+        try:
+            from sqlalchemy import text as sql_text
+
+            from services.feedback_service import load_decision_learning_signal
+
+            with session_factory() as session:
+                row = session.execute(
+                    sql_text(
+                        "SELECT id FROM mem_decision "
+                        "WHERE run_id = :rid AND scene_id = :sid "
+                        "ORDER BY sequence_idx DESC LIMIT 1"
+                    ),
+                    {"rid": self._active_pacing_run_id, "sid": scene_id},
+                ).fetchone()
+                if row is None:
+                    return None, {}
+                return load_decision_learning_signal(session, int(row[0]))
+        except Exception as exc:
+            logger.warning(
+                "Brain-V3 Lern-Signal fuer scene=%s nicht ladbar: %s",
+                scene_id, exc,
+            )
+            return None, {}
 
     def set_brain_v3_feedback_service(self, service, context=None) -> None:
         """Inject Brain-V3 feedback service and propagate to loaded clips."""
