@@ -1,0 +1,10 @@
+{
+  "lesson_id": "deaa4ff357374686810c08f111f7963e",
+  "recorded_at": "2026-07-27T21:23:09+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "SQLite-Baseline einer WAL-Datenbank durfte Originaldaten nicht per SQLite öffnen",
+  "cause": "Read-only SQLite-Verbindungen können SHM erzeugen oder Metadaten verändern; Einzelkopie der Hauptdatei verliert nicht checkpointete WAL-Daten",
+  "rule": "DB, WAL und SHM zuerst bei belegtem Writer-Stillstand byteweise extern kopieren, Quellen erneut hashen und quick_check sowie logischen Hash ausschließlich auf konsolidierter Kopie berechnen",
+  "applies_to": "Stabilitätsgates und Backups realer SQLite-Projekt- und Brain-Datenbanken"
+}
