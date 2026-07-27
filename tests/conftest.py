@@ -129,9 +129,9 @@ def _detect_real_db_writes(request):
     # hier liest, vergleicht vor/nach dem Test womoeglich zwei verschiedene
     # Dateien und meldet Phantom-Treffer.
     real_db = _REPO_ROOT / "pb_studio.db"
-    before = real_db.stat().st_mtime_ns if real_db.exists() else None
+    before = _db_fingerprint(real_db)
     yield
-    after = real_db.stat().st_mtime_ns if real_db.exists() else None
+    after = _db_fingerprint(real_db)
     if before != after:
         # Der Schreiber ist nicht zwingend DIESER Test: ein Hintergrund-Thread
         # oder Subprozess kann waehrend seiner Laufzeit schreiben und ihn
@@ -143,6 +143,26 @@ def _detect_real_db_writes(request):
             "Tests muessen gegen die Temp-DB aus pytest_configure oder eine "
             "eigene tmp_path-DB laufen."
         )
+
+
+def _db_fingerprint(path: Path) -> str | None:
+    """Inhalts-Fingerabdruck der DB — NICHT die mtime.
+
+    Ein WAL-Checkpoint schreibt die Hauptdatei neu und aendert dabei ihre
+    mtime, ohne dass sich ein einziges Byte am Inhalt aendert. Ein
+    mtime-Vergleich meldet dann einen Schreibzugriff, den es nie gab, und
+    laesst einen unbeteiligten Test fehlschlagen. Der Hash unterscheidet
+    beides zuverlaessig.
+    """
+    if not path.exists():
+        return None
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _live_thread_dump() -> str:
