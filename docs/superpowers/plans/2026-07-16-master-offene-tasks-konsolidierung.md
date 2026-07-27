@@ -393,6 +393,27 @@ Decision: Vault `D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md`.
 - Kein `fixed` ohne Live-Workflow + Userfreigabe.
 - Ollama war beim Recon nicht erreichbar; B-738-Livebeweis wartet auf Dienst.
 
+## Nachtrag 2026-07-28: D-077 risikobasiertes Minimaltestprogramm
+
+Userentscheidung: Testaufwand auf Minimum reduzieren, sofern Stabilitätsaussage
+nicht beeinträchtigt wird. D-077 ersetzt ausschließlich quantitative
+Wiederholungen aus D-076:
+
+- Keine wiederholten Review-/Fokustest-Runden nach grünem Root-Cause-Test.
+- Eine Current-Vollsuite mit vollständigem DB-vor/nach-Beweis.
+- Acht Kernworkflows je einmal in einer gemeinsamen isolierten Live-Session.
+- Ein gezielter GPU-/Race-Kombinationszyklus plus 30-Minuten-Soak statt drei
+  Zyklen plus vier Stunden.
+- Kein separater finaler Vollsuitenlauf, sofern seit STAB-1 kein Produktcode
+  geändert wurde. Nach Produktcodeänderungen genau ein finaler Current-Lauf.
+- Frozen-, Installer- und Clean-VM-Smoke je einmal. Keine Wiederholung ohne
+  konkreten Fehler oder geändertes Artefakt.
+- DB-Isolation, B-727-Negativkontrollen, echte Livepfade, Brain-A/B,
+  Cancel-/Shutdown-Races, Clean-VM und User-Endabnahme bleiben Pflicht.
+
+Ein Fehler stoppt weiterhin das nächste Gate. Nur betroffener Fokus- und
+angrenzender Regressionstest werden nach Fix wiederholt.
+
 ## Nachtrag 2026-07-27: D-076 Current-HEAD-Stabilitätsprogramm
 
 Userentscheidung: bestehende Funktionen vor weiterer Entwicklung vollständig
@@ -405,7 +426,7 @@ Planquelle. Baseline ist `02cddee9e7e8dd50d1d45fdb67fc930de834805b`.
 - Null nutzer- oder kernpfadwirksame Medium-Fehler.
 - Sichtbare Funktion funktioniert, ist deaktiviert oder ehrlich als nicht
   verfügbar markiert.
-- Zwei Current-Vollsuiten ohne Änderung realer DBs.
+- Eine Current-Vollsuite ohne Änderung realer DBs.
 - Acht Current-Live-Kernworkflows, Brain-Lern-A/B, GPU-/Thread-Stress,
   Current-Installer in sauberer VM und User-Endabnahme bestanden.
 - Technische Low-Befunde ohne Nutzerwirkung dürfen begründet offen bleiben.
@@ -443,15 +464,15 @@ Planquelle. Baseline ist `02cddee9e7e8dd50d1d45fdb67fc930de834805b`.
 - B-727-Negativkontrollen: beide SQLite-Connect-Pfade, 0 Originalcalls,
   Collection, Kindprozess, APP_ROOT/Projektwechsel blockiert; Temp-DB erlaubt;
   bewusst deaktivierte Kontrolle beweist Gefährdung.
-- Danach Import/Syntax, Ruff, Bandit, Alembic Single-Head/Fresh-Upgrade,
-  B-727-Fokus und CI-identische Suite zweimal in frischen Sessions.
+- Danach Import/Syntax, Ruff, Alembic Single-Head/Fresh-Upgrade,
+  B-727-Fokus und CI-identische Suite einmal in frischer Session.
 - Erster Fehler stoppt Gate und eröffnet genau eine Root-Cause-Task.
-- Gate: beide Vollsuiten grün, reale DBs byte-/inhaltsidentisch, kein nativer
+- Gate: Current-Vollsuite grün, reale DBs byte-/inhaltsidentisch, kein nativer
   Crash, keine unbekannten Seiteneffekte.
 
 #### STAB-2 — Acht Current-Live-Kernworkflows
 
-Isoliertes Projekt je Run unter
+Ein gemeinsames isoliertes Projekt für die acht einmaligen Workflows unter
 `%LOCALAPPDATA%\PBStudioStability\<run_id>\project`; Kopien von zwei
 Test-Audios und 20 Repo-Clips. Originale bleiben unangetastet.
 
@@ -488,8 +509,8 @@ Fehler einzeln schließen, bevor nächster Workflow startet.
   Shutdown-/Cancel-/Projektwechsel-Races.
 - Jeder Fix: erzwungenes Interleaving, rote Fehlerkontrolle, grüne Korrektur,
   Lock-Ordering und echter Produktpfad.
-- Drei Kombinationszyklen Audio, Video, Ollama, Preview, Export, Cancel,
-  Projektwechsel, Shutdown; danach 4-Stunden-Soak.
+- Ein gezielter Kombinationszyklus Audio, Video, Ollama, Preview, Export,
+  Cancel, Projektwechsel, Shutdown; danach 30-Minuten-Soak.
 - Alle fünf Sekunden VRAM, RAM, Prozessbaum, Threads, Taskstatus,
   UI-Heartbeat, DB und Lockzeiten erfassen.
 - Gate: kein Hang/Crash/Lock-Inversion/Zombie; UI-Block höchstens 2 s;
@@ -509,11 +530,11 @@ Fehler einzeln schließen, bevor nächster Workflow startet.
 #### STAB-6 — Current Release-Kette
 
 - Erst nach STAB-0 bis STAB-5.
-- Final-Vollsuite zweimal.
+- Final-Vollsuite genau einmal nur, wenn seit STAB-1 Produktcode geändert wurde.
 - `installer\build_installer.bat` ohne `PB_SKIP_PYINSTALLER`.
 - Smoke, FFmpeg/ffprobe-Identität, Frozen-GUI, Installer + NSISBI-Payload,
   Artefaktpaar, Evidence-Matrix, Release-Gate, ZIP + SHA256SUMS.
-- Saubere Windows-VM: Installation, Installed-App-Kernworkflow,
+- Je ein Durchlauf. Saubere Windows-VM: Installation, Installed-App-Kernworkflow,
   Deinstallation/Rückstände.
 - Alle Belege an exakt denselben Commit und Artefakt-SHA binden.
 - Keine Releasefreigabe vor User-Endabnahme.
