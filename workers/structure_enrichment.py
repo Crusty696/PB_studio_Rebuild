@@ -50,6 +50,33 @@ _REDUCER_PATH = (
 _MOOD_ANCHORS_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "mood_anchors.npz"
 )
+_ROLE_PROTOTYPES_PATH = (
+    Path(__file__).resolve().parent.parent / "config" / "role_prototypes.npz"
+)
+
+# Spalten, die Revision f2a3b4c5d6e7 auf struct_clip_tags nachruestet.
+# Der Worker prueft sie zur Laufzeit per PRAGMA: laeuft er gegen eine noch
+# nicht migrierte Projekt-DB, schreibt er nur die Alt-Spalten weiter, statt
+# den kompletten Enrichment-Lauf an einem OperationalError zu kippen.
+_VISUAL_COLUMNS: tuple[str, ...] = (
+    "avg_brightness",
+    "avg_saturation",
+    "color_temp",
+    "visual_frame_count",
+    "visual_metrics_version",
+    "role_source",
+)
+
+
+def _keyframe_dir() -> Path:
+    """Keyframe-Verzeichnis des aktiven Projekts (lazy APP_ROOT-Read).
+
+    Spiegelt ``services/video_analysis_service._keyframe_dir`` — dieselbe
+    Quelle, in die ``extract_keyframes`` schreibt.
+    """
+    import database.session as _session
+
+    return _session.APP_ROOT / "storage" / "keyframes"
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +167,7 @@ class StructureEnrichmentWorker(QObject):
     def _run_impl(self) -> dict[str, Any]:
         from services.enrichment.compat_graph_builder import CompatGraphBuilder
         from services.enrichment.mood_anchor_matcher import MoodAnchorMatcher
-        from services.enrichment.role_classifier import classify_role
+        from services.enrichment.role_classifier import classify_role_detail
         from services.enrichment.style_bucket_clusterer import StyleBucketClusterer
         from services.vector_db_service import VectorDBService
 
@@ -161,7 +188,7 @@ class StructureEnrichmentWorker(QObject):
             with _FIT_MODE_LOCK:
                 return self._do_enrich(
                     session=session,
-                    classify_role=classify_role,
+                    classify_role_detail=classify_role_detail,
                     MoodAnchorMatcher=MoodAnchorMatcher,
                     StyleBucketClusterer=StyleBucketClusterer,
                     CompatGraphBuilder=CompatGraphBuilder,
@@ -189,7 +216,7 @@ class StructureEnrichmentWorker(QObject):
         self,
         *,
         session: Session,
-        classify_role: Any,
+        classify_role_detail: Any,
         MoodAnchorMatcher: Any,
         StyleBucketClusterer: Any,
         CompatGraphBuilder: Any,
@@ -197,25 +224,23 @@ class StructureEnrichmentWorker(QObject):
     ) -> dict[str, Any]:
         # ── 1. Load scenes ────────────────────────────────────────────────────
         self.progress.emit(10, "Lade Szenen aus DB …")
+        # ``energy`` = normalisierter Motion-Score (0.0-1.0), geschrieben in
+        # services/video_analysis_service.py:1193 aus SceneInfo.motion_score.
+        # Fehlte frueher in der Selektion, weshalb der Role-Classifier mit
+        # hartem 0.5 lief und die motion_gte/motion_lt-Regeln nie feuerten.
+        # ``scene_index``/``keyframe_paths`` braucht die Keyframe-Aufloesung
+        # der Bildmetriken.
+        _SCENE_COLS = (
+            "SELECT id, video_clip_id, start_time, end_time, "
+            "ai_caption, ai_mood, energy, scene_index, keyframe_paths FROM scenes"
+        )
         if self.clip_id is not None:
             rows = session.execute(
-                text(
-                    # ``energy`` = Motion-Score (0.0-1.0), geschrieben in
-                    # services/video_analysis_service.py:1193 aus
-                    # SceneInfo.motion_score. Fehlte in der Selektion, weshalb
-                    # der Role-Classifier mit hartem 0.5 lief.
-                    "SELECT id, video_clip_id, start_time, end_time, "
-                    "ai_caption, ai_mood, energy FROM scenes WHERE video_clip_id = :cid"
-                ),
+                text(_SCENE_COLS + " WHERE video_clip_id = :cid"),
                 {"cid": self.clip_id},
             ).fetchall()
         else:
-            rows = session.execute(
-                text(
-                    "SELECT id, video_clip_id, start_time, end_time, "
-                    "ai_caption, ai_mood, energy FROM scenes"
-                )
-            ).fetchall()
+            rows = session.execute(text(_SCENE_COLS)).fetchall()
 
         if not rows:
             logger.warning("StructureEnrichmentWorker: no scenes found.")
@@ -233,8 +258,15 @@ class StructureEnrichmentWorker(QObject):
         scenes: list[dict[str, Any]] = []
         for r in rows:
             (
-                scene_id, clip_id, start_time, end_time,
-                ai_caption_raw, ai_mood, energy_raw,
+                scene_id,
+                clip_id,
+                start_time,
+                end_time,
+                ai_caption_raw,
+                ai_mood,
+                energy_raw,
+                scene_index_raw,
+                keyframe_paths_raw,
             ) = r
             ai_caption: dict[str, Any] = {}
             if ai_caption_raw is not None:
@@ -245,6 +277,19 @@ class StructureEnrichmentWorker(QObject):
                         ai_caption = {}
                 elif isinstance(ai_caption_raw, dict):
                     ai_caption = ai_caption_raw
+            stored_kf: list[str] = []
+            if keyframe_paths_raw:
+                if isinstance(keyframe_paths_raw, str):
+                    try:
+                        parsed_kf = _json.loads(keyframe_paths_raw)
+                    except Exception:
+                        parsed_kf = None
+                else:
+                    parsed_kf = keyframe_paths_raw
+                if isinstance(parsed_kf, list):
+                    stored_kf = [str(p) for p in parsed_kf if p]
+                elif isinstance(parsed_kf, str):
+                    stored_kf = [parsed_kf]
             scenes.append(
                 {
                     "id": scene_id,
@@ -255,13 +300,29 @@ class StructureEnrichmentWorker(QObject):
                     "ai_mood": ai_mood,
                     # scenes.energy haelt den normalisierten Motion-Score
                     # (0.0-1.0, siehe _normalize_motion). NULL = nie eine
-                    # Motion-Analyse gelaufen -> neutraler Default 0.5 wie
-                    # bisher.
+                    # Motion-Analyse gelaufen -> neutraler Default 0.5.
                     "motion": (
                         float(energy_raw) if energy_raw is not None else 0.5
                     ),
+                    "scene_index": scene_index_raw,
+                    "keyframe_paths": stored_kf,
                 }
             )
+
+        # Positions-Index pro Clip (0-basiert, nach start_time). Deckt
+        # Alt-Projekte ab, in denen ``scenes.scene_index`` NULL ist — real
+        # trifft das auf die gesamte Test-Projekt-DB zu. Gleiche Ableitung
+        # wie beim VectorDB-Matching weiter unten.
+        from collections import defaultdict as _dd_idx
+
+        _by_clip_for_idx: dict[int, list[dict[str, Any]]] = _dd_idx(list)
+        for _s in scenes:
+            _by_clip_for_idx[_s["clip_id"]].append(_s)
+        for _cid, _lst in _by_clip_for_idx.items():
+            _lst.sort(key=lambda x: x["start_time"])
+            for _pos, _s in enumerate(_lst):
+                if _s["scene_index"] is None:
+                    _s["scene_index"] = _pos
 
         # ── 2. Load embeddings ────────────────────────────────────────────────
         self.progress.emit(15, "Lade Embeddings …")
@@ -327,24 +388,151 @@ class StructureEnrichmentWorker(QObject):
         ]  # (N_target, D)
 
         # ── 3. Role classification ────────────────────────────────────────────
+        # Zwei-Stufen-Pfad (Befund 2026-07-26): die YAML-Regeln in
+        # ``config/enrichment_rules.yaml`` trafen bei 27/27 realen Szenen NIE
+        # (verlangte Tags crowd/landscape/closeup/face vs. VLM-Tags
+        # jungle/bioluminescent/dancer/mystical; die einzige tag-freie Regel
+        # verlangt Dauer < 1 s bei real 4.3–10 s). Alle Szenen landeten auf
+        # ``fallback: filler`` -> role_fit/tension_fit ueber alle Kandidaten
+        # konstant und damit wirkungslos.
+        #   1. Regel trifft  -> Regel gewinnt (Override-Pfad, bleibt erhalten).
+        #   2. Regel trifft nicht -> SigLIP-Prototypen-Cosine ueber das
+        #      vorhandene Szenen-Embedding.
+        #   3. Weder noch    -> ehrlich ``unknown`` + Grund im Log,
+        #      KEIN stiller ``filler``-Default.
         self.progress.emit(25, "Rollenklassifizierung …")
-        role_results: list[tuple[str, float]] = []
-        for s in enrichable_scenes:
+        role_classifier = None
+        role_classifier_error: str | None = None
+        try:
+            from services.enrichment.role_embedding_classifier import (
+                RoleEmbeddingClassifier,
+            )
+
+            role_classifier = RoleEmbeddingClassifier(
+                prototypes_path=_ROLE_PROTOTYPES_PATH
+            )
+        except Exception as exc:  # broad: darf den Lauf nicht kippen
+            role_classifier_error = str(exc)
+            logger.warning(
+                "StructureEnrichment: Rollen-Embedding-Klassifikator nicht "
+                "verfuegbar (%s) — Rollen ohne Regel-Treffer bleiben 'unknown'.",
+                exc,
+            )
+
+        # Reale motion_score aus den VectorDB-Metadaten statt des bisherigen
+        # Hardcodes 0.5 — mit 0.5 konnten die Regeln ``action``/``transition``
+        # (motion_gte 0.6) strukturell nie feuern.
+        role_results: list[tuple[str, float, str]] = []
+        for i, s in enumerate(enrichable_scenes):
             duration = float(s["end_time"]) - float(s["start_time"])
             tags: set[str] = set(
                 s["ai_caption"].get("tags", []) if s["ai_caption"] else []
             )
-            # FIX: der Motion-Score IST persistiert — als ``scenes.energy``
+            # Der Motion-Score IST persistiert — als ``scenes.energy``
             # (video_analysis_service.py:1193, Wertebereich 0.0-1.0 via
             # _normalize_motion). Das frueher hart gesetzte 0.5 machte alle
             # motion_gte/motion_lt-Regeln in config/enrichment_rules.yaml
-            # wirkungslos.
-            role, role_conf = classify_role(
-                motion=s["motion"],
+            # wirkungslos. Primaerquelle ist die Spalte (real gefuellt:
+            # 0 NULL, 0.11-0.99 in den Bestandsprojekten); die
+            # VectorDB-Metadaten dienen nur als Rueckfallebene, weil sie
+            # ein Embedding voraussetzen.
+            motion = s.get("motion")
+            if motion is None:
+                meta_i = (
+                    all_metadata[enrichable_emb_indices[i]]
+                    if enrichable_emb_indices[i] < len(all_metadata)
+                    else {}
+                )
+                try:
+                    motion = float(meta_i.get("motion_score") or 0.5)
+                except (TypeError, ValueError):
+                    motion = 0.5
+
+            role, role_conf, rule_matched = classify_role_detail(
+                motion=float(motion),
                 duration=duration,
                 tags=tags,
             )
-            role_results.append((role, role_conf))
+            if rule_matched:
+                role_results.append((role, role_conf, "rule"))
+                continue
+
+            if role_classifier is None:
+                role_results.append((
+                    "unknown",
+                    0.0,
+                    f"unknown:no_prototypes:{role_classifier_error or 'n/a'}"[:200],
+                ))
+                continue
+            try:
+                emb_role, conf_role = role_classifier.classify(enrichable_matrix[i])
+                role_results.append((emb_role, float(conf_role), "embedding"))
+            except Exception as exc:  # broad: pro Szene isoliert
+                logger.warning(
+                    "StructureEnrichment: Rollen-Embedding fuer Szene %s "
+                    "fehlgeschlagen (%s) — 'unknown'.",
+                    s["id"],
+                    exc,
+                )
+                role_results.append(("unknown", 0.0, f"unknown:{exc}"[:200]))
+
+        # ── 3b. Bildmetriken aus vorhandenen Keyframes ────────────────────────
+        # Quelle: die JPEGs, die ``video_analysis_service.extract_keyframes``
+        # ohnehin schon schreibt. CPU-only (PIL + numpy), kein GPU.
+        # Fehler duerfen den Enrichment-Lauf NICHT kippen -> alles gekapselt,
+        # Ergebnis ist im Zweifel ``None`` = "nicht gemessen" (NULL in der DB).
+        self.progress.emit(30, "Bildmetriken aus Keyframes …")
+        visual_results: list[Any] = [None] * len(enrichable_scenes)
+        try:
+            from services.enrichment.visual_metrics import (
+                compute_scene_metrics,
+                resolve_scene_keyframes,
+            )
+
+            clip_path_rows = session.execute(
+                text("SELECT id, file_path, proxy_path FROM video_clips")
+            ).fetchall()
+            clip_paths: dict[int, tuple[str | None, str | None]] = {
+                int(r[0]): (r[1], r[2]) for r in clip_path_rows
+            }
+            kf_dir = _keyframe_dir()
+            missing_kf = 0
+            for i, s in enumerate(enrichable_scenes):
+                try:
+                    vpath, ppath = clip_paths.get(int(s["clip_id"]), (None, None))
+                    kf_files = resolve_scene_keyframes(
+                        keyframe_dir=kf_dir,
+                        scene_index=int(s["scene_index"] or 0),
+                        stored_paths=s["keyframe_paths"],
+                        video_path=vpath,
+                        proxy_path=ppath,
+                    )
+                    if not kf_files:
+                        missing_kf += 1
+                        continue
+                    visual_results[i] = compute_scene_metrics(kf_files)
+                except Exception as exc:  # broad: pro Szene isoliert
+                    logger.debug(
+                        "StructureEnrichment: Bildmetriken Szene %s "
+                        "fehlgeschlagen: %s",
+                        s["id"],
+                        exc,
+                    )
+            measured = sum(1 for v in visual_results if v is not None)
+            logger.info(
+                "StructureEnrichment: Bildmetriken fuer %d/%d Szenen "
+                "(%d ohne auffindbaren Keyframe, dir=%s)",
+                measured,
+                len(enrichable_scenes),
+                missing_kf,
+                kf_dir,
+            )
+        except Exception as exc:  # broad: Schritt ist optional
+            logger.warning(
+                "StructureEnrichment: Bildmetrik-Schritt uebersprungen (%s) — "
+                "Rest des Enrichments laeuft normal weiter.",
+                exc,
+            )
 
         # ── 4. Mood refinement ────────────────────────────────────────────────
         self.progress.emit(35, "Mood-Refinement …")
@@ -705,31 +893,75 @@ class StructureEnrichmentWorker(QObject):
             .replace(tzinfo=None)
             .strftime("%Y-%m-%d %H:%M:%S")
         )
+        # Revision f2a3b4c5d6e7 kann bei einer noch nicht migrierten Projekt-DB
+        # fehlen. Dann nur die Alt-Spalten schreiben statt den Lauf an einem
+        # OperationalError zu verlieren.
+        try:
+            _existing_cols = {
+                row[1]
+                for row in session.execute(
+                    text("PRAGMA table_info(struct_clip_tags)")
+                ).fetchall()
+            }
+        except Exception:  # broad: PRAGMA nicht verfuegbar (Nicht-SQLite)
+            _existing_cols = set()
+        _write_visual = all(c in _existing_cols for c in _VISUAL_COLUMNS)
+        if not _write_visual and _existing_cols:
+            logger.warning(
+                "StructureEnrichment: struct_clip_tags ohne Visual-Metrics-"
+                "Spalten (Alembic-Revision f2a3b4c5d6e7 fehlt) — Bildmetriken "
+                "und role_source werden NICHT persistiert."
+            )
+
+        _BASE_COLS = (
+            "scene_id, role, role_confidence, mood_refined, mood_confidence, "
+            "style_bucket_id, style_distance, enriched_at, enricher_version"
+        )
+        _BASE_VALS = ":sid, :role, :rc, :mood, :mc, :bid, :sdist, :eat, :ver"
+        if _write_visual:
+            _sql_tags = (
+                f"INSERT OR REPLACE INTO struct_clip_tags ({_BASE_COLS}, "
+                "avg_brightness, avg_saturation, color_temp, "
+                "visual_frame_count, visual_metrics_version, role_source) "
+                f"VALUES ({_BASE_VALS}, :bright, :sat, :ctemp, :nframes, "
+                ":vmver, :rsrc)"
+            )
+        else:
+            _sql_tags = (
+                f"INSERT OR REPLACE INTO struct_clip_tags ({_BASE_COLS}) "
+                f"VALUES ({_BASE_VALS})"
+            )
+
         for i, s in enumerate(enrichable_scenes):
             scene_id = s["id"]
-            role, role_conf = role_results[i]
+            role, role_conf, role_source = role_results[i]
             mood, mood_conf = mood_results[i]
             bucket_db_id, style_dist = bucket_assignment.get(scene_id, (1, 0.0))
 
-            session.execute(
-                text(
-                    "INSERT OR REPLACE INTO struct_clip_tags "
-                    "(scene_id, role, role_confidence, mood_refined, mood_confidence, "
-                    " style_bucket_id, style_distance, enriched_at, enricher_version) "
-                    "VALUES (:sid, :role, :rc, :mood, :mc, :bid, :sdist, :eat, :ver)"
-                ),
-                {
-                    "sid": scene_id,
-                    "role": role,
-                    "rc": role_conf,
-                    "mood": mood,
-                    "mc": mood_conf,
-                    "bid": bucket_db_id,
-                    "sdist": style_dist,
-                    "eat": now_str_write,
-                    "ver": ENRICHER_VERSION,
-                },
-            )
+            params: dict[str, Any] = {
+                "sid": scene_id,
+                "role": role,
+                "rc": role_conf,
+                "mood": mood,
+                "mc": mood_conf,
+                "bid": bucket_db_id,
+                "sdist": style_dist,
+                "eat": now_str_write,
+                "ver": ENRICHER_VERSION,
+            }
+            if _write_visual:
+                vm = visual_results[i]
+                params.update(
+                    {
+                        "bright": float(vm.brightness) if vm else None,
+                        "sat": float(vm.saturation) if vm else None,
+                        "ctemp": float(vm.color_temp) if vm else None,
+                        "nframes": int(vm.frame_count) if vm else None,
+                        "vmver": vm.version if vm else None,
+                        "rsrc": role_source,
+                    }
+                )
+            session.execute(text(_sql_tags), params)
 
         # Commit everything atomically
         session.commit()
@@ -764,4 +996,14 @@ class StructureEnrichmentWorker(QObject):
             "edges_written": edges_written,
             "mode": mode,
             "degraded": cluster_degraded,
+            # Diagnose: macht in Logs/Tests sofort sichtbar, ob die beiden
+            # neuen Signale real getragen haben (statt nur "gesetzt").
+            "visual_metrics_written": sum(
+                1 for v in visual_results if v is not None
+            ),
+            "role_sources": {
+                src: sum(1 for r in role_results if r[2].split(":")[0] == src)
+                for src in ("rule", "embedding", "unknown")
+            },
+            "distinct_roles": len({r[0] for r in role_results}),
         }

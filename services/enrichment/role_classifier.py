@@ -111,10 +111,17 @@ class _RuleSet:
     def evaluate(
         self, motion: float, duration: float, tags: set[str]
     ) -> tuple[str, float]:
+        role, conf, _matched = self.evaluate_detail(motion, duration, tags)
+        return role, conf
+
+    def evaluate_detail(
+        self, motion: float, duration: float, tags: set[str]
+    ) -> tuple[str, float, bool]:
+        """Wie :meth:`evaluate`, meldet zusaetzlich ob eine Regel WIRKLICH traf."""
         for rule in self.rules:
             if rule.matches(motion, duration, tags):
-                return rule.role, rule.confidence
-        return self.fallback_role, self.fallback_confidence
+                return rule.role, rule.confidence, True
+        return self.fallback_role, self.fallback_confidence, False
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +181,34 @@ def classify_role(
     resolved = rules_path if rules_path is not None else str(_DEFAULT_RULES_PATH)
     ruleset = _load_rules(resolved)
     return ruleset.evaluate(motion, duration, tags)
+
+
+def classify_role_detail(
+    motion: float,
+    duration: float,
+    tags: set[str],
+    rules_path: str | None = None,
+) -> tuple[str, float, bool]:
+    """Wie :func:`classify_role`, plus Flag ob eine Regel wirklich getroffen hat.
+
+    Hintergrund: :func:`classify_role` kann nicht unterscheiden, ob ``filler``
+    aus einer echten Regel stammt oder nur der ``fallback:``-Eintrag ist. Genau
+    diese Blindheit liess den Befund von 2026-07-26 unentdeckt (27/27 Szenen
+    ``filler``, weil KEINE Regel je traf: das VLM liefert
+    ``jungle/bioluminescent/dancer/mystical``, die Regeln verlangen
+    ``crowd/landscape/closeup/face``; die einzige tag-freie Regel verlangt
+    Dauer < 1 s bei real 4.3–10 s langen Szenen).
+
+    Der Enrichment-Worker nutzt das dritte Element, um die Regeln als
+    Vorrang-/Override-Pfad zu behandeln und sonst auf den
+    Embedding-Klassifikator (:mod:`services.enrichment.role_embedding_classifier`)
+    umzuschalten.
+
+    Returns
+    -------
+    tuple[str, float, bool]
+        ``(role, confidence, rule_matched)``.
+    """
+    resolved = rules_path if rules_path is not None else str(_DEFAULT_RULES_PATH)
+    ruleset = _load_rules(resolved)
+    return ruleset.evaluate_detail(motion, duration, tags)
