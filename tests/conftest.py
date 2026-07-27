@@ -33,6 +33,15 @@ collect_ignore = [
     "test_export_convert_real.py",
     "test_audio_analysis_real.py",
     "test_performance_profiling.py",
+    # 2026-07-27: dieselbe Kategorie, jetzt nachgezogen. Das Modul fuehrt
+    # seinen Harness beim IMPORT aus (test_core_services_deep.py:576, :871)
+    # — also in der Collection, vor jeder Fixture. Dabei ruft es
+    # `set_project(PROJECT_ROOT)` (:568) und schwenkt die globale Engine
+    # zurueck auf die REALE pb_studio.db; anschliessend legt
+    # `t_ingest_audio_real` (:844) ueber eine NamedTemporaryFile einen
+    # AudioTrack an. Das war die eine Zeile, die jeder Vollauf in den
+    # echten Projektdaten hinterliess.
+    "test_core_services_deep.py",
     "qa_artifacts",
 ]
 
@@ -228,7 +237,11 @@ def _install_real_db_connect_guard():
     import sqlite3
 
     real_db = (_REPO_ROOT / "pb_studio.db").resolve()
-    original_connect = sqlite3.connect
+    # Idempotent: nie den eigenen Guard erneut einwickeln. Sonst haelt der
+    # zweite Guard den ersten als `original_connect`, und Tests, die
+    # `sqlite3.connect` zwischendurch ersetzen, hinterlassen eine kaputte
+    # Kette. Immer die ECHTE connect-Funktion als Basis nehmen.
+    original_connect = getattr(sqlite3.connect, "_pb_original", sqlite3.connect)
 
     def _guarded_connect(db_target, *args, **kwargs):
         # Der Parameter hiess frueher ``database`` und ueberdeckte damit das
@@ -268,7 +281,17 @@ def _install_real_db_connect_guard():
             )
         return original_connect(db_target, *args, **kwargs)
 
+    # BEIDE Namen patchen. SQLAlchemys pysqlite-Dialekt holt sein DBAPI per
+    # `from sqlite3 import dbapi2 as sqlite` und ruft `dbapi.connect(...)`.
+    # Beide Namen zeigen initial auf dasselbe Objekt, aber ein Rebinding im
+    # `sqlite3`-Namespace laesst `sqlite3.dbapi2.connect` unberuehrt — der
+    # Guard war dadurch fuer JEDE SQLAlchemy-Engine wirkungslos. Genau so
+    # kam der Import von tests/test_core_services_deep.py an ihm vorbei.
+    import sqlite3.dbapi2 as _dbapi2
+
+    _guarded_connect._pb_original = original_connect
     sqlite3.connect = _guarded_connect
+    _dbapi2.connect = _guarded_connect
 
 
 def pytest_unconfigure(config):

@@ -25,6 +25,25 @@ import tests.conftest as conftest_mod
 REAL_DB = (Path(conftest_mod._REPO_ROOT) / "pb_studio.db").resolve()
 
 
+@pytest.fixture(autouse=True)
+def _restore_connect_hooks():
+    """Beide connect-Namen nach jedem Test zuruecksetzen.
+
+    Die Tests hier installieren den Guard absichtlich neu, waehrend
+    ``sqlite3.connect`` per monkeypatch durch einen Spy ersetzt ist. Der
+    Guard schreibt sich dabei auch nach ``sqlite3.dbapi2.connect`` — und
+    monkeypatch kennt diesen zweiten Namen nicht. Ohne Restore bleibt dort
+    ein Guard stehen, der einen laengst entfernten Spy als Original haelt;
+    SQLAlchemy (das ueber ``dbapi2`` geht) faellt danach mit AttributeError.
+    """
+    import sqlite3
+    import sqlite3.dbapi2 as dbapi2
+
+    saved = (sqlite3.connect, dbapi2.connect)
+    yield
+    sqlite3.connect, dbapi2.connect = saved
+
+
 def test_guard_raises_and_never_opens_the_real_database(monkeypatch):
     """Kernbeweis: RuntimeError UND null Durchgriffe auf original_connect."""
     calls: list[object] = []
