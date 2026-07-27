@@ -180,7 +180,21 @@ def test_auto_detect_falls_back_from_stale_settings_to_localhost(monkeypatch):
 
 
 def test_system_prompt_stays_within_local_gpu_budget(monkeypatch):
-    """GTX-1060/Ollama-Chat darf nicht mit mehrkilobyte Prompt starten."""
+    """Der Prompt muss ins konfigurierte Budget passen.
+
+    Das Budget lag frueher hart bei 1200 Zeichen. Das war zu klein fuer
+    JEDE Form von Aktionsliste — das volle Schema misst bei 62 Aktionen
+    33.423 Zeichen, die kompakte Ein-Zeilen-Liste immer noch rund 6.100.
+    Der Aufbau fiel deshalb ausnahmslos auf COMPACT_SYSTEM_PROMPT zurueck,
+    der gar keine Aktion nennt: das Modell konnte im JSON-Pfad keine
+    einzige der 62 registrierten Aktionen aufrufen.
+
+    Geprueft wird jetzt gegen die tatsaechliche Konstante, nicht gegen die
+    alte Zahl — und zusaetzlich, dass die Aktionsliste im Prompt landet.
+    Genau das war vorher nicht der Fall.
+    """
+    from services.local_agent_service import LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS
+
     agent = LocalAgentService(use_ollama=False)
 
     monkeypatch.setattr(agent, "_build_media_context", lambda: "")
@@ -188,7 +202,7 @@ def test_system_prompt_stays_within_local_gpu_budget(monkeypatch):
 
     prompt = agent._build_system_prompt(user_query="Hallo")
 
-    assert len(prompt) <= 1200
+    assert len(prompt) <= LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS
     assert "PB Studio" in prompt
 
 
