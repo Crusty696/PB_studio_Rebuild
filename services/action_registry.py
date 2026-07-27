@@ -406,6 +406,35 @@ class ActionRegistry:
             ]
         return json.dumps(actions_list, ensure_ascii=False, indent=2)
 
+    def get_compact_action_list(self, max_desc_chars: int = 70) -> str:
+        """Eine Zeile pro Aktion: ``name(param1, param2) — Kurzbeschreibung``.
+
+        Warum das gebraucht wird: ``get_schema_for_prompt()`` liefert das
+        vollstaendige JSON-Schema aller Aktionen. Gemessen sind das bei 62
+        registrierten Aktionen rund 36.000 Zeichen. Der Systemprompt-Aufbau
+        in ``services/local_agent_service.py`` verwirft ihn deshalb IMMER und
+        faellt auf einen Kurztext zurueck, der ueberhaupt keine Aktionsliste
+        enthaelt — das lokale Modell sah dadurch keine einzige Aktion und
+        konnte folglich nie eine aufrufen.
+
+        Diese Darstellung nennt Name, Pflichtparameter und eine gekuerzte
+        Beschreibung. Sie ist rund eine Groessenordnung kleiner und passt
+        damit in ein Budget, das auch ein kleines lokales Modell verkraftet.
+        Fuer den vollen Parametersatz bleibt ``get_schema_for_prompt()``.
+        """
+        with self._lock:  # B-132
+            entries = []
+            for action in self._actions.values():
+                schema = action.param_schema or {}
+                props = schema.get("properties") or {}
+                required = schema.get("required") or list(props.keys())
+                params = ", ".join(str(p) for p in required)
+                desc = (action.description or "").strip().replace("\n", " ")
+                if len(desc) > max_desc_chars:
+                    desc = desc[: max_desc_chars - 1].rstrip() + "…"
+                entries.append(f"- {action.name}({params}) — {desc}")
+        return "\n".join(entries)
+
 
 # Globale Singleton-Instanz
 action_registry = ActionRegistry()

@@ -10,6 +10,7 @@ JSON-Array zurueckgeben, wenn der User mehrere Dinge verlangt.
 
 import json
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -84,7 +85,26 @@ REGELN:
 7. Bei mehreren Aktionen: Führe sie in logischer Reihenfolge auf.
 8. Bei QA-Fragen: Pruefe anhand der QA-Pruefpunkte und melde Vertoesse."""
 
-LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS = 1200
+# Zeichenbudget des Systemprompts fuer die lokale Inferenz.
+#
+# Frueher 1200. Das war zu klein fuer JEDE Variante einer Aktionsliste:
+# das volle JSON-Schema misst bei 62 Aktionen 33.423 Zeichen, selbst die
+# kompakte Ein-Zeilen-Liste ergibt einen Prompt von rund 8.600 Zeichen.
+# Folge: der Aufbau fiel immer auf COMPACT_SYSTEM_PROMPT zurueck, der gar
+# keine Aktionen nennt — das Modell konnte im JSON-Pfad grundsaetzlich
+# keine Aktion aufrufen, obwohl 62 registriert sind.
+#
+# 12.000 Zeichen sind grob 3.000-3.500 Tokens. Die hier eingesetzten
+# lokalen Modelle haben mindestens 8k Kontext, der Zuwachs im KV-Cache
+# liegt im zweistelligen MB-Bereich und ist auf 6 GB VRAM unkritisch.
+# Ueber PB_LLM_SYSTEM_PROMPT_MAX_CHARS anpassbar, falls ein kleineres
+# Modell zum Einsatz kommt.
+try:
+    LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS = int(
+        os.getenv("PB_LLM_SYSTEM_PROMPT_MAX_CHARS", "12000")
+    )
+except ValueError:
+    LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS = 12000
 
 COMPACT_SYSTEM_PROMPT = """\
 Du bist der lokale KI-Assistent von PB Studio.
@@ -621,11 +641,37 @@ class LocalAgentService:
                     actions_json=self.registry.get_schema_for_prompt()
                 )
                 if len(base_prompt) > LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS:
-                    logger.info(
-                        "LocalAgentService: Systemprompt von %d auf kompaktes GTX-1060-Budget begrenzt.",
-                        len(base_prompt),
+                    # Das volle JSON-Schema aller Aktionen ist gemessen rund
+                    # 36.000 Zeichen (62 Aktionen) und sprengt das Budget
+                    # immer. Frueher fiel der Aufbau hier direkt auf
+                    # COMPACT_SYSTEM_PROMPT zurueck — der enthaelt KEINE
+                    # Aktionsliste, das Modell sah also nie eine einzige
+                    # Aktion und konnte im JSON-Pfad grundsaetzlich keine
+                    # aufrufen.
+                    # Zwischenstufe: kompakte Ein-Zeilen-Liste (Name,
+                    # Pflichtparameter, Kurzbeschreibung). Nur wenn selbst
+                    # die nicht passt, bleibt der aktionslose Kurztext.
+                    compact_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+                        actions_json=self.registry.get_compact_action_list()
                     )
-                    base_prompt = COMPACT_SYSTEM_PROMPT
+                    if len(compact_prompt) <= LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS:
+                        logger.info(
+                            "LocalAgentService: Systemprompt %d -> %d Zeichen "
+                            "(kompakte Aktionsliste, %d Aktionen sichtbar).",
+                            len(base_prompt),
+                            len(compact_prompt),
+                            len(self.registry.list_actions()),
+                        )
+                        base_prompt = compact_prompt
+                    else:
+                        logger.warning(
+                            "LocalAgentService: auch die kompakte Aktionsliste "
+                            "(%d Zeichen) passt nicht in das Budget von %d — "
+                            "Modell sieht KEINE Aktionen.",
+                            len(compact_prompt),
+                            LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS,
+                        )
+                        base_prompt = COMPACT_SYSTEM_PROMPT
                 self._sysprompt_base_cache = base_prompt
             now = _time.monotonic()
             if (self._sysprompt_media_cache is None

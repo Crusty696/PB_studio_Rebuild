@@ -25,6 +25,17 @@ _BRAIN_SAFE_TOOLS: tuple[str, ...] = (
     "search_knowledge",
     "model_status",
     "list_actions",
+    # Brain-Zugriff: gespeicherte Erinnerungen/Erkenntnisse fuer JEDES Modell
+    # abrufbar machen. Die ersten drei sind reine Leser und passen damit in
+    # die B-243-Regel.
+    "brain_recall",
+    "brain_stats",
+    "brain_explain_cut",
+    # brain_learn_note SCHREIBT — bewusst aufgenommen: die App soll sich laut
+    # Auftrag selbst Erkenntnisse ablegen koennen. Der Schreibvorgang ist auf
+    # eine Notizzeile in `brain_note` begrenzt, startet keine Pipeline und
+    # veraendert keine Medien-, Timeline- oder Analysedaten.
+    "brain_learn_note",
 )
 
 _DIRECT_READ_TOOL_MESSAGES: frozenset[str] = frozenset({
