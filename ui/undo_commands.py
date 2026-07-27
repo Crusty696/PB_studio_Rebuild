@@ -151,6 +151,24 @@ class AddClipCommand(QUndoCommand):
         self._source_end = source_end
         self._entry_id: int | None = None
         self._replaced_entries: list[dict] = []
+        # AUDIT-2026-07-27: Positionen FREMDER Video-Rows, die
+        # ``resolve_video_overlaps`` beim Add kaskadierend nach rechts
+        # geschoben hat. Ohne dieses Backup liess das Undo die Nachbarn
+        # verschoben stehen -> Luecke in Groesse des verworfenen Clips, an der
+        # anschliessend der Export-Gap-Validator scheitert.
+        self._shifted_entries: list[dict] = []
+
+    def _video_positions(self) -> dict[int, tuple[float, float | None]]:
+        """Liest start/end aller Video-Rows des Projekts (fuer Shift-Diff)."""
+        def _operation(session):
+            return {
+                int(row.id): (row.start_time, row.end_time)
+                for row in session.query(TimelineEntry)
+                .filter_by(project_id=self._project_id, track="video")
+                .all()
+            }
+
+        return _run_timeline_write(_operation, "AddClipCommand.video_positions")
 
     def redo(self):
         def _operation(session):
@@ -210,11 +228,28 @@ class AddClipCommand(QUndoCommand):
         # rechts (Luecken bleiben); bei Verschiebung View neu laden, damit
         # Szene und DB uebereinstimmen.
         if self._track_type == "video":
+            self._shifted_entries = []
             try:
                 from services.timeline_service import resolve_video_overlaps
-                if resolve_video_overlaps(self._project_id) and hasattr(
-                        self._timeline, "load_from_db"):
-                    self._timeline.load_from_db(self._project_id)
+                positions_before = self._video_positions()
+                if resolve_video_overlaps(self._project_id):
+                    # AUDIT-2026-07-27: Der Resolver schiebt kaskadierend auch
+                    # FREMDE Rows und committet in eigener Session. Vorzustand
+                    # der tatsaechlich veraenderten Nachbarn merken, damit
+                    # undo() ihn zuruecknehmen kann.
+                    positions_after = self._video_positions()
+                    for entry_id, before in positions_before.items():
+                        if entry_id == self._entry_id:
+                            continue
+                        after = positions_after.get(entry_id)
+                        if after is not None and after != before:
+                            self._shifted_entries.append({
+                                "id": entry_id,
+                                "start_time": before[0],
+                                "end_time": before[1],
+                            })
+                    if hasattr(self._timeline, "load_from_db"):
+                        self._timeline.load_from_db(self._project_id)
             except Exception as exc:  # noqa: BLE001 — Add selbst gilt
                 logger.warning("AddClipCommand: Overlap-Resolver fehlgeschlagen: %s", exc)
 
@@ -228,9 +263,17 @@ class AddClipCommand(QUndoCommand):
                 session.delete(entry)
             for snap in self._replaced_entries:
                 session.add(TimelineEntry(**snap))
+            # AUDIT-2026-07-27: vom Overlap-Resolver verschobene Nachbarn auf
+            # ihren Vorzustand zuruecksetzen.
+            for shifted in self._shifted_entries:
+                neighbour = session.get(TimelineEntry, shifted["id"])
+                if neighbour is not None:
+                    neighbour.start_time = shifted["start_time"]
+                    neighbour.end_time = shifted["end_time"]
 
         _run_timeline_write(_operation, "AddClipCommand.undo")
-        if self._track_type == "audio" and hasattr(self._timeline, "load_from_db"):
+        reload_needed = self._track_type == "audio" or bool(self._shifted_entries)
+        if reload_needed and hasattr(self._timeline, "load_from_db"):
             self._timeline.load_from_db(self._project_id)
         else:
             self._timeline._remove_clip_item(self._entry_id)
@@ -254,12 +297,31 @@ class RemoveClipCommand(QUndoCommand):
         self._current_entry_id = entry_id   # ID that changes with undo/redo cycles
         # Snapshot fuer Undo
         self._snapshot: dict | None = None
+        # AUDIT-2026-07-27: ClipAnchor-Snapshot. clip_anchors.timeline_entry_id
+        # traegt ON DELETE CASCADE (database/models.py) — beim Loeschen des
+        # TimelineEntry verschwinden die M-Anker physisch. Ohne Snapshot kam
+        # der Clip nach Ctrl+Z ohne seine Anker zurueck, waehrend die UI sie
+        # aus dem stale ``_anchor_map`` weiterzeichnete (Geister-Marker).
+        self._anchor_snapshot: list[dict] = []
 
     def redo(self):
         # Snapshot vor dem Loeschen speichern
+        from database import ClipAnchor
+
         def _operation(session):
             entry = session.get(TimelineEntry, self._current_entry_id)
             if entry:
+                self._anchor_snapshot = [
+                    {
+                        "time_offset": anchor.time_offset,
+                        "label": anchor.label,
+                        "color": anchor.color,
+                    }
+                    for anchor in session.query(ClipAnchor)
+                    .filter_by(timeline_entry_id=self._current_entry_id)
+                    .order_by(ClipAnchor.id)
+                    .all()
+                ]
                 self._snapshot = {
                     "project_id": entry.project_id,
                     "track": entry.track,
@@ -288,7 +350,7 @@ class RemoveClipCommand(QUndoCommand):
             return
 
         # Combine both DB operations in a single session to avoid orphaned rows
-        from database import AudioTrack, VideoClip
+        from database import AudioTrack, ClipAnchor, VideoClip
         from pathlib import Path
         from sqlalchemy import select
 
@@ -300,6 +362,23 @@ class RemoveClipCommand(QUndoCommand):
             # damit andere Code-Teile die die alte ID gecacht haben weiterhin funktionieren.
             entry = TimelineEntry(id=self._current_entry_id, **self._snapshot)
             session.merge(entry)  # merge statt add: nutzt vorhandene ID
+
+            # AUDIT-2026-07-27: Anker aus dem Snapshot wieder anlegen. Der
+            # ``flush`` stellt sicher, dass die TimelineEntry-Zeile vor dem
+            # ClipAnchor-INSERT existiert (FK mit PRAGMA foreign_keys=ON).
+            if self._anchor_snapshot:
+                session.flush()
+                existing = (
+                    session.query(ClipAnchor)
+                    .filter_by(timeline_entry_id=self._current_entry_id)
+                    .count()
+                )
+                if not existing:
+                    for anchor_snap in self._anchor_snapshot:
+                        session.add(ClipAnchor(
+                            timeline_entry_id=self._current_entry_id,
+                            **anchor_snap,
+                        ))
 
             # Look up title and duration in the same session
             if self._snapshot["track"] == "audio":
@@ -385,18 +464,88 @@ class TrimClipCommand(QUndoCommand):
         self._new_source_end = new_source_end
 
     def redo(self):
-        self._apply(self._new_start, self._new_end,
-                     self._new_source_start, self._new_source_end)
+        # Die geklemmten Werte zurueckschreiben, damit ein zweites redo()
+        # (nach undo()) idempotent bleibt und nicht erneut klemmt.
+        (self._new_start, self._new_end, self._new_source_start,
+         self._new_source_end) = self._apply(
+            self._new_start, self._new_end,
+            self._new_source_start, self._new_source_end,
+            clamp=True,
+        )
 
     def undo(self):
+        # Kein Clamping beim Undo: die alten Werte stammen 1:1 aus der DB und
+        # muessen exakt so wiederhergestellt werden.
         self._apply(self._old_start, self._old_end,
-                     self._old_source_start, self._old_source_end)
+                    self._old_source_start, self._old_source_end)
 
-    def _apply(self, start: float, end: float | None,
-               source_start: float | None, source_end: float | None):
+    @staticmethod
+    def _media_duration(session, entry) -> float | None:
+        """Laenge des Quellmediums (VideoClip/AudioTrack) oder None."""
+        from database import AudioTrack, VideoClip
+        from sqlalchemy import select
+
+        if entry.media_id is None:
+            return None
+        model = AudioTrack if entry.track == "audio" else VideoClip
+        row = session.execute(
+            select(model.duration).where(model.id == entry.media_id)
+        ).first()
+        if not row or row[0] is None:
+            return None
+        try:
+            duration = float(row[0])
+        except (TypeError, ValueError):
+            return None
+        return duration if duration > 0 else None
+
+    def _clamp_to_source(self, session, entry, start, end, source_start, source_end):
+        """Haelt Timeline-Slot und Quellfenster deckungsgleich.
+
+        AUDIT-2026-07-27, zwei getrennte Befunde:
+
+        * Trim LINKS ueber den Quellanfang hinaus: ``_on_clip_trimmed``
+          rechnet ``source_start`` negativ. Die B-653-Klemme auf 0.0 liess
+          ``start_time`` unveraendert — der Slot blieb laenger als das
+          Quellfenster, der Export rendert nur ``source_end - source_start``
+          und alles danach lief still gegen das Audio aus dem Takt. Jetzt
+          wandert ``start_time`` um denselben Betrag mit.
+        * Trim RECHTS ist im Item ungeklemmt (``mouseMoveEvent`` kennt nur
+          ``min_width``). ``source_end`` konnte ueber die Clip-Laenge laufen,
+          worauf ``_source_duration_from_entry`` den GESAMTEN Export mit
+          ValueError abbricht. Jetzt bei der echten Medienlaenge klemmen und
+          ``end_time`` um den Ueberschuss kuerzen.
+        """
+        if source_start is not None and source_start < 0.0:
+            start = start + (0.0 - source_start)
+            source_start = 0.0
+
+        media_duration = self._media_duration(session, entry)
+        if (source_end is not None and media_duration is not None
+                and source_end > media_duration):
+            overflow = source_end - media_duration
+            source_end = media_duration
+            if end is not None:
+                end = max(start, end - overflow)
+
+        return start, end, source_start, source_end
+
+    def _apply(self, requested_start: float, requested_end: float | None,
+               requested_source_start: float | None,
+               requested_source_end: float | None,
+               *, clamp: bool = False):
+        applied: dict = {}
+
         def _operation(session):
             entry = session.get(TimelineEntry, self._entry_id)
             if entry:
+                start, end = requested_start, requested_end
+                source_start = requested_source_start
+                source_end = requested_source_end
+                if clamp:
+                    start, end, source_start, source_end = self._clamp_to_source(
+                        session, entry, start, end, source_start, source_end,
+                    )
                 entry.start_time = round(start, 3)
                 if end is not None:
                     entry.end_time = round(end, 3)
@@ -407,9 +556,21 @@ class TrimClipCommand(QUndoCommand):
                     entry.source_start = round(max(0.0, source_start), 3)
                 if source_end is not None:
                     entry.source_end = round(source_end, 3)
+                applied["start"] = start
+                applied["end"] = end
+                applied["source_start"] = source_start
+                applied["source_end"] = source_end
 
         _run_timeline_write(_operation, "TrimClipCommand._apply")
-        self._timeline._sync_clip_after_trim(self._entry_id, start, end)
+        final_start = applied.get("start", requested_start)
+        final_end = applied.get("end", requested_end)
+        self._timeline._sync_clip_after_trim(self._entry_id, final_start, final_end)
+        return (
+            final_start,
+            final_end,
+            applied.get("source_start", requested_source_start),
+            applied.get("source_end", requested_source_end),
+        )
 
 
 class ApplyAutoEditCommand(QUndoCommand):
@@ -449,6 +610,14 @@ class ApplyAutoEditCommand(QUndoCommand):
                     "crossfade_duration": e.crossfade_duration,
                     "brightness": e.brightness,
                     "contrast": e.contrast,
+                    # AUDIT-2026-07-27: ``locked`` fehlte im Auto-Edit-Backup.
+                    # undo() loescht ALLE Video-Entries (auch die gelockten,
+                    # die _do_apply_segments bewusst stehen laesst) und legt
+                    # sie aus diesem Dict neu an — ohne das Feld kamen sie mit
+                    # TimelineEntry.locked-Default False zurueck, alle Sperren
+                    # waren still weg. Gleicher Defekt wie B-716 bei
+                    # RemoveClipCommand (dort bereits gefixt).
+                    "locked": e.locked,
                 })
             return backup
 
