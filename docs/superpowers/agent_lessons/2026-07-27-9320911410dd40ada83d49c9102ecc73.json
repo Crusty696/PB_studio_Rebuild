@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9320911410dd40ada83d49c9102ecc73",
+  "recorded_at": "2026-07-27T02:10:02+00:00",
+  "session_id": "30f670dc348d4bda81bbbb77e83ead23",
+  "head_at_start": "5a0ac3c031dafb6970c36a077f10fbbe1e96c98c",
+  "problem": "Parallel integrierte Arbeit lag sauber in Git und Vault-Log, aber aktiver Masterplan endete fuenf Tage frueher; neue Bugs und Follow-ups hatten keine autorisierte Reihenfolge, waehrend ein Commit zusaetzlich eine bereits belegte Bug-ID wiederverwendete.",
+  "cause": "Merge-/Handoff-Schritt aktualisierte weder einzigen D-071-Masterplan noch dessen Vault-Mirror und reservierte neue Bug-IDs nicht gegen vorhandene Vault-Dateien; Git-Commit-Historie allein erfuellt Plan-Autoritaet nicht.",
+  "rule": "Nach jeder parallelen Merge-Welle vor weiterer Codearbeit: aktiven Plan + Vault-Mirror mit neuen Tasks/Status reconciliieren, genau eine Next-Task setzen und jede Bug-ID per Vault-Dateisuche eindeutig reservieren. Commit-Handoff ohne diesen Abgleich ist governance-blockiert.",
+  "applies_to": "PB Studio Multi-Agent-Merges, Masterplan-Governance, Vault-Bug-ID-Vergabe"
+}
