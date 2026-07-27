@@ -1,15 +1,15 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 02:28 Europe/Zurich
+Letztes Update: 2026-07-28 02:34 Europe/Zurich
 
 Gesamtfortschritt: **ca. 12–15 %**  
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-1 / Current-Ruff**
+Aktiv: **STAB-1 / Alembic Fresh-Upgrade**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
-| STAB-1 Testfundament | **ca. 50 %** | aktiv; Current-Ruff |
+| STAB-1 Testfundament | **ca. 55 %** | aktiv; Alembic Fresh-Upgrade |
 | STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **0 %** | blockiert durch STAB-3 |
@@ -28,6 +28,7 @@ Aktiv: **STAB-1 / Current-Ruff**
 - 13/13 existierende DBs byte-/logisch identisch, quick_check ok;
   0 Prozessreste.
 - Syntax/Import: 1120 Dateien kompiliert, 10 Kernmodule importiert; pass.
+- Current-Ruff: Exit 0; DB-Evidenz unverändert.
 - D-077 Minimalprogramm: eine Current-Suite, einmalige Livepfade,
   30-Minuten-Soak.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
@@ -36,6 +37,6 @@ Aktiv: **STAB-1 / Current-Ruff**
 
 ## Nächste einzige Task
 
-Current-Ruff einmal über Evidenzrunner.
+Alembic Single-Head/Fresh-Upgrade einmal über Evidenzrunner.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

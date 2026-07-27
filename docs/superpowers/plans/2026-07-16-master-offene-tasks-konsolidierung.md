@@ -619,4 +619,6 @@ Decision: Vault
 - Syntax/Import-Evidenz `20260728T0226-stab1-syntax-import`: pass;
   1120 Python-Dateien kompiliert, 10 Kernmodule importiert, 13/13 reale DBs
   unverändert, 0 Prozessreste.
-- Genau nächste Task: `STAB-1 / Current-Ruff`.
+- Current-Ruff-Evidenz `20260728T0232-stab1-ruff`: pass; Repo-Ruff Exit 0,
+  13/13 reale DBs unverändert, 0 Prozessreste.
+- Genau nächste Task: `STAB-1 / Alembic Single-Head und Fresh-Upgrade`.
