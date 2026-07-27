@@ -1,0 +1,10 @@
+{
+  "lesson_id": "87b6bbf77c7e4b6497f17fbd1d247e55",
+  "recorded_at": "2026-07-27T20:19:54+00:00",
+  "session_id": "b4acbee9112c43dbbb63a11bcea281d0",
+  "head_at_start": "32088fd5d600c4f00670da4eb871d38fb9fc4291",
+  "problem": "Eine nur einen Tag alte Funktions-Statusaufnahme war durch 54 nachfolgende Commits bereits stark ueberholt; Active Plan und Bugfiles nannten weiterhin B-727 als naechste offene Task, obwohl Git zahlreiche Folgefixes enthielt.",
+  "cause": "Statusquellen wurden nach den Merge-/Fix-Wellen nicht atomar mit Git reconciliert; Audit haette bei blosser Wiederverwendung der letzten Synthese einen falschen Current-HEAD-Stand berichtet.",
+  "rule": "Bei jeder App-Gesamtstatusaufnahme zuerst Baseline-Commit der letzten Synthese gegen HEAD diffen, alle Commits seit Baseline nach Verifikationsgrad klassifizieren und Plan/Vault/Bugstatus separat als moeglicherweise stale ausweisen. Historische Live-Belege nie auf spaetere Commits uebertragen.",
+  "applies_to": "PB Studio Statusaudits, Handoffs, Releasebewertungen und jede Bereichsmatrix nach Merge-Wellen"
+}
