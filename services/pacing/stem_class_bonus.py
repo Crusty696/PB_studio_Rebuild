@@ -24,6 +24,7 @@ def compute_stem_class_bonus(
         dominant_stem: "vocals" / "drums" / "bass" / "other" / None.
             'other' triggert nie Bonus (kein eindeutiger Mapping).
         shot_confidences: Output von shot_type_classifier.classify().
+            Leeres Mapping (kein SigLIP / keine Fitness-Matrix) -> kein Bonus.
         bonus_amount: Bonus-Höhe wenn Match.
         min_confidence: Mindest-Konfidenz für die Top-Klasse.
 
@@ -36,6 +37,12 @@ def compute_stem_class_bonus(
         return 0.0
     if dominant_stem not in STEM_TO_CLASS:
         raise ValueError(f"Unknown stem: {dominant_stem!r}")
+    # B-Audit: ohne Shot-Konfidenzen gibt es keine Top-Klasse. Frueher lief
+    # max() hier auf ein leeres Dict und warf ValueError, was den kompletten
+    # Auto-Edit-Lauf beendete (shot_centroids liefert bei fehlendem SigLIP
+    # vertragsgemaess {}). Neutraler Rueckfall: kein Bonus.
+    if not shot_confidences:
+        return 0.0
     target_class = STEM_TO_CLASS[dominant_stem]
     top_class = max(shot_confidences, key=shot_confidences.get)
     if top_class != target_class:

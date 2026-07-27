@@ -60,6 +60,11 @@ class VariationsBudget:
         # Never reset by segment_boundary().
         self._scene_id_global: dict[Any, int] = {}
 
+        # Groesster bisher aufgezeichneter Zeitstempel je Key. Nur wenn ein
+        # record() monoton nach vorne laeuft, darf die Historie beschnitten
+        # werden (siehe _prune_expired).
+        self._max_ts: dict[str, float] = {}
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -110,12 +115,48 @@ class VariationsBudget:
         for key in self._budgets:
             if key in buckets:
                 self._history[key].append((t, buckets[key]))
+                self._prune_expired(key, t)
 
         if self._dj_mix and "scene_id" in buckets:
             scene_val = buckets["scene_id"]
             self._scene_id_global[scene_val] = (
                 self._scene_id_global.get(scene_val, 0) + 1
             )
+
+    def _prune_expired(self, key: str, t: float) -> None:
+        """Wirft Historie-Eintraege weg, die kein `allow()` mehr sehen kann.
+
+        `allow(t')` zaehlt ausschliesslich Eintraege mit
+        ``ts >= t' - window_sec``. Fuer jedes ``t' >= t`` ist dieses Fenster
+        mindestens so weit vorne wie ``t - window_sec``; alles davor ist
+        endgueltig tot. Ohne dieses Beschneiden wuchs `_history` ueber den
+        gesamten Mix (ein Eintrag pro Cut und Key) und `allow()` iterierte
+        pro Kandidat die komplette Liste — Aufwand quadratisch in der
+        Mix-Laenge, obwohl das groesste Fenster nur 45 s umfasst.
+        (`segment_boundary()` waere der Reset, wird aber von keinem
+        Produktivpfad aufgerufen.)
+
+        Beschnitten wird nur bei monoton nach vorne laufender Zeit. Traegt ein
+        Aufrufer einen aelteren Zeitstempel nach, bleibt die Historie
+        unangetastet — dann sind Rueckfragen mit kleinerem ``t`` weiter exakt.
+        """
+        prev_max = self._max_ts.get(key)
+        if prev_max is not None and t < prev_max:
+            return  # out-of-order record -> nichts wegwerfen
+        self._max_ts[key] = t
+
+        rule = self._budgets.get(key)
+        if rule is None:
+            return
+        cutoff = t - rule.window_sec
+        history = self._history[key]
+        drop = 0
+        for ts, _value in history:
+            if ts >= cutoff:
+                break
+            drop += 1
+        if drop:
+            del history[:drop]
 
     def segment_boundary(self, at_time: float) -> None:
         """DJ-mix only: reset per-segment sliding windows.  Keeps scene_id_global
@@ -129,3 +170,4 @@ class VariationsBudget:
         # Clear per-bucket histories; global counter untouched
         for key in self._history:
             self._history[key] = []
+        self._max_ts.clear()

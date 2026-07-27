@@ -244,7 +244,18 @@ class PatternAggregator:
                     groups[key]["sample"] += RUN_RATING_DAMPENING_WEIGHT
                 # else: neutral run rating → no signal, skip
 
-        return [
+        # Der Filter muss auf dem GERUNDETEN sample_size stehen, nicht auf dem
+        # rohen Float. Sonst passiert genau das: eine Gruppe, die nur aus
+        # gedaempften Run-Rating-Signalen besteht (RUN_RATING_DAMPENING_WEIGHT
+        # = 0.3), kommt mit sample=0.3 > 0 durch den Filter und wird danach auf
+        # accept=0/reject=0/sample=0 gerundet. wilson_lower_bound(0, 0) liefert
+        # per Vertrag 0.5 — eine Nicht-Messung, die als "confidence 0.500" mit
+        # 0 Stichproben persistiert wird und in
+        # `brain_actions` (ORDER BY confidence DESC) ueber echt gemessenen
+        # Mustern mit z.B. 0.207 landet. Rows ohne Stichprobe werden hier
+        # verworfen; die Evidenz geht nicht verloren, weil die Aggregation die
+        # Entscheidungen beim naechsten Lauf erneut aufsummiert (2x 0.3 -> 1).
+        rounded = [
             PatternUpdate(
                 fingerprint=g["fingerprint"],
                 target_clip_id=g["target_clip_id"],
@@ -255,6 +266,7 @@ class PatternAggregator:
             for g in groups.values()
             if g["sample"] > 0
         ]
+        return [u for u in rounded if u.sample_size > 0]
 
     def _upsert_patterns(self, updates: Iterable[PatternUpdate]) -> int:
         """Upsert each pattern by fingerprint + target_clip_id (bug J: use DB lookup
