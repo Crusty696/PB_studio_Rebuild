@@ -203,25 +203,43 @@ def _install_real_db_connect_guard():
     real_db = (_REPO_ROOT / "pb_studio.db").resolve()
     original_connect = sqlite3.connect
 
-    def _guarded_connect(database, *args, **kwargs):
+    def _guarded_connect(db_target, *args, **kwargs):
+        # Der Parameter hiess frueher ``database`` und ueberdeckte damit das
+        # oben importierte Projektmodul gleichen Namens. Der Fehlertext las
+        # ``database.engine`` — also ein Attribut auf dem Pfad-String statt
+        # auf dem Modul. Das warf AttributeError, den der breite except-Zweig
+        # schluckte, und danach lief original_connect ganz normal weiter:
+        # der Guard meldete Schutz, ohne zu schuetzen.
+        #
+        # Deshalb jetzt strikt zweigeteilt: ERKENNEN darf scheitern (eine
+        # kaputte Pfadaufloesung soll keinen legitimen Zugriff kippen),
+        # BLOCKIEREN nicht. Das raise steht ausserhalb jedes try.
+        blocked_target: str | None = None
         try:
-            target = str(database)
+            target = str(db_target)
             if not target.startswith("file:") or "mode=ro" not in target:
                 candidate = Path(target.replace("file:", "").split("?")[0])
                 if candidate.name == "pb_studio.db" and candidate.resolve() == real_db:
-                    raise RuntimeError(
-                        "TESTSCHUTZ (B-727): Zugriff auf die REALE Projekt-DB "
-                        f"{real_db} wurde blockiert.\n"
-                        f"  angefragt: {target!r}\n"
-                        f"  engine.url: {getattr(database.engine, 'url', '?')}\n"
-                        "Tests muessen gegen die Temp-DB aus pytest_configure "
-                        "oder eine eigene tmp_path-DB laufen."
-                    )
-        except RuntimeError:
-            raise
+                    blocked_target = target
         except Exception:  # pragma: no cover - Pfadaufloesung nie fatal machen
             pass
-        return original_connect(database, *args, **kwargs)
+
+        if blocked_target is not None:
+            # Die Engine-URL ist reine Diagnose. Faellt sie aus, wird trotzdem
+            # blockiert — vorher riss genau das die ganze Blockade mit.
+            try:
+                engine_url = str(getattr(database.engine, "url", "?"))
+            except Exception:  # pragma: no cover
+                engine_url = "<nicht lesbar>"
+            raise RuntimeError(
+                "TESTSCHUTZ (B-727): Zugriff auf die REALE Projekt-DB "
+                f"{real_db} wurde blockiert.\n"
+                f"  angefragt: {blocked_target!r}\n"
+                f"  engine.url: {engine_url}\n"
+                "Tests muessen gegen die Temp-DB aus pytest_configure "
+                "oder eine eigene tmp_path-DB laufen."
+            )
+        return original_connect(db_target, *args, **kwargs)
 
     sqlite3.connect = _guarded_connect
 
