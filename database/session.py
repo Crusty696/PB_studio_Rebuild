@@ -491,7 +491,10 @@ def set_project(
             init_db-Fehler) — Swap trotz laufender Tasks, mit Warn-Log.
 
     Raises:
-        RuntimeError: wenn laufende Tasks existieren und ``force`` False ist.
+        RuntimeError: wenn laufende Tasks existieren und ``force`` False ist,
+            oder (B-721) wenn ``Base.metadata.create_all`` auf der neuen
+            Engine scheitert und ``force`` False ist — in dem Fall bleiben
+            ``engine`` und ``APP_ROOT`` unveraendert (kein Swap).
     """
     global APP_ROOT
     project_path = Path(project_path)
@@ -520,13 +523,36 @@ def set_project(
         # passierte init_db() als separater Call NACH set_project —
         # Race-Window in dem ein Auto-Refresh-Reader auf eine leere
         # DB stoßen konnte ("no such table").
+        #
+        # B-721: Scheitert create_all, darf KEIN Swap passieren. Vorher wurde
+        # nur gewarnt und trotzdem geswappt — danach zeigten ``engine`` und
+        # ``APP_ROOT`` auf einen Stand, dessen DB gar nicht initialisiert ist
+        # (Auto-Edit schrieb dadurch in die falsche/leere Projekt-DB).
+        # Ausnahme: ``force=True`` ist der bewusste Recovery-Pfad
+        # (B-051-Rollback auf die vorige, bereits existierende Projekt-DB).
+        # Dort MUSS der Swap auch bei einem create_all-Fehler stattfinden,
+        # sonst bleibt die App auf der halb-initialisierten neuen DB haengen.
         try:
             from database.models import Base
             Base.metadata.create_all(new_engine)
         except Exception as create_err:
+            if not force:
+                try:
+                    new_engine.dispose()
+                except Exception as dispose_err:  # broad catch — dispose() can raise
+                    logger.warning(
+                        "set_project: dispose der ungenutzten Engine "
+                        "fehlgeschlagen: %s", dispose_err,
+                    )
+                raise RuntimeError(
+                    "Projektwechsel abgebrochen — Tabellen-Initialisierung "
+                    f"fuer {db_file} fehlgeschlagen: {create_err}. "
+                    "Engine und APP_ROOT bleiben unveraendert."
+                ) from create_err
             logger.warning(
-                "set_project: create_all auf neuer Engine fehlgeschlagen "
-                "(Caller muss init_db() ggf. selbst erneut versuchen): %s",
+                "set_project(force=True): create_all auf neuer Engine "
+                "fehlgeschlagen, Swap trotzdem (Recovery-Pfad, Caller muss "
+                "init_db() ggf. selbst erneut versuchen): %s",
                 create_err,
             )
 
