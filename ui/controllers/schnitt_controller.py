@@ -9,12 +9,39 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from services.pacing_profile import PacingProfile
 from services.ui_binder import PacingProfileBinder
 
 logger = logging.getLogger(__name__)
+
+
+def _current_project_token() -> tuple[int, str] | None:
+    """B-714: aktive Projekt-Identitaet ("Generation") oder None.
+
+    Vorbild ist der ``expected_db_url``-Guard in
+    ``services/video_analysis_service.py`` (dort: ``_current_db_url()`` —
+    die Engine-URL ist eindeutig pro Projektordner und wird bei
+    ``set_project()`` via ``EngineProxy.swap()`` ausgetauscht). Zusaetzlich
+    geht — analog ``services/pacing_beat_grid._engine_cache_identity`` — die
+    Identitaet der ECHTEN Engine ein, damit auch ein Swap auf dieselbe URL
+    als Projektwechsel zaehlt.
+
+    None bedeutet "nicht ermittelbar" und schaltet den Guard fail-open
+    (gleiche Semantik wie ``expected_db_url=None``).
+    """
+    try:
+        from database import session as db_session
+        eng = db_session.engine
+        try:
+            real = object.__getattribute__(eng, "_engine")
+        except AttributeError:
+            real = eng
+        return (id(real), str(getattr(eng, "url", "")))
+    except Exception as exc:  # broad catch: Token-Ermittlung darf nie crashen
+        logger.debug("SchnittController: Projekt-Token nicht ermittelbar: %s", exc)
+        return None
 
 
 class SchnittController(QObject):
@@ -28,6 +55,14 @@ class SchnittController(QObject):
         super().__init__(parent)
         self.workspace = workspace
         self._current_worker: Any | None = None
+        # B-714: Projekt-Token beim Worker-Start (siehe attach_worker).
+        self._worker_project_token: tuple[int, str] | None = None
+        # B-717: Echo-Fenster gegen Doppel-Push im selben Event-Turn.
+        # Liste statt QObject-Attribut, damit der Timer-Callback keine
+        # Referenz auf dieses QObject halten muss (kein Zugriff auf ein
+        # evtl. bereits geloeschtes C++-Objekt).
+        self._push_echo: list[bool] = [False]
+        self._last_push_key: tuple[Any, Any] | None = None
 
         # B1: PacingProfile als Single Source of Truth
         self.profile = PacingProfile()
@@ -84,6 +119,10 @@ class SchnittController(QObject):
                 except Exception:
                     pass
         self._current_worker = worker
+        # B-714: Projekt-Identitaet zum Start festhalten. _on_done/_on_failed
+        # duerfen ein Ergebnis nur anwenden, wenn noch dasselbe Projekt aktiv
+        # ist (Vorbild: expected_db_url in store_scenes_in_db).
+        self._worker_project_token = _current_project_token()
         if hasattr(worker, "progress"):
             worker.progress.connect(self.workspace.show_progress)
         if hasattr(worker, "done"):
@@ -102,6 +141,27 @@ class SchnittController(QObject):
         from ui.workspaces.schnitt_workspace import STATE_LOADING
         if self.workspace.current_state() == STATE_LOADING:
             return
+        # B-717: Der Cockpit-Sprung nach SCHNITT pusht doppelt —
+        # ``nav_bar.set_workspace(2)`` loest ueber _on_workspace_changed
+        # bereits _push_active_project_to_schnitt aus, danach ruft
+        # _handle_cockpit_action es nochmal direkt auf. Jeder Push kostet
+        # eine synchrone TimelineEntry-COUNT-Query
+        # (SchnittWorkspace.refresh_state_from_db) im GUI-Thread. Ein
+        # identischer Push im selben Event-Turn ist eine Wiederholung ohne
+        # neue Information und wird verworfen; nach dem naechsten
+        # Event-Loop-Turn ist wieder alles erlaubt (keine dauerhafte
+        # Dedup -> kein Stale-State-Risiko).
+        key = (_current_project_token(), project_id)
+        if self._push_echo[0] and key == self._last_push_key:
+            logger.debug(
+                "SchnittController: doppelter Projekt-Push (%s) im selben "
+                "Event-Turn verworfen (B-717)", project_id,
+            )
+            return
+        self._last_push_key = key
+        echo = self._push_echo
+        echo[0] = True
+        QTimer.singleShot(0, lambda: echo.__setitem__(0, False))
         self.workspace.set_active_project(project_id)
 
     def _on_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
@@ -126,6 +186,48 @@ class SchnittController(QObject):
     # ------------------------------------------------------------------
     # Worker-Lifecycle
     # ------------------------------------------------------------------
+    def _worker_project_changed(self) -> bool:
+        """B-714: Laeuft das Ergebnis in ein anderes Projekt als beim Start?"""
+        started = self._worker_project_token
+        if started is None:
+            return False
+        now = _current_project_token()
+        if now is None:
+            return False
+        return now != started
+
+    def _discard_foreign_project_result(self, kind: str) -> None:
+        """B-714: Ergebnis eines Workers aus einem anderen Projekt verwerfen.
+
+        Ohne Guard lief ``refresh_state_from_db()`` mit der ALTEN
+        ``workspace._project_id`` gegen die NEUE Projekt-DB (der Tab-Wechsel
+        konnte den Wechsel nicht durchreichen, weil
+        ``set_active_project_protected`` waehrend STATE_LOADING blockt) —
+        das Ergebnis landete im falschen Projekt.
+
+        Der Workspace wird auf das jetzt aktive Projekt zurueckgesetzt, sonst
+        bliebe er dauerhaft im LOADING-State haengen (jeder heilende Push
+        wird dort ja gerade blockiert).
+        """
+        logger.error(
+            "SchnittController: Projekt-Mismatch — %s() gehoert zu Projekt %s, "
+            "aktiv ist %s. Ergebnis wird NICHT auf den SCHNITT-Workspace "
+            "angewandt (B-714).",
+            kind, self._worker_project_token, _current_project_token(),
+        )
+        self._current_worker = None
+        self._worker_project_token = None
+        pid = None
+        try:
+            from database import get_active_project_id
+            pid = get_active_project_id()
+        except Exception as exc:  # broad catch: Resync darf nie crashen
+            logger.warning("SchnittController: aktive project_id unbekannt: %s", exc)
+        try:
+            self.workspace.set_active_project(pid)
+        except Exception as exc:  # broad catch: Resync darf nie crashen
+            logger.warning("SchnittController: Projekt-Resync fehlgeschlagen: %s", exc)
+
     def _on_done(self, *args, **kwargs):
         # B-704/D1: Stale-Guard — done() eines Workers, der nicht mehr der
         # aktuelle ist (ueberlappende Generierung), darf den Workspace-State
@@ -135,8 +237,13 @@ class SchnittController(QObject):
         if sender is not None and self._current_worker is not None and sender is not self._current_worker:
             logger.info("SchnittController: ignoriere done() eines veralteten Workers")
             return
+        # B-714: Projekt-Generations-Guard VOR dem Anwenden.
+        if self._worker_project_changed():
+            self._discard_foreign_project_result("done")
+            return
         self.workspace.refresh_state_from_db()
         self._current_worker = None
+        self._worker_project_token = None
 
     def _on_failed(self, *args, **kwargs):
         # B-704/D1: gleicher Stale-Guard wie _on_done.
@@ -144,8 +251,13 @@ class SchnittController(QObject):
         if sender is not None and self._current_worker is not None and sender is not self._current_worker:
             logger.info("SchnittController: ignoriere failed() eines veralteten Workers")
             return
+        # B-714: gleicher Projekt-Generations-Guard wie in _on_done.
+        if self._worker_project_changed():
+            self._discard_foreign_project_result("failed")
+            return
         self.workspace.refresh_state_from_db()
         self._current_worker = None
+        self._worker_project_token = None
 
     def _on_cancel(self):
         if self._current_worker is not None and hasattr(self._current_worker, "cancel"):
