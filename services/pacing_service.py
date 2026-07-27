@@ -359,10 +359,23 @@ def _make_auto_edit_engine():
     K6b (D-073/E4): enable_foreign_keys=True — FK-Enforcement gilt jetzt
     auch im Auto-Edit-Pfad (wie ueberall sonst via session.py-Pragma).
     connect-timeout/busy_timeout wie in session.py.
+
+    Statusaufnahme 2026-07-27: die Engine wurde aus ``APP_ROOT`` gebaut
+    statt aus der aktiven Engine-URL. Beides ist normalerweise identisch,
+    weil ``set_project()`` beides zusammen umschaltet — aber eben nur
+    normalerweise: schlaegt dort ``create_all`` fehl, wird die Engine
+    trotzdem geswappt (B-721), und dann zeigen APP_ROOT und Engine auf
+    verschiedene Dateien. Der Auto-Edit-Pfad schrieb dann in die falsche
+    Projekt-DB. Im Testlauf war es reproduzierbar: mem_pacing_run-Zeilen
+    landeten in der echten pb_studio.db, obwohl die globale Engine auf eine
+    Temp-DB zeigte.
+
+    Die Quelle ist jetzt dieselbe wie in ``_get_cached_nullpool_engine()``:
+    die URL der aktiven Engine.
     """
     import database.session as _session
     return _session.make_nullpool_engine(
-        _session.APP_ROOT / 'pb_studio.db',
+        str(_session.engine.url),
         enable_foreign_keys=True,
     )
 

@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 # Projektroot zum Suchpfad hinzufuegen
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
 import database
 
@@ -99,9 +100,51 @@ def pytest_collection_modifyitems(config, items):
 # Tests, die selbst ``set_project()`` oder ``test_engine`` nutzen, swappen
 # danach auf ihre eigene DB — das bleibt unveraendert gueltig.
 
-@pytest.fixture(autouse=True, scope="session")
-def _protect_real_database():
-    """Globale DB-Engine fuer die gesamte Testsession auf eine Temp-DB legen."""
+@pytest.fixture(autouse=True)
+def _detect_real_db_writes(request):
+    """Diagnose-Netz: meldet JEDEN Test, der die reale Projekt-DB anfasst.
+
+    Der session-scoped Guard unten leitet die globale Engine um. Er deckt
+    aber nur Pfade ab, die ueber ``database.engine`` /
+    ``nullpool_session()`` laufen. Tests, die sich ihre eigene Engine auf
+    ``APP_ROOT/pb_studio.db`` bauen oder ``set_project()`` auf den Repo-Root
+    richten, kommen weiterhin durch — genau das ist am 2026-07-27 passiert
+    (analysis_status +10, audio_tracks +13, mem_pacing_run +12,
+    timeline_snapshots +1 trotz aktivem Guard).
+
+    Diese Fixture macht solche Zugriffe sofort sichtbar, statt sie erst beim
+    naechsten Hash-Vergleich auffallen zu lassen.
+    """
+    # WICHTIG: fest verdrahteter Repo-Pfad, NICHT database.session.APP_ROOT.
+    # APP_ROOT ist eine globale Variable, die set_project() umbiegt — wer sie
+    # hier liest, vergleicht vor/nach dem Test womoeglich zwei verschiedene
+    # Dateien und meldet Phantom-Treffer.
+    real_db = _REPO_ROOT / "pb_studio.db"
+    before = real_db.stat().st_mtime_ns if real_db.exists() else None
+    yield
+    after = real_db.stat().st_mtime_ns if real_db.exists() else None
+    if before != after:
+        pytest.fail(
+            f"Test '{request.node.nodeid}' hat die REALE Projekt-DB "
+            f"veraendert ({real_db}). Tests muessen gegen die Temp-DB aus "
+            "_protect_real_database oder eine eigene tmp_path-DB laufen."
+        )
+
+
+def pytest_configure(config):
+    """Globale DB-Engine auf eine Temp-DB legen — VOR der Collection.
+
+    Der Zeitpunkt ist entscheidend: pytest importiert erst alle Testmodule
+    und fuehrt danach Fixtures aus. Ein session-scoped autouse-Fixture
+    greift also zu SPAET — jeder Modul-Level-DB-Zugriff beim Import haette
+    die reale Datei schon getroffen. Genau daran lag es, dass nach dem
+    ersten Guard weiterhin Zeilen in der echten pb_studio.db landeten
+    (analysis_status, audio_tracks, mem_pacing_run, timeline_snapshots).
+
+    ``pytest_configure`` laeuft vor der Collection und schliesst die Luecke.
+    """
+    global _TEST_DB_ROOT, _SESSION_ENGINE
+
     import database.session as _session_mod
     from database.session import _make_engine
 
@@ -115,18 +158,147 @@ def _protect_real_database():
     # Test mehr eine Verbindung zur Datei im Repo-Root.
     database.engine.swap(session_engine)
 
+    # create_all deckt nur ORM-Tabellen ab. Die mem_*- und struct_*-Tabellen
+    # (mem_pacing_run, mem_decision, struct_clip_tags, struct_compat_edge …)
+    # existieren ausschliesslich als Alembic-Revisionen — ohne sie laufen
+    # Pacing- und Enrichment-Tests gegen "no such table" und wichen frueher
+    # auf die reale DB aus.
+    try:
+        from database.migrations import init_db as _init_db
+
+        _init_db()
+    except Exception as exc:  # pragma: no cover - Diagnose statt stillem Fehlschlag
+        print(f"[conftest] Alembic-Migration der Test-DB fehlgeschlagen: {exc}")
+
     # NullPool-Cache invalidieren, damit er die neue URL zieht statt die
     # zwischengespeicherte Engine auf der realen DB weiterzureichen.
     with _session_mod._NULLPOOL_ENGINE_CACHE_LOCK:
         _session_mod._nullpool_engine_cache = None
 
-    yield tmp_db
+    _TEST_DB_ROOT = Path(tmp_dir)
+    _SESSION_ENGINE = session_engine
 
+    # Kindprozesse (main.py mit PB_CLUSTER_FIT / PB_WAVEFORM_PARSE) erben die
+    # Umgebung, aber keinen Monkeypatch. Ohne diesen Override oeffnen sie die
+    # echte Projekt-DB — genau darueber liefen trotz Guard noch Schreibzugriffe.
+    os.environ["PB_STUDIO_DB_PATH"] = str(tmp_db)
+
+    _install_real_db_connect_guard()
+
+
+def _install_real_db_connect_guard():
+    """Jede sqlite3-Verbindung zur REALEN Projekt-DB hart unterbinden.
+
+    Der mtime-Vergleich pro Test sagt nur DASS geschrieben wurde, nicht von
+    WEM — bei Hintergrund-Threads schwaerzt er sogar den falschen Test an.
+    Dieser Guard setzt an der einzigen Stelle an, die alle Wege teilen:
+    ``sqlite3.connect``. Wer die Datei im Repo-Root oeffnen will, bekommt
+    einen Fehler MIT Stacktrace statt still zu schreiben.
+
+    Lesende URI-Verbindungen (``mode=ro``) bleiben erlaubt — Diagnose-
+    Skripte duerfen die echte DB inspizieren.
+    """
+    import sqlite3
+
+    real_db = (_REPO_ROOT / "pb_studio.db").resolve()
+    original_connect = sqlite3.connect
+
+    def _guarded_connect(database, *args, **kwargs):
+        try:
+            target = str(database)
+            if not target.startswith("file:") or "mode=ro" not in target:
+                candidate = Path(target.replace("file:", "").split("?")[0])
+                if candidate.name == "pb_studio.db" and candidate.resolve() == real_db:
+                    raise RuntimeError(
+                        "TESTSCHUTZ (B-727): Zugriff auf die REALE Projekt-DB "
+                        f"{real_db} wurde blockiert.\n"
+                        f"  angefragt: {target!r}\n"
+                        f"  engine.url: {getattr(database.engine, 'url', '?')}\n"
+                        "Tests muessen gegen die Temp-DB aus pytest_configure "
+                        "oder eine eigene tmp_path-DB laufen."
+                    )
+        except RuntimeError:
+            raise
+        except Exception:  # pragma: no cover - Pfadaufloesung nie fatal machen
+            pass
+        return original_connect(database, *args, **kwargs)
+
+    sqlite3.connect = _guarded_connect
+
+
+def pytest_unconfigure(config):
+    """Temp-DB nach dem Lauf aufraeumen."""
+    global _SESSION_ENGINE
+    if _SESSION_ENGINE is not None:
+        try:
+            _SESSION_ENGINE.dispose()
+        except Exception:  # pragma: no cover
+            pass
+        _SESSION_ENGINE = None
+    if _TEST_DB_ROOT is not None:
+        shutil.rmtree(_TEST_DB_ROOT, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def _protect_real_database():
+    """Pfad der Session-Temp-DB (der Swap selbst passiert in pytest_configure)."""
+    assert _TEST_DB_ROOT is not None, "pytest_configure hat die Temp-DB nicht gesetzt"
+    return _TEST_DB_ROOT / "pb_studio.db"
+
+
+# Projektwurzel der Session-Temp-DB. Tests, die ``set_project()`` aufrufen,
+# muessen HIERHIN zuruecksetzen — nicht auf das Repo-Root und nicht auf
+# ``Path.cwd()``, sonst zeigt die globale Engine wieder auf die reale
+# ``pb_studio.db`` und alle nachfolgenden Tests schreiben dorthin.
+_TEST_DB_ROOT: Path | None = None
+_SESSION_ENGINE = None
+
+
+@pytest.fixture
+def test_db_root(_protect_real_database) -> Path:
+    """Wurzelverzeichnis der Session-Temp-DB (fuer ``set_project``-Rueckkehr)."""
+    return _protect_real_database.parent
+
+
+@pytest.fixture(autouse=True)
+def _restore_engine_after_project_switch():
+    """Repariert die globale Engine, falls ein Test sie umgeschwenkt hat.
+
+    ``set_project()`` ist ein globaler Seiteneffekt. Ein Test, der es
+    aufruft und danach auf Repo-Root/``cwd`` zuruecksetzt, richtet die
+    Engine auf die reale Projekt-DB — ab dann schreibt JEDER folgende Test
+    dorthin, ohne selbst schuld zu sein. Genau so entstanden am 2026-07-27
+    trotz aktivem Session-Guard 10 neue analysis_status-, 13 audio_tracks-,
+    12 mem_pacing_run- und 1 timeline_snapshots-Zeile in der echten DB.
+
+    Diese Fixture stellt nach jedem Test den Session-Zustand wieder her.
+    """
+    yield
+    if _TEST_DB_ROOT is None:
+        return
+    import database.session as _session_mod
+
+    expected = (_TEST_DB_ROOT / "pb_studio.db").resolve()
     try:
-        session_engine.dispose()
-    except Exception:  # pragma: no cover - Aufraeumen darf nie den Lauf kippen
-        pass
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+        current = Path(str(database.engine.url).replace("sqlite:///", "")).resolve()
+    except Exception:  # pragma: no cover - defekte Engine nicht verschlimmern
+        return
+    if current == expected:
+        return
+
+    from database.session import _make_engine
+
+    repaired = _make_engine(expected)
+    database.Base.metadata.create_all(repaired)
+    database.engine.swap(repaired)
+    with _session_mod._NULLPOOL_ENGINE_CACHE_LOCK:
+        _session_mod._nullpool_engine_cache = None
+    # APP_ROOT auf den ORIGINALWERT zuruecksetzen, nicht auf den Temp-Pfad:
+    # der Session-Guard laesst APP_ROOT bewusst unangetastet, damit Tests
+    # weiter Repo-Dateien (config/, resources/) darueber aufloesen koennen.
+    # Ihn hier auf die Temp-DB zu biegen waere ein neuer globaler
+    # Seiteneffekt fuer alle Folgetests.
+    _session_mod.APP_ROOT = _REPO_ROOT
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import threading
 from pathlib import Path
@@ -144,10 +145,29 @@ def _make_engine(db_path: Path):
     return eng
 
 
+def _initial_db_path() -> Path:
+    """Pfad der Start-Datenbank.
+
+    Normalfall: ``APP_ROOT/pb_studio.db``.
+
+    ``PB_STUDIO_DB_PATH`` ueberschreibt ihn. Das braucht der Testlauf:
+    PB Studio startet fuer einzelne Aufgaben Kindprozesse (``PB_CLUSTER_FIT``,
+    ``PB_WAVEFORM_PARSE`` — siehe ``main.py``). Ein Kindprozess erbt zwar die
+    Umgebung, aber keinen Monkeypatch des Elternprozesses; ohne diesen
+    Override oeffnet er immer die echte Projekt-DB. Genau darueber liefen
+    2026-07-27 trotz Testschutz noch Schreibzugriffe auf die reale
+    ``pb_studio.db``.
+    """
+    override = os.getenv("PB_STUDIO_DB_PATH")
+    if override:
+        return Path(override)
+    return APP_ROOT / 'pb_studio.db'
+
+
 # Datenbank-Engine: SQLite-Datei im Projektordner
 # check_same_thread=False ist ZWINGEND noetig, weil QThread-Workers
 # auf dieselbe Engine zugreifen (SQLite verbietet sonst Cross-Thread-Zugriff).
-engine = EngineProxy(_make_engine(APP_ROOT / 'pb_studio.db'))
+engine = EngineProxy(_make_engine(_initial_db_path()))
 
 
 def get_raw_engine():

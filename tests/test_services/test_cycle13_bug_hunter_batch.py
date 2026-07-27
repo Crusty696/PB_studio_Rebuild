@@ -74,7 +74,7 @@ def test_bug1_save_project_as_passes_task_id_to_internal_open(monkeypatch, tmp_p
     assert captured == {"path": target, "task_id": "save-as-task-42"}
 
 
-def test_bug1_save_project_as_does_not_block_on_own_running_task(tmp_path):
+def test_bug1_save_project_as_does_not_block_on_own_running_task(tmp_path, test_db_root):
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -104,7 +104,11 @@ def test_bug1_save_project_as_does_not_block_on_own_running_task(tmp_path):
         if own_task is not None:
             tm.finish_task(own_task.task_id, "finished", "test cleanup")
         tm.clear_finished()
-        database.set_project(Path.cwd())
+        # NICHT Path.cwd() — das ist im Testlauf das Repo-Root. set_project()
+        # + init_db() dort richten die globale Engine auf die ECHTE
+        # pb_studio.db und lassen die Alembic-Migrationen darauf laufen;
+        # alle nachfolgenden Tests schreiben danach in die reale DB.
+        database.set_project(test_db_root)
         try:
             database.init_db()
         except Exception:
