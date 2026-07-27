@@ -2,6 +2,56 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## D-075 Claude-Code-Handoff 2026-07-27 (newest)
+
+- **HEAD vor diesem Doku-Commit:** `96cc91b`; `main` war sauber und 35 Commits
+  vor `origin/main`. Keine Produktcode-Aenderung in der Handoff-Session.
+- **User-Auftrag:** alle offenen/angefangenen Claude-Tasks abschliessen;
+  Pacing, Brain-V3, Auto-Lernen und LLM-Zugriff zuerst. Decision:
+  Vault `D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md`.
+- **Aktiver Plan reconciliiert:** R0-R9 im Masterplan + Vault-Mirror.
+- **Exakt naechste Task:** R1 / B-727. KEINE Vollsuite vorher.
+
+### B-727 Root Cause
+
+`tests/conftest.py:_guarded_connect(database, ...)` shadowt das importierte
+Projektmodul `database`. Beim Real-DB-Treffer wertet der RuntimeError-Text
+`database.engine` auf dem String/Path aus. Das erzeugt `AttributeError`; der
+breite `except Exception: pass` schluckt ihn; `original_connect()` laeuft.
+
+Erster Claude-Schritt:
+
+1. RED-Test: Real-DB-Ziel -> `RuntimeError`; gemocktes `original_connect` =
+   exakt 0 Calls.
+2. Guard reparieren, Fehlerbehandlung so schneiden, dass Blockade nie
+   geschluckt wird.
+3. Fokus-/Subprozess-Tests plus SHA/Laenge/mtime aller `pb_studio.db`.
+4. Erst danach CI-identische Vollsuite.
+
+### Danach — feste Reihenfolge
+
+1. B-732: `BrainV3Service.feedback()` verwirft `axis_contributions`.
+2. B-733: LearningDialog sendet neutralen `CutContext()` ohne Credit.
+3. B-734: persistierte Brightness/Saturation/ColorTemp erreichen Ranking nicht.
+4. B-737: MemoryUpdater verliert <20 Events; kein Produkt-Run-End-Flush;
+   Brain-Feedback nicht ans Pattern-Lernen gebunden.
+5. B-738: nur tool-faehiger Orchestrator erreicht Brain-Actions. Phi3/Gemma,
+   Plain Chat, `ask_ai`, Pacing und Vision haben keinen Brain/Memory-Zugriff.
+6. B-735/B-736: Role ohne Brain-Wirkung; BrainV3Service-Kandidaten synthetisch.
+7. Live: Auto-Edit -> Feedback -> Flush/Lernen -> zweiter Auto-Edit; geaenderte
+   Gewichte/Patterns/Kandidatenreihenfolge beweisen.
+8. Rest B-709…B-729.
+
+### Status-/ID-Reconciliation
+
+- Neu: B-730 (Pattern-Prior, code-fix pending), B-731 (Embedding-Cache,
+  korrigiert falsche B-707-ID), B-732…B-738 (offen).
+- Bereits code-seitig vorhanden, live-pending/stale Marker: B-709 `62108eb`,
+  B-716 `7c77243`/`0f0c948`, B-728 `0574240`, B-729
+  `a84a880`/`42948e1`, 5a0ac3c LLM-Action-Sichtbarkeit.
+- Ollama war beim LLM-Recon nicht erreichbar. B-738-Livebeweis offen.
+- Keine `fixed`-Marker gesetzt.
+
 ## Current-HEAD-App-Qualitätsaudit 2026-07-26 (newest)
 
 - Baseline `9a321dc`; Produktcode unverändert.

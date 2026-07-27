@@ -5,7 +5,8 @@ active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
 vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
 decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-071-master-offene-tasks-konsolidierung.md
-updated: 2026-07-16
+supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
+updated: 2026-07-27
 worktree: Repo-Root (main) + Agent-Worktrees unter .claude/worktrees/
 branch: main
 
@@ -18,12 +19,19 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-Ueberwiegend liegt KEINE Agent-Code-Task offen — der Grossteil ist User-Live-Sichtung
-+ `fixed`-Marker (Bucket 1) und User-Entscheidungen (Bucket 2). Falls Agent-Arbeit
-gewuenscht: Bucket 4 (frei ausfuehrbar) zuerst — AUDIT A3/B1/B2/B3/B4/B7/B9,
-PERF D-069, FREEZE-CRASH ab_compare + B-618-Rest. Bucket 3 (AUDIT/NEUBAUTEN/AUFRAEUM)
-erst nach den jeweiligen User-Gates. Bucket 7 (b469/timeline-quality/brain-tooltip)
-braucht Bug-File-Abgleich vor Einordnung.
+R1 / B-727 (P0): `tests/conftest.py:_guarded_connect(database, ...)`
+reparieren. Der Parameter `database` shadowt das Projektmodul; beim Aufbau des
+Blockierfehlers wirft `database.engine` ein `AttributeError`, das der breite
+`except Exception` schluckt. Dadurch kann `original_connect()` die reale
+Projekt-DB weiter oeffnen.
+
+Zuerst RED-Test: Real-DB-Ziel muss `RuntimeError` liefern und der gemockte
+`original_connect` muss 0 Calls sehen. Danach Fokus-/Subprozess-Test plus
+SHA/Laenge/mtime aller kanonischen `pb_studio.db`. Erst nach diesem Beweis
+CI-identische Vollsuite.
+
+Anschliessende Reihenfolge laut D-075: B-732, B-733, B-734, B-737, B-738,
+B-735/B-736, Live-Wirkungsbeweis, dann restliche B-709…B-729.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 

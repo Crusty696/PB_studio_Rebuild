@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ba062b8edf6d4099b92d764f3e6ec4c1",
+  "recorded_at": "2026-07-27T02:27:53+00:00",
+  "session_id": "97d58c7ebc9b443998c6045f4f1e69b4",
+  "head_at_start": "96cc91b056462ed32d85dd68ac07110fb4a2146f",
+  "problem": "B-727 sqlite3-Testguard sollte reale Projekt-DB blockieren, konnte aber wegen einer Namensueberschreibung still durchfallen.",
+  "cause": "Der Wrapper-Parameter hiess database und shadowte das importierte Projektmodul. Beim Aufbau der RuntimeError-Nachricht wertete der Code database.engine auf einem String/Path aus; der daraus entstehende AttributeError wurde vom breiten except Exception geschluckt, danach lief original_connect weiter.",
+  "rule": "Guard-Code muss seinen Blockierfehler ausserhalb breiter Normalisierungs-excepts erzeugen. Parameter duerfen Modulnamen nicht shadowen. Jeder Schutz braucht einen negativen Kontrolltest: gefaehrliches Ziel -> erwarteter Fehler UND darunterliegende Operation exakt 0 Calls.",
+  "applies_to": "Test-Datenbankguards, sqlite3.connect-Wrapper, Sicherheits-/Datenverlust-Guards allgemein"
+}

@@ -333,3 +333,62 @@ User-Freigabe "T2.4 + B9 fixed" nach Live-Test test-tabelle:
   Folge-Verbesserung dokumentiert, kein eigenes Bug-File (User-Entscheid).
 Damit alle vom User beauftragten Live-Tests abgeschlossen. Offener neuer Bug:
 B-666 (LLM-Strategist-Pacing-Hang, high). Test-Artefakt output.mp4 (749MB) geloescht.
+
+## Nachtrag 2026-07-27: D-075 Claude-Restwelle
+
+User-Auftrag: alle offenen/angefangenen Claude-Code-Tasks abschliessen;
+Pacing, Brain-V3, automatisches Lernen und Zugriff aller LLM-Pfade zuerst.
+Decision: Vault `D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md`.
+
+### Verbindliche Reihenfolge
+
+1. **R0 Governance-Reconciliation — abgeschlossen in dieser Doku-Welle**
+   - B-730 fehlendes Pattern-Prior-Bugfile angelegt.
+   - B-731 korrigiert fachfremde Wiederverwendung der belegten ID B-707.
+   - B-732 bis B-738 erfassen die Pacing-/Brain-/Lern-/LLM-Restluecken.
+   - B-709 bis B-729 gegen Git abgeglichen; Statusdrift bleibt pro Bugfile
+     nachzuziehen, aber kein `fixed` ohne Live/User.
+2. **R1 / B-727 — ERSTE naechste Code-Task, P0**
+   - `tests/conftest.py:_guarded_connect(database, ...)` shadowt das importierte
+     Modul. `database.engine` im Fehlertext wirft `AttributeError`; der breite
+     `except Exception` schluckt ihn; reale DB-Verbindung wird nicht blockiert.
+   - Zuerst RED-Test: Realpfad muss `RuntimeError` liefern und
+     `original_connect` 0-mal aufrufen.
+   - Danach Fokus-/Subprozess-Test plus SHA/Laenge/mtime aller kanonischen
+     `pb_studio.db`; erst dann CI-identische Vollsuite.
+3. **R2 / B-732 — BrainV3Service Credit-Passthrough**
+   - `FeedbackRequest.axis_contributions` an Logger durchreichen; Diagnostik
+     (`credit_mode`, `n_axes_credited`) vollständig zurückgeben.
+4. **R3 / B-733 — LearningDialog echter Context + Credit**
+   - Sample-Vertrag, Resolver und Dialog mit realem CutContext und
+     Contributions aus Decision/Rationale.
+5. **R4 / B-734 — Visual-Metriken in Ranking konsumieren**
+   - `struct_clip_tags` → Loader → ClipFeatures → ClipCandidate; NULL bleibt
+     no-signal; Score-Varianz beweisen.
+6. **R5 / B-737 — Automatisches Lernen garantiert flushen**
+   - Run-/Projekt-/App-End-Flush; Brain-Feedback bewusst ans Pattern-Lernen;
+     1 Feedback muss nach Neustart als `mem_learned_pattern` bestehen.
+7. **R6 / B-738 — Brain/Memory fuer alle LLM-Pfade**
+   - Tool- und Non-Tool-Chat, `ask_ai`, PacingStrategist/direkter Pacing-Pfad
+     erhalten projektisolierten Recall-/Context-Zugriff.
+   - Phi3/Gemma-Familien sind aktuell `NO-TOOLS`; 5a0ac3c allein reicht nicht.
+8. **R7 / B-735 + B-736 — Brain-Rollenwirkung + Stub-Servicepfad**
+   - Role-Mapping bewusst entscheiden/verdrahten; synthetische
+     `BrainV3Service`-Kandidaten durch echten Produktpfad ersetzen oder Stub
+     aus Produktfluss entfernen.
+9. **R8 — Produkt-Live-Wirkungsbeweis**
+   - Auto-Edit → Feedback → Flush/Lernen → zweiter Auto-Edit.
+   - Beweis: variable Achsgewichte/Patterns und geänderte Kandidatenreihenfolge;
+     App/Logs/DB, nicht nur Standalone.
+10. **R9 — restliche B-709…B-729**
+    - Priorität: B-710/711/712/718/720/722/723/725, dann B-713…726.
+    - Bereits code-seitig vorhanden, live-pending: B-709 (`62108eb`),
+      B-716 (`7c77243`/`0f0c948`), B-728 (`0574240`), B-729
+      (`a84a880`/`42948e1`).
+
+### Handoff-Grenzen
+
+- Genau eine Task zur Zeit. Nächste Task ist ausschließlich R1/B-727.
+- Keine Vollsuite vor wirksamem B-727-Guard-Regressionstest.
+- Kein `fixed` ohne Live-Workflow + Userfreigabe.
+- Ollama war beim Recon nicht erreichbar; B-738-Livebeweis wartet auf Dienst.
