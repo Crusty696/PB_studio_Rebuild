@@ -8,3 +8,4 @@ from services.actions import audio_actions  # noqa: F401
 from services.actions import video_actions  # noqa: F401
 from services.actions import edit_actions   # noqa: F401
 from services.actions import ai_actions     # noqa: F401
+from services.actions import brain_actions  # noqa: F401
