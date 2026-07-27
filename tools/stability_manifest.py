@@ -389,6 +389,112 @@ def write_baseline_manifest(
     return manifest_path
 
 
+def run_evidenced_command(
+    *,
+    run_id: str,
+    baseline_commit: str,
+    phase: str,
+    command: list[str],
+    cwd: Path,
+    databases: Iterable[Path],
+    output_root: Path,
+    process_status: dict[str, Any],
+    env: dict[str, str] | None = None,
+) -> Path:
+    """Run one gate while proving protected DB bytes and contents unchanged."""
+    started_at = _utc_now()
+    output_root.mkdir(parents=True, exist_ok=False)
+    before_root = output_root / "backups_before"
+    after_root = output_root / "backups_after"
+    before_root.mkdir()
+    database_paths = [Path(database).resolve() for database in databases]
+    before_captures = [
+        capture_database(database, backup_root=before_root)
+        for database in database_paths
+    ]
+
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    stdout_path = output_root / "stdout.log"
+    stderr_path = output_root / "stderr.log"
+    stdout_path.write_text(result.stdout, encoding="utf-8")
+    stderr_path.write_text(result.stderr, encoding="utf-8")
+
+    after_root.mkdir()
+    after_captures = [
+        capture_database(database, backup_root=after_root)
+        for database in database_paths
+    ]
+    db_before = {
+        item["source"]: item["source_after"] for item in before_captures
+    }
+    db_after = {
+        item["source"]: item["source_before"] for item in after_captures
+    }
+    analysis_before = {
+        item["source"]: item["analysis"] for item in before_captures
+    }
+    analysis_after = {
+        item["source"]: item["analysis"] for item in after_captures
+    }
+    captures_stable = all(
+        item["stable"] for item in [*before_captures, *after_captures]
+    )
+    bytes_unchanged = db_before == db_after
+    logical_unchanged = analysis_before == analysis_after
+    limits = [
+        "Original SQLite databases were never opened; logical analysis used raw copies."
+    ]
+    if not captures_stable:
+        limits.append("Protected database changed during evidence capture")
+    if not bytes_unchanged:
+        limits.append("Protected database bytes changed")
+    if not logical_unchanged:
+        limits.append("Protected database logical content changed")
+    passed = (
+        result.returncode == 0
+        and captures_stable
+        and bytes_unchanged
+        and logical_unchanged
+    )
+    artifacts = [
+        path
+        for item in [*before_captures, *after_captures]
+        for path in item["backup"].values()
+        if path is not None
+    ]
+    manifest = {
+        "run_id": run_id,
+        "baseline_commit": baseline_commit,
+        "phase": phase,
+        "command": subprocess.list2cmdline(command),
+        "started_at": started_at,
+        "ended_at": _utc_now(),
+        "exit_code": result.returncode,
+        "verdict": "pass" if passed else "fail",
+        "process_status": process_status,
+        "db_before": db_before,
+        "db_after": db_after,
+        "database_analysis_before": analysis_before,
+        "database_analysis_after": analysis_after,
+        "artifacts": artifacts,
+        "logs": [str(stdout_path.resolve()), str(stderr_path.resolve())],
+        "limits": limits,
+    }
+    manifest_path = output_root / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Capture a zero-touch PB Studio stability DB baseline."

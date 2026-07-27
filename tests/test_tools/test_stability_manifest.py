@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 
 
 def _create_db(path: Path, *, value: str = "value") -> sqlite3.Connection:
@@ -127,3 +129,105 @@ def test_write_baseline_manifest_uses_required_json_contract(tmp_path):
     assert manifest["verdict"] == "pass"
     assert manifest["db_before"] == manifest["db_after"]
     assert len(manifest["db_before"]) == 1
+
+
+def test_run_evidenced_command_records_command_logs_and_unchanged_db(tmp_path):
+    from tools.stability_manifest import run_evidenced_command
+
+    source = tmp_path / "project" / "pb_studio.db"
+    connection = _create_db(source)
+    connection.close()
+    output = tmp_path / "evidence"
+
+    manifest_path = run_evidenced_command(
+        run_id="run-command-pass",
+        baseline_commit="f" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('command-ok')"],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=output,
+        process_status={"verdict": "test", "processes": []},
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "pass"
+    assert manifest["exit_code"] == 0
+    assert "command-ok" in (output / "stdout.log").read_text(encoding="utf-8")
+    assert manifest["db_before"] == manifest["db_after"]
+    assert manifest["logs"] == [
+        str((output / "stdout.log").resolve()),
+        str((output / "stderr.log").resolve()),
+    ]
+
+
+def test_run_evidenced_command_fails_if_temp_database_changes(tmp_path):
+    from tools.stability_manifest import run_evidenced_command
+
+    source = tmp_path / "project" / "pb_studio.db"
+    connection = _create_db(source)
+    connection.close()
+    mutation = (
+        "import sqlite3; "
+        f"c=sqlite3.connect({str(source)!r}); "
+        "c.execute(\"INSERT INTO sample(status) VALUES ('changed')\"); "
+        "c.commit(); c.close()"
+    )
+
+    manifest_path = run_evidenced_command(
+        run_id="run-command-mutation",
+        baseline_commit="e" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", mutation],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=tmp_path / "evidence",
+        process_status={"verdict": "test", "processes": []},
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["exit_code"] == 0
+    assert manifest["verdict"] == "fail"
+    assert manifest["db_before"] != manifest["db_after"]
+    assert "Protected database bytes changed" in manifest["limits"]
+
+
+def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
+    repo = tmp_path / "repo"
+    appdata = tmp_path / "appdata"
+    source = repo / "pb_studio.db"
+    connection = _create_db(source)
+    connection.close()
+    output = tmp_path / "evidence"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "cli-run",
+            "--baseline-commit",
+            "d" * 40,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(appdata),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            "print('cli-ok')",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "pass"
+    assert "cli-ok" in (output / "stdout.log").read_text(encoding="utf-8")
