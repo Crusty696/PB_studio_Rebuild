@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b77c53821f844f27b54591e61a808135",
+  "recorded_at": "2026-07-27T01:01:05+00:00",
+  "session_id": "792f500657094918ac8e2ae3d83c0bd3",
+  "head_at_start": "dcd9a6b9abc120af02d611ef82f4cd173f0b5353",
+  "problem": "Die Ursachenannahme aus der Voranalyse war falsch praezisiert: role/mood_refined/style_bucket_id wurden als fehlende Scene-Spalten im Column-Select vermutet. Ein Fix nach dieser Annahme (mehr Scene-Spalten laden) haette nichts bewirkt, weil die Spalten auf scenes gar nicht existieren.",
+  "cause": "Die Felder liegen in der separaten Tabelle struct_clip_tags (Migration b5d5adc80d3a, PK scene_id); nur ai_mood ist Scene-Spalte. Die Voranalyse schloss vom Consumer-Code (_sc.get('role')) auf die Herkunft, ohne das DB-Modell und die Migrationen zu pruefen. Zusaetzlich zeigte erst die Abfrage der ECHTEN Projekt-DB, dass role zwar geliefert wird, aber konstant 'filler' ist - ein zweiter, unabhaengiger Defekt (Vokabular-Mismatch), den reines Wiring nicht behebt.",
+  "rule": "Bei Producer/Consumer-Key-Mismatches nie von den gelesenen Keys auf die Datenherkunft schliessen. Immer (1) das ORM-Modell UND die Alembic-Migrationen nach dem Feldnamen greppen - Enrichment-Daten liegen oft in Nebentabellen; (2) die reale Projekt-DB read-only auf Befuellung UND Varianz abfragen, bevor Wiring als Fix gilt. Ein Feld, das ankommt aber ueber alle Kandidaten konstant ist, ist beim Ranking genauso wirkungslos wie ein fehlendes - Varianz ist das Erfolgskriterium, nicht Vorhandensein. (3) Bei Waechter-/Testfehlern immer per Stash-Vergleich attribuieren statt anzunehmen.",
+  "applies_to": "PB Studio Pacing/Brain/Enrichment-Datenpfade; generell Feature-Wiring-Fixes und Wirksamkeitsnachweise, wo Analysedaten ueber mehrere Tabellen verteilt sind"
+}
