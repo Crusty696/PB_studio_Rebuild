@@ -2,6 +2,26 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## D-076 STAB-0 Governance-Reconciliation 2026-07-27 (newest)
+
+- Baseline/Current HEAD vor Governance-Commit: `02cddee`.
+- Feature-Freeze aktiv; bestehender Masterplan bleibt einzige Planquelle.
+- STAB-0: 30 Bugfiles B-709..B-738 reconciliiert.
+- Ergebnis: 22 `code-fix-pending-live-verification`; 8 `open`
+  (B-715/B-723/B-725/B-726/B-735/B-736/B-737/B-738).
+- Kritische Korrekturen: `fa85a27` erfüllt B-735/B-736 trotz Committext nicht;
+  B-737 testet Fake-Aggregator statt Patternpersistenz; B-738 bleibt wegen
+  Restpfaden offen.
+- Vaultweit 0 doppelte Bug-IDs; erwartete weitere B-738-Dateien existieren
+  nicht. Keine Umnummerierung.
+- Kein Produktcode, kein pytest, kein Live-Test, kein `fixed`.
+- Evidenz:
+  `docs/superpowers/synthesis/stab-0-b709-b738-evidenzmatrix-2026-07-27.md`.
+- Genau nächste Task: `STAB-1 / B-727 Vertrauensgate`; zuerst DB-Baseline/
+  externe Backups, dann acht Negativkontrollen. Keine Vollsuite vorher.
+- Parallel erlaubt nur für unabhängige read-only-Recon-Pakete oder getrennte
+  `.worktrees/`; ein Root Cause bleibt eine Task.
+
 ## D-075 Claude-Code-Handoff 2026-07-27 (newest)
 
 - **HEAD vor diesem Doku-Commit:** `96cc91b`; `main` war sauber und 35 Commits

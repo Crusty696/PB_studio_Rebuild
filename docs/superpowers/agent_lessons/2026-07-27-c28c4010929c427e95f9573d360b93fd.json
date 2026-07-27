@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c28c4010929c427e95f9573d360b93fd",
+  "recorded_at": "2026-07-27T20:54:57+00:00",
+  "session_id": "a0e012ca091d488385056aad6a0e2118",
+  "head_at_start": "02cddee9e7e8dd50d1d45fdb67fc930de834805b",
+  "problem": "Committext ordnete B-735/B-736 einer Fixwelle zu, obwohl Current-Code die Bug-DoD weiter verletzt; erwartete doppelte B-738-ID existierte im Current Vault nicht",
+  "cause": "Status wurde zuvor aus Commitnamen und Planannahmen statt aus Bugtitel, DoD, geänderten Pfaden und Current-Consumer-Code abgeleitet",
+  "rule": "Bei Governance-Reconciliation Status nie aus Commit-ID übernehmen: Bug-DoD gegen tatsächliche Diffpfade und Current-Consumer prüfen; ID-Duplikate vaultweit per Frontmatter belegen, bevor Dateien umnummeriert werden",
+  "applies_to": "PB Studio Bugstatus-Reconciliation, Merge-Wellen, Vault-ID-Bereinigung"
+}

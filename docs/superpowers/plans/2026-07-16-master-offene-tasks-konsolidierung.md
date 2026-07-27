@@ -392,3 +392,188 @@ Decision: Vault `D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md`.
 - Keine Vollsuite vor wirksamem B-727-Guard-Regressionstest.
 - Kein `fixed` ohne Live-Workflow + Userfreigabe.
 - Ollama war beim Recon nicht erreichbar; B-738-Livebeweis wartet auf Dienst.
+
+## Nachtrag 2026-07-27: D-076 Current-HEAD-Stabilitätsprogramm
+
+Userentscheidung: bestehende Funktionen vor weiterer Entwicklung vollständig
+stabilisieren. Feature-Freeze aktiv. Bestehender Masterplan bleibt einzige
+Planquelle. Baseline ist `02cddee9e7e8dd50d1d45fdb67fc930de834805b`.
+
+### Stabilitätsziel
+
+- Null bekannte Critical-/High-Fehler.
+- Null nutzer- oder kernpfadwirksame Medium-Fehler.
+- Sichtbare Funktion funktioniert, ist deaktiviert oder ehrlich als nicht
+  verfügbar markiert.
+- Zwei Current-Vollsuiten ohne Änderung realer DBs.
+- Acht Current-Live-Kernworkflows, Brain-Lern-A/B, GPU-/Thread-Stress,
+  Current-Installer in sauberer VM und User-Endabnahme bestanden.
+- Technische Low-Befunde ohne Nutzerwirkung dürfen begründet offen bleiben.
+- Razor, sichtbarer Playhead, Timeline-Preview und andere fehlende Features
+  bleiben separater Entwicklungsbacklog.
+
+### Verbindliche Reihenfolge
+
+#### STAB-0 — Governance-Reconciliation
+
+- Noch kein Produktcode.
+- B-709 bis B-738: Status, Commits, Produktpfade, RED/GREEN/Regression,
+  Livebeleg, Current-Reproduktion, Zielstatus und Restnachweis erfassen.
+- Commit + Fokus ohne Livepfad:
+  `code-fix-pending-live-verification`.
+- Current reproduzierbar: `open`.
+- Historisch/doppelt: `superseded` mit kanonischem Ziel.
+- `fixed` nie ohne Livebeweis + Usermarker ändern.
+- B-715, B-723, B-725 und B-726 ausdrücklich neu untersuchen.
+- Bug-IDs vaultweit eindeutig machen; keine Datei löschen.
+- Gate: Git, Plan, Registry, Active Plan, Vault-Mirror, Bugfiles und Handoff
+  synchron; genau nächste Task `STAB-1 / B-727 Vertrauensgate`.
+
+#### STAB-1 — Testfundament und DB-Isolation
+
+- Reproduzierbares JSON-Evidenzmanifest mit Run, Commit, Phase, exaktem
+  Befehl, Zeiten, Exitcode, Prozessstatus, DB-vor/nach, Artefakten, Logs,
+  Verdict und Grenzen.
+- DB-/WAL-/SHM-SHA, Größe, `quick_check`, Migration-Head, Tabellenzählungen
+  und logischen Inhalts-Hash erfassen.
+- Repo-, Output-, Recent-Project-, AppData-Brain-/Memory- und registrierte
+  Projekt-DBs einbeziehen.
+- Backups ausschließlich extern unter
+  `%LOCALAPPDATA%\PBStudioStability\<run_id>\backups`.
+- B-727-Negativkontrollen: beide SQLite-Connect-Pfade, 0 Originalcalls,
+  Collection, Kindprozess, APP_ROOT/Projektwechsel blockiert; Temp-DB erlaubt;
+  bewusst deaktivierte Kontrolle beweist Gefährdung.
+- Danach Import/Syntax, Ruff, Bandit, Alembic Single-Head/Fresh-Upgrade,
+  B-727-Fokus und CI-identische Suite zweimal in frischen Sessions.
+- Erster Fehler stoppt Gate und eröffnet genau eine Root-Cause-Task.
+- Gate: beide Vollsuiten grün, reale DBs byte-/inhaltsidentisch, kein nativer
+  Crash, keine unbekannten Seiteneffekte.
+
+#### STAB-2 — Acht Current-Live-Kernworkflows
+
+Isoliertes Projekt je Run unter
+`%LOCALAPPDATA%\PBStudioStability\<run_id>\project`; Kopien von zwei
+Test-Audios und 20 Repo-Clips. Originale bleiben unangetastet.
+
+1. Boot, neues/bestehendes Projekt, dreifacher Wechsel, Shutdown, Neustart.
+2. Import, Duplikat, Papierkorb, Restore, Reimport, Bulk, Cross-Project-Reuse.
+3. Audio V2 komplett, Cancel während AV-Pacing, Retry, Neustart, fehlendes Stem.
+4. Videoanalyse mit SceneDetect, RAFT, Keyframes, SigLIP, VLM, defektem Clip
+   und Reanalyse mit/ohne Ersatz.
+5. SCHNITT/Timeline: Preview/Seek, Move/Trim/Lock/Anchor, Undo/Redo,
+   Projektwechsel und Rückkehr.
+6. Auto-Edit/Pacing mit fixen Eingaben, flacher/benutzerdefinierter Kurve,
+   LLM und Brain jeweils aus/an.
+7. Export Hard-Cut/xfade, 8-/10-bit, alle Presets, Cancel/Retry; ffprobe prüft
+   Dauer, Frames, Audio und Seek.
+8. Persistenz/Shutdown ohne und mit laufenden Audio-/Video-/Exporttasks.
+
+Jeder Workflow braucht Screenshot, Logauszug, DB-Diff und JSON-Verdict.
+Fehler einzeln schließen, bevor nächster Workflow startet.
+
+#### STAB-3 — Brain, Pacing und Lernen
+
+- Medien, Seed, Settings und Modellversion fixieren.
+- Auto-Edit A inklusive Rangfolge, 17 Achsen, Pacing, Pattern und Gewichten.
+- Negativkontrolle ohne Feedback muss deterministisch bleiben.
+- Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart.
+- Persistenz und `mem_learned_pattern > 0` prüfen.
+- Auto-Edit B mit identischen Eingaben; erklärbare Änderung nur adressierter
+  Beiträge und Kandidatenrangfolge beweisen.
+- Tool- und Non-Tool-LLM-Pfade müssen Recall/Stats/Explain/Learn erhalten.
+
+#### STAB-4 — GPU, Threads, Prozesse, Langlauf
+
+- Sequenziell B-723, B-725, B-726, Ollama-Prozessbesitz und
+  Shutdown-/Cancel-/Projektwechsel-Races.
+- Jeder Fix: erzwungenes Interleaving, rote Fehlerkontrolle, grüne Korrektur,
+  Lock-Ordering und echter Produktpfad.
+- Drei Kombinationszyklen Audio, Video, Ollama, Preview, Export, Cancel,
+  Projektwechsel, Shutdown; danach 4-Stunden-Soak.
+- Alle fünf Sekunden VRAM, RAM, Prozessbaum, Threads, Taskstatus,
+  UI-Heartbeat, DB und Lockzeiten erfassen.
+- Gate: kein Hang/Crash/Lock-Inversion/Zombie; UI-Block höchstens 2 s;
+  Progress spätestens 10 s; Threads Baseline +5; VRAM nach 60 s höchstens
+  Baseline +512 MiB; DB konsistent.
+
+#### STAB-5 — UI-Ehrlichkeit
+
+- Buttons, Menüs, QActions, Shortcuts, Chat-Actions, Analyse-/Fortschrittsstatus,
+  Presets und Tooltips inventarisieren.
+- Je Element Aktion, Handler/Worker, Zustandsänderung, Erfolg, Fehler/Cancel und
+  Testbeleg dokumentieren.
+- Kein sichtbarer Erfolgs-No-Op, erfundener Shortcut, 100 % bei degraded/error,
+  Label-only-Preset oder unsichtbar weiterlaufendes Cancel.
+- Fehlende Features deaktivieren/kennzeichnen, nicht neu entwickeln.
+
+#### STAB-6 — Current Release-Kette
+
+- Erst nach STAB-0 bis STAB-5.
+- Final-Vollsuite zweimal.
+- `installer\build_installer.bat` ohne `PB_SKIP_PYINSTALLER`.
+- Smoke, FFmpeg/ffprobe-Identität, Frozen-GUI, Installer + NSISBI-Payload,
+  Artefaktpaar, Evidence-Matrix, Release-Gate, ZIP + SHA256SUMS.
+- Saubere Windows-VM: Installation, Installed-App-Kernworkflow,
+  Deinstallation/Rückstände.
+- Alle Belege an exakt denselben Commit und Artefakt-SHA binden.
+- Keine Releasefreigabe vor User-Endabnahme.
+
+#### STAB-7 — Abschluss
+
+- Matrix je Bereich: Code-Fix, Fokus, Regression, Live, Stress, Release,
+  Usermarker.
+- Git, Masterplan, Vault und Bugs final synchronisieren.
+- Keine Critical/High oder nutzer-/kernpfadwirksame Medium offen.
+- Low-Risiken begründen; fehlende Features separat halten.
+- Abnahmebericht mit Screenshots, Logs, DB-Diffs, ffprobe, GPU-/Soak-Daten und
+  Installer-Hashes.
+- `fixed`/„Stabilisierung abgeschlossen“ erst nach Userbestätigung.
+
+### Arbeits- und Freigaberegeln
+
+- Genau eine Task aktiv; Codefixes in `.worktrees/` auf `codex/B-XXX-*`.
+- Ein Root Cause = ein Bug = ein Commit; kein `git add -A`.
+- Nach jedem Sub-Schritt Vault aktualisieren.
+- Keine neue Library, Architekturänderung oder destruktive Migration ohne
+  Userentscheidung.
+- CUDA ausschließlich GTX 1060 `cuda:0`.
+- Keine Push-, Release- oder Veröffentlichungsaktion ohne separate
+  Userautorisierung.
+- Kein Gate überspringen.
+
+### Evidenzvertrag
+
+```json
+{
+  "run_id": "timestamp-phase",
+  "baseline_commit": "sha",
+  "phase": "STAB-N",
+  "command": "exact command",
+  "started_at": "ISO-8601",
+  "ended_at": "ISO-8601",
+  "exit_code": 0,
+  "verdict": "pass",
+  "db_before": {},
+  "db_after": {},
+  "artifacts": [],
+  "logs": [],
+  "limits": []
+}
+```
+
+Decision: Vault
+`D-076-stabilitaetsprogramm-current-head.md`.
+
+### STAB-0 Ergebnis 2026-07-27
+
+- Baseline/Current HEAD: `02cddee9e7e8dd50d1d45fdb67fc930de834805b`.
+- B-709 bis B-738 vollständig gegen Commits, Produktpfade, historische Tests
+  und Current-Code abgeglichen.
+- 22 Bugs `code-fix-pending-live-verification`.
+- 8 Bugs Current-offen: B-715, B-723, B-725, B-726, B-735, B-736, B-737,
+  B-738.
+- Vaultweit keine doppelte Bug-ID; genau eine B-738; keine Umnummerierung.
+- Kein Produktcode, kein pytest-Lauf, kein `fixed`.
+- Evidenz:
+  `docs/superpowers/synthesis/stab-0-b709-b738-evidenzmatrix-2026-07-27.md`.
+- Nächste einzige Task: `STAB-1 / B-727 Vertrauensgate`.
