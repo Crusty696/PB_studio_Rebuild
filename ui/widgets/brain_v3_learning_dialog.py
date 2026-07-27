@@ -76,7 +76,34 @@ class _LearningLoadWorker(BaseWorker):
         else:
             service = src
         resp = service.learning_session(n=self._n)
-        return list(resp.samples)
+        samples = list(resp.samples)
+        return samples, self._load_contexts(service, samples)
+
+    @staticmethod
+    def _load_contexts(service, samples) -> dict:
+        """B-733: echten CutContext je Stichprobe aufloesen (off-thread).
+
+        Der Dialog schickte bisher ``CutContext()`` — jedes Feedback landete
+        auf demselben Backoff-Schluessel und der 6-stufige Backoff im
+        WeightStore lief leer. Die Aufloesung macht DB-Queries und gehoert
+        deshalb in denselben Worker wie das Sample-Laden.
+        """
+        if not samples:
+            return {}
+        try:
+            from services.brain.timeline_state import load_learning_cut_contexts
+
+            return load_learning_cut_contexts(
+                project_root=getattr(service, "_project_root", None),
+                session_factory=getattr(service, "_session_factory", None),
+                cut_ids=[int(s.cut_id) for s in samples],
+            )
+        except Exception as exc:  # broad: ohne Kontext bleibt der Dialog nutzbar
+            logger.warning(
+                "BrainV3LearningSessionDialog: Cut-Kontext nicht aufloesbar: %s",
+                exc, exc_info=True,
+            )
+            return {}
 
 
 class _AudioPreviewSpawnWorker(BaseWorker):
@@ -110,6 +137,8 @@ class BrainV3LearningSessionDialog(QDialog):
         self._service = service or BrainV3Service()
         self._n_requested = int(n_samples)
         self._samples: list[LearningSampleCut] = []
+        # B-733: cut_id -> CutContext (nur fuer aufloesbare Cuts befuellt).
+        self._contexts: dict[int, CutContext] = {}
         self._processed = 0
         self._current_preview: LearningSampleCut | None = None
         self._audio_preview_source: Path | None = None
@@ -219,13 +248,28 @@ class BrainV3LearningSessionDialog(QDialog):
             on_error=self._on_load_error,
         )
 
-    def _on_samples_loaded(self, samples) -> None:
+    def _on_samples_loaded(self, payload) -> None:
         try:
+            # B-733: der Worker liefert jetzt (samples, contexts). Aeltere
+            # Fakes/Tests, die nur eine Liste liefern, bleiben lauffaehig.
+            if isinstance(payload, tuple) and len(payload) == 2:
+                samples, contexts = payload
+            else:
+                samples, contexts = payload, {}
             self._samples = list(samples)
-            self._lbl_status.setText(
+            self._contexts = dict(contexts or {})
+            n_ctx = sum(
+                1 for s in self._samples if int(s.cut_id) in self._contexts
+            )
+            status = (
                 f"{len(self._samples)} Stichproben geladen "
                 f"(angefragt: {self._n_requested})"
             )
+            if self._samples:
+                status += f" | mit Cut-Kontext: {n_ctx}/{len(self._samples)}"
+                if n_ctx < len(self._samples):
+                    status += " — Rest ohne Kontext (kein Struktur-Segment)"
+            self._lbl_status.setText(status)
             self._populate()
         except RuntimeError:
             pass  # Dialog waehrend Load geschlossen — C++ Objekt bereits weg
@@ -243,6 +287,7 @@ class BrainV3LearningSessionDialog(QDialog):
             color = confidence_color_hex(1.0 - s.uncertainty)  # invert: hoch=unsicher
             item = QListWidgetItem(
                 f"Cut #{s.cut_id}   uncertainty={s.uncertainty:.3f}"
+                f"   {self._context_label(int(s.cut_id))}"
             )
             item.setData(Qt.ItemDataRole.UserRole, s.cut_id)
             item.setData(Qt.ItemDataRole.UserRole + 1, s)
@@ -413,13 +458,30 @@ class BrainV3LearningSessionDialog(QDialog):
             thread.quit()
             thread.wait(1500)
 
+    def _context_label(self, cut_id: int) -> str:
+        """B-733: ehrliche Kennzeichnung, ob dieser Cut Kontext hat."""
+        ctx = self._contexts.get(cut_id)
+        if ctx is None:
+            return "[ohne Kontext]"
+        return (
+            f"[{ctx.audio_section_type}/{ctx.audio_mood}/"
+            f"{ctx.audio_energy_level}]"
+        )
+
     def _open_feedback_for(self, item: QListWidgetItem) -> None:
         cut_id = int(item.data(Qt.ItemDataRole.UserRole))
+        # B-733: echten CutContext durchreichen. Fehlt er (kein
+        # Struktur-Segment zu dieser Audio-Position), wird KEIN Default
+        # erfunden — context=None laesst den Service bewusst in den
+        # neutralen Cold-Start-Bucket laufen und das Label sagt es an.
+        ctx = self._contexts.get(cut_id)
         popup = BrainV3FeedbackPopup(
             cut_id=cut_id,
             service=self._service,
-            context=CutContext(),  # Lern-Session: neutral Context (TODO Phase 5+)
-            cut_label=f"Stichprobe Cut #{cut_id}",
+            context=ctx,
+            cut_label=(
+                f"Stichprobe Cut #{cut_id} — {self._context_label(cut_id)}"
+            ),
             parent=self,
         )
         popup.feedback_submitted.connect(self._on_feedback_done)

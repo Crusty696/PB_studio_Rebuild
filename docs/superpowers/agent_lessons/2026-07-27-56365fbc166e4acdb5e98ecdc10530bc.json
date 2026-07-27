@@ -1,0 +1,10 @@
+{
+  "lesson_id": "56365fbc166e4acdb5e98ecdc10530bc",
+  "recorded_at": "2026-07-27T03:11:31+00:00",
+  "session_id": "da2f91d13e334f3ba6482e63b278101f",
+  "head_at_start": "2ee5ed8ac9a52eaa476256832969c394cbd71194",
+  "problem": "Worktree stand auf 9a321dc, der Auftrag nannte main 42c7b56 als Basis. Die Vorbedingungen des Auftrags (credit_weights in feedback_logger, Prompt-Budget 12000, brain_actions) existierten in diesem Baum gar nicht — die gelesene feedback_logger.py war die alte Uniform-Version.",
+  "cause": "Worktree-Branch war ein Vorfahre von main und wurde beim Anlegen nicht mitgezogen. Der erste Datei-Read haette sonst zu einer Analyse auf veraltetem Code gefuehrt.",
+  "rule": "Vor der ersten Analyse die im Auftrag genannte Basis-Revision gegen den echten HEAD pruefen (git log --oneline HEAD..main, git branch --contains <commit>). Weicht sie ab: erst fast-forward/rebase, dann lesen. Widerspruch zwischen Auftrags-Beschreibung und Dateiinhalt ist ein Revisions-Verdacht, kein Beschreibungsfehler.",
+  "applies_to": "Jeder Auftrag, der einen Worktree mit einer konkreten Basis-Revision nennt oder Vorbefunde aus fremden Commits zitiert."
+}

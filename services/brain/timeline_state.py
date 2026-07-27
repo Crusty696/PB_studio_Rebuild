@@ -287,6 +287,160 @@ def load_learning_preview_samples(
     return samples
 
 
+def load_learning_cut_contexts(
+    project_root: Path | None = None,
+    session_factory: SessionFactory | None = None,
+    cut_ids: list[int] | None = None,
+) -> dict[int, "object"]:
+    """B-733: echter ``CutContext`` je Lern-Session-Cut.
+
+    Der Lern-Dialog schickte bisher ``CutContext()`` — jedes Feedback landete
+    damit auf demselben Default-Backoff-Schluessel und der 6-stufige Backoff
+    im WeightStore lief leer.
+
+    Belegte Quellen (alles echte Messwerte, nichts geraten):
+      - ``timeline_cuts.start_time``  -> Audio-Position des Cuts (state.db)
+      - ``structure_segments``        -> Section-Label + Segment-Energie +
+                                         Segment-Grenzen fuer die
+                                         Subtrack-Position (Haupt-DB)
+      - ``audio_tracks.mood`` / ``.bpm`` -> Mood-Slot und Pace-Klasse
+
+    NICHT belegt und deshalb bewusst auf dem neutralen Default:
+      - ``video_motion_class``. In ``state.db`` steht pro Cut kein
+        Motion-Wert, und ``timeline_cuts.metadata_json`` fuehrt nur
+        ``brain_v3_confidence``/``source`` (siehe
+        ``sync_current_timeline_from_entries``). Raten waere hier ein
+        falsches Lern-Signal, deshalb bleibt der Slot auf "medium".
+
+    Returns:
+        ``{cut_id: CutContext}``. Cuts ohne aufloesbare Section fehlen im
+        Ergebnis — der Aufrufer muss den fehlenden Kontext dann ehrlich
+        kennzeichnen statt einen Default zu erfinden.
+    """
+    from services.brain.context_mapping import (
+        ContextMappingConfig,
+        build_cut_context,
+    )
+    from services.brain.context_resolver import (
+        quantize_subtrack_position,
+        quantize_tertile,
+    )
+
+    wanted = {int(c) for c in cut_ids} if cut_ids else None
+
+    db_path = ensure_state_db(project_root)
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, c.start_time, c.segment_type, t.audio_clip_id
+            FROM timeline_cuts c
+            JOIN timelines t ON t.id = c.timeline_id
+            WHERE t.is_current = 1
+            ORDER BY c.position_idx ASC, c.id ASC
+            """
+        ).fetchall()
+    cuts: list[tuple[int, float, str | None, int | None]] = []
+    for row in rows:
+        try:
+            cut_id = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        if wanted is not None and cut_id not in wanted:
+            continue
+        audio_id: int | None
+        try:
+            audio_id = int(row[3]) if row[3] is not None else None
+        except (TypeError, ValueError):
+            audio_id = None
+        cuts.append((cut_id, float(row[1] or 0.0), row[2], audio_id))
+    if not cuts:
+        return {}
+
+    audio_ids = sorted({c[3] for c in cuts if c[3] is not None})
+    sf = session_factory or database.nullpool_session
+    tracks: dict[int, tuple[str | None, float | None]] = {}
+    segments: dict[int, list[tuple[float, float, str, float | None]]] = {}
+    if audio_ids:
+        with sf() as session:
+            for tid, mood, bpm in session.execute(
+                select(
+                    database.AudioTrack.id,
+                    database.AudioTrack.mood,
+                    database.AudioTrack.bpm,
+                ).where(database.AudioTrack.id.in_(audio_ids))
+            ).all():
+                tracks[int(tid)] = (mood, bpm)
+            for tid, start, end, label, energy in session.execute(
+                select(
+                    database.StructureSegment.audio_track_id,
+                    database.StructureSegment.start_time,
+                    database.StructureSegment.end_time,
+                    database.StructureSegment.label,
+                    database.StructureSegment.energy,
+                )
+                .where(database.StructureSegment.audio_track_id.in_(audio_ids))
+                .order_by(database.StructureSegment.start_time.asc())
+            ).all():
+                segments.setdefault(int(tid), []).append(
+                    (float(start or 0.0), float(end or 0.0), str(label or ""),
+                     None if energy is None else float(energy))
+                )
+
+    # Tertil-Schwellen aus den ECHTEN Segment-Energien des jeweiligen Tracks.
+    # Feste 0.33/0.66 waeren bei einem durchgehend lauten DJ-Mix sinnlos.
+    thresholds: dict[int, tuple[float, float]] = {}
+    for tid, segs in segments.items():
+        energies = sorted(e for _s, _e, _l, e in segs if e is not None)
+        if len(energies) >= 3:
+            thresholds[tid] = (
+                energies[int(len(energies) * 0.33)],
+                energies[int(len(energies) * 0.66)],
+            )
+
+    cfg = ContextMappingConfig(pace_source="audio_bpm")
+    out: dict[int, object] = {}
+    for cut_id, position_s, segment_type, audio_id in cuts:
+        segs = segments.get(audio_id or -1, [])
+        seg = _segment_at(segs, position_s)
+        raw_section = (segment_type or (seg[2] if seg else "")).strip()
+        if not raw_section:
+            continue  # keine Section-Quelle -> keinen Kontext erfinden
+        mood, bpm = tracks.get(audio_id or -1, (None, None))
+        if seg is not None and seg[3] is not None:
+            p33, p66 = thresholds.get(audio_id or -1, (0.33, 0.66))
+            energy_level = quantize_tertile(seg[3], p33, p66)
+        else:
+            energy_level = "medium"
+        subpos = (
+            quantize_subtrack_position(position_s, seg[0], seg[1])
+            if seg is not None else "middle"
+        )
+        out[cut_id] = build_cut_context(
+            raw_section=raw_section,
+            raw_mood=str(mood or "neutral"),
+            raw_subtrack_position=subpos,
+            raw_energy_level=energy_level,
+            raw_motion_class="medium",  # keine Quelle in state.db — s. Docstring
+            cfg=cfg,
+            audio_bpm=bpm,
+        )
+    return out
+
+
+def _segment_at(
+    segments: list[tuple[float, float, str, float | None]],
+    position_s: float,
+) -> tuple[float, float, str, float | None] | None:
+    """Segment, das ``position_s`` enthaelt; sonst das letzte davor."""
+    found = None
+    for seg in segments:
+        if seg[0] <= position_s < seg[1]:
+            return seg
+        if seg[0] <= position_s:
+            found = seg
+    return found
+
+
 def _resolve_timeline_audio_path(
     session: object,
     project_root: Path | None,

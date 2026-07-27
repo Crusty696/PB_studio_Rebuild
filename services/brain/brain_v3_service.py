@@ -21,7 +21,7 @@ import secrets
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Mapping, Optional
 
 from services.brain import paths
 from services.brain.cold_start import BRIDGE_AXES
@@ -94,6 +94,7 @@ class BrainV3Service:
         weight_store: Optional[WeightStore] = None,
         project_root: Optional[Path] = None,
         session_factory=None,
+        pattern_notifier: Optional[Callable[[], object]] = None,
     ):
         self._brain_store = brain_store or BrainStore()
         self._weight_store = weight_store or WeightStore(self._brain_store.weights_path)
@@ -101,6 +102,9 @@ class BrainV3Service:
         self._reset_state = _ResetTokenState()
         self._project_root = Path(project_root) if project_root is not None else None
         self._session_factory = session_factory
+        # B-737: Brain-Feedback muss auch das Muster-Lernen anstossen. Default
+        # ist der modulweite MemoryUpdaterWorker; Tests injizieren einen Fake.
+        self._pattern_notifier = pattern_notifier
 
     def suggest(self, request: SuggestRequest) -> SuggestResponse:
         """Liefert Top-N Cut-Vorschlaege fuer eine Audio/Video-Kombination.
@@ -229,33 +233,75 @@ class BrainV3Service:
         self,
         request: FeedbackRequest,
         context: Optional[CutContext] = None,
+        axis_contributions: Optional[Mapping[str, float]] = None,
     ) -> FeedbackResponse:
         """Verarbeitet einen 4-Klick-Event.
 
         Args:
-            request: cut_id + rating ('perfect'|'fits'|'not_quite'|'no_match').
+            request: cut_id + rating ('perfect'|'fits'|'not_quite'|'no_match')
+                + optional ``axis_contributions``.
             context: optional CutContext fuer den Cut. Wenn None, wird ein
                 neutraler Default-Context verwendet (Cold-Start-Bucket).
+            axis_contributions: B-732 — Beitrag pro Bridge-Achse an genau
+                DIESER Entscheidung. Hat Vorrang vor
+                ``request.axis_contributions`` (Keyword-Aufrufer schlagen den
+                Request). Fehlt beides, laeuft der Klick bewusst in den
+                markierten Uniform-Pfad des FeedbackLoggers — der kann die
+                Kandidaten-Reihenfolge mathematisch nicht veraendern.
 
         Returns:
-            FeedbackResponse mit n_buckets_updated.
+            FeedbackResponse mit n_buckets_updated, credit_mode und
+            n_axes_credited.
         """
         ctx = context or CutContext()
         keys_by_level = context_keys(ctx)
+        contribs = axis_contributions
+        if contribs is None:
+            contribs = getattr(request, "axis_contributions", None)
         # H-12: Schreibpfad prozessweit serialisieren. Ohne Lock koennen
         # parallele feedback()-Aufrufe (a) auf einer geteilten Instanz die
         # BEGIN..COMMIT-Transaktion auf der gecachten Connection verschraenken
         # ("cannot start a transaction within a transaction") und (b) ueber
         # mehrere Instanzen WAL-Write-Contention auf weights.db erzeugen.
         with _FEEDBACK_WRITE_LOCK:
-            diag = self._feedback_logger.log_feedback(request.rating, keys_by_level)
+            diag = self._feedback_logger.log_feedback(
+                request.rating,
+                keys_by_level,
+                axis_contributions=contribs,
+            )
+        self._notify_pattern_learning()
         return FeedbackResponse(
             cut_id=request.cut_id,
             rating=request.rating,
             n_buckets_updated=diag.get("n_buckets_updated", 0),
             alpha_delta=diag.get("alpha_delta", 0.0),
             beta_delta=diag.get("beta_delta", 0.0),
+            credit_mode=diag.get("credit_mode", "uniform"),
+            n_axes_credited=int(diag.get("n_axes_credited", 0)),
         )
+
+    def _notify_pattern_learning(self) -> None:
+        """B-737: Brain-Feedback an das Muster-Lernen koppeln.
+
+        Der 4-Klick-Pfad schrieb bisher nur in ``weights.db``. Der
+        PatternAggregator (``mem_learned_pattern``) wurde ausschliesslich vom
+        Verdict-Pfad in ``ui/timeline.py`` angestossen — ein Klick im
+        Feedback-Popup oder in der Lern-Session erreichte ihn nie.
+
+        Best-effort: Fehler werden geloggt, nie geraised. Feedback darf die
+        UI nicht crashen, nur weil die Aggregation nicht bereitsteht.
+        """
+        notifier = self._pattern_notifier
+        try:
+            if notifier is None:
+                from workers.memory_updater import get_memory_updater
+
+                notifier = get_memory_updater().notify_feedback
+            notifier()
+        except Exception as exc:  # broad: Lernkreis darf UI nicht killen
+            logger.debug(
+                "BrainV3Service: Muster-Lernen nicht benachrichtigt: %s", exc,
+            )
 
     # ------------------------------------------------------------------
     # 3. LEARNING-SESSION
