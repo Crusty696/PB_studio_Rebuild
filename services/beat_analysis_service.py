@@ -9,6 +9,7 @@ dbn=False verhindert madmom-Abhaengigkeit.
 from __future__ import annotations
 
 import atexit
+import hashlib
 import logging
 import threading
 from pathlib import Path
@@ -25,6 +26,118 @@ CHUNK_DURATION_SEC = 600.0
 
 # Overlap zwischen Chunks fuer saubere Beat-Uebergaenge (5 Sekunden)
 CHUNK_OVERLAP_SEC = 5.0
+
+# ---------------------------------------------------------------------------
+# B-718: Gepinnte Artefakt-Identitaet fuer den beat_this-Checkpoint.
+#
+# ``beat_this.inference.load_checkpoint()`` deserialisiert die gecachte
+# ``beat_this-final0.ckpt`` per ``torch.load()``. Unter torch 1.12 (Projekt-
+# Stack) gibt es kein ``weights_only`` — ``torch.load`` entpickelt also und
+# ist damit eine Code-Execution-Flaeche: wer die Cache-Datei unter
+# ``~/.cache/torch/hub/checkpoints/`` ersetzt, fuehrt beim naechsten
+# Modell-Load beliebigen Python-Code im PB-Studio-Prozess aus.
+#
+# Vorbild im Repo: ``config/ffmpeg_identity.json`` + ``tools/verify_ffmpeg_identity.py``
+# pinnen die SHA256 der ausgelieferten Binaries. Hier wird analog die SHA256
+# des Checkpoints gepinnt und VOR dem Laden geprueft.
+#
+# Pin-Herkunft: SHA256 der real vorhandenen Datei
+# ``C:\Users\David_Lochmann\.cache\torch\hub\checkpoints\beat_this-final0.ckpt``
+# (81.058.141 Bytes, ermittelt 2026-07-27).
+BEAT_THIS_CHECKPOINT_FILENAME = "beat_this-final0.ckpt"
+BEAT_THIS_CHECKPOINT_SHA256 = (
+    "8C328B45F59D8DD3DFF219253FF6A8D6482BE57D0133A29140E2FEBBF8EB8331"
+)
+BEAT_THIS_CHECKPOINT_SIZE = 81058141
+
+
+def beat_this_checkpoint_path() -> Path:
+    """Pfad der gecachten beat_this-Checkpoint-Datei.
+
+    Entspricht exakt dem Ziel, das ``torch.hub.load_state_dict_from_url()``
+    in ``beat_this.inference.load_checkpoint()`` mit
+    ``file_name="beat_this-final0.ckpt"`` verwendet.
+    """
+    import torch
+    return Path(torch.hub.get_dir()) / "checkpoints" / BEAT_THIS_CHECKPOINT_FILENAME
+
+
+def _sha256_file(path: Path) -> str:
+    """SHA256 (uppercase hex) einer Datei, blockweise gelesen."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest().upper()
+
+
+def verify_beat_this_checkpoint(path: Path | str | None = None) -> dict:
+    """B-718: Prueft die Identitaet des beat_this-Checkpoints gegen den Pin.
+
+    Returns:
+        dict mit ``path``, ``exists``, ``expected_sha256``, ``actual_sha256``,
+        ``expected_size``, ``actual_size``, ``ok``, ``reason``.
+        ``ok`` ist nur True, wenn die Datei existiert UND der Hash passt.
+        Eine fehlende Datei ist ``ok=False`` mit ``reason="missing"`` —
+        der Aufrufer entscheidet, ob das ein Fehler ist (siehe
+        ``_enforce_beat_this_checkpoint_identity``).
+    """
+    ckpt = Path(path) if path is not None else beat_this_checkpoint_path()
+    exists = ckpt.is_file()
+    actual_sha = _sha256_file(ckpt) if exists else ""
+    actual_size = ckpt.stat().st_size if exists else 0
+    if not exists:
+        reason = "missing"
+        ok = False
+    elif actual_sha != BEAT_THIS_CHECKPOINT_SHA256:
+        reason = "sha256_mismatch"
+        ok = False
+    else:
+        reason = "ok"
+        ok = True
+    return {
+        "path": str(ckpt),
+        "exists": exists,
+        "expected_sha256": BEAT_THIS_CHECKPOINT_SHA256,
+        "actual_sha256": actual_sha,
+        "expected_size": BEAT_THIS_CHECKPOINT_SIZE,
+        "actual_size": actual_size,
+        "ok": ok,
+        "reason": reason,
+    }
+
+
+def _enforce_beat_this_checkpoint_identity() -> None:
+    """B-718: Muss VOR jedem ``torch.load()``-Pfad von beat_this laufen.
+
+    - Hash passt  -> still weiterlaufen.
+    - Hash falsch -> ``RuntimeError`` (klarer Fehler statt stillem Laden).
+    - Datei fehlt -> Warnung, aber weiterlaufen. Damit bleibt das bisherige
+      Verhalten (torch.hub-Download bzw. Fallback auf librosa bei fehlendem
+      Netz) unveraendert. Der erste Download laesst sich hier nicht vor dem
+      ``torch.load`` abfangen, weil beat_this Download und Deserialisierung
+      in einem Aufruf macht — das ist bewusst als Restrisiko dokumentiert.
+    """
+    report = verify_beat_this_checkpoint()
+    if report["reason"] == "sha256_mismatch":
+        raise RuntimeError(
+            "B-718: beat_this-Checkpoint-Identitaet verletzt — Laden abgebrochen. "
+            f"Datei: {report['path']} | erwartet SHA256={report['expected_sha256']} "
+            f"({report['expected_size']} Bytes) | vorgefunden "
+            f"SHA256={report['actual_sha256']} ({report['actual_size']} Bytes). "
+            "torch.load() deserialisiert diese Datei — ein veraenderter Checkpoint "
+            "kann beliebigen Code ausfuehren. Datei loeschen und erneut "
+            "herunterladen lassen oder den Pin in "
+            "services/beat_analysis_service.py bewusst aktualisieren."
+        )
+    if not report["exists"]:
+        logger.warning(
+            "B-718: beat_this-Checkpoint nicht im Cache (%s) — Download/Fallback "
+            "laeuft ungeprueft. Nach dem ersten Download greift die Hash-Pruefung.",
+            report["path"],
+        )
+        return
+    logger.debug("B-718: beat_this-Checkpoint-Hash verifiziert (%s)", report["path"])
 
 # M-21 FIX: Track temp files for cleanup on exit to prevent orphaned files
 _temp_files: set[str] = set()
@@ -140,6 +253,11 @@ class BeatAnalysisService:
                 return
             if torch.cuda.is_available():
                 logger.info("GPU-ZWANG: beat_this wird auf CUDA geladen (%s)", torch.cuda.get_device_name(0))
+            # B-718: Checkpoint-Identitaet PRUEFEN, bevor File2Beats ihn per
+            # torch.load() deserialisiert. Bewusst ausserhalb des folgenden
+            # try/except — dessen RuntimeError-Zweig wuerde die Fehlermeldung
+            # sonst faelschlich als "VRAM reicht nicht" maskieren.
+            _enforce_beat_this_checkpoint_identity()
             logger.info("Lade beat_this Modell (device=%s, dbn=False)...", self.device)
             try:
                 self._model = File2Beats(device=self.device, dbn=False)
