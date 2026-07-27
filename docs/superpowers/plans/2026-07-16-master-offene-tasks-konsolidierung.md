@@ -577,3 +577,15 @@ Decision: Vault
 - Evidenz:
   `docs/superpowers/synthesis/stab-0-b709-b738-evidenzmatrix-2026-07-27.md`.
 - Nächste einzige Task: `STAB-1 / B-727 Vertrauensgate`.
+
+### STAB-1 Laufstatus 2026-07-28
+
+- DB-Baseline und B-727-Negativkontrollen bestanden; B-727 bleibt
+  `code-fix-pending-live-verification`.
+- Command-Evidenzrunner Commit `2d204fd`; Fokus 6/6 grün.
+- Adversariales Review fand sechs Integritätslücken. Bug B-739 `in_progress`.
+- Syntax-Run war formal pass; Import-Run Exit 0. Beide gelten bis B-739-Fix
+  nicht als abschließende Gatebelege.
+- Genau nächste Task: `STAB-1 / B-739 Evidenzrunner-False-Pass`.
+- B-739 Code-Follow-up 2026-07-28: Fokus 19/19, echter detached Child,
+  Syntax und fokussiertes Ruff grün. Commit/Re-Review offen.

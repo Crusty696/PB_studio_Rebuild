@@ -8,6 +8,8 @@ from stability_manifest import (
     discover_protected_databases,
     run_evidenced_command,
     snapshot_relevant_processes,
+    validate_git_source,
+    write_blocked_manifest,
 )
 
 
@@ -49,13 +51,60 @@ def main() -> int:
     if not command:
         raise SystemExit("BLOCKED: no gate command supplied after --")
 
-    process_status = snapshot_relevant_processes()
+    source_status = validate_git_source(args.repo_root, args.baseline_commit)
+    if source_status["verdict"] != "pass":
+        manifest_path = write_blocked_manifest(
+            run_id=args.run_id,
+            baseline_commit=args.baseline_commit,
+            phase=args.phase,
+            command=command,
+            output_root=args.output_root,
+            source_status=source_status,
+            limits=source_status["limits"],
+        )
+        print(manifest_path)
+        return 1
+
+    try:
+        process_status = snapshot_relevant_processes()
+    except Exception as exc:
+        process_status = {
+            "capture_exit_code": 1,
+            "processes": [],
+            "limits": [f"{type(exc).__name__}: {exc}"],
+        }
+    if process_status["capture_exit_code"] != 0:
+        manifest_path = write_blocked_manifest(
+            run_id=args.run_id,
+            baseline_commit=args.baseline_commit,
+            phase=args.phase,
+            command=command,
+            output_root=args.output_root,
+            process_status=process_status,
+            source_status=source_status,
+            limits=[
+                *process_status.get("limits", []),
+                "Pre-command process snapshot failed",
+            ],
+        )
+        print(manifest_path)
+        return 1
     process_status["verdict"] = "caller-confirmed-no-pb-db-writer"
     databases = discover_protected_databases(
         repo_root=args.repo_root,
         appdata=args.appdata,
         runtime_project_roots=args.runtime_project_root,
+        include_missing=True,
     )
+
+    def rediscover_databases():
+        return discover_protected_databases(
+            repo_root=args.repo_root,
+            appdata=args.appdata,
+            runtime_project_roots=args.runtime_project_root,
+            include_missing=True,
+        )
+
     manifest_path = run_evidenced_command(
         run_id=args.run_id,
         baseline_commit=args.baseline_commit,
@@ -65,6 +114,8 @@ def main() -> int:
         databases=databases,
         output_root=args.output_root,
         process_status=process_status,
+        database_discovery=rediscover_databases,
+        source_status=source_status,
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     print(manifest_path)

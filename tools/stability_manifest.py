@@ -9,7 +9,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 SIDECAR_SUFFIXES = ("", "-wal", "-shm")
@@ -280,7 +280,7 @@ def capture_database(database: Path, *, backup_root: Path) -> dict[str, Any]:
     source_after = _component_snapshot(database)
     stable = _snapshots_equal(source_before, source_after)
     analysis = None
-    if stable:
+    if stable and backup["database"] is not None:
         consolidated = _consolidate_raw_bundle(Path(str(backup["database"])))
         backup["consolidated_database"] = str(consolidated.resolve())
         analysis = _analyze_consolidated_database(consolidated)
@@ -299,7 +299,8 @@ def capture_database(database: Path, *, backup_root: Path) -> dict[str, Any]:
 def snapshot_relevant_processes() -> dict[str, Any]:
     script = (
         "Get-CimInstance Win32_Process | "
-        "Where-Object {$_.Name -match '^(python|pythonw|pb_studio|ffmpeg|ffprobe)'} | "
+        "Where-Object {$_.Name -match "
+        "'^(python|pythonw|pb_studio|ffmpeg|ffprobe|ollama)'} | "
         "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine,CreationDate | "
         "ConvertTo-Json -Compress"
     )
@@ -318,6 +319,133 @@ def snapshot_relevant_processes() -> dict[str, Any]:
         "processes": processes,
         "limits": [] if result.returncode == 0 else [result.stderr.strip()],
     }
+
+
+def validate_git_source(repo_root: Path, baseline_commit: str) -> dict[str, Any]:
+    """Bind evidence to the exact clean Git tree that will execute the gate."""
+    try:
+        actual_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=repo_root,
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return {
+            "verdict": "blocked",
+            "expected_commit": baseline_commit,
+            "actual_commit": None,
+            "dirty_paths": [],
+            "limits": [f"Git source inspection failed: {type(exc).__name__}: {exc}"],
+        }
+    dirty_paths = [
+        line[3:] if len(line) > 3 else line
+        for line in status.splitlines()
+        if line.strip()
+    ]
+    limits: list[str] = []
+    if actual_commit != baseline_commit:
+        limits.append("Baseline commit does not match current HEAD")
+    if dirty_paths:
+        limits.append("Git worktree is not clean")
+    return {
+        "verdict": "pass" if not limits else "blocked",
+        "expected_commit": baseline_commit,
+        "actual_commit": actual_commit,
+        "dirty_paths": dirty_paths,
+        "limits": limits,
+    }
+
+
+def write_blocked_manifest(
+    *,
+    run_id: str,
+    baseline_commit: str,
+    phase: str,
+    command: list[str],
+    output_root: Path,
+    limits: Iterable[str],
+    source_status: dict[str, Any] | None = None,
+    process_status: dict[str, Any] | None = None,
+) -> Path:
+    """Persist a pre-command blocker without executing the gate command."""
+    started_at = _utc_now()
+    output_root.mkdir(parents=True, exist_ok=False)
+    stdout_path = output_root / "stdout.log"
+    stderr_path = output_root / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    manifest = {
+        "run_id": run_id,
+        "baseline_commit": baseline_commit,
+        "phase": phase,
+        "command": subprocess.list2cmdline(command),
+        "started_at": started_at,
+        "ended_at": _utc_now(),
+        "exit_code": 1,
+        "verdict": "blocked",
+        "source_status": source_status,
+        "process_status": process_status,
+        "db_before": {},
+        "db_after": {},
+        "database_analysis_before": {},
+        "database_analysis_after": {},
+        "artifacts": [],
+        "logs": [str(stdout_path.resolve()), str(stderr_path.resolve())],
+        "limits": list(limits),
+    }
+    manifest_path = output_root / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _absent_snapshot(database: Path) -> dict[str, dict[str, Any]]:
+    snapshot: dict[str, dict[str, Any]] = {}
+    for suffix in SIDECAR_SUFFIXES:
+        component = Path(f"{database}{suffix}")
+        key = "database" if not suffix else suffix.removeprefix("-")
+        snapshot[key] = {
+            "path": str(component.resolve()),
+            "exists": False,
+            "size": 0,
+            "mtime_ns": None,
+            "sha256": None,
+        }
+    return snapshot
+
+
+def _descendant_processes(
+    command_pid: int | None,
+    process_status: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if command_pid is None:
+        return []
+    processes = process_status.get("processes", [])
+    descendants: list[dict[str, Any]] = []
+    parent_ids = {command_pid}
+    while parent_ids:
+        generation = [
+            process
+            for process in processes
+            if process.get("ParentProcessId") in parent_ids
+            and process not in descendants
+        ]
+        descendants.extend(generation)
+        parent_ids = {
+            int(process["ProcessId"])
+            for process in generation
+            if process.get("ProcessId") is not None
+        }
+    return descendants
 
 
 def write_baseline_manifest(
@@ -400,37 +528,141 @@ def run_evidenced_command(
     output_root: Path,
     process_status: dict[str, Any],
     env: dict[str, str] | None = None,
+    database_discovery: Callable[[], Iterable[Path]] | None = None,
+    process_snapshotter: Callable[[], dict[str, Any]] | None = None,
+    source_status: dict[str, Any] | None = None,
 ) -> Path:
     """Run one gate while proving protected DB bytes and contents unchanged."""
     started_at = _utc_now()
     output_root.mkdir(parents=True, exist_ok=False)
+    manifest_path = output_root / "manifest.json"
+    stdout_path = output_root / "stdout.log"
+    stderr_path = output_root / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    skeleton = {
+        "run_id": run_id,
+        "baseline_commit": baseline_commit,
+        "phase": phase,
+        "command": subprocess.list2cmdline(command),
+        "started_at": started_at,
+        "ended_at": None,
+        "exit_code": 1,
+        "verdict": "blocked",
+        "source_status": source_status,
+        "process_status": {"before": process_status, "after": None},
+        "db_before": {},
+        "db_after": {},
+        "database_analysis_before": {},
+        "database_analysis_after": {},
+        "artifacts": [],
+        "logs": [str(stdout_path.resolve()), str(stderr_path.resolve())],
+        "limits": ["Run incomplete; final evidence was not written"],
+    }
+    manifest_path.write_text(
+        json.dumps(skeleton, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     before_root = output_root / "backups_before"
     after_root = output_root / "backups_after"
     before_root.mkdir()
-    database_paths = [Path(database).resolve() for database in databases]
-    before_captures = [
-        capture_database(database, backup_root=before_root)
-        for database in database_paths
-    ]
+    initial_paths = {
+        _resolved_casefold(Path(database)): Path(database).resolve()
+        for database in databases
+    }
+    errors: list[str] = []
+    before_by_source: dict[str, dict[str, Any]] = {}
+    for database in initial_paths.values():
+        try:
+            capture = capture_database(database, backup_root=before_root)
+            before_by_source[capture["source"]] = capture
+        except Exception as exc:
+            errors.append(
+                f"before capture {database}: {type(exc).__name__}: {exc}"
+            )
 
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    stdout_path = output_root / "stdout.log"
-    stderr_path = output_root / "stderr.log"
-    stdout_path.write_text(result.stdout, encoding="utf-8")
-    stderr_path.write_text(result.stderr, encoding="utf-8")
+    command_pid: int | None = None
+    command_exit_code = 1
+    command_stdout = ""
+    command_stderr = ""
+    process_before_ok = process_status.get("capture_exit_code", 0) == 0
+    command_started = not errors and process_before_ok
+    if command_started:
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            command_pid = process.pid
+            command_stdout, command_stderr = process.communicate()
+            command_exit_code = int(process.returncode)
+        except Exception as exc:
+            errors.append(f"command start/run: {type(exc).__name__}: {exc}")
+            command_stderr = f"{type(exc).__name__}: {exc}"
+    else:
+        errors.append("Command blocked by failed preflight evidence")
+    stdout_path.write_text(command_stdout, encoding="utf-8")
+    stderr_path.write_text(command_stderr, encoding="utf-8")
 
+    snapshotter = process_snapshotter or snapshot_relevant_processes
+    if command_started:
+        try:
+            process_after = snapshotter()
+        except Exception as exc:
+            errors.append(
+                f"post process snapshot: {type(exc).__name__}: {exc}"
+            )
+            process_after = {
+                "capture_exit_code": 1,
+                "processes": [],
+                "limits": [f"{type(exc).__name__}: {exc}"],
+            }
+    else:
+        process_after = {
+            "capture_exit_code": 0,
+            "processes": [],
+            "limits": [],
+        }
+    surviving_descendants = _descendant_processes(command_pid, process_after)
+
+    final_paths = dict(initial_paths)
+    if database_discovery is not None:
+        try:
+            for database in database_discovery():
+                resolved = Path(database).resolve()
+                final_paths[_resolved_casefold(resolved)] = resolved
+        except Exception as exc:
+            errors.append(
+                f"after database discovery: {type(exc).__name__}: {exc}"
+            )
     after_root.mkdir()
-    after_captures = [
-        capture_database(database, backup_root=after_root)
-        for database in database_paths
-    ]
+    after_by_source: dict[str, dict[str, Any]] = {}
+    for database in final_paths.values():
+        try:
+            capture = capture_database(database, backup_root=after_root)
+            after_by_source[capture["source"]] = capture
+        except Exception as exc:
+            errors.append(f"after capture {database}: {type(exc).__name__}: {exc}")
+
+    for database in final_paths.values():
+        source = str(database.resolve())
+        if source not in before_by_source:
+            absent = _absent_snapshot(database)
+            before_by_source[source] = {
+                "source": source,
+                "stable": True,
+                "source_before": absent,
+                "source_after": absent,
+                "backup": {},
+                "analysis": None,
+            }
+
+    before_captures = list(before_by_source.values())
+    after_captures = list(after_by_source.values())
     db_before = {
         item["source"]: item["source_after"] for item in before_captures
     }
@@ -451,6 +683,17 @@ def run_evidenced_command(
     limits = [
         "Original SQLite databases were never opened; logical analysis used raw copies."
     ]
+    limits.extend(process_status.get("limits", []))
+    limits.extend(process_after.get("limits", []))
+    limits.extend(errors)
+    if not process_before_ok:
+        limits.append("Pre-command process snapshot failed")
+    if process_after.get("capture_exit_code", 0) != 0:
+        limits.append("Post-command process snapshot failed")
+    if surviving_descendants:
+        limits.append("Command left relevant descendant processes running")
+    if set(final_paths) != set(initial_paths):
+        limits.append("Protected database set changed")
     if not captures_stable:
         limits.append("Protected database changed during evidence capture")
     if not bytes_unchanged:
@@ -458,7 +701,12 @@ def run_evidenced_command(
     if not logical_unchanged:
         limits.append("Protected database logical content changed")
     passed = (
-        result.returncode == 0
+        command_exit_code == 0
+        and command_started
+        and not errors
+        and process_before_ok
+        and process_after.get("capture_exit_code", 0) == 0
+        and not surviving_descendants
         and captures_stable
         and bytes_unchanged
         and logical_unchanged
@@ -476,9 +724,15 @@ def run_evidenced_command(
         "command": subprocess.list2cmdline(command),
         "started_at": started_at,
         "ended_at": _utc_now(),
-        "exit_code": result.returncode,
+        "exit_code": command_exit_code,
         "verdict": "pass" if passed else "fail",
-        "process_status": process_status,
+        "source_status": source_status,
+        "process_status": {
+            "before": process_status,
+            "after": process_after,
+            "command_pid": command_pid,
+            "surviving_descendants": surviving_descendants,
+        },
         "db_before": db_before,
         "db_after": db_after,
         "database_analysis_before": analysis_before,
@@ -487,7 +741,6 @@ def run_evidenced_command(
         "logs": [str(stdout_path.resolve()), str(stderr_path.resolve())],
         "limits": limits,
     }
-    manifest_path = output_root / "manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

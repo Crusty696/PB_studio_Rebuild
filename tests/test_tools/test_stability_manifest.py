@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import time
 
 
 def _create_db(path: Path, *, value: str = "value") -> sqlite3.Connection:
@@ -15,6 +16,30 @@ def _create_db(path: Path, *, value: str = "value") -> sqlite3.Connection:
     connection.execute("INSERT INTO sample (status) VALUES (?)", (value,))
     connection.commit()
     return connection
+
+
+def _init_git_repo(repo: Path) -> str:
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "stability@example.invalid"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Stability Test"],
+        cwd=repo,
+        check=True,
+    )
+    tracked = repo / "tracked.py"
+    tracked.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "baseline"], cwd=repo, check=True)
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+    ).strip()
 
 
 def test_discover_protected_databases_without_importing_product_modules(tmp_path):
@@ -195,9 +220,21 @@ def test_run_evidenced_command_fails_if_temp_database_changes(tmp_path):
 def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
     repo = tmp_path / "repo"
     appdata = tmp_path / "appdata"
+    _init_git_repo(repo)
     source = repo / "pb_studio.db"
     connection = _create_db(source)
     connection.close()
+    subprocess.run(["git", "add", "pb_studio.db"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "tracked database"],
+        cwd=repo,
+        check=True,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+    ).strip()
     output = tmp_path / "evidence"
 
     result = subprocess.run(
@@ -207,7 +244,7 @@ def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
             "--run-id",
             "cli-run",
             "--baseline-commit",
-            "d" * 40,
+            head,
             "--phase",
             "STAB-1",
             "--repo-root",
@@ -230,4 +267,488 @@ def test_stability_run_cli_executes_gate_and_writes_manifest(tmp_path):
     assert result.returncode == 0, result.stderr
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["verdict"] == "pass"
+    assert manifest["source_status"]["actual_commit"] == head
+    assert manifest["source_status"]["dirty_paths"] == []
     assert "cli-ok" in (output / "stdout.log").read_text(encoding="utf-8")
+
+
+def test_run_evidenced_command_fails_when_protected_database_is_created(
+    tmp_path,
+    monkeypatch,
+):
+    from tools.stability_manifest import run_evidenced_command
+
+    source = tmp_path / "repo" / "pb_studio.db"
+    source.parent.mkdir()
+    monkeypatch.chdir(tmp_path)
+    mutation = (
+        "import sqlite3; "
+        f"c=sqlite3.connect({str(source)!r}); "
+        "c.execute('CREATE TABLE created (id INTEGER PRIMARY KEY)'); "
+        "c.commit(); c.close()"
+    )
+
+    manifest_path = run_evidenced_command(
+        run_id="run-command-create",
+        baseline_commit="c" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", mutation],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=tmp_path / "evidence",
+        process_status={
+            "capture_exit_code": 0,
+            "verdict": "test",
+            "processes": [],
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "Protected database bytes changed" in manifest["limits"]
+    assert not (tmp_path / "None").exists()
+    assert not (tmp_path / "consolidated.db").exists()
+
+
+def test_run_evidenced_command_fails_when_protected_database_is_deleted(
+    tmp_path,
+    monkeypatch,
+):
+    from tools.stability_manifest import run_evidenced_command
+
+    source = tmp_path / "project" / "pb_studio.db"
+    monkeypatch.chdir(tmp_path)
+    connection = _create_db(source)
+    connection.close()
+    deletion = f"from pathlib import Path; Path({str(source)!r}).unlink()"
+
+    manifest_path = run_evidenced_command(
+        run_id="run-command-delete",
+        baseline_commit="b" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", deletion],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=tmp_path / "evidence",
+        process_status={
+            "capture_exit_code": 0,
+            "verdict": "test",
+            "processes": [],
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "Protected database bytes changed" in manifest["limits"]
+    assert not (tmp_path / "None").exists()
+    assert not (tmp_path / "consolidated.db").exists()
+
+
+def test_run_evidenced_command_blocks_failed_process_snapshot(tmp_path):
+    from tools.stability_manifest import run_evidenced_command
+
+    manifest_path = run_evidenced_command(
+        run_id="run-process-snapshot-fail",
+        baseline_commit="a" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('command-ok')"],
+        cwd=tmp_path,
+        databases=[],
+        output_root=tmp_path / "evidence",
+        process_status={
+            "capture_exit_code": 1,
+            "verdict": "failed",
+            "processes": [],
+            "limits": ["process probe failed"],
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "process probe failed" in manifest["limits"]
+
+
+def test_validate_git_source_rejects_wrong_commit_and_dirty_tree(tmp_path):
+    from tools.stability_manifest import validate_git_source
+
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    tracked = repo / "tracked.py"
+
+    assert validate_git_source(repo, head)["verdict"] == "pass"
+    assert validate_git_source(repo, "0" * 40)["verdict"] == "blocked"
+    tracked.write_text("VALUE = 2\n", encoding="utf-8")
+    dirty = validate_git_source(repo, head)
+    assert dirty["verdict"] == "blocked"
+    assert "tracked.py" in dirty["dirty_paths"]
+
+
+def test_cli_blocks_before_command_on_head_mismatch(tmp_path):
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    marker = tmp_path / "command-ran"
+    output = tmp_path / "evidence"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "wrong-head",
+            "--baseline-commit",
+            "0" * 40,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(marker)!r}).touch()",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not marker.exists()
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "blocked"
+    assert "Baseline commit does not match current HEAD" in manifest["limits"]
+
+
+def test_cli_fails_when_new_outputs_database_appears(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    source = repo / "outputs" / "new-project" / "pb_studio.db"
+    output = tmp_path / "evidence"
+    mutation = (
+        "import pathlib, sqlite3; "
+        f"p=pathlib.Path({str(source)!r}); p.parent.mkdir(parents=True); "
+        "c=sqlite3.connect(p); c.execute('CREATE TABLE created(id INTEGER)'); "
+        "c.commit(); c.close()"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "new-output-db",
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            mutation,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "Protected database set changed" in manifest["limits"]
+
+
+def test_runner_preserves_manifest_on_after_capture_exception(tmp_path, monkeypatch):
+    import tools.stability_manifest as stability_manifest
+
+    source = tmp_path / "project" / "pb_studio.db"
+    connection = _create_db(source)
+    connection.close()
+    real_capture = stability_manifest.capture_database
+    calls = 0
+
+    def fail_second_capture(database, *, backup_root):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("capture exploded")
+        return real_capture(database, backup_root=backup_root)
+
+    monkeypatch.setattr(
+        stability_manifest,
+        "capture_database",
+        fail_second_capture,
+    )
+    output = tmp_path / "evidence"
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="after-capture-error",
+        baseline_commit="9" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('command-ok')"],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=output,
+        process_status={"capture_exit_code": 0, "processes": [], "limits": []},
+        process_snapshotter=lambda: {
+            "capture_exit_code": 0,
+            "processes": [],
+            "limits": [],
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "command-ok" in (output / "stdout.log").read_text(encoding="utf-8")
+    assert any("after capture" in limit for limit in manifest["limits"])
+
+
+def test_runner_fails_when_command_has_surviving_descendant(
+    tmp_path,
+    monkeypatch,
+):
+    import tools.stability_manifest as stability_manifest
+
+    original_popen = subprocess.Popen
+    command_pid: list[int] = []
+
+    def recording_popen(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        command_pid.append(process.pid)
+        return process
+
+    monkeypatch.setattr(stability_manifest.subprocess, "Popen", recording_popen)
+
+    def descendant_snapshot():
+        return {
+            "capture_exit_code": 0,
+            "processes": [
+                {
+                    "ProcessId": 987654,
+                    "ParentProcessId": command_pid[0],
+                    "Name": "python.exe",
+                    "CommandLine": "synthetic surviving child",
+                }
+            ],
+            "limits": [],
+        }
+
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="surviving-child",
+        baseline_commit="8" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('parent-done')"],
+        cwd=tmp_path,
+        databases=[],
+        output_root=tmp_path / "evidence",
+        process_status={"capture_exit_code": 0, "processes": [], "limits": []},
+        process_snapshotter=descendant_snapshot,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "Command left relevant descendant processes running" in manifest["limits"]
+    assert manifest["process_status"]["surviving_descendants"][0]["ProcessId"] == 987654
+
+
+def test_cli_blocks_before_command_on_dirty_tracked_source(tmp_path):
+    repo = tmp_path / "repo"
+    head = _init_git_repo(repo)
+    (repo / "tracked.py").write_text("VALUE = 2\n", encoding="utf-8")
+    marker = tmp_path / "command-ran"
+    output = tmp_path / "evidence"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[2] / "tools" / "stability_run.py"),
+            "--run-id",
+            "dirty-source",
+            "--baseline-commit",
+            head,
+            "--phase",
+            "STAB-1",
+            "--repo-root",
+            str(repo),
+            "--appdata",
+            str(tmp_path / "appdata"),
+            "--output-root",
+            str(output),
+            "--confirmed-no-pb-db-writer",
+            "--",
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(marker)!r}).touch()",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not marker.exists()
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "blocked"
+    assert "Git worktree is not clean" in manifest["limits"]
+    assert "tracked.py" in manifest["source_status"]["dirty_paths"]
+
+
+def test_runner_blocks_and_writes_manifest_on_before_capture_exception(
+    tmp_path,
+    monkeypatch,
+):
+    import tools.stability_manifest as stability_manifest
+
+    source = tmp_path / "project" / "pb_studio.db"
+    connection = _create_db(source)
+    connection.close()
+    marker = tmp_path / "command-ran"
+    output = tmp_path / "evidence"
+
+    def fail_capture(database, *, backup_root):
+        assert (output / "manifest.json").is_file()
+        raise OSError("capture exploded")
+
+    monkeypatch.setattr(stability_manifest, "capture_database", fail_capture)
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="before-capture-error",
+        baseline_commit="7" * 40,
+        phase="STAB-1",
+        command=[
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(marker)!r}).touch()",
+        ],
+        cwd=tmp_path,
+        databases=[source],
+        output_root=output,
+        process_status={"capture_exit_code": 0, "processes": [], "limits": []},
+        process_snapshotter=lambda: {
+            "capture_exit_code": 0,
+            "processes": [],
+            "limits": [],
+        },
+    )
+
+    assert not marker.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert any("before capture" in limit for limit in manifest["limits"])
+
+
+def test_runner_preserves_manifest_when_post_process_snapshot_raises(tmp_path):
+    import tools.stability_manifest as stability_manifest
+
+    def explode_snapshot():
+        raise OSError("CIM exploded")
+
+    output = tmp_path / "evidence"
+    manifest_path = stability_manifest.run_evidenced_command(
+        run_id="post-process-error",
+        baseline_commit="5" * 40,
+        phase="STAB-1",
+        command=[sys.executable, "-c", "print('command-ok')"],
+        cwd=tmp_path,
+        databases=[],
+        output_root=output,
+        process_status={"capture_exit_code": 0, "processes": [], "limits": []},
+        process_snapshotter=explode_snapshot,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["verdict"] == "fail"
+    assert "command-ok" in (output / "stdout.log").read_text(encoding="utf-8")
+    assert any("post process snapshot" in limit for limit in manifest["limits"])
+
+
+def test_snapshot_query_includes_ollama(monkeypatch):
+    import tools.stability_manifest as stability_manifest
+
+    seen_script: list[str] = []
+
+    def fake_run(command, **kwargs):
+        seen_script.append(command[-1])
+        return subprocess.CompletedProcess(command, 0, "[]", "")
+
+    monkeypatch.setattr(stability_manifest.subprocess, "run", fake_run)
+    result = stability_manifest.snapshot_relevant_processes()
+
+    assert result["capture_exit_code"] == 0
+    assert "ollama" in seen_script[0]
+
+
+def test_runner_fails_on_real_detached_python_child(tmp_path):
+    import tools.stability_manifest as stability_manifest
+
+    stop = tmp_path / "stop"
+    ready = tmp_path / "ready"
+    exited = tmp_path / "exited"
+    child_script = tmp_path / "detached_child.py"
+    child_script.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "import sys\n"
+        "import time\n"
+        "stop, ready, exited = map(Path, sys.argv[1:4])\n"
+        "ready.write_text(str(os.getpid()), encoding='utf-8')\n"
+        "deadline = time.time() + 30\n"
+        "while not stop.exists() and time.time() < deadline:\n"
+        "    time.sleep(0.05)\n"
+        "exited.touch()\n",
+        encoding="utf-8",
+    )
+    parent_code = (
+        "import subprocess, sys, time; "
+        f"ready={str(ready)!r}; "
+        "p=subprocess.Popen("
+        f"[sys.executable,{str(child_script)!r},{str(stop)!r},ready,{str(exited)!r}],"
+        "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+        "stderr=subprocess.DEVNULL,close_fds=True,"
+        "creationflags=subprocess.DETACHED_PROCESS|"
+        "subprocess.CREATE_NEW_PROCESS_GROUP); "
+        "deadline=time.time()+10; "
+        "exec(\"while not __import__('pathlib').Path(ready).exists() "
+        "and time.time()<deadline:\\n time.sleep(0.05)\"); "
+        "print(p.pid)"
+    )
+    try:
+        manifest_path = stability_manifest.run_evidenced_command(
+            run_id="real-detached-child",
+            baseline_commit="6" * 40,
+            phase="STAB-1",
+            command=[sys.executable, "-c", parent_code],
+            cwd=tmp_path,
+            databases=[],
+            output_root=tmp_path / "evidence",
+            process_status={
+                "capture_exit_code": 0,
+                "processes": [],
+                "limits": [],
+            },
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["verdict"] == "fail"
+        assert (
+            "Command left relevant descendant processes running"
+            in manifest["limits"]
+        )
+        child_pid = int(ready.read_text(encoding="utf-8"))
+        assert any(
+            process["ProcessId"] == child_pid
+            for process in manifest["process_status"]["surviving_descendants"]
+        )
+    finally:
+        stop.touch()
+        deadline = time.time() + 10
+        while not exited.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        assert exited.exists(), "detached test child did not exit cooperatively"

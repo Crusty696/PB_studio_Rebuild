@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5e1e7130ebec4267a63782ac2d924674",
+  "recorded_at": "2026-07-27T22:48:58+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "STAB-1 Runner konnte trotz neu erzeugter oder geloeschter DB, falschem SHA, Capturefehler oder detached Kindprozess falsches Pass bzw. keine Evidenz liefern.",
+  "cause": "Runner behandelte Gate als linearen Command statt als fail-closed State-Machine mit fruehem Manifest, Git-Bindung, Vor-/Nach-Inventar und Prozessnachweis.",
+  "rule": "Stabilitaetsrunner fail-closed bauen: Source vor Command validieren, Manifest/Logs sofort anlegen, DB-Inventar vor/nach als Union vergleichen, Capturefehler finalisieren, Command-Descendants und Prozessprobe blockierend auswerten.",
+  "applies_to": "STAB-1 bis STAB-7 Evidenzrunner und alle automatisierten Release-/Live-Gates"
+}
