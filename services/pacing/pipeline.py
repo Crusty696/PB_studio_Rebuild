@@ -27,6 +27,29 @@ if TYPE_CHECKING:
 # zu umgehen.
 STEER_BOOST_BONUS = 0.5
 
+# B-707 Befund 3: Mischgewicht Brain-V3 vs. Pacing-Soft-Score.
+#   final = brain_weight * brain_score + (1 - brain_weight) * pacing_soft_score
+# Vorher wurde `BrainV3Reranker(...)` ohne `brain_weight` konstruiert -> Default
+# 1.0 -> der Pacing-Soft-Score (15 Terme, alle auf echte Audio-/Clip-Analyse
+# verdrahtet) wurde beim Ranking VOLLSTAENDIG verworfen.
+#
+# Begruendung fuer 0.3 (strukturell, NICHT empirisch gemessen):
+#   - Der Brain-Score ist ein gewichtetes Mittel ueber 17 Achsen. 10 davon sind
+#     reine Audio-Achsen und 1 (scene_cut_weight) ebenfalls — sie beschreiben
+#     den Cut, nicht den Clip, und sind ueber die Kandidaten eines Cuts
+#     konstant. Nach dem Adapter-Fix tragen hoechstens 6 Achsen
+#     clip-individuelles Signal. Der Brain-Score kann also nur ueber ~1/3
+#     seiner Achsen ueberhaupt zwischen Kandidaten unterscheiden.
+#   - Der Pacing-Soft-Score ist der eingefahrene, ueber Profile
+#     (config/pacing_weights/*.yaml) kalibrierte Pfad.
+#   => Brain justiert nach, Pacing entscheidet. 0.3 < 0.5 haelt Pacing in
+#      jedem Fall dominant; der Wert ist ueber das Setting
+#      `pacing.brain_v3_weight` justierbar, ohne Code-Aenderung.
+# Ehrlich dazu: ein "optimaler" Wert laesst sich nur aus echten Auto-Edit-Laeufen
+# mit Nutzer-Feedback bestimmen. 0.3 ist die konservative Startposition, keine
+# gemessene Groesse.
+DEFAULT_BRAIN_V3_WEIGHT = 0.3
+
 
 @dataclass
 class StageResult:
@@ -102,6 +125,9 @@ class PacingPipeline:
         use_brain_v3: bool = False,
         brain_v3_reranker: "object | None" = None,
         brain_v3_min_confidence: float = 0.0,
+        # B-707 Befund 3: None -> Setting `pacing.brain_v3_weight`, sonst
+        # DEFAULT_BRAIN_V3_WEIGHT.
+        brain_v3_weight: float | None = None,
     ) -> None:
         self._scorer = scorer or PacingScorer(weights_profile="default")
         self._rules = self._load_rules(rules_path)
@@ -113,6 +139,7 @@ class PacingPipeline:
         self._sequence_idx: int = 0
         self._use_brain_v3 = bool(use_brain_v3)
         self._brain_v3_min_confidence = float(brain_v3_min_confidence)
+        self._brain_v3_weight = self._resolve_brain_v3_weight(brain_v3_weight)
         self._brain_v3_reranker = brain_v3_reranker
         if self._use_brain_v3 and self._brain_v3_reranker is None:
             try:
@@ -123,7 +150,17 @@ class PacingPipeline:
                 store = BrainStore()
                 self._brain_v3_reranker = BrainV3Reranker(
                     WeightStore(store.weights_path),
+                    # B-707 Befund 3: ohne dieses Argument griff der
+                    # Reranker-Default 1.0 und warf den Pacing-Score weg.
+                    brain_weight=self._brain_v3_weight,
                     min_confidence=self._brain_v3_min_confidence,
+                )
+                logger.info(
+                    "Brain-V3-Reranker: brain_weight=%.2f "
+                    "(Pacing-Anteil %.2f), min_confidence=%.2f",
+                    self._brain_v3_weight,
+                    1.0 - self._brain_v3_weight,
+                    self._brain_v3_min_confidence,
                 )
             except Exception as exc:
                 logger.warning(
@@ -131,6 +168,39 @@ class PacingPipeline:
                     "Pacing nutzt Legacy-Score: %s",
                     exc,
                 )
+
+    @staticmethod
+    def _resolve_brain_v3_weight(explicit: float | None) -> float:
+        """Mischgewicht bestimmen: Argument > Setting > DEFAULT_BRAIN_V3_WEIGHT.
+
+        Ein ungueltiger Wert (ausserhalb [0,1] oder nicht numerisch) faellt auf
+        den Default zurueck statt den Pacing-Lauf zu killen.
+        """
+        candidates: list[Any] = []
+        if explicit is not None:
+            candidates.append(explicit)
+        else:
+            try:
+                from services.settings_store import get_settings_store
+
+                candidates.append(get_settings_store().get_nested(
+                    "pacing", "brain_v3_weight",
+                    default=DEFAULT_BRAIN_V3_WEIGHT,
+                ))
+            except Exception as exc:  # noqa: BLE001 — Setting darf nie crashen
+                logger.debug("brain_v3_weight-Setting nicht lesbar: %s", exc)
+        for raw in candidates:
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 <= value <= 1.0:
+                return value
+            logger.warning(
+                "brain_v3_weight=%r ausserhalb [0,1] — nutze Default %.2f",
+                raw, DEFAULT_BRAIN_V3_WEIGHT,
+            )
+        return DEFAULT_BRAIN_V3_WEIGHT
 
     def reset_sequence(self, run_id: int | None = None) -> None:
         """Reset the internal sequence counter. Call between runs when reusing a pipeline.
