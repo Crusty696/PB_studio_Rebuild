@@ -9,6 +9,7 @@ import os
 import sys
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -109,32 +110,51 @@ def main():
     env["VIRTUAL_ENV"] = str(VENV_DIR)
     env["PATH"] = str(VENV_DIR / "Scripts") + os.pathsep + env.get("PATH", "")
     
+    # B-711: Laufzeit-Invarianten identisch zu start_pb_studio.bat (kanonisch).
     # NVIDIA GTX 1060 Fix: Lazy Loading für CUDA Module
     env["CUDA_MODULE_LOADING"] = "LAZY"
+    # DG-001 / Surface Book 2: Video-Encode muss NVENC nutzen.
+    # Kein libx264-CPU-Fallback bei Proxy/Export/Convert.
+    env["PB_REQUIRE_NVENC"] = "1"
+    # B-215 Fix: OpenMP/MKL Doppel-Init verhindern (STATUS_STACK_BUFFER_OVERRUN).
+    env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+    env["OMP_NUM_THREADS"] = "4"
+    env["MKL_NUM_THREADS"] = "4"
+
+    # stderr live in Datei schreiben (wie die .bat), statt erst nach Prozessende
+    # aus einer PIPE lesbar zu sein.
+    err_log = PROJECT_DIR / "outputs" / f"app_run_{datetime.now():%Y-%m-%d_%H%M%S}_err.log"
+    err_log.parent.mkdir(parents=True, exist_ok=True)
+    print(f"  Err-Log: {err_log}")
 
     try:
-        result = subprocess.run(
-            [str(VENV_PYTHON), str(MAIN_PY)],
-            cwd=str(PROJECT_DIR),
-            env=env,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        with open(err_log, "w", encoding="utf-8", errors="replace") as err_handle:
+            result = subprocess.run(
+                [str(VENV_PYTHON), str(MAIN_PY)],
+                cwd=str(PROJECT_DIR),
+                env=env,
+                stderr=err_handle,
+            )
         if result.returncode != 0:
             print(f"\n  App beendet mit Exit-Code: {result.returncode}")
             # Crash-Log schreiben
-            if result.stderr:
+            try:
+                stderr_text = err_log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                stderr_text = ""
+            if stderr_text:
                 CRASH_LOG.parent.mkdir(parents=True, exist_ok=True)
                 with open(CRASH_LOG, "w", encoding="utf-8") as f:
                     f.write(f"Exit-Code: {result.returncode}\n\n")
-                    f.write(result.stderr)
+                    f.write(stderr_text)
                 print(f"  Crash-Log: {CRASH_LOG}")
                 # Letzte 10 Zeilen stderr anzeigen
-                lines = result.stderr.strip().split("\n")
+                lines = stderr_text.strip().split("\n")
                 for line in lines[-10:]:
                     print(f"  {line}")
+            # B-712: Exit-Code der App durchreichen, damit Crashes fuer
+            # Automatisierung/CI sichtbar sind.
+            sys.exit(result.returncode)
     except KeyboardInterrupt:
         print("\n  App durch Benutzer beendet.")
     except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
