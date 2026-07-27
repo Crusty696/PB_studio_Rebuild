@@ -42,27 +42,22 @@ from services.brain.weight_store import WeightStore
 logger = logging.getLogger(__name__)
 
 
-# B-707 Befund 2: Bridge-Achsen, fuer die es in der Pacing-Pipeline
-# STRUKTURELL kein pro-Clip-Signal gibt.
+# B-736: Bridge-Achsen, die AUSSCHLIESSLICH die Musikstelle beschreiben.
 #
-# - brightness/color_temp: es existiert nirgends eine per-Scene-Bild-Statistik.
-#   `scenes` hat kein brightness/saturation/color_temp (database/models.py:
-#   250-282); die einzige `brightness`-Spalte im Schema haengt an
-#   `timeline_entries` und ist ein EDIT-Parameter, keine Analyse.
-# - scene_cut_weight: liest ausschliesslich ctx.raw_audio_features["on_beat"] —
-#   Audio-Seite, per Definition fuer alle Kandidaten eines Cuts gleich.
-# - die 10 Audio-Achsen: dito, sie beschreiben den Cut, nicht den Clip.
+# Sie sind fuer alle Kandidaten EINES Cuts gleich — das ist keine Luecke,
+# sondern ihre Definition (`bridge_dimensions._compute_beat_weight` & Co.
+# lesen nur `ctx.raw_audio_features`, nie den Clip). Innerhalb eines Cuts
+# aendern sie die Rangfolge deshalb nicht; ueber CUTS HINWEG unterscheiden
+# sie sehr wohl (Drop vs. Breakdown) und sie gehen ins Credit-Assignment der
+# Lernschleife ein.
 #
-# Diese Achsen sind damit KONSTANT ueber die Kandidaten eines Cuts. Konstante
-# Summanden verschieben den Score nur, sie aendern die Reihenfolge nicht — sie
-# "verwaessern" das Ranking also nicht. Sie duerfen aber auch nicht als
-# Bewertung durchgehen: `RerankedCandidate.no_signal_axes` markiert sie
-# explizit, damit UI/Audit sie nicht als bewertete Achse liest.
-#
-# (Die Achsen ganz aus dem gewichteten Mittel zu nehmen wuerde
-# `services/brain/scorer.py` bzw. `bridge_dimensions.py` erfordern — beide
-# liegen ausserhalb des fuer diese Aufgabe freigegebenen Datei-Sets.)
-STRUCTURAL_NO_SIGNAL_AXES: frozenset[str] = frozenset({
+# Bis B-736 liefen sie mangels Quelle auf dem konstanten 0.5-Fallback aus
+# `BridgeDimensions.compute`. Jetzt speist `_build_cut_context_from_audio`
+# sie aus `beatgrids` + `av_pacing_data` am Cut-Zeitpunkt. Der Name der
+# Konstante bleibt fuer die Kompatibilitaet mit B-707 erhalten, sie ist aber
+# nur noch die OBERGRENZE: `_cut_no_signal_axes` streicht jede Achse, fuer
+# die der AudioContext einen echten Messwert liefert.
+CUT_LEVEL_AXES: frozenset[str] = frozenset({
     "beat_weight",
     "onset_weight",
     "kick_weight",
@@ -72,9 +67,54 @@ STRUCTURAL_NO_SIGNAL_AXES: frozenset[str] = frozenset({
     "energy_threshold",
     "onset_sensitivity",
     "scene_cut_weight",
+})
+
+# Achsen, die Clip UND Musikstelle gegeneinander bewerten. Sie brauchen auf
+# BEIDEN Seiten ein Signal; fehlt eines, sind sie ohne Aussage.
+#   brightness_match_weight  = 1 - |clip.brightness - spectral_centroid_norm|
+#   color_temp_match_weight  = 1 - |clip.color_temp - mood_target| / 2
+# Bis B-734 fehlte die Clip-Seite komplett (keine per-Scene-Bildstatistik im
+# Schema); seit Migration f2a3b4c5d6e7 liefert `struct_clip_tags`
+# avg_brightness/avg_saturation/color_temp aus echten Keyframe-Messungen.
+COUPLED_VISUAL_AXES: frozenset[str] = frozenset({
     "brightness_match_weight",
     "color_temp_match_weight",
 })
+
+# Rueckwaerts-kompatibler Alias (B-707). Enthaelt jetzt die Vereinigung, wird
+# aber nicht mehr pauschal angewandt — siehe `_cut_no_signal_axes`.
+STRUCTURAL_NO_SIGNAL_AXES: frozenset[str] = CUT_LEVEL_AXES | COUPLED_VISUAL_AXES
+
+# Mapping Bridge-Achse -> Key in `raw_audio_features` -> AudioContext-Feld.
+# Ein `None`-Feld heisst "Quelle fehlt fuer diesen Track" -> Key wird NICHT
+# gesetzt -> BridgeDimensions faellt auf 0.5 zurueck UND die Achse wird als
+# `no_signal` gemeldet. Ohne diese Meldung waere eine Nicht-Messung von einer
+# Messung, die zufaellig 0.5 ergibt, nicht unterscheidbar.
+_AUDIO_AXIS_SOURCES: tuple[tuple[str, str, str], ...] = (
+    ("beat_weight", "beat_strength", "at_beat_strength"),
+    ("onset_weight", "onset_strength", "at_onset_strength"),
+    ("kick_weight", "kick_present", "at_kick_strength"),
+    ("snare_weight", "snare_present", "at_snare_strength"),
+    ("hihat_weight", "hihat_present", "at_hihat_strength"),
+    ("onset_sensitivity", "onset_sensitivity", "at_onset_density"),
+    ("scene_cut_weight", "on_beat", "at_on_beat"),
+)
+
+
+def _opt_metric(clip_feat: Any, name: str) -> Optional[float]:
+    """Gemessene Bildmetrik vom ClipFeatures-Objekt, oder None.
+
+    Ein fehlendes Attribut (aelteres ClipFeatures-Stub in Tests) und ein
+    NULL-Wert aus der DB sind hier bewusst dasselbe: kein Messwert.
+    """
+    raw = getattr(clip_feat, name, None)
+    if raw is None:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return None if val != val else val  # NaN -> kein Messwert
 
 
 @dataclass
@@ -135,11 +175,9 @@ class BrainV3Reranker:
             Liste `RerankedCandidate`, sortiert absteigend nach `final_score`.
         """
         cut_context = self._build_cut_context_from_audio(ctx, recent_clip_ids)
-        # B-707: ohne Audio-Mood-Prototyp kann `semantic_match_weight` nicht
-        # bewerten (BridgeDimensions gibt dann fuer alle 0.5 zurueck).
-        ctx_missing_axes: frozenset[str] = frozenset()
-        if "mood_prototype" not in (cut_context.raw_audio_features or {}):
-            ctx_missing_axes = frozenset({"semantic_match_weight"})
+        # B-736: welche Achsen fuer DIESEN Cut ohne Audio-Signal bleiben —
+        # einmal pro Cut, nicht pro Kandidat.
+        ctx_missing_axes = self._cut_no_signal_axes(cut_context)
         results: list[RerankedCandidate] = []
         for clip_feat, soft_score, contribs in scored:
             candidate, no_signal_axes = self._adapt_clip(clip_feat, contribs)
@@ -165,6 +203,35 @@ class BrainV3Reranker:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _cut_no_signal_axes(cut_context: CutContext) -> frozenset[str]:
+        """Achsen, die fuer diesen Cut mangels Audio-Quelle nichts aussagen.
+
+        Eine Achse gilt als "hat Signal", sobald ihr Feature-Key wirklich in
+        `raw_audio_features` steht. Fehlt er, laeuft `BridgeDimensions` auf
+        seinen 0.5-Fallback — dann muss das auch so gemeldet werden, statt
+        0.5 als Bewertung durchgehen zu lassen.
+
+        `energy_weight`/`energy_threshold` lesen "energy", das seit jeher
+        gesetzt ist; sie bleiben aber Cut-Level (fuer alle Kandidaten gleich).
+        """
+        feats = cut_context.raw_audio_features or {}
+        missing: set[str] = set()
+        for axis, feature_key, _attr in _AUDIO_AXIS_SOURCES:
+            if feature_key not in feats:
+                missing.add(axis)
+        if "energy" not in feats:
+            missing.update({"energy_weight", "energy_threshold"})
+        # B-707: ohne Audio-Mood-Prototyp kann `semantic_match_weight` nicht
+        # bewerten (BridgeDimensions gibt dann fuer alle 0.5 zurueck).
+        if "mood_prototype" not in feats:
+            missing.add("semantic_match_weight")
+        # Audio-Seite von brightness_match_weight. Die Clip-Seite prueft
+        # `_adapt_clip` separat — beide muessen da sein.
+        if "spectral_centroid_norm" not in feats:
+            missing.add("brightness_match_weight")
+        return frozenset(missing)
+
     def _build_cut_context_from_audio(
         self,
         ctx: Any,
@@ -186,12 +253,18 @@ class BrainV3Reranker:
         # fuer den Backoff-Key aber nur grob: median Motion = "medium".
         motion_class = "medium"
         raw_features: dict[str, Any] = {
-            "energy": float(raw_energy) if raw_energy is not None else 0.5,
             "bpm": float(raw_bpm) if raw_bpm else 120.0,
             "section_type": raw_section,
             "mood": raw_mood,
             "harmonic_tension": float(getattr(ctx, "at_harmonic_tension", None) or 0.0),
         }
+        # B-736: "energy" nur setzen, wenn wirklich gemessen. Der frueher hier
+        # eingesetzte 0.5-Default war von einer echten Messung 0.5 nicht zu
+        # unterscheiden. Numerisch aendert das nichts (BridgeDimensions liest
+        # `.get("energy", 0.5)`), aber `_cut_no_signal_axes` kann die Achsen
+        # jetzt ehrlich als "kein Signal" melden.
+        if raw_energy is not None:
+            raw_features["energy"] = float(raw_energy)
         # B-707 Befund 2: `_compute_semantic_match_weight` braucht einen
         # "mood_prototype" im selben Embedding-Raum wie das Clip-Embedding.
         # Genau das ist `AudioContext.at_audio_mood_vec` (SigLIP-Raum,
@@ -201,6 +274,33 @@ class BrainV3Reranker:
         mood_vec = getattr(ctx, "at_audio_mood_vec", None)
         if mood_vec is not None:
             raw_features["mood_prototype"] = mood_vec
+
+        # B-736: die neun Achsen, die "passt dieser Clip zur Musik AN DIESER
+        # STELLE" beantworten sollen, liefen auf dem konstanten 0.5-Fallback,
+        # weil hier nur energy/bpm/section/mood/tension gesetzt wurden. Die
+        # Quellen existieren (beatgrids: Beats/Downbeats/Kick/Snare/Hihat/
+        # Onset-Huellkurve; av_pacing_data: spectral_centroid) und liegen im
+        # AudioContext bereits AM CUT-ZEITPUNKT vor —
+        # services/pacing/bridge_mapping.py fuellt sie einmal pro Cut ueber
+        # AVPacingCurves.rhythm_at.
+        #
+        # Hier wird nur umgeschrieben, nichts gerechnet: diese Methode laeuft
+        # einmal pro rerank()-Aufruf (= pro Cut), das Ergebnis wird ueber alle
+        # Kandidaten wiederverwendet. Keine Query, keine Kurvenauswertung pro
+        # Kandidat — das Latenzbudget aus
+        # tests/integration/test_pacing_performance.py bleibt unberuehrt.
+        for _axis, feature_key, ctx_attr in _AUDIO_AXIS_SOURCES:
+            value = getattr(ctx, ctx_attr, None)
+            if value is not None:
+                raw_features[feature_key] = float(value)
+
+        # spectral_centroid_norm speist brightness_match_weight (Clip-Helligkeit
+        # gegen spektralen Schwerpunkt der Musik) — die Audio-Seite einer
+        # gekoppelten Achse, deshalb nicht in _AUDIO_AXIS_SOURCES.
+        centroid = getattr(ctx, "at_spectral_centroid_norm", None)
+        if centroid is not None:
+            raw_features["spectral_centroid_norm"] = float(centroid)
+
         return build_cut_context(
             raw_section=raw_section,
             raw_mood=raw_mood,
@@ -231,7 +331,15 @@ class BrainV3Reranker:
             (candidate, no_signal_axes) — die zweite Komponente listet die
             Achsen, die fuer DIESEN Clip kein eigenes Signal haben.
         """
-        no_signal: set[str] = set(STRUCTURAL_NO_SIGNAL_AXES)
+        # B-736: hier werden AUSSCHLIESSLICH clip-seitige Luecken gesammelt.
+        # Ueber die Cut-Achsen entscheidet `_cut_no_signal_axes` anhand des
+        # AudioContext; `rerank` vereinigt beide Mengen.
+        #
+        # Vorher stand hier `set(STRUCTURAL_NO_SIGNAL_AXES)` — eine feste
+        # Liste. Da `rerank` die beiden Mengen ver-ODER-t, konnte eine Achse
+        # damit NIE wieder aus dem no-signal-Status herauskommen, egal wie
+        # gut die Datenlage war.
+        no_signal: set[str] = set()
 
         emb = getattr(clip_feat, "embedding", None)
         emb_arr: Optional[np.ndarray] = None
@@ -292,17 +400,43 @@ class BrainV3Reranker:
         if bucket:  # 0 ist das Sentinel fuer "unbekannter Bucket"
             style_tags.append(f"style_bucket:{int(bucket)}")
 
+        # B-734: Bildmetriken pro Szene. Sie kommen aus `struct_clip_tags`
+        # (Migration f2a3b4c5d6e7, gemessen von
+        # services/enrichment/visual_metrics.py auf den Keyframe-JPEGs) und
+        # liegen seit services/pacing/bridge_mapping.py auf den ClipFeatures.
+        #
+        # `None` heisst "nie gemessen" (Szene vor der Migration angereichert,
+        # oder Keyframes fehlten). Dann bleibt der neutrale ClipCandidate-
+        # Default stehen UND die Achse wird als `no_signal` gemeldet — ein
+        # stilles 0.5 wuerde als echte Bewertung gelesen und war genau der
+        # Grund, warum diese Achsen jahrelang unbemerkt wirkungslos waren.
+        brightness = _opt_metric(clip_feat, "brightness")
+        saturation = _opt_metric(clip_feat, "saturation")
+        color_temp = _opt_metric(clip_feat, "color_temp")
+        if brightness is None:
+            no_signal.add("brightness_match_weight")
+        if color_temp is None:
+            no_signal.add("color_temp_match_weight")
+
+        kwargs: dict[str, Any] = {}
+        if brightness is not None:
+            kwargs["brightness"] = brightness
+        if saturation is not None:
+            # Aktuell wertet KEINE der 17 Achsen die Saettigung aus. Sie wird
+            # trotzdem durchgereicht (echter Messwert, kein Default) — damit
+            # ein spaeterer Term sie vorfindet, statt still 0.5 zu lesen.
+            kwargs["saturation"] = saturation
+        if color_temp is not None:
+            kwargs["color_temp"] = color_temp
+
         candidate = ClipCandidate(
             clip_id=str(getattr(clip_feat, "clip_id", "?")),
             duration_s=float(duration_s),
             motion_score=motion,
-            # brightness/saturation/color_temp: es gibt keine Bildstatistik pro
-            # Scene im Schema -> Defaults bleiben stehen, die zugehoerigen
-            # Achsen sind ueber STRUCTURAL_NO_SIGNAL_AXES als "kein Signal"
-            # markiert und werden nicht als Bewertung ausgegeben.
             embedding=emb_arr,
             mood_tags=mood_tags,
             style_tags=style_tags,
+            **kwargs,
         )
         return candidate, frozenset(no_signal)
 

@@ -33,6 +33,21 @@ class ClipFeatures:
     # 100ms-Motion-Kurve des Clips (audio_video_curves) fuer den
     # kurvenbasierten Energy-Match
     motion_curve: np.ndarray | None = None
+    # B-734: Bildmetriken pro Szene aus ``struct_clip_tags`` (Migration
+    # f2a3b4c5d6e7, gemessen von services/enrichment/visual_metrics.py).
+    # ``None`` heisst ehrlich "nie gemessen" — NICHT 0.5. Der Reranker
+    # markiert die zugehoerigen Bridge-Achsen dann als "kein Signal", statt
+    # einen erfundenen Mittelwert als Bewertung durchgehen zu lassen.
+    brightness: float | None = None      # 0..1  Rec.709-Luma
+    saturation: float | None = None      # 0..1  HSV-Saettigung
+    color_temp: float | None = None      # -1..+1 (R-B)/(R+B), warm positiv
+    # B-735: Rolle + Konfidenz aus ``struct_clip_tags``. ``role`` gab es
+    # schon (B-728), die Konfidenz kam nie an — dadurch wurde eine mit 0.3
+    # geratene Rolle im Score genauso hart gewertet wie eine mit 0.95
+    # klassifizierte. ``role_confidence=None`` = kein Konfidenz-Signal,
+    # Verhalten dann exakt wie vorher (keine Daempfung).
+    role_confidence: float | None = None  # 0..1
+    role_source: str | None = None        # "rule" | "embedding" | "unknown"
 
 
 @dataclass(frozen=True)
@@ -71,6 +86,28 @@ class AudioContext:
     at_spectral_flux: float | None = None                    # Aenderungsrate, 0..1 normiert
     at_stereo_width: float | None = None                     # 0..1
     at_percussive_ratio: float | None = None                 # 0..1 (HPSS)
+    # ── B-736: Rhythmus-/Klangfarben-Snapshot GENAU AM CUT-PUNKT ──────────
+    # Quelle: ``beatgrids`` (Beats, Downbeats, onset_kick/snare/hihat,
+    # onset_strength_curve) + ``av_pacing_data.spectral_centroid``, einmal pro
+    # Track geladen (``load_av_pacing_curves``) und per Zeitindex am Cut-Punkt
+    # abgegriffen (``AVPacingCurves.rhythm_at``).
+    #
+    # Diese Felder beschreiben den MOMENT IM TRACK, an dem geschnitten wird —
+    # nicht den Track als Ganzes. Ohne sie liefen neun Bridge-Achsen im
+    # Brain-Reranker auf einem konstanten 0.5-Fallback und konnten "passt
+    # dieser Clip zur Musik AN DIESER STELLE" gar nicht beantworten.
+    #
+    # ``None`` = Quelle fehlt (kein Beatgrid / kein av_pacing_data fuer den
+    # Track). Der Reranker laesst den Key dann weg und markiert die Achse als
+    # "kein Signal" — es wird KEIN 0.5 erfunden.
+    at_on_beat: float | None = None            # 0..1 Naehe zum naechsten Beat
+    at_beat_strength: float | None = None      # 0..1 Naehe zum naechsten Downbeat
+    at_onset_strength: float | None = None     # 0..1 Onset-Huellkurve am Cut
+    at_onset_density: float | None = None      # 0..1 Onsets/s im Fenster um den Cut
+    at_kick_strength: float | None = None      # 0..1 Kick-Onset-Energie am Cut
+    at_snare_strength: float | None = None     # 0..1 Snare-Onset-Energie am Cut
+    at_hihat_strength: float | None = None     # 0..1 Hihat-Onset-Energie am Cut
+    at_spectral_centroid_norm: float | None = None  # 0..1 spektraler Schwerpunkt
 
 
 # ── Scoring helper functions (pure — no DB/IO) ──────────────────────────────
@@ -272,6 +309,31 @@ def tension_fit(audio_tension: float | None, clip_role: str) -> float:
     if audio_tension < 0.3:
         return 1.0 if clip_role in {"detail", "ambient", "establishing"} else 0.4
     return 0.5
+
+
+def apply_role_confidence(raw: float, confidence: float | None) -> float:
+    """B-735: daempft einen rollenbasierten Score-Term zur Neutrale (0.5) hin,
+    je unsicherer die Rolle klassifiziert wurde.
+
+        result = 0.5 + (raw - 0.5) * confidence
+
+    Begruendung: ``role_fit``/``tension_fit`` behandeln die Rolle als
+    Tatsache. ``struct_clip_tags.role_confidence`` sagt aber, wie sicher sie
+    ist — in der Referenz-DB liegt sie fuer regelbasierte Fallback-Rollen bei
+    0.3, fuer die Embedding-Klassifikation deutlich hoeher. Ohne diese
+    Daempfung zaehlte eine geratene Rolle exakt so viel wie eine erkannte,
+    und bei einer Bibliothek, in der ALLE Clips dieselbe Fallback-Rolle
+    tragen, war der Term ueberdies fuer alle Kandidaten identisch (= im
+    Ranking wirkungslos).
+
+    ``confidence is None`` -> Wert unveraendert. Das ist der Bestandspfad
+    (DB ohne die Spalte, Test-Stubs ohne das Feld) und aendert das bisherige
+    Verhalten nicht.
+    """
+    if confidence is None:
+        return raw
+    conf = max(0.0, min(1.0, float(confidence)))
+    return 0.5 + (raw - 0.5) * conf
 
 
 def energy_match(audio_energy: float | None, motion_score: float | None) -> float:
@@ -536,7 +598,11 @@ class PacingScorer:
         )
 
         w = self._weights
-        role_contrib = w["w_role"] * role_fit(ctx.at_section_type, clip.role)
+        # B-735: beide rollenbasierten Terme werden mit der Klassifikations-
+        # Konfidenz gedaempft. clip.role_confidence is None -> unveraendert.
+        role_conf = clip.role_confidence
+        role_contrib = w["w_role"] * apply_role_confidence(
+            role_fit(ctx.at_section_type, clip.role), role_conf)
         style_contrib = w["w_style"] * style_sim
         mood_video_contrib = w["w_mood_video"] * mood_match(ctx.at_mood_video, clip.mood_refined)
         # T2.5.4 (FR-S3-1/2): Mood-Match ueber SigLIP-Vektoren wenn beide
@@ -550,7 +616,8 @@ class PacingScorer:
             mood_audio_contrib = w["w_mood_audio"] * mood_match(ctx.at_mood_audio, clip.mood_refined)
         genre_contrib = w["w_genre"] * genre_score
         key_contrib = w["w_key"] * key_score
-        tension_contrib = w["w_tension"] * tension_fit(ctx.at_harmonic_tension, clip.role)
+        tension_contrib = w["w_tension"] * apply_role_confidence(
+            tension_fit(ctx.at_harmonic_tension, clip.role), role_conf)
         # T2.5.4 (FR-S1-4/FR-S0-2): kurvenbasierter Energy-Match (RMS- vs.
         # Motion-Kurve, cosine) wenn beide Kurven vorliegen; sonst der
         # skalare Bestands-Match.
