@@ -85,6 +85,9 @@ class PatternUpdate:
 
 
 RUN_RATING_DAMPENING_WEIGHT: float = 0.3  # spec §4.3 "Run-Rating-Dämpfung"
+# Ein Rating auf GENAU diese Entscheidung (mem_decision.user_rating, 1-5) ist
+# ein direktes Signal — nicht gedaempft wie das pauschale Run-Rating.
+DECISION_RATING_WEIGHT: float = 1.0
 CURRENT_ENRICHER_VERSION: str = ENRICHER_VERSION  # Bug G: filter on this
 
 
@@ -179,10 +182,18 @@ class PatternAggregator:
         Weighting rules (design §4.3):
           - user_verdict in {"accept", "good"}  → weight 1.0, accept++
           - user_verdict in {"reject", "bad"}   → weight 1.0, reject++
-          - user_verdict in None/other          → fall back to run_rating dampening:
+          - else user_rating (mem_decision, 1-5, gesetzt von
+            FeedbackService.record_rating) → weight 1.0:
+              user_rating >= 4 → accept, <= 2 → reject, 3 → kein Signal
+          - else run_rating dampening:
               run_rating >= 4 → weight 0.3, accept
               run_rating <= 2 → weight 0.3, reject
               otherwise → skip (no signal)
+
+        Der ``user_rating``-Zweig war die offene Lesestelle: die Spalte wurde
+        von ``_fetch_decisions_with_run_rating`` bereits SELECTet, aber nie
+        ausgewertet — jedes 1-5-Rating auf einen einzelnen Cut verpuffte und
+        landete in keinem Muster (2026-07-27).
         """
         groups: dict[tuple[str, int], dict[str, Any]] = {}
         for d in decisions:
@@ -212,6 +223,15 @@ class PatternAggregator:
             elif verdict == "reject":
                 groups[key]["reject"] += 1.0
                 groups[key]["sample"] += 1.0
+            elif d.get("user_rating") is not None:
+                user_rating = d["user_rating"]
+                if user_rating >= 4:
+                    groups[key]["accept"] += DECISION_RATING_WEIGHT
+                    groups[key]["sample"] += DECISION_RATING_WEIGHT
+                elif user_rating <= 2:
+                    groups[key]["reject"] += DECISION_RATING_WEIGHT
+                    groups[key]["sample"] += DECISION_RATING_WEIGHT
+                # else: Rating 3 = neutral → kein Signal
             else:
                 run_rating = d.get("run_rating")
                 if run_rating is None:

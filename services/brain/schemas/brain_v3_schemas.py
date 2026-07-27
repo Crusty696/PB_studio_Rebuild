@@ -43,6 +43,14 @@ class SuggestResponse(BaseModel):
 class FeedbackRequest(BaseModel):
     cut_id: int = Field(..., description="DB-Row-ID aus timeline_cuts.id")
     rating: RatingLiteral
+    axis_contributions: Optional[dict[str, float]] = Field(
+        default=None,
+        description="Beitrag pro Bridge-Achse an DIESER Entscheidung "
+                    "(Quelle: mem_decision.agent_rationale -> brain_v3_scores "
+                    "bzw. contribs). Steuert das Credit-Assignment im "
+                    "FeedbackLogger; None => Uniform-Fallback, der das "
+                    "Ranking nicht veraendern kann.",
+    )
 
 
 class FeedbackResponse(BaseModel):
@@ -53,6 +61,15 @@ class FeedbackResponse(BaseModel):
                                                "(17 Achsen x 6 Levels = 102 max)")
     alpha_delta: float
     beta_delta: float
+    credit_mode: Literal["weighted", "uniform"] = Field(
+        default="uniform",
+        description="'weighted' = alpha/beta pro Achse nach Beitrag verteilt; "
+                    "'uniform' = alle Achsen gleich (kein Ranking-Effekt).",
+    )
+    n_axes_credited: int = Field(
+        default=0, ge=0,
+        description="Anzahl Achsen, die bei diesem Klick gelernt haben.",
+    )
 
 
 class LearningSampleCut(BaseModel):

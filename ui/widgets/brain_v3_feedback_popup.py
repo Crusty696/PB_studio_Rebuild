@@ -59,16 +59,36 @@ def build_thread_local_brain_service(src):
 
 
 class _FeedbackSubmitWorker(BaseWorker):
-    """Schreibt einen Feedback-Klick (102 Bucket-UPSERTs) off-thread."""
+    """Schreibt einen Feedback-Klick (bis zu 102 Bucket-UPSERTs) off-thread."""
 
-    def __init__(self, service, cut_id: int, rating: str, context):
+    def __init__(self, service, cut_id: int, rating: str, context,
+                 axis_contributions: Optional[dict] = None):
         super().__init__()
         self._src = service
         self._cut_id = int(cut_id)
         self._rating = rating
         self._context = context
+        self._axis_contributions = axis_contributions or None
 
     def _do_work(self):
+        if self._axis_contributions:
+            # Credit-Assignment: alpha/beta pro Achse nach Beitrag an DIESER
+            # Entscheidung. BrainV3Service.feedback reicht die Beitraege nicht
+            # durch, deshalb direkt ueber den FeedbackLogger — gleicher
+            # Schreibpfad, gleicher prozessweiter Lock.
+            from services.brain.feedback_logger import submit_feedback
+
+            diag = submit_feedback(
+                rating=self._rating,
+                context=self._context,
+                axis_contributions=self._axis_contributions,
+            )
+            return {
+                "cut_id": self._cut_id,
+                "rating": self._rating,
+                "n_buckets": int(diag.get("n_buckets_updated", 0)),
+            }
+
         svc = build_thread_local_brain_service(self._src)
         try:
             resp = svc.feedback(
@@ -122,11 +142,15 @@ class BrainV3FeedbackPopup(QDialog):
         context: Optional[CutContext] = None,
         cut_label: Optional[str] = None,
         parent: Optional[QWidget] = None,
+        axis_contributions: Optional[dict] = None,
     ):
         super().__init__(parent)
         self._cut_id = int(cut_id)
         self._service = service
         self._context = context
+        # Beitrag pro Bridge-Achse an dieser Entscheidung (Credit-Assignment).
+        # None -> Uniform-Fallback, der das Ranking nicht veraendern kann.
+        self._axis_contributions = axis_contributions or None
         self.setWindowTitle("Brain V3 — Cut bewerten")
         self.setModal(True)
         self.setMinimumWidth(360)
@@ -180,7 +204,10 @@ class BrainV3FeedbackPopup(QDialog):
         # B-336-Freeze: DB-Write (102 Bucket-UPSERTs, ~3s unter Lock) lief
         # synchron auf dem GUI-Thread -> weisser Bildschirm. Jetzt off-thread.
         self._set_buttons_enabled(False)
-        worker = _FeedbackSubmitWorker(self._service, self._cut_id, rating, self._context)
+        worker = _FeedbackSubmitWorker(
+            self._service, self._cut_id, rating, self._context,
+            axis_contributions=self._axis_contributions,
+        )
         run_worker(self, worker, on_finish=self._on_submit_done, on_error=self._on_submit_error)
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
