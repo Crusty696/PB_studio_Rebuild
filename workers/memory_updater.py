@@ -3,11 +3,24 @@
 Triggers:
   - notify_feedback() is called on each user-feedback event; the worker
     increments an internal counter and schedules aggregation once the counter
-    hits N=20.
+    hits N=20 — ODER nach FLUSH_DELAY_SEC Sekunden Ruhe (Debounce, B-737).
   - notify_run_end() runs aggregation once unconditionally.
+  - shutdown() flusht Restereignisse beim Schliessen; fuer den modulweiten
+    Singleton haengt das zusaetzlich an ``atexit``.
 
 Running aggregation N times is cheap (single JOIN query + Python group-by)
 but we still batch so the UI thread isn't stalled on every keystroke.
+
+B-737 — warum der Debounce noetig war
+-------------------------------------
+Vorher gab es genau zwei Ausloeser: der 20er-Zaehler und ``notify_run_end()``.
+``notify_run_end()`` hatte im gesamten Produktivcode KEINEN Aufrufer (nur
+Tests). Wer also weniger als 20 Mal Feedback gab — der Normalfall — loeste
+die Aggregation nie aus; ``mem_learned_pattern`` blieb leer, obwohl die
+Ereignisse selbst laengst in ``mem_decision`` / ``mem_user_feedback_event``
+standen. Verloren gingen also nicht die Ereignisse, sondern der Ausloeser.
+Der Debounce-Timer schliesst genau diese Luecke: auch ein EINZELNES Ereignis
+fuehrt nach kurzer Ruhephase zu einem Aggregationslauf.
 
 Qt integration:
   - Inherits from QObject with `started`, `finished`, `error` signals — mirrors
@@ -19,6 +32,7 @@ Qt integration:
 
 from __future__ import annotations
 
+import atexit
 import logging
 import sys
 import threading
@@ -64,6 +78,10 @@ class MemoryUpdaterWorker(QObject):
     or explicitly on run-end."""
 
     BATCH_SIZE: int = 20  # flush after this many feedback events
+    # B-737: Debounce. Nach so vielen Sekunden ohne weiteres Ereignis wird
+    # auch unterhalb von BATCH_SIZE aggregiert. 0 (oder negativ) schaltet den
+    # Timer ab und stellt das alte Reine-Schwellen-Verhalten wieder her.
+    FLUSH_DELAY_SEC: float = 5.0
 
     started = Signal()
     finished = Signal(int)  # emits number of patterns upserted
@@ -73,12 +91,17 @@ class MemoryUpdaterWorker(QObject):
         self,
         session_factory: Callable[[], Any],
         batch_size: int | None = None,
+        flush_delay_sec: float | None = None,
     ) -> None:
         super().__init__()
         self._session_factory = session_factory
         self._batch_size: int = (
             batch_size if batch_size is not None else self.BATCH_SIZE
         )
+        self._flush_delay_sec: float = float(
+            flush_delay_sec if flush_delay_sec is not None else self.FLUSH_DELAY_SEC
+        )
+        self._flush_timer: threading.Timer | None = None
         self._pending: int = 0
         # B-105 / BUG-2-b: ``_pending`` is mutated from any thread that
         # raises a feedback event. ``self._pending += 1`` is not atomic
@@ -102,15 +125,69 @@ class MemoryUpdaterWorker(QObject):
         threshold. If another flush is already in progress, the new event
         remains counted for the next batch and no second concurrent flush is
         started.
+
+        B-737: wird die Schwelle nicht erreicht, laeuft trotzdem ein
+        Debounce-Timer an. Der Rueckgabewert bleibt bei seiner alten
+        Bedeutung ("Batch SOFORT geschedult?"), damit bestehende Aufrufer
+        und Tests unveraendert weiterlaufen.
         """
         with self._pending_lock:
             self._pending += 1
             if self._pending < self._batch_size or self._flush_in_progress:
+                self._arm_flush_timer_locked()
                 return False
             self._pending = 0
             self._flush_in_progress = True
+            self._cancel_flush_timer_locked()
         self._start_background_flush()
         return True
+
+    # ── B-737: Debounce-Timer ────────────────────────────────────────────────
+
+    def _arm_flush_timer_locked(self) -> None:
+        """Startet den Debounce-Timer. Aufrufer haelt ``_pending_lock``."""
+        if self._flush_delay_sec <= 0 or self._flush_timer is not None:
+            return
+        timer = threading.Timer(self._flush_delay_sec, self._on_flush_timer)
+        timer.name = "MemoryUpdaterWorkerDebounce"
+        timer.daemon = True
+        self._flush_timer = timer
+        timer.start()
+
+    def _cancel_flush_timer_locked(self) -> None:
+        """Stoppt einen laufenden Timer. Aufrufer haelt ``_pending_lock``."""
+        timer = self._flush_timer
+        self._flush_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _on_flush_timer(self) -> None:
+        with self._pending_lock:
+            self._flush_timer = None
+            if self._pending <= 0 or self._flush_in_progress:
+                return
+            self._pending = 0
+            self._flush_in_progress = True
+        logger.info(
+            "MemoryUpdaterWorker: Debounce-Flush nach %.1fs "
+            "(unterhalb BATCH_SIZE=%d).",
+            self._flush_delay_sec, self._batch_size,
+        )
+        self._run_aggregation(clear_pending_after=False)
+
+    def shutdown(self) -> int:
+        """B-737: letzter Flush beim Schliessen / am Lauf-Ende.
+
+        Stoppt den Debounce-Timer und aggregiert synchron, falls noch
+        Ereignisse offen sind. Ohne offene Ereignisse passiert nichts.
+        Returns: Anzahl upserteter Pattern-Zeilen.
+        """
+        with self._pending_lock:
+            self._cancel_flush_timer_locked()
+            pending = self._pending
+        if pending <= 0:
+            return 0
+        return self.run()
 
     def _start_background_flush(self) -> None:
         thread = threading.Thread(
@@ -139,6 +216,8 @@ class MemoryUpdaterWorker(QObject):
         Returns the number of patterns upserted.
         """
         with self._pending_lock:
+            # B-737: ein expliziter Lauf macht den Debounce-Timer gegenstandslos.
+            self._cancel_flush_timer_locked()
             if self._flush_in_progress:
                 logger.info("MemoryUpdaterWorker: flush already in progress; skip sync run.")
                 return 0
@@ -206,8 +285,32 @@ def get_memory_updater() -> MemoryUpdaterWorker:
                 _default_memory_updater = MemoryUpdaterWorker(
                     session_factory=nullpool_session,
                 )
+                # B-737: Restereignisse duerfen beim Schliessen nicht
+                # verfallen. ``notify_run_end()`` hatte im Produktivcode
+                # keinen Aufrufer — atexit ist der einzige Haken, der ohne
+                # Aenderung an ui/timeline.py greift.
+                atexit.register(flush_default_memory_updater)
                 logger.info(
                     "MemoryUpdaterWorker: Singleton erstellt "
-                    "(batch_size=%d).", _default_memory_updater._batch_size,
+                    "(batch_size=%d, flush_delay=%.1fs).",
+                    _default_memory_updater._batch_size,
+                    _default_memory_updater._flush_delay_sec,
                 )
     return _default_memory_updater
+
+
+def flush_default_memory_updater() -> int:
+    """B-737: Restereignisse des Singletons aggregieren (Lauf-Ende/Shutdown).
+
+    Legt KEINEN Singleton an — gab es keinen, gab es auch keine Ereignisse.
+    Best-effort: Fehler werden geloggt, nie geraised (laeuft u.a. in
+    ``atexit``, wo eine Exception nur Rauschen im Shutdown erzeugt).
+    """
+    updater = _default_memory_updater
+    if updater is None:
+        return 0
+    try:
+        return updater.shutdown()
+    except Exception as exc:  # broad: Shutdown darf nie eskalieren
+        logger.warning("MemoryUpdaterWorker: Shutdown-Flush fehlgeschlagen: %s", exc)
+        return 0

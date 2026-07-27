@@ -252,6 +252,104 @@ class KnowledgeLoader:
         }
 
 
+# ---------------------------------------------------------------------------
+# B-738 — Brain-Gedaechtnis OHNE Tool-Support
+# ---------------------------------------------------------------------------
+# Die vier Brain-Actions (brain_recall/brain_stats/brain_explain_cut/
+# brain_learn_note) sind zwar in der Tool-Whitelist des Orchestrators, aber
+# nur der tool-faehige Pfad ruft sie auf. Plain-Chat, der Pacing- und der
+# Vision-Pfad — und jedes Modell ohne Tool-Support (phi3, gemma) — kamen an
+# die gespeicherten Erkenntnisse gar nicht heran.
+#
+# ``build_brain_context()`` ist der tool-unabhaengige Weg: es liest dieselbe
+# Quelle wie ``brain_recall`` und liefert einen kurzen Prompt-Block. Bewusst
+# hier und nicht in ``local_agent_service`` — so kann jeder Pfad das
+# Gedaechtnis einspeisen, ohne den Chat-Service zu importieren.
+#
+# BUDGET: der System-Prompt hat 12.000 Zeichen, davon belegt die kompakte
+# Aktionsliste schon rund 8.600 (gemessen 2026-07-27, 62 Aktionen). Der
+# Brain-Block ist deshalb hart gedeckelt — er darf die Aktionsliste NIE
+# wieder aus dem Prompt draengen (Regression gegen Commit 5a0ac3c).
+BRAIN_CONTEXT_MAX_CHARS = 1200
+BRAIN_CONTEXT_TOP_K = 3
+
+
+def _fmt_brain_item(item: dict) -> str | None:
+    """Ein Recall-Treffer als EINE kurze Prompt-Zeile."""
+    source = item.get("source")
+    if source == "brain_note":
+        title = str(item.get("title") or "").strip()
+        body = " ".join(str(item.get("body") or "").split())[:180]
+        return f"- Notiz \"{title}\": {body}" if (title or body) else None
+    if source == "mem_learned_pattern":
+        return (
+            f"- Muster {item.get('pattern_type')} "
+            f"[{item.get('context_fingerprint')}] -> {item.get('target_ref')} "
+            f"({item.get('accepts', 0)}x akzeptiert / "
+            f"{item.get('rejects', 0)}x abgelehnt, "
+            f"Konfidenz {float(item.get('confidence') or 0.0):.2f})"
+        )
+    if source == "mem_decision":
+        verdict = item.get("user_verdict") or "ohne Urteil"
+        return (
+            f"- Schnitt in {item.get('at_section_type') or '?'}"
+            f"/{item.get('at_genre') or '?'}: Rolle "
+            f"{item.get('clip_role') or '?'}, Mood "
+            f"{item.get('clip_mood_refined') or '?'} -> {verdict}"
+        )
+    return None
+
+
+def build_brain_context(
+    query: str = "",
+    max_chars: int = BRAIN_CONTEXT_MAX_CHARS,
+    top_k: int = BRAIN_CONTEXT_TOP_K,
+) -> str:
+    """Baut einen kurzen, query-relevanten Block aus dem Brain-Gedaechtnis.
+
+    Args:
+        query: Nutzerfrage. Steuert die Relevanz-Auswahl in ``brain_recall``.
+        max_chars: harte Obergrenze des erzeugten Blocks.
+        top_k: Treffer pro Quelle in ``brain_recall``.
+
+    Returns:
+        Prompt-Block oder "" — leer, wenn nichts gespeichert ist oder die
+        Abfrage fehlschlaegt. Ein leerer Block ist immer zulaessig; der
+        Prompt bleibt dann exakt so wie vorher.
+    """
+    if max_chars <= 0:
+        return ""
+    try:
+        from services.actions.brain_actions import brain_recall
+
+        result = brain_recall(query=query or "", top_k=max(1, int(top_k)))
+    except Exception as exc:  # broad: Brain-Kontext ist nie kritisch
+        logger.debug("Brain-Kontext nicht ladbar: %s", exc)
+        return ""
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return ""
+    results = result.get("results") or []
+    if not results:
+        return ""
+
+    header = (
+        "## BRAIN-GEDAECHTNIS (selbst gelernt, nutze das statt zu raten)"
+    )
+    lines: list[str] = [header]
+    used = len(header)
+    for item in results:
+        line = _fmt_brain_item(item) if isinstance(item, dict) else None
+        if not line:
+            continue
+        if used + len(line) + 1 > max_chars:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
+
+
 # Modul-Singleton (lazy, thread-safe)
 _loader: KnowledgeLoader | None = None
 _loader_lock = threading.Lock()

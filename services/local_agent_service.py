@@ -686,20 +686,53 @@ class LocalAgentService:
             parts: list[str] = [self._sysprompt_base_cache]
             if self._sysprompt_media_cache:
                 parts.append(self._sysprompt_media_cache)
+            few_shots = self._sysprompt_few_shots_cache or ""
+
+        # B-738: Brain-Gedaechtnis fuer JEDEN Pfad — auch fuer Modelle ohne
+        # Tool-Support, die die brain_*-Aktionen nie aufrufen koennen.
+        # Steht VOR dem statischen Domain-Wissen: selbst gelernte Fakten
+        # schlagen die Markdown-Basis. Beides zusammen darf die Aktionsliste
+        # nicht verdraengen, deshalb wird das Restbudget unten explizit
+        # gerechnet statt am Ende blind abgeschnitten.
+        try:
+            from services.knowledge_loader import build_brain_context
+            brain_context = build_brain_context(query=user_query)
+            if brain_context:
+                parts.append(brain_context)
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
+            logger.debug("Brain-Gedaechtnis konnte nicht geladen werden: %s", e)
 
         # Knowledge-Context ausserhalb des Locks (File-IO, query-spezifisch)
         try:
-            from services.knowledge_loader import get_knowledge_loader
-            loader = get_knowledge_loader()
-            knowledge_context = loader.build_context(query=user_query)
-            if knowledge_context:
-                parts.append(knowledge_context)
+            from services.knowledge_loader import (
+                MAX_CONTEXT_CHARS,
+                get_knowledge_loader,
+            )
+            # Restbudget = Gesamtbudget - (Aktionsliste + Medien + Brain +
+            # Few-Shots + Trennzeilen) - Sicherheitsreserve.
+            used = sum(len(p) + 2 for p in parts) + len(few_shots) + 2
+            knowledge_budget = min(
+                MAX_CONTEXT_CHARS,
+                LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS - used - 120,
+            )
+            if knowledge_budget > 200:
+                loader = get_knowledge_loader()
+                knowledge_context = loader.build_context(
+                    query=user_query, max_chars=knowledge_budget,
+                )
+                if knowledge_context:
+                    parts.append(knowledge_context)
+            else:
+                logger.info(
+                    "LocalAgentService: kein Platz mehr fuer Domain-Wissen "
+                    "(%d Zeichen Restbudget) — Aktionsliste hat Vorrang.",
+                    knowledge_budget,
+                )
         except (ImportError, ValueError, RuntimeError, OSError) as e:
             logger.debug("Knowledge-Base konnte nicht geladen werden: %s", e)
 
-        with self._lock:
-            if self._sysprompt_few_shots_cache:
-                parts.append(self._sysprompt_few_shots_cache)
+        if few_shots:
+            parts.append(few_shots)
 
         prompt = "\n\n".join(parts)
         if len(prompt) > LOCAL_LLM_SYSTEM_PROMPT_MAX_CHARS:
