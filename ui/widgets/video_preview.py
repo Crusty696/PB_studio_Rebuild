@@ -121,6 +121,11 @@ class VideoPreviewWidget(QLabel):
         self._stream_thread: QThread | None = None
         self._stream_start_sec: float = 0.0
         self._stream_frames: int = 0
+        # B-710: Generation des aktuell gueltigen Wiedergabe-Streams. Jeder
+        # Teardown erhoeht sie. Signale eines abgeloesten Streams, die noch in
+        # der Event-Queue liegen, tragen die alte Generation und werden in den
+        # Slots verworfen.
+        self._stream_generation: int = 0
         # B-652-Schutz: gestoppte Stream-Threads bis finished referenzieren —
         # niemals die letzte Referenz auf einen laufenden QThread fallen lassen.
         self._dying_stream_threads: list[QThread] = []
@@ -144,14 +149,21 @@ class VideoPreviewWidget(QLabel):
         self._is_playing = True
         self.playback_state_changed.emit(True)
 
+        # B-710: _teardown_stream() hat die Generation gerade erhoeht — dieser
+        # Stream bindet seine Slots an genau diesen Wert.
+        generation = self._stream_generation
         worker = _PreviewStreamWorker(self._current_path, self._current_time)
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.frame_ready.connect(self._on_stream_frame)
+        worker.frame_ready.connect(
+            lambda data, g=generation: self._on_stream_frame(data, g)
+        )
         worker.error.connect(self._on_frame_error)
         worker.finished.connect(thread.quit)
-        thread.finished.connect(self._on_stream_thread_finished)
+        thread.finished.connect(
+            lambda g=generation: self._on_stream_thread_finished(g)
+        )
         self._stream_worker = worker
         self._stream_thread = thread
         thread.start()
@@ -163,7 +175,14 @@ class VideoPreviewWidget(QLabel):
         self.position_changed.emit(self._current_time, self._duration)
 
     def _teardown_stream(self):
-        """Beendet den Wiedergabe-Stream B-652-sicher (kein Referenz-Drop)."""
+        """Beendet den Wiedergabe-Stream B-652-sicher (kein Referenz-Drop).
+
+        B-710: Die Lebenszyklus-Logik (Referenz-Parken der sterbenden Threads)
+        bleibt unveraendert — sie ist der B-652-Crash-Schutz. Ergaenzt wird nur
+        die Generation: ab hier gehoert kein noch in der Queue liegendes Signal
+        des alten Streams mehr zum aktuellen Zustand.
+        """
+        self._stream_generation += 1
         worker = self._stream_worker
         thread = self._stream_thread
         self._stream_worker = None
@@ -185,7 +204,11 @@ class VideoPreviewWidget(QLabel):
             else:
                 worker.deleteLater()
 
-    def _on_stream_frame(self, raw_data: bytes):
+    def _on_stream_frame(self, raw_data: bytes, generation: int):
+        if generation != self._stream_generation:
+            # B-710: Frame eines abgeloesten Streams (z.B. nach Seek) — darf
+            # weder angezeigt werden noch die Position weiterzaehlen.
+            return
         if self._stream_worker is None or not self._is_playing:
             return  # spaeter Frame eines bereits gestoppten Streams
         self._stream_frames += 1
@@ -195,8 +218,13 @@ class VideoPreviewWidget(QLabel):
         self.setPixmap(QPixmap.fromImage(img))
         self.position_changed.emit(self._current_time, self._duration)
 
-    def _on_stream_thread_finished(self):
+    def _on_stream_thread_finished(self, generation: int):
         """Stream-Ende (EOF/Fehler/Stop): Play-Status zuruecksetzen."""
+        if generation != self._stream_generation:
+            # B-710: finished des abgeloesten Streams. Sein Teardown ist
+            # bereits gelaufen; hier weiterzumachen wuerde den inzwischen
+            # gestarteten neuen Stream stoppen.
+            return
         if self._stream_thread is not None and self._is_playing:
             # EOF vom ffmpeg (Dateiende) — nicht durch stop() ausgeloest
             self._teardown_stream()
