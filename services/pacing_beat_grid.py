@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from sqlalchemy import select  # B-624: column-select statt Blob-eager-load
+from sqlalchemy import bindparam, select, text  # B-624: column-select statt Blob-eager-load
 from sqlalchemy.orm import Session, joinedload
 
 from database import engine, AudioTrack, VideoClip, Beatgrid, Scene  # B-629 (B): Beatgrid fuer column-select; B-632: Scene fuer column-select
@@ -430,12 +430,14 @@ def _get_video_info_cached(
                 Scene.start_time,
                 Scene.end_time,
                 Scene.energy,
+                Scene.ai_mood,
             )
             .outerjoin(Scene, Scene.video_clip_id == VideoClip.id)
             .where(VideoClip.id.in_(video_ids), VideoClip.deleted_at.is_(None))
         ).all()
+        scene_ids: list[int] = []
         for (clip_id, clip_duration, clip_path,
-             scene_id, s_start, s_end, s_energy) in rows:
+             scene_id, s_start, s_end, s_energy, s_ai_mood) in rows:
             entry = info.get(clip_id)
             if entry is None:
                 entry = {
@@ -447,8 +449,49 @@ def _get_video_info_cached(
             if scene_id is not None:
                 entry["scenes"].append(
                     {"start": s_start, "end": s_end,
-                     "energy": s_energy or 0.5, "id": scene_id}
+                     "energy": s_energy or 0.5, "id": scene_id,
+                     "ai_mood": s_ai_mood}
                 )
+                scene_ids.append(scene_id)
+
+        # Enrichment-Tags (struct_clip_tags) nachladen. Der Consumer liest
+        # role/mood_refined/style_bucket_id bereits aus diesem Dict
+        # (services/pacing_service.py:1508-1512), der Producer lieferte sie
+        # nie -> bridge_mapping setzte konstant "unknown"/0, wodurch
+        # role_fit/mood_match/genre_prior fuer ALLE Kandidaten identisch
+        # waren und beim Ranking wirkungslos blieben.
+        # Eigene Query statt Join, damit der B-632-Column-Select oben
+        # unveraendert bleibt; die Tabelle hat nur Skalar-Spalten (kein JSON)
+        # und scene_id als Primary Key.
+        if scene_ids:
+            tags_by_scene: dict[int, dict] = {}
+            try:
+                tag_rows = session.execute(
+                    text(
+                        "SELECT scene_id, role, mood_refined, style_bucket_id "
+                        "FROM struct_clip_tags WHERE scene_id IN :ids"
+                    ).bindparams(bindparam("ids", expanding=True)),
+                    {"ids": scene_ids},
+                ).all()
+                tags_by_scene = {
+                    int(r[0]): {"role": r[1], "mood_refined": r[2],
+                                "style_bucket_id": r[3]}
+                    for r in tag_rows
+                }
+            except Exception as exc:
+                # Fehlende Tabelle (Alt-DB ohne Struct-Layer) oder DB-Stoerung
+                # darf das Pacing nie brechen — dann greifen die bisherigen
+                # Defaults wie vorher.
+                logger.warning(
+                    "struct_clip_tags nicht lesbar (%s) — Pacing nutzt "
+                    "Enrichment-Defaults.", exc,
+                )
+            if tags_by_scene:
+                for entry in info.values():
+                    for sc in entry["scenes"]:
+                        tag = tags_by_scene.get(sc["id"])
+                        if tag:
+                            sc.update(tag)
     return info
 
 

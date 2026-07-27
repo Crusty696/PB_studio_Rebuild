@@ -1508,6 +1508,10 @@ def _auto_edit_phase3_inner(
                                 "id": _sc.get("id", _vid * 100),
                                 "motion_score": _sc.get("motion_score", _sc.get("energy", 0.5)),
                                 "ai_mood": _sc.get("ai_mood"),
+                                # bridge_mapping nutzt ai_mood -> mood_refined
+                                # als Fallback-Kette; ohne dieses Feld blieb der
+                                # zweite Schritt wirkungslos.
+                                "mood_refined": _sc.get("mood_refined"),
                                 "role": _sc.get("role"),
                                 "style_bucket_id": _sc.get("style_bucket_id"),
                                 "embedding": _sb_emb,
