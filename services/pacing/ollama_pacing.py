@@ -147,6 +147,26 @@ class OllamaPacingService:
         json_payload = json.dumps(payload, indent=1)
         user_message = f"Hier sind die Metadaten des Projekts:\n\n{json_payload}\n\nErstelle die EDL für die gesamte Mix-Dauer."
 
+        # B-738-Follow-up: auch der direkte EDL-Pfad baut seinen Prompt selbst
+        # und hatte keinen Zugriff auf die gespeicherten Erkenntnisse. Knapp
+        # gedeckelt (600 Zeichen) — der JSON-Payload ist hier der eigentliche
+        # Input und darf nicht verdraengt werden. Der Block steht VOR der
+        # Schluss-Anweisung, damit die JSON-only-Regel die letzte Zeile bleibt.
+        try:
+            from services.knowledge_loader import build_brain_context
+            brain_context = build_brain_context(
+                query=f"pacing edl schnitt {user_preferences}".strip(),
+                max_chars=600,
+            )
+            if brain_context:
+                user_message = (
+                    f"Hier sind die Metadaten des Projekts:\n\n{json_payload}\n\n"
+                    f"{brain_context}\n\n"
+                    f"Erstelle die EDL für die gesamte Mix-Dauer."
+                )
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
+            logger.debug("OllamaPacingService: Brain-Gedaechtnis nicht ladbar: %s", e)
+
         # 3. Query local Ollama model
         logger.info("OllamaPacingService: Querying model '%s' for direct EDL reasoning...", self.model)
         try:

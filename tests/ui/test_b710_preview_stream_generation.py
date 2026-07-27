@@ -88,7 +88,10 @@ def test_stale_frame_of_old_stream_is_ignored(widget):
     positions: list[float] = []
     widget.position_changed.connect(lambda cur, tot: positions.append(cur))
 
-    old_worker.frame_ready.emit(_frame_bytes())  # stale Frame
+    # Follow-up 2026-07-27: die Generation reist jetzt IM Signal mit (statt in
+    # einer Lambda-Closure). Der stale Frame traegt damit weiterhin genau die
+    # alte Generation — die Aussage des Tests ist unveraendert.
+    old_worker.frame_ready.emit(_frame_bytes(), old_worker.generation)  # stale
 
     assert widget._stream_frames == 0, "stale Frame darf nicht mitzaehlen"
     assert widget._current_time == pytest.approx(30.0), (
@@ -103,7 +106,7 @@ def test_current_stream_frame_still_displayed(widget):
     widget.play_from(10.0)
     worker = widget._stream_worker
 
-    worker.frame_ready.emit(_frame_bytes())
+    worker.frame_ready.emit(_frame_bytes(), worker.generation)
 
     assert widget._stream_frames == 1
     assert widget._current_time == pytest.approx(10.0 + 1 / _PREVIEW_FPS)

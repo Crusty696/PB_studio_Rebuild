@@ -247,6 +247,22 @@ class PacingStrategist:
         if user_preferences:
             user_prompt += f"\nUser-Praeferenzen: {user_preferences}\n"
 
+        # B-738-Follow-up: der Pacing-Pfad baut seinen Prompt selbst und sah die
+        # gelernten Schnitt-Muster bisher nie. Bewusst knapper gedeckelt als im
+        # Chat (600 statt 1200 Zeichen): der Prompt hier ist klein und
+        # aufgabenzentriert, das Gedaechtnis darf die Sektionsliste nicht
+        # verdraengen. Leerer Block = Prompt exakt wie vorher.
+        try:
+            from services.knowledge_loader import build_brain_context
+            brain_context = build_brain_context(
+                query=f"pacing schnittrate {user_preferences}".strip(),
+                max_chars=600,
+            )
+            if brain_context:
+                user_prompt += f"\n{brain_context}\n"
+        except (ImportError, ValueError, RuntimeError, OSError) as e:
+            logger.debug("PacingStrategist: Brain-Gedaechtnis nicht ladbar: %s", e)
+
         user_prompt += "\nErstelle einen JSON Pacing-Plan."
 
         # B-163: Token-Budget proportional zu Section-Count berechnen.

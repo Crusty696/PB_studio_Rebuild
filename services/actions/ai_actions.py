@@ -102,6 +102,18 @@ def ask_ai(question: str, max_tokens: int = 512) -> dict:
             "Audio/Video-Produktionssoftware fuer DJs und Video-Editoren. "
             "Antworte praezise, hilfreich und auf Deutsch."
         )
+        # B-738-Follow-up: ``ask_ai`` baut seinen System-Prompt selbst und kam
+        # deshalb — anders als der Chat-Pfad in ``local_agent_service`` — nie an
+        # die gespeicherten Erkenntnisse heran. Der Block ist in
+        # ``build_brain_context`` hart gedeckelt und leer, wenn nichts gelernt
+        # wurde; der Prompt bleibt dann exakt wie vorher.
+        try:
+            from services.knowledge_loader import build_brain_context
+            brain_context = build_brain_context(query=question)
+            if brain_context:
+                system_prompt = f"{system_prompt}\n\n{brain_context}"
+        except (ImportError, ValueError, RuntimeError, OSError) as exc:
+            _logger.debug("ask_ai: Brain-Gedaechtnis nicht ladbar: %s", exc)
         emit_task_status("loading", model, "action")
         try:
             answer = client.chat(

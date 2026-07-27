@@ -35,16 +35,28 @@ class _PreviewStreamWorker(QObject):
     GUI-Thread irgendetwas takten muss.
     """
 
-    frame_ready = Signal(bytes)   # genau _PREVIEW_W*_PREVIEW_H*3 Bytes
-    finished = Signal()           # Stream-Ende (EOF oder stop())
-    error = Signal(str)
+    # B-710-Follow-up: Die Stream-Generation reist im Signal mit, statt in
+    # einer Lambda-Closure im Widget zu haengen. Grund: PySide6 trennt
+    # Verbindungen zu GEBUNDENEN METHODEN automatisch, sobald das
+    # Empfaenger-C++-Objekt zerstoert wird — bei freien Lambdas nicht. Ein
+    # Lambda auf ``frame_ready`` (15 Frames/s) haette nach der Zerstoerung
+    # des QLabel weiter gefeuert und "RuntimeError: Internal C++ object
+    # (QLabel) already deleted" geworfen.
+    frame_ready = Signal(bytes, int)   # (Rohframe _W*_H*3 Bytes, Generation)
+    finished = Signal()                # Stream-Ende (EOF oder stop())
+    error = Signal(str, int)           # (Meldung, Generation)
+    # ``QThread.finished`` traegt selbst keine Generation. Der Worker kennt
+    # sie und reicht sie weiter, damit auch dieser Widget-Slot eine gebundene
+    # Methode bleiben kann.
+    thread_finished = Signal(int)      # (Generation)
 
-    def __init__(self, file_path: str, start_sec: float):
+    def __init__(self, file_path: str, start_sec: float, generation: int = 0):
         super().__init__()
         self._file_path = file_path
         self._start_sec = max(0.0, float(start_sec))
         self._proc: subprocess.Popen | None = None
         self._stop_requested = False
+        self.generation = int(generation)
 
     def run(self):
         frame_size = _PREVIEW_W * _PREVIEW_H * 3
@@ -67,14 +79,23 @@ class _PreviewStreamWorker(QObject):
                 data = stdout.read(frame_size) if stdout else b""
                 if len(data) < frame_size:
                     break  # EOF (Dateiende) oder Prozess beendet
-                self.frame_ready.emit(data)
+                self.frame_ready.emit(data, self.generation)
         except Exception as e:  # noqa: BLE001 — Wiedergabe darf App nie reissen
             if not self._stop_requested:
                 logger.error("PreviewStream fehlgeschlagen: %s", e)
-                self.error.emit(str(e))
+                self.error.emit(str(e), self.generation)
         finally:
             self._kill_proc()
             self.finished.emit()
+
+    def notify_thread_finished(self):
+        """Slot fuer ``QThread.finished`` — haengt die Generation an.
+
+        Laeuft im Worker-Thread (finished wird dort emittiert); das daraus
+        emittierte ``thread_finished`` erreicht das Widget wie zuvor per
+        Queued Connection im GUI-Thread.
+        """
+        self.thread_finished.emit(self.generation)
 
     def stop(self):
         """Thread-safe: beendet den Stream (kill unblockt den read)."""
@@ -151,19 +172,28 @@ class VideoPreviewWidget(QLabel):
 
         # B-710: _teardown_stream() hat die Generation gerade erhoeht — dieser
         # Stream bindet seine Slots an genau diesen Wert.
+        # B-710-Follow-up: Die Generation wandert in den Worker, alle drei
+        # Widget-Slots sind gebundene Methoden (kein freies Lambda) — damit
+        # trennt PySide6 sie automatisch, wenn das QLabel zerstoert wird.
         generation = self._stream_generation
-        worker = _PreviewStreamWorker(self._current_path, self._current_time)
+        worker = _PreviewStreamWorker(
+            self._current_path, self._current_time, generation
+        )
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.frame_ready.connect(
-            lambda data, g=generation: self._on_stream_frame(data, g)
-        )
-        worker.error.connect(self._on_frame_error)
+        worker.frame_ready.connect(self._on_stream_frame)
+        worker.error.connect(self._on_stream_error)
         worker.finished.connect(thread.quit)
+        # DirectConnection: der Worker haengt per moveToThread am Stream-Thread.
+        # Ohne sie waere diese Verbindung queued auf einen Thread, dessen
+        # Event-Loop beim finished-Signal gerade endet — die Generation kaeme
+        # nie an. Der Slot emittiert nur weiter, das ist thread-sicher; das
+        # Weiter-Signal an das Widget bleibt wie zuvor queued in den GUI-Thread.
         thread.finished.connect(
-            lambda g=generation: self._on_stream_thread_finished(g)
+            worker.notify_thread_finished, Qt.ConnectionType.DirectConnection
         )
+        worker.thread_finished.connect(self._on_stream_thread_finished)
         self._stream_worker = worker
         self._stream_thread = thread
         thread.start()
@@ -217,6 +247,20 @@ class VideoPreviewWidget(QLabel):
                      QImage.Format.Format_RGB888).copy()
         self.setPixmap(QPixmap.fromImage(img))
         self.position_changed.emit(self._current_time, self._duration)
+
+    def _on_stream_error(self, msg: str, generation: int):
+        """Fehler des Wiedergabe-Streams — nur der AKTUELLE darf ans Widget.
+
+        B-710-Follow-up: ``error`` war als einziges der drei Stream-Signale
+        ungegated. ``run()`` unterdrueckt zwar Fehler NACH ``stop()``, aber
+        ein VOR dem Seek emittierter Fehler liegt danach noch in der
+        Qt-Queue. Ohne Generations-Pruefung rief er ``_on_frame_error`` ->
+        ``setText()`` und loeschte damit die Pixmap des bereits laufenden
+        NEUEN Streams, waehrend ``_is_playing`` True blieb.
+        """
+        if generation != self._stream_generation:
+            return
+        self._on_frame_error(msg)
 
     def _on_stream_thread_finished(self, generation: int):
         """Stream-Ende (EOF/Fehler/Stop): Play-Status zuruecksetzen."""
