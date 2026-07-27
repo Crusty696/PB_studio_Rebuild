@@ -1,4 +1,26 @@
-name: 🤖 Auto-Merge All PRs & Cleanup
+name: 🤖 Auto-Merge Trusted PRs & Cleanup
+
+# ==============================================================================
+# B-720 (Supply Chain): Dieser Workflow hat vorher JEDEN PR automatisch per
+# Squash gemerged und danach repo-weit Branches per API geloescht — ohne
+# Autor-Filter und ohne Fork-Filter. Ein beliebiger Fork-PR konnte damit
+# Auto-Merge angestossen bekommen.
+#
+# Zusaetzlich lief `cleanup-branches` mit `if: always()` und `needs: auto-merge`
+# auch bei den Triggern `status` und `check_suite`, deren Payload gar keinen
+# PR enthaelt: Auto-Merge wurde dann zum No-Op, die repo-weite Branch-Loeschung
+# lief aber trotzdem durch.
+#
+# Absicherung (keine Deaktivierung, der Workflow bleibt fuer eigene PRs aktiv):
+#   * Beide Jobs laufen nur, wenn der PR aus DIESEM Repo kommt (kein Fork)
+#     UND der Autor OWNER / MEMBER / COLLABORATOR ist.
+#   * `cleanup-branches` haengt an derselben Bedingung und laeuft nicht mehr
+#     bei PR-losen Events.
+# Anmerkung zur Ehrlichkeit: GitHub gibt Fork-PRs beim `pull_request`-Trigger
+# ohnehin nur ein read-only GITHUB_TOKEN, der Fork-Merge war also praktisch
+# schon blockiert. Der Autor-/Fork-Filter macht das explizit statt implizit und
+# schliesst zusaetzlich die Branch-Loeschung mit ein.
+# ==============================================================================
 
 on:
   pull_request:
@@ -17,6 +39,11 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     name: Auto-Merge PR
+    # B-720: nur eigene (nicht-Fork) PRs von vertrauenswuerdigen Autoren.
+    if: >-
+      github.event.pull_request != null &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
     steps:
       - name: 📋 Checkout
         uses: actions/checkout@v4
@@ -137,7 +164,13 @@ jobs:
     runs-on: ubuntu-latest
     name: Cleanup Merged Branches
     needs: auto-merge
-    if: always()
+    # B-720: KEIN `always()` mehr. Vorher lief die repo-weite Branch-Loeschung
+    # auch bei `status`/`check_suite`-Events ohne PR-Payload und bei Fork-PRs.
+    # Jetzt dieselbe Trusted-Bedingung wie `auto-merge`.
+    if: >-
+      github.event.pull_request != null &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
     steps:
       - name: 📋 Checkout
         uses: actions/checkout@v4

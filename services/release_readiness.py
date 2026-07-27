@@ -12,23 +12,27 @@ import shutil
 import subprocess
 import sys
 
+# B-720: Diese Liste steuert ART-005 (Artefakt-Frische) und ART-006 (dirty
+# release-relevanter Source). Sie enthielt fuenf Pfade, die es in diesem Repo
+# nicht gibt (app.py, core/, models/, requirements.txt, requirements.lock) —
+# `git status`/`git log` mit nicht existierenden Pathspecs liefern dafuer nie
+# einen Treffer, die Eintraege waren also wirkungslos. Gleichzeitig fehlte die
+# real installierte Pin-Datei requirements-py310-cu113.txt, d.h. eine geaenderte
+# Dependency-Pin-Datei loeste weder ART-005 noch ART-006 aus.
+# Jeder Eintrag hier muss im Repo existieren (Guard: tests/test_ci_workflow_policy.py).
 _RELEASE_RELEVANT_PATHS = (
     "main.py",
-    "app.py",
     "config",
-    "core",
     "database",
     "installer",
     "knowledge",
-    "models",
     "resources",
     "services",
     "ui",
     "workers",
     "pb_studio.spec",
     "pyproject.toml",
-    "requirements.txt",
-    "requirements.lock",
+    "requirements-py310-cu113.txt",
 )
 
 

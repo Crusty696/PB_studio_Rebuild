@@ -1,9 +1,41 @@
-name: Release
+name: Release (DEACTIVATED — manual dispatch only)
+
+# ==============================================================================
+# B-720: DIESER WORKFLOW IST BEWUSST DEAKTIVIERT (kein Auto-Trigger).
+#
+# Grund 1 — er KANN auf einem Hosted Runner nicht bauen:
+#   pb_studio.spec ruft `_resolve_packaged_binary('ffmpeg.exe')` /
+#   `('ffprobe.exe')` und wirft FileNotFoundError, wenn die Dateien fehlen.
+#   Gesucht wird `bin/ffmpeg.exe` bzw. `$PB_FFMPEG_EXE` / `$PB_FFPROBE_EXE`.
+#   `bin/` steht in .gitignore (Zeile 101) -> ein frischer Checkout auf
+#   github-hosted Windows hat die Binaries nicht, und dieser Workflow hat
+#   keine Bezugsquelle dafuer. Der Build wuerde immer in PyInstaller sterben.
+#
+# Grund 2 — User-Anweisung 2026-07-17: keine Release-/Installer-Builds, bis
+#   alles andere fertig ist. Nur Dev-Start aus dem Repo.
+#
+# Deshalb:
+#   * Der `push`-Tag-Trigger ist entfernt. Ein `git push --tags` startet
+#     hier nichts mehr.
+#   * `workflow_dispatch` bleibt als bewusster manueller Notausgang, wird
+#     aber vom Preflight-Step unten hart abgebrochen, solange die
+#     FFmpeg-Binaries fehlen (statt nach ~20 Minuten in PyInstaller).
+#
+# Grund 3 (behoben, damit hier keine falsche Runtime dokumentiert bleibt):
+#   Der Build lief vorher auf Python 3.11 + torch cu124 + `poetry install`.
+#   Zielruntime ist Python 3.10 + torch 1.12.1+cu113 (kanonisch:
+#   environment.yml -> requirements-py310-cu113.txt), GPU-Hartregel D-040
+#   (GTX 1060 / CUDA 11.3). Zusaetzlich ist poetry.lock aelter als
+#   pyproject.toml und kennt dort gelistete Pakete nicht -> `poetry install`
+#   waere ohnehin abgebrochen. Der Install-Pfad ist jetzt derselbe wie in
+#   ci.yml: `pip install -r requirements-py310-cu113.txt`.
+#
+# Reaktivierung: erst wenn (a) der User Release-Builds wieder freigibt UND
+# (b) dieser Workflow eine legale FFmpeg-Quelle hat (Self-hosted Runner mit
+# bin/, Secret-basierter Download oder committete Binaries).
+# ==============================================================================
 
 on:
-  push:
-    tags:
-      - "v*.*.*"          # e.g. v0.5.0, v1.0.0
   workflow_dispatch:
     inputs:
       version:
@@ -34,23 +66,39 @@ jobs:
             echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Python 3.11
+      - name: Preflight — packaged FFmpeg binaries present?
+        # B-720: harter Abbruch statt Blindflug. pb_studio.spec:33-58 verlangt
+        # bin/ffmpeg.exe + bin/ffprobe.exe (oder PB_FFMPEG_EXE/PB_FFPROBE_EXE).
+        # bin/ ist gitignored -> auf einem Hosted Runner immer leer.
+        shell: bash
+        run: |
+          missing=0
+          for name in ffmpeg.exe ffprobe.exe; do
+            if [ ! -f "bin/$name" ]; then
+              echo "MISSING: bin/$name"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::Release build is deactivated (B-720): bin/ffmpeg.exe / bin/ffprobe.exe are gitignored and this workflow has no source for them. pb_studio.spec would raise FileNotFoundError. See the comment block at the top of this file."
+            exit 1
+          fi
+
+      - name: Set up Python 3.10 (target runtime)
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
           cache: "pip"
 
-      - name: Install CUDA-capable PyTorch (cu124)
-        # GitHub Windows runners don't have CUDA drivers but the DLLs are bundled;
-        # the app will fall back to CPU at runtime on machines without a GPU.
+      - name: Install target runtime dependencies
+        # B-720: identisch zu ci.yml. requirements-py310-cu113.txt zieht
+        # torch==1.12.1+cu113 ueber --extra-index-url (GPU-Hartregel D-040).
+        # Kein poetry: poetry.lock ist gegenueber pyproject.toml veraltet.
         run: |
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-
-      - name: Install project dependencies
-        run: |
-          pip install poetry pyinstaller
-          poetry config virtualenvs.create false
-          poetry install --no-interaction
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-py310-cu113.txt
+          python -m pip install ./vendor/beat_this --no-deps
+          python -m pip install pyinstaller
 
       - name: Update version in pyproject.toml
         shell: bash
@@ -128,6 +176,10 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: [build, package]
+    # B-720: Ohne Tag-Trigger ist diese Bedingung bei workflow_dispatch nie
+    # wahr — es wird also auch manuell kein GitHub-Release veroeffentlicht.
+    # Das ist beabsichtigt (Workflow deaktiviert). Beim Reaktivieren muss der
+    # Tag-Trigger oben wieder rein, sonst bleibt dieser Job tot.
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write

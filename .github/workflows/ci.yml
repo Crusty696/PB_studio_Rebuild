@@ -74,4 +74,11 @@ jobs:
           python -m pip install ./vendor/beat_this --no-deps
 
       - name: Run unit tests
+        # B-720 Ehrlichkeits-Hinweis: von den drei Markern im Gate schliesst
+        # derzeit nur `slow` wirklich Tests aus. `live_gpu` und `e2e` sind
+        # aktuell no-op — kein Test setzt sie (in pyproject.toml als [UNUSED]
+        # markiert). Schwere Suites werden real ueber die addopts-Ignores in
+        # pyproject.toml aus dem Default-Lauf gehalten. Das Gate bleibt als
+        # Vorwaertsschutz stehen, verspricht hier aber keinen Ausschluss, den
+        # es nicht gibt. Guard: tests/test_ci_workflow_policy.py.
         run: pytest -m "not live_gpu and not e2e and not slow" --maxfail=1 --disable-warnings

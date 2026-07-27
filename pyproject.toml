@@ -98,13 +98,22 @@ testpaths = ["tests"]
 #   pytest tests/test_db_deep.py -v
 #   pytest tests/live_ollama_integration_test.py -v
 addopts = "--ignore=tests/e2e_functional_test.py --ignore=tests/functional_steer_tab_memory_loop.py --ignore=tests/gui_db_inspector.py --ignore=tests/live_ollama_integration_test.py --ignore=tests/test_db_deep.py --ignore=tests/test_video_analysis_real.py --ignore=tests/test_export_convert_real.py --ignore=tests/qa_artifacts"
+# B-720: Marker-Deklaration vs. Realitaet. Marker, die aktuell KEIN einziger
+# Test setzt, tragen den Vermerk "[UNUSED]". Das CI-Gate in
+# .github/workflows/ci.yml lautet -m "not live_gpu and not e2e and not slow" —
+# davon schliesst real nur `slow` etwas aus; `live_gpu` und `e2e` sind
+# derzeit No-ops. Schwere Tests werden stattdessen ueber die addopts-Ignores
+# oben aus dem Default-Lauf gehalten, nicht ueber Marker.
+# Guard: tests/test_ci_workflow_policy.py haelt "[UNUSED]" und die tatsaechliche
+# Marker-Verwendung in tests/ synchron — in BEIDE Richtungen. Wer einen Marker
+# anfaengt zu benutzen, muss "[UNUSED]" hier entfernen (und umgekehrt).
 markers = [
-    "gui: marks tests that require a display (deselect with -m 'not gui')",
-    "e2e: marks end-to-end tests (deselect with -m 'not e2e')",
+    "gui: marks tests that require a display (deselect with -m 'not gui') [UNUSED]",
+    "e2e: marks end-to-end tests (deselect with -m 'not e2e') [UNUSED]",
     "slow: marks slow tests (deselect with -m 'not slow')",
     "spike: marks exploratory dependency or model experiments outside the default green suite",
-    "live_gpu: marks tests that load real GPU models (skip with -m 'not live_gpu')",
-    "long_form: marks long-form video/audio tests (e.g. 4h files, skip with -m 'not long_form')",
+    "live_gpu: marks tests that load real GPU models (skip with -m 'not live_gpu') [UNUSED]",
+    "long_form: marks long-form video/audio tests (e.g. 4h files, skip with -m 'not long_form') [UNUSED]",
 ]
 
 [[tool.poetry.source]]
