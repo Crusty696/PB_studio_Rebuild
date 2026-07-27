@@ -124,11 +124,38 @@ def _detect_real_db_writes(request):
     yield
     after = real_db.stat().st_mtime_ns if real_db.exists() else None
     if before != after:
+        # Der Schreiber ist nicht zwingend DIESER Test: ein Hintergrund-Thread
+        # oder Subprozess kann waehrend seiner Laufzeit schreiben und ihn
+        # faelschlich anschwaerzen. Deshalb hier ein Vollbild aller lebenden
+        # Threads mit Stack — daraus faellt der Verursacher namentlich.
         pytest.fail(
             f"Test '{request.node.nodeid}' hat die REALE Projekt-DB "
-            f"veraendert ({real_db}). Tests muessen gegen die Temp-DB aus "
-            "_protect_real_database oder eine eigene tmp_path-DB laufen."
+            f"veraendert ({real_db}).\n{_live_thread_dump()}\n"
+            "Tests muessen gegen die Temp-DB aus pytest_configure oder eine "
+            "eigene tmp_path-DB laufen."
         )
+
+
+def _live_thread_dump() -> str:
+    """Alle lebenden Threads mit Stack — zur Taeterermittlung beim DB-Write."""
+    import threading
+    import traceback
+
+    frames = sys._current_frames()
+    lines = [f"--- lebende Threads (PID {os.getpid()}) ---"]
+    for thread in threading.enumerate():
+        frame = frames.get(thread.ident)
+        lines.append(f"  [{thread.name}] daemon={thread.daemon} alive={thread.is_alive()}")
+        if frame is None:
+            continue
+        # Nur Projektframes — Bibliotheks-Rauschen weglassen.
+        stack = [
+            f"      {f.filename}:{f.lineno} in {f.name}"
+            for f in traceback.extract_stack(frame)
+            if str(_REPO_ROOT) in f.filename
+        ]
+        lines.extend(stack[-6:])
+    return "\n".join(lines)
 
 
 def pytest_configure(config):
