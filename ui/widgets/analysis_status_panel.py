@@ -428,7 +428,6 @@ class AnalysisStatusPanel(QWidget):
 
         # Update table
         self.table.setRowCount(len(filtered_steps))
-        completed_count = 0
 
         for row_idx, step_key in enumerate(filtered_steps):
             status_entry = status_dict.get(step_key)
@@ -442,8 +441,6 @@ class AnalysisStatusPanel(QWidget):
                 value_summary = {}
                 error_msg = None
 
-            if status == "done":
-                completed_count += 1
             provenance_tooltip = ""
             if isinstance(value_summary, dict):
                 provenance_tooltip = str(value_summary.get("provenance_tooltip") or "")
@@ -525,8 +522,25 @@ class AnalysisStatusPanel(QWidget):
                 self.table.setItem(row_idx, 3, QTableWidgetItem(""))
 
         # Update progress bar
-        total_steps = len(steps)
-        self.progress_bar.setMaximum(total_steps)
+        #
+        # Fix (Audit 2026-07-27): Zaehler und Nenner kamen aus zwei
+        # verschiedenen Mengen — ``completed_count`` wurde nur ueber
+        # ``filtered_steps`` hochgezaehlt, ``setMaximum`` nutzte aber ALLE
+        # Steps. Filter "Nur Ausstehend"/"Nur Fehler" zeigte dadurch
+        # "0% (0/9 Schritte)", obwohl alle Schritte fertig waren.
+        # Zweitens ist die %-Basis fuer Audio bewusst AUDIO_STEPS OHNE die
+        # optionalen V2-Steps (siehe _steps_for_media und
+        # services/analysis_status_service.get_completion_percent,
+        # User-Entscheidung 2026-07-17) — ueber den Anzeige-Nenner rutschten
+        # onset/av_pacing bisher in den Prozentwert und liessen fertige
+        # Tracks dauerhaft mit 80% stehen.
+        percent_steps = self._percent_basis_steps(self._media_type)
+        completed_count = 0
+        for step_key in percent_steps:
+            entry = status_dict.get(step_key)
+            if entry is not None and entry.status == "done":
+                completed_count += 1
+        self.progress_bar.setMaximum(len(percent_steps))
         self.progress_bar.setValue(completed_count)
 
         # Enable/disable retry button based on error count
@@ -553,6 +567,21 @@ class AnalysisStatusPanel(QWidget):
             # (onset/av_pacing) mit anzeigen — %-Basis bleibt AUDIO_STEPS.
             return (list(analysis_status_service.AUDIO_STEPS)
                     + list(getattr(analysis_status_service, "AUDIO_STEPS_OPTIONAL", [])))
+        return []
+
+    @staticmethod
+    def _percent_basis_steps(media_type: str | None) -> list[str]:
+        """Steps, die in den Fortschrittsbalken zaehlen.
+
+        Deckungsgleich mit ``analysis_status_service.get_completion_percent``:
+        Video = VIDEO_STEPS, Audio = AUDIO_STEPS OHNE AUDIO_STEPS_OPTIONAL
+        (User-Entscheidung 2026-07-17). Bewusst getrennt von
+        ``_steps_for_media``, das zusaetzlich die optionalen Steps ANZEIGT.
+        """
+        if media_type == "video":
+            return list(analysis_status_service.VIDEO_STEPS)
+        if media_type == "audio":
+            return list(analysis_status_service.AUDIO_STEPS)
         return []
 
     def _format_value_summary(self, summary: dict) -> str:

@@ -191,6 +191,29 @@ class MediaTableModel(QAbstractTableModel):
     def get_checked_ids(self) -> list[int]:
         return [i["id"] for i in self._items if i["id"] in self._checked_ids]
 
+    def all_ids(self) -> list[int]:
+        """IDs ALLER Pool-Eintraege — unabhaengig vom fetchMore()-Ausschnitt.
+
+        Bei ``paginated_fetch=True`` liefert ``rowCount()`` nur die bereits
+        exponierten Zeilen (initial 100). Wer den kompletten Material-Pool
+        braucht (Auto-Edit ohne Checkbox-Auswahl), muss hierueber gehen —
+        ``get_checked_ids()`` iteriert aus demselben Grund ``_items``.
+        """
+        ids: list[int] = []
+        for item in self._items:
+            raw = item.get("id")
+            if raw is None:
+                continue
+            try:
+                ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
+    def total_row_count(self) -> int:
+        """Anzahl ALLER Eintraege — ungekapptes Gegenstueck zu ``rowCount()``."""
+        return len(self._items)
+
     def set_timeline_usage(self, usage: dict[int, int] | None):
         """Schritt 7 (V3): markiert, welche Clips der letzte Auto-Edit nutzt."""
         self._timeline_usage = dict(usage or {})
@@ -353,6 +376,18 @@ class PagedProxyModel(QSortFilterProxyModel):
     def get_checked_ids(self) -> list[int]:
         src = self.sourceModel()
         return src.get_checked_ids() if src is not None else []
+
+    def all_ids(self) -> list[int]:
+        src = self.sourceModel()
+        if src is not None and hasattr(src, "all_ids"):
+            return src.all_ids()
+        return []
+
+    def total_row_count(self) -> int:
+        src = self.sourceModel()
+        if src is not None and hasattr(src, "total_row_count"):
+            return src.total_row_count()
+        return 0
 
     def set_timeline_usage(self, usage: dict[int, int] | None):
         src = self.sourceModel()

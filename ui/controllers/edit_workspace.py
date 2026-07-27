@@ -299,17 +299,6 @@ class EditWorkspaceController(PBComponent):
         if not self._require_schnitt_action("Auto-Edit"):
             return
 
-        # B-284 Phase C / Variante 1 — Editor-Header btn_auto_edit triggert
-        # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
-        # bridge unten ueber ctrl.attach_worker; State-Refresh nach
-        # worker.finished via ctrl._on_done.
-        ws = getattr(self.window, "_schnitt_ws", None)
-        if ws is not None:
-            try:
-                ws.enter_loading()
-            except Exception as exc:
-                logger.debug("schnitt enter_loading failed: %s", exc)
-
         audio_id = self.window.audio_combo.currentData()
         if audio_id is None:
             self.window.console_text.append("[Auto-Edit] Kein Audio-Track ausgewaehlt.")
@@ -330,13 +319,24 @@ class EditWorkspaceController(PBComponent):
             # wuerde sonst nur die aktuell sichtbaren 16 Zeilen liefern.
             v_model = getattr(self.window, "video_pool_model", None) or self.window.video_pool_table.model()
             if v_model:
-                for _row in range(v_model.rowCount()):
-                    _id_val = v_model.index(_row, 1).data()
-                    if _id_val:
-                        try:
-                            video_ids.append(int(_id_val))
-                        except ValueError as exc:
-                            logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
+                # Fix (Audit 2026-07-27): rowCount() ist beim Video-Pool
+                # gekappt — MediaTableModel(paginated_fetch=True) exponiert
+                # initial nur _INITIAL_FETCH_ROWS=100 Zeilen und waechst erst
+                # ueber fetchMore() beim Scrollen. Der "keine Auswahl"-Pfad
+                # bekam dadurch still nur die ersten 100 Clips als Material-
+                # Pool. all_ids() liest wie get_checked_ids() aus _items.
+                _all_ids_fn = getattr(v_model, "all_ids", None)
+                _all_ids = _all_ids_fn() if callable(_all_ids_fn) else None
+                if isinstance(_all_ids, list):
+                    video_ids.extend(_all_ids)
+                else:
+                    for _row in range(v_model.rowCount()):
+                        _id_val = v_model.index(_row, 1).data()
+                        if _id_val:
+                            try:
+                                video_ids.append(int(_id_val))
+                            except ValueError as exc:
+                                logger.warning("_start_auto_edit: failed to parse video clip ID: %s", exc)
             if video_ids:
                 self.window.console_text.append(
                     f"[Auto-Edit] Keine Clips markiert — App waehlt "
@@ -346,6 +346,25 @@ class EditWorkspaceController(PBComponent):
         if not video_ids:
             self.window.console_text.append("[Auto-Edit] Keine Video-Clips vorhanden.")
             return
+
+        # B-284 Phase C / Variante 1 — Editor-Header btn_auto_edit triggert
+        # Loading-Overlay (User-Entscheidung 2026-05-09). Worker-progress
+        # bridge unten ueber ctrl.attach_worker; State-Refresh nach
+        # worker.finished via ctrl._on_done.
+        #
+        # Fix (Audit 2026-07-27): Aufruf stand VOR den Abbruch-Guards oben.
+        # Griff einer der Early-Returns (kein Audio / leerer Video-Pool, z.B.
+        # waehrend der async Media-Reload noch laeuft), blieb der SCHNITT-
+        # Workspace dauerhaft in STATE_LOADING — und
+        # SchnittController.set_active_project_protected blockt in dem State
+        # jeden Projekt-Push. enter_loading() darf erst feuern, wenn der
+        # Worker-Start sicher ist.
+        ws = getattr(self.window, "_schnitt_ws", None)
+        if ws is not None:
+            try:
+                ws.enter_loading()
+            except Exception as exc:
+                logger.debug("schnitt enter_loading failed: %s", exc)
 
         cut_rate_map = {0: 1, 1: 2, 2: 4, 3: 8, 4: 16}
         base_cut_rate = cut_rate_map.get(self.window.cut_rate_combo.currentIndex(), 4)
@@ -1213,7 +1232,11 @@ class EditWorkspaceController(PBComponent):
                 total = 0
                 if vm is not None and hasattr(vm, "rowCount"):
                     try:
-                        total = vm.rowCount()
+                        # Fix (Audit 2026-07-27): rowCount() ist beim
+                        # paginierten Video-Pool auf die exponierten Zeilen
+                        # gekappt -> "X von 100" statt "X von 375".
+                        _total_fn = getattr(vm, "total_row_count", None)
+                        total = _total_fn() if callable(_total_fn) else vm.rowCount()
                     except TypeError:
                         total = 0
                 media_ws.set_timeline_usage_summary(len(usage), total, extra)
