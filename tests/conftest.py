@@ -32,6 +32,7 @@ _TEST_SUPPORT_ROOT = _REPO_ROOT / "tests" / "support"
 _PROTECTED_REAL_DATABASES = discover_protected_databases(
     repo_root=_REPO_ROOT,
     appdata=Path(os.environ["APPDATA"]),
+    include_missing=True,
 )
 configure_child_environment(
     _PROTECTED_REAL_DATABASES,

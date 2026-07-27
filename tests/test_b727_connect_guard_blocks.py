@@ -15,17 +15,14 @@ gar nicht erst aufgebaut.
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 import tests.conftest as conftest_mod
 
 
-REAL_DB = next(
-    path
-    for path in conftest_mod._PROTECTED_REAL_DATABASES
-    if path.name == "pb_studio.db" and path.is_file()
-)
+REAL_DB = (Path(conftest_mod._REPO_ROOT) / "pb_studio.db").resolve()
 
 
 @pytest.fixture(autouse=True)

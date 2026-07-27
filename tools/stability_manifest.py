@@ -55,10 +55,14 @@ def _recent_project_roots(settings_path: Path) -> list[Path]:
     return roots
 
 
-def _project_databases(project_root: Path) -> Iterable[Path]:
+def _project_databases(
+    project_root: Path,
+    *,
+    include_missing: bool = False,
+) -> Iterable[Path]:
     for relative_path in PROJECT_DATABASE_PATHS:
         candidate = project_root / relative_path
-        if candidate.is_file():
+        if include_missing or candidate.is_file():
             yield candidate
 
 
@@ -68,17 +72,25 @@ def discover_protected_databases(
     appdata: Path,
     settings_path: Path | None = None,
     runtime_project_roots: Iterable[Path] = (),
+    include_missing: bool = False,
 ) -> list[Path]:
-    """Return existing active DBs without importing product modules or opening SQLite."""
+    """Return protected DB paths without importing product modules or opening SQLite."""
     repo_root = repo_root.resolve()
     settings_path = settings_path or appdata / "PBStudio" / "settings.json"
-    candidates: list[Path] = list(_project_databases(repo_root))
+    candidates: list[Path] = list(
+        _project_databases(repo_root, include_missing=include_missing)
+    )
     outputs = repo_root / "outputs"
     if outputs.is_dir():
         candidates.extend(path for path in outputs.rglob("*.db") if path.is_file())
     project_roots = [*_recent_project_roots(settings_path), *runtime_project_roots]
     for project_root in project_roots:
-        candidates.extend(_project_databases(Path(project_root)))
+        candidates.extend(
+            _project_databases(
+                Path(project_root),
+                include_missing=include_missing,
+            )
+        )
     app_brain_root = appdata / "PB_Studio" / "brain_v3"
     candidates.extend(app_brain_root / name for name in APP_BRAIN_DATABASES)
 
@@ -86,7 +98,7 @@ def discover_protected_databases(
     unique: dict[str, Path] = {}
     for candidate in candidates:
         resolved = candidate.resolve()
-        if not resolved.is_file():
+        if not include_missing and not resolved.is_file():
             continue
         try:
             relative_parts = {part.casefold() for part in resolved.relative_to(repo_root).parts}

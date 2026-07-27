@@ -47,6 +47,20 @@ def isolated_appdata(tmp_path: Path, monkeypatch):
     yield tmp_path
 
 
+@pytest.fixture
+def reference_db_copy(tmp_path: Path) -> Path:
+    """WAL-sichere Referenzkopie; Original wird nie per SQLite geöffnet."""
+    if not REAL_DB.exists():
+        pytest.skip("Referenz-DB nicht vorhanden")
+    from tools.stability_manifest import capture_database
+
+    capture = capture_database(REAL_DB, backup_root=tmp_path / "backups")
+    assert capture["stable"], "Referenz-DB änderte sich während RAW-Capture"
+    consolidated = capture["backup"]["consolidated_database"]
+    assert consolidated is not None
+    return Path(consolidated)
+
+
 def _spread(values) -> float:
     """max-min ueber eine Werteliste — 0.0 heisst 'konstant'."""
     vals = [float(v) for v in values]
@@ -467,19 +481,14 @@ def test_b736_ranking_differs_between_quiet_passage_and_drop(isolated_appdata):
 # Echte DB — read-only Gegenprobe
 # ======================================================================
 
-@pytest.mark.skipif(not REAL_DB.exists(), reason="Referenz-DB nicht vorhanden")
-def test_b736_real_db_rhythm_varies_across_cut_points():
-    """Gegenprobe an der echten DB: der Snapshot variiert ueber die Cuts.
-
-    Read-only (``mode=ro``) — der Testschutz blockiert schreibende
-    Verbindungen auf die Produktiv-DB, und das ist Absicht.
-    """
+def test_b736_real_db_rhythm_varies_across_cut_points(reference_db_copy):
+    """Gegenprobe an WAL-sicherer Kopie: Snapshot variiert ueber die Cuts."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
     from services.pacing.bridge_mapping import load_av_pacing_curves
 
-    eng = create_engine(f"sqlite:///file:{REAL_DB.as_posix()}?mode=ro&uri=true")
+    eng = create_engine(f"sqlite:///{reference_db_copy.as_posix()}")
     cut_points = [10.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0]
     tracks_with_rhythm = 0
     with Session(eng) as s:
@@ -504,8 +513,7 @@ def test_b736_real_db_rhythm_varies_across_cut_points():
     assert tracks_with_rhythm > 0, "kein Track mit Rhythmus-Daten in der DB"
 
 
-@pytest.mark.skipif(not REAL_DB.exists(), reason="Referenz-DB nicht vorhanden")
-def test_b736_real_db_onset_hop_matches_analyzer_constant():
+def test_b736_real_db_onset_hop_matches_analyzer_constant(reference_db_copy):
     """Der aus der Track-Laenge zurueckgerechnete Hop muss zum Analyzer passen.
 
     ``beatgrids`` persistiert den Hop der ``onset_strength_curve`` nicht.
@@ -521,7 +529,7 @@ def test_b736_real_db_onset_hop_matches_analyzer_constant():
     from services.pacing.bridge_mapping import load_av_pacing_curves
 
     expected = HOP_LENGTH / DEFAULT_SR * 4
-    eng = create_engine(f"sqlite:///file:{REAL_DB.as_posix()}?mode=ro&uri=true")
+    eng = create_engine(f"sqlite:///{reference_db_copy.as_posix()}")
     checked = 0
     with Session(eng) as s:
         for track_id in (1, 2):

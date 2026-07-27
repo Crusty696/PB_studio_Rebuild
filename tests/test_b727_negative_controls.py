@@ -12,11 +12,7 @@ import pytest
 import tests.conftest as conftest_mod
 
 
-REAL_DB = next(
-    path
-    for path in conftest_mod._PROTECTED_REAL_DATABASES
-    if path.name == "pb_studio.db" and path.is_file()
-)
+REAL_DB = (Path(conftest_mod._REPO_ROOT) / "pb_studio.db").resolve()
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +56,29 @@ def test_dbapi2_connect_blocks_real_db_before_original_call(monkeypatch):
 
     with pytest.raises(RuntimeError, match="TESTSCHUTZ"):
         dbapi2.connect(str(REAL_DB))
+
+    assert calls == []
+
+
+def test_fresh_clone_repo_database_is_denied_before_it_exists():
+    assert REAL_DB in conftest_mod._PROTECTED_REAL_DATABASES
+
+
+def test_path_as_uri_cannot_bypass_guard(monkeypatch):
+    calls = _install_with_spy(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="TESTSCHUTZ"):
+        sqlite3.connect(REAL_DB.as_uri(), uri=True)
+
+    assert calls == []
+
+
+def test_unregistered_project_database_outside_temp_is_blocked(monkeypatch):
+    calls = _install_with_spy(monkeypatch)
+    unknown_project_db = Path.home() / "PBStudioGuardProbe" / "pb_studio.db"
+
+    with pytest.raises(RuntimeError, match="TESTSCHUTZ"):
+        sqlite3.connect(unknown_project_db)
 
     assert calls == []
 

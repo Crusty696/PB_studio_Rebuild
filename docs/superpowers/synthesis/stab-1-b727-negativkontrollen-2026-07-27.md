@@ -51,3 +51,36 @@ Worktree-ferne Recent-Projekt-/Brain-DBs und SQLite-URI-Pfade offen.
 - Status bleibt `code-fix-pending-live-verification`; kein `fixed`.
 
 Nächste einzige Task: `STAB-1 Import-/Syntax-Smokes`.
+
+## Adversarialer Review-Follow-up — 2026-07-28
+
+Read-only Parallelreview fand vier HIGH-Lücken im ersten Commit `5174bf2`:
+
+1. `file:///C:/...` aus `Path.as_uri()` umging Normalisierung.
+2. Missing-DB-Pfade eines frischen Clones fehlten der Denylist.
+3. Tests wählten eine existierende lokale DB per `next(...)` und wären im
+   sauberen CI-Clone bei Collection mit `StopIteration` abgebrochen.
+4. Zwei B-736-Defaulttests öffneten `outputs/test-tabelle` read-only direkt.
+
+Follow-up:
+
+- Windows-Datei-URI robust normalisiert.
+- Bekannte Missing-Pfade werden für Guard-Discovery aufgenommen.
+- Geschützte DB-Namen außerhalb Temp werden auch in unregistrierten Projekten
+  blockiert.
+- Guardtests verwenden absichtlich nicht existierenden Fresh-Clone-Pfad.
+- B-736-Referenztests öffnen nur WAL-konsolidierte Temp-Kopien.
+
+Beweise:
+
+- neue Reviewkontrollen: 3/3 grün;
+- Guard + B-734/B-735/B-736: 33/33 grün;
+- Stability-Manifest-Regression: 3/3 grün;
+- Ruff und `git diff --check`: grün;
+- Post-Follow-up: 13/13 DB/WAL/SHM byte-/logisch identisch,
+  13/13 `quick_check=ok`.
+
+Aktualisiertes Manifest:
+`C:\Users\David_Lochmann\AppData\Local\PBStudioStability\20260728T000300+0200-stab1-b727-review-followup\manifest.json`.
+
+Nächste einzige Task bleibt: `STAB-1 Import-/Syntax-Smokes`.
