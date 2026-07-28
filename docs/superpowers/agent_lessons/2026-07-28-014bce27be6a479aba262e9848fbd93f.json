@@ -1,0 +1,10 @@
+{
+  "lesson_id": "014bce27be6a479aba262e9848fbd93f",
+  "recorded_at": "2026-07-28T11:06:29+00:00",
+  "session_id": "19cca1989cdc4c2a8a358b8306a0ca8a",
+  "head_at_start": "f9aaa69c629a50fb86c73af9508b1f6bb88a9892",
+  "problem": "Programmatischer UI-Automationsschluss erzeugte Windows 0x80010108 und ließ W1 wie Produktcrash aussehen.",
+  "cause": "UI-Automations-Client schloss Qt-Fenster mit closeEvent spontaneous=False und trennte COM/RPC-Objekt; nativer Windows-Schluss erzeugte spontaneous=True ohne Fatal.",
+  "rule": "PB-Studio-Live-Gates immer über nativen Windows-Fensterschluss beenden und closeEvent spontaneous plus Log-Fatal-Scan belegen; programmatisches UI-close nicht als Nutzer-Shutdown werten.",
+  "applies_to": "PB Studio GUI-Live-Harness, Shutdown-Gates, W1/W8"
+}
