@@ -87,6 +87,9 @@ set "APPDATA=%PB_STABILITY_ROOT%\AppData\Roaming"
 set "LOCALAPPDATA=%PB_STABILITY_ROOT%\AppData\Local"
 if not exist "%APPDATA%" mkdir "%APPDATA%"
 if not exist "%LOCALAPPDATA%" mkdir "%LOCALAPPDATA%"
+:: B-744: Leere Session-JSON verhindert Host-QSettings-Migration aus Registry.
+if not exist "%APPDATA%\PBStudio" mkdir "%APPDATA%\PBStudio"
+if not exist "%APPDATA%\PBStudio\settings.json" > "%APPDATA%\PBStudio\settings.json" echo {}
 if not exist "%PB_STABILITY_PROJECT%" mkdir "%PB_STABILITY_PROJECT%"
 
 :: Clicklog-Datei: alles in eine Datei (stdout + stderr zusammen)
