@@ -20,12 +20,12 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`STAB-4 / B-726 RAFT-Direktpfad unter GPU-Execution-Lease`.
+`B-735 Role-Bridge-Achse`.
 
-STAB-1-Teilgates sowie B-723/B-725/B-741 sind code-complete/live-pending.
-Gemäß D-078 sind breite Suite-/Live-/GPU-Stressprüfungen bis Abschluss
-restlicher Fixarbeit verschoben. B-726 schützt öffentliche RAFT-Direkt-
-Inferenz; nur bei Codeänderung kleinsten betroffenen Fokuscheck ausführen.
+B-715/B-723/B-725/B-726 sowie B-741 sind code-complete/live-pending. User-
+Freigabe D-084 aktiviert Restreihenfolge B-735 → B-736 → B-737 → B-738.
+Gemäß D-078 nur kleinste Fokuschecks; breite Suite-/Live-/GPU-Stressprüfungen
+erst nach Abschluss restlicher Fixarbeit.
 
 Keine breite Suite vor Abschluss restlicher Root-Cause-Tasks. Erster Fehler im
 kleinsten Fokuscheck stoppt nur diese Root-Cause-Task.
