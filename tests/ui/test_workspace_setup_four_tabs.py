@@ -8,8 +8,14 @@ def _qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_main_window_has_four_stack_widgets_and_schnitt():
+def test_main_window_has_four_stack_widgets_and_schnitt(monkeypatch):
     _qapp()
+    from ui.controllers.panel_setup import PanelSetupController
+
+    # Layout-Test darf weder Host-Settings lesen noch echten Ollama-Prozess
+    # starten. Chat-Dock besitzt eigenen fokussierten Testumfang.
+    monkeypatch.setattr(PanelSetupController, "setup_chat_dock", lambda self: None)
+
     from main import PBWindow
     win = PBWindow()
     try:
