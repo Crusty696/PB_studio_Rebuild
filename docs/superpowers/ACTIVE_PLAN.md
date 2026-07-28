@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / B-278 widerspruechlichen Ollama-/AI-Startupstatus beheben`.
+`LIVE-VERIFY / B-743 Settings-/Recent-Project-AppData-Isolation`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -30,9 +30,11 @@ schaut zu. B-737/B-738 bleiben offen und werden danach fortgesetzt.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
-aktuellen Workflow und öffnet genau eine Root-Cause-Task. W1 Retry 2 belegte
-am Current HEAD gleichzeitig `KI: Fallback` und `AI ready`, obwohl Ollama
-API-ready war. B-278 ist deshalb `partial-fix`; W1 bleibt bis kleinstem
+aktuellen Workflow und öffnet genau eine Root-Cause-Task. B-278-Fix ist als
+`1b2f161` integriert; sichtbarer Retry zeigte kohärent `Ollama` + `AI ready`,
+der exakte Timeout-Race blieb nicht erzwungen. W1-Projektanlage gelang, schrieb
+aber trotz isoliertem Launcher in echte
+`%APPDATA%\PBStudio\settings.json`. B-743 ist `open`; W1 bleibt bis kleinstem
 Root-Cause-Fix, Fokusbeweis und beobachtetem Live-Retry blockiert.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.

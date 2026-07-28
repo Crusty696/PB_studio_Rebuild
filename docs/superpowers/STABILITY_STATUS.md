@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 11:45 Europe/Zurich
+Letztes Update: 2026-07-28 12:07 Europe/Zurich
 
 Gesamtfortschritt: **ca. 15–18 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / B-278 Ollama-/AI-Startupstatus**
+Aktiv: **LIVE-VERIFY / B-743 AppData-Isolation**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -53,14 +53,18 @@ Aktiv: **LIVE-VERIFY / B-278 Ollama-/AI-Startupstatus**
   redundante breite Pytest-Suites bestehen.
 - W1 Retry 1: Boot/Setup/Hauptfenster/Shutdown Exit 0; reale 13/13 DB-Quellen
   danach byte-/logisch unverändert.
-- W1 Retry 2: `KI: Fallback` und `AI ready` gleichzeitig sichtbar, obwohl
-  Ollama bereit war. B-278 `partial-fix`; W1 vor Projektanlage gestoppt.
+- B-278-Fix `1b2f161` integriert; Fokus 3/3. Sichtbarer Retry zeigte
+  `Ollama` + `AI ready`; exakter Timeout-Race blieb nicht erzwungen.
+- W1-Projektanlage `STAB-W1-A` im isolierten Projektroot gelang.
+- B-743 Current-Regression: SettingsStore schrieb dennoch echte
+  `%APPDATA%\PBStudio\settings.json` und ergänzte Host-RecentProjects.
+  App sofort sauber beendet; Host-Datei nicht geraten zurückgesetzt.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-B-278 Root Cause des widersprüchlichen Startupstatus beheben; nur
+B-743 Root Cause der Settings-/Recent-Project-AppData-Isolation beheben; nur
 fokussierter Regressionstest, danach beobachteter W1-Live-Retry.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

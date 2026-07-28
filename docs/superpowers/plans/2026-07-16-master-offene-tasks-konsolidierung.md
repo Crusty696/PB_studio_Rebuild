@@ -696,5 +696,12 @@ Decision: Vault
   `AI ready`, obwohl Ollama API-ready war. B-278 deshalb `partial-fix`;
   Workflow vor Projektanlage gestoppt.
 - Nächste einzige Task:
-  `LIVE-VERIFY / B-278 widerspruechlichen Ollama-/AI-Startupstatus beheben`.
+  `LIVE-VERIFY / B-743 Settings-/Recent-Project-AppData-Isolation`.
 - Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.
+- B-278-Fix als `1b2f161` integriert; Fokus 3/3, sichtbarer Status im Retry
+  kohärent. Exakter Timeout-Race blieb im Live-Retry nicht erzwungen; kein
+  `fixed`.
+- W1-Projektanlage `STAB-W1-A` im isolierten Projektroot gelang.
+- B-743 Current-Regression: SettingsStore schrieb trotz isoliertem Launcher in
+  echte `%APPDATA%\PBStudio\settings.json` und ergänzte Host-RecentProjects.
+  App sofort sauber beendet; Host-Datei nicht geraten zurückgesetzt.

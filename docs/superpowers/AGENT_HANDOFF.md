@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-743 Current-Live-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `6fb4131`.
+- B-278-Fix als `1b2f161` integriert; Fokus 3/3. Sichtbarer Status kohärent,
+  exakter Timeout-Race im Retry nicht erzwungen; kein `fixed`.
+- W1-Projektanlage `STAB-W1-A` unter isoliertem Projektroot gelang.
+- Current-Regression: SettingsStore schrieb trotz isoliertem Launcher in
+  echte `%APPDATA%\PBStudio\settings.json`; Host-RecentProjects verändert.
+- Host-Datei nicht geraten zurückgesetzt. Post-Incident-Baseline:
+  SHA256 `690EE75CD9FB2D36B053563C61B482F72EBCB7C06094CC134ABA3ECA3A2D6DFC`,
+  1411 Bytes.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-743 Settings-/Recent-Project-AppData-Isolation`.
+- Nur Root Cause, fokussierter Test, beobachteter W1-Retry. Keine breite Suite.
+
 ## B-278 Current-Live-Blocker 2026-07-28 (newest)
 
 - Branch/HEAD vor Governance-Commit:
