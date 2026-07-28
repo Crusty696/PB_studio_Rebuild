@@ -1,0 +1,10 @@
+{
+  "lesson_id": "553f0a21bf684c598c16b2e200fe075f",
+  "recorded_at": "2026-07-28T01:06:26+00:00",
+  "session_id": "ccb3820bc3aa467dbe1f6b4392355645",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Obsidian-Dashboard wurde aus statischen Kopien und unbewiesenem Refresh-Plugin aufgebaut; Plan, Task und Prozentwerte drifteten von der Live-Statusquelle ab",
+  "cause": "Planhierarchie Parent-Plan versus laufendes Stabilitätsprogramm war nicht getrennt; Werte wurden dupliziert; Syntaxcheck wurde fälschlich als ausreichende Refresh-Absicherung behandelt",
+  "rule": "Status-Dashboards müssen genau eine kanonische Laufzeitquelle nutzen, Parent-Plan und Ausführungsprogramm getrennt darstellen und Auto-Refresh durch zwei sichtbare Quelländerungen bei offenem Client plus Neustart beweisen; Syntax- oder Rendercheck reicht nicht",
+  "applies_to": "PB-Studio Obsidian-Dashboard und allgemein automatisch aktualisierte Status-Dashboards"
+}
