@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W1 Projektwechsel und Neustart`.
+`LIVE-VERIFY / B-745 W1-Shutdown 0x80010108`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -33,8 +33,10 @@ Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
 aktuellen Workflow und öffnet genau eine Root-Cause-Task. B-743 `b0aac7e` und
 B-744 `ebc6546` sind live bewiesen: Session-Settings/RecentProjects isoliert,
 null QSettings-Migration, Host-JSON und 15 geschützte DBs unverändert. Beide
-bleiben ohne Usermarker `code-fix-pending-live-verification`. W1 fährt jetzt
-mit bestehendem Projekt, drei Wechseln, Shutdown und Neustart fort.
+bleiben ohne Usermarker `code-fix-pending-live-verification`. Drei
+Projektwechsel und Neustart liefen sichtbar; vier frühere Shutdown-Logs enden
+aber mit `Windows fatal exception: code 0x80010108`. B-745 klärt jetzt exakt
+diesen Root Cause. W1 bleibt blockiert.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 

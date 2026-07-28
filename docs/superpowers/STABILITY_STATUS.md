@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 12:40 Europe/Zurich
+Letztes Update: 2026-07-28 12:55 Europe/Zurich
 
 Gesamtfortschritt: **ca. 15–18 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W1 Projektwechsel/Neustart**
+Aktiv: **LIVE-VERIFY / B-745 W1-Shutdown 0x80010108**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -67,12 +67,16 @@ Aktiv: **LIVE-VERIFY / W1 Projektwechsel/Neustart**
 - B-744-Fix `ebc6546` live: Session-JSON vor Projektanlage `{}`, null
   QSettings-Migration; danach nur isolierter Recent-Project-Pfad. Host-JSON und
   15 geschützte DBs unverändert; neue Projekt-DB quick_check ok.
+- W1: drei Projektwechsel, Neustart, Screenshot, Prozesscleanup und
+  DB-Vergleich bestanden. Abschluss blockiert: vier frühere Logs enden mit
+  `Windows fatal exception: code 0x80010108`. Neuester normaler
+  `CloseMainWindow()`-Run ohne Meldung; Root Cause noch unbelegt.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-W1 fortsetzen: bestehende isolierte Projekte öffnen, dreimal wechseln,
-sauberer Shutdown und Neustart; bei erstem Fehler stoppen.
+B-745: Shutdown-Methode/Produktpfad vergleichen, Root Cause belegen, nur
+notwendigen normalen Shutdown-Re-Run ausführen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

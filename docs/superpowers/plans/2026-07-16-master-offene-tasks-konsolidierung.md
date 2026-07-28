@@ -716,3 +716,10 @@ Decision: Vault
   Host-JSON und 15 geschützte DBs unverändert.
 - Nächste einzige Task:
   `LIVE-VERIFY / W1 Projektwechsel und Neustart`.
+- W1-Wechselpfad sichtbar: B→C→B→C, Neustart, Screenshot, DBs unverändert,
+  keine Prozessreste.
+- B-745 blockiert W1-Abschluss: vier frühere Shutdown-Logs enden mit
+  `Windows fatal exception: code 0x80010108`; neuester normaler
+  `CloseMainWindow()`-Run nicht.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-745 W1-Shutdown 0x80010108`.

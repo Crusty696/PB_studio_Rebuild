@@ -2,7 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## W1 Projektwechsel/Neustart 2026-07-28 (newest)
+## B-745 W1-Shutdown-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `6e3bc98`.
+- Drei Projektwechsel, Neustart, Screenshot und DB-/Prozessbelege bestanden.
+- Vier frühere Logs enden mit `Windows fatal exception: code 0x80010108`;
+  Stack zeigt laufenden `services/perf_watchdog.py:159`-Thread.
+- Neuester Run `clicklog_2026-07-28_125017.log` nach normalem
+  `CloseMainWindow()` ohne Meldung.
+- W1 bleibt blockiert. Nächste einzige Task:
+  `LIVE-VERIFY / B-745 W1-Shutdown 0x80010108`.
+
+## W1 Projektwechsel/Neustart 2026-07-28
 
 - Integration: `codex/B-727-stability-gate` / `2d619a5`.
 - B-743/B-744 live bewiesen; beide ohne Usermarker live-pending.
