@@ -1,19 +1,18 @@
 @echo off
-title PB Studio Rebuild v0.5.0 - Setup (Conda)
+title PB Studio Rebuild v0.5.0 - Setup (Python 3.10 / CUDA 11.3)
 echo ============================================
 echo   PB Studio Rebuild v0.5.0 - Setup (Conda Workflow)
-echo   UI: SCHNITT-Workspace-Redesign (4-Tab-Layout)
-echo   Plan: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\
+echo   Ziel: pb-studio / Python 3.10 / PyTorch cu113 / cuda:0
+echo   Live-Session: docs\superpowers\LIVE_TEST_SESSION.md
 echo ============================================
 echo.
 
 :: Migration ab 2026-04-27: Conda-zentriert. Standalone Python entfernt.
 :: Legacy-Bootstrap (py -3.10) liegt als setup_pb_studio.legacy.bat.
 ::
-:: SCHNITT-Workspace-Redesign 2026-05-09: UI auf 4 Top-Tabs reduziert
-:: (PROJEKT / MATERIAL & ANALYSE / SCHNITT / EXPORT). Setup-Schritte
-:: selbst sind UI-agnostisch (Conda-Env + ML-Stack), bleiben unveraendert.
-:: Live-Verify-Guide: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
+:: Current Stabilitaetsprogramm: Setup bleibt UI-agnostisch und verwendet
+:: ausschliesslich Python 3.10 + CUDA 11.3 fuer GTX 1060 / cuda:0.
+:: Live-Session: docs\superpowers\LIVE_TEST_SESSION.md
 ::
 :: Phasen:
 ::   A) conda env "pb-studio" sicherstellen (env create / update)
@@ -85,9 +84,9 @@ echo.
 if %SETUP_EXIT% EQU 0 (
     echo   Setup fertig.
     echo   App-Start:           start_pb_studio.bat
+    echo   Beobachteter Test:   start_pb_studio_clicklog.bat
     echo   SCHNITT-Tests:       run_pytest_schnitt.bat
-    echo   Brain-V3-Tests:      run_pytest_brain_v3.bat
-    echo   SCHNITT-Live-Verify: docs\superpowers\plans\2026-05-09-schnitt-workspace-redesign\12_LIVE_VERIFY_USER_GUIDE.md
+    echo   Live-Session-Guide:  docs\superpowers\LIVE_TEST_SESSION.md
 ) else (
     echo   Setup mit Fehlercode %SETUP_EXIT% beendet.
 )

@@ -688,4 +688,7 @@ Decision: Vault
 - B-736 Commit `dc253d4`: synthetischer ID-/Index-Rankingpfad entfernt;
   ohne echte Ranking-Eingaben fail-closed. RED 1 fail → GREEN 1 pass.
 - B-736 `code-fix-pending-live-verification`; kein `fixed`.
-- Nächste einzige Task: `B-737 Feedback → Pattern-Learning-Persistenz`.
+- B-737 am 2026-07-28 vor erstem Codeedit sauber gestoppt; keine Tests/Commits.
+- D-085 priorisiert beobachtete Live-Session vor B-737/B-738.
+- Nächste einzige Task: `LIVE-VERIFY / Preflight + W1 Boot und Projekte`.
+- Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.

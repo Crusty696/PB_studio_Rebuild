@@ -1,6 +1,6 @@
 # Session-Monitoring und Schnitt-Analyse — Anleitung fuer Agenten und User
 
-**Stand:** 2026-07-07 (Fixplan `PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07`)
+**Stand:** 2026-07-28 (D-085 beobachtete Stabilitäts-Live-Session)
 **Zweck:** Jede manuelle Test-Session der App wird vollstaendig und OHNE
 laufenden KI-Agenten aufgezeichnet. Jeder Agent (Claude, Codex, Gemini, …)
 kann eine Session anhand dieser Dateien nachvollziehen und den Schnitt
@@ -14,12 +14,14 @@ objektiv bewerten — ohne dass der User etwas wiederholen muss.
 start_pb_studio_clicklog.bat   (Doppelklick)
 ```
 
-Das Skript startet automatisch **drei** Dinge:
+Das Skript startet automatisch **fünf** Dinge:
 
 | Komponente | Was es tut |
 |---|---|
 | PB Studio (DEBUG) | App mit `PB_LOG_LEVEL=DEBUG` + `PB_CLICK_LOG=1` — jeder Klick (`[CLICK]`), jede Taste (`[KEY]`), alle Pipeline-/Worker-/GPU-Events landen im Log |
 | Session-Monitor | `scripts\diag\session_log_monitor.ps1` — laeuft minimiert parallel, filtert das grosse Log live auf Kern-Events, beendet sich ~15 s nach App-Ende selbst |
+| Dataflow-Recorder | `scripts\diag\session_dataflow_recorder.ps1` — DB-/Artefakt-Deltas im Projekt |
+| Ressourcenmonitor | `scripts\start_pipeline_resource_monitor.ps1` — GPU, VRAM, RAM, Prozesse, Threads und App-Log |
 | Tee-Mitschnitt | kompletter stdout/stderr der App |
 
 ## 2. Erzeugte Dateien pro Session
@@ -27,7 +29,10 @@ Das Skript startet automatisch **drei** Dinge:
 | Datei | Inhalt | Fuer wen |
 |---|---|---|
 | `logs\monitor_<ts>.log` | **Kompakte Kern-Events** (siehe Marker-Liste unten) — zuerst lesen! | Agent |
-| `logs\clicklog_<ts>.log` | Kompletter App-Output (stdout+stderr, UTF-16) | Agent (Detail) |
+| `logs\clicklog_<ts>.log` | Kompletter App-Output (stdout+stderr) | Agent (Detail) |
+| `logs\session_<ts>.txt` | Run-ID, Branch, Commit, Python, Logpfade, App-Exitcode | Agent/User |
+| `logs\resource_<ts>.log` | GPU-/VRAM-/RAM-/Prozess-/Threadverlauf | Agent |
+| `logs\dataflow_<ts>.md` | DB- und Artefaktänderungen | Agent |
 | `logs\pb_studio.log` | Rotierendes Voll-Log (5 MB × 3) | Agent (Detail) |
 | `<projekt>\pb_studio.db` | Timeline, Szenen, Analyse-Daten | Analyse-Skript |
 

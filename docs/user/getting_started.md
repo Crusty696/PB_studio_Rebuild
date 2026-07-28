@@ -11,10 +11,10 @@ PB Studio is a beat-synchronized video editor for DJs and music video creators. 
 | Item | Requirement |
 |---|---|
 | Operating System | Windows 10/11 |
-| GPU | NVIDIA (GTX 1060 6 GB minimum, VRAM ≥ 6 GB) |
-| CUDA | 12.x (auto-installed with PyTorch) |
-| FFmpeg | On system PATH |
-| Python | 3.11 or 3.12 (via Poetry) |
+| GPU | NVIDIA GeForce GTX 1060 6 GB, exclusively `cuda:0` |
+| CUDA/PyTorch | CUDA 11.3, PyTorch `1.12.1+cu113` |
+| FFmpeg | Bundled `bin/` preferred, otherwise system PATH |
+| Python | 3.10 via conda env `pb-studio` |
 | Hugging Face token | Required for gated models (Demucs, SigLIP) |
 
 > PB Studio requires a CUDA-capable GPU. CPU-only mode is not supported.
@@ -25,11 +25,18 @@ PB Studio is a beat-synchronized video editor for DJs and music video creators. 
 
 ### 1. Install dependencies
 
-```bash
-pip install poetry
+```bat
 git clone <repo-url>
 cd pb-studio-rebuild
-poetry install
+setup_pb_studio.bat
+```
+
+Manual equivalent:
+
+```powershell
+conda env create -f environment.yml
+conda activate pb-studio
+python scripts/setup_py310_gpu.py --skip-venv
 ```
 
 ### 2. Set your Hugging Face token
@@ -44,11 +51,19 @@ Get a free token at [huggingface.co](https://huggingface.co) — required for fi
 
 ### 3. Launch the app
 
-```bash
-poetry run python main.py
+```bat
+start_pb_studio.bat
 ```
 
 On first launch a **Setup Wizard** will verify FFmpeg, GPU, and model availability.
+
+For an observed diagnostic session:
+
+```bat
+start_pb_studio_clicklog.bat
+```
+
+See `docs/superpowers/LIVE_TEST_SESSION.md`.
 
 ---
 

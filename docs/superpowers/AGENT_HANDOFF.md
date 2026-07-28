@@ -2,6 +2,22 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## D-085 beobachtete Live-Test-Session 2026-07-28 (newest)
+
+- Current Integrationsbranch: `codex/B-727-stability-gate`.
+- B-735 `ddcb027`, B-736 `dc253d4`; beide code-complete/live-pending.
+- B-737 wurde auf Userbefehl vor erstem Codeedit sauber gestoppt. Worktree
+  `.worktrees/b737-pattern-learning-v2` blieb clean; keine Tests/Commits.
+- Nächste einzige Task: `LIVE-VERIFY / Preflight + W1 Boot und Projekte`.
+- User schaut zu, während Codex App bedient.
+- Start: `start_pb_studio_clicklog.bat`.
+- Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.
+- Testprojekt nur unter `%LOCALAPPDATA%\PBStudioStability\<run_id>\project`;
+  Originalprojekte/-DBs bleiben unangetastet.
+- B-742: Clicklog-Launcher-Exitcode-Maskierung code-seitig geschlossen;
+  Livebeweis in kommender Session.
+- B-737/B-738 bleiben offen; kein `fixed`, Release oder Installerfreigabe.
+
 ## B-723 GPU-Cleanup-Lockscope 2026-07-28 (newest)
 
 - Commit folgt: Stem-Cache-Cleanup und Video-Exception-RAFT/SigLIP-Cleanup

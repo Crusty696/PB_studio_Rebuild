@@ -51,9 +51,15 @@ These are **infrastructure** scripts, not application entry points:
   - Install `vendor/beat_this`
   - Verify installation
 
-- **`run_pytest_schnitt.bat`** / **`run_pytest_brain_v3.bat`** - focused regression wrappers
-  - Use the same Python selection order as the launcher
-  - Write full pytest output to `outputs\`
+- **`run_pytest_schnitt.bat`** - focused SCHNITT regression wrapper
+  - Uses the same Python selection order as the launcher
+  - Writes full pytest output to `outputs\`
+
+- **`start_pb_studio_clicklog.bat`** - observed stability live session
+  - Uses conda env `pb-studio`
+  - Records run ID, branch, commit, Python and exact log paths
+  - Captures click/app/dataflow/resource evidence
+  - Preserves the real application exit code
 
 ### Diagnostic Tools
 
@@ -70,6 +76,9 @@ Located in `scripts/` directory (NOT entry points):
 ```bash
 # Recommended: Use the launcher
 start_pb_studio.bat
+
+# Observed stability session with full evidence
+start_pb_studio_clicklog.bat
 
 # Or directly with conda Python
 %USERPROFILE%\miniconda3\envs\pb-studio\python.exe main.py
@@ -132,6 +141,9 @@ If main.py fails to start:
    ```bash
    %USERPROFILE%\miniconda3\envs\pb-studio\python.exe -m pytest tests\test_scripts -q
    ```
+
+Current observed workflow:
+`docs/superpowers/LIVE_TEST_SESSION.md`.
 
 ## Architecture Notes
 

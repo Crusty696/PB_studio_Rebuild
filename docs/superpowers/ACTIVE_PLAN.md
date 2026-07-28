@@ -7,9 +7,10 @@ vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-stu
 decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-071-master-offene-tasks-konsolidierung.md
 supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
 stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
+live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
 updated: 2026-07-28
-worktree: Repo-Root (main) + Agent-Worktrees unter .worktrees/
-branch: main
+worktree: .worktrees/stab1-b727
+branch: codex/B-727-stability-gate
 
 ## Why This Plan Is Active
 
@@ -20,16 +21,16 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`B-737 Feedback → Pattern-Learning-Persistenz`.
+`LIVE-VERIFY / Preflight + W1 Boot und Projekte`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
-code-complete/live-pending. User-Freigabe D-084 aktiviert Restreihenfolge
-B-737 → B-738.
-Gemäß D-078 nur kleinste Fokuschecks; breite Suite-/Live-/GPU-Stressprüfungen
-erst nach Abschluss restlicher Fixarbeit.
+code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
+Userentscheidung D-085 priorisiert jetzt beobachtete Live-Workflows; User
+schaut zu. B-737/B-738 bleiben offen und werden danach fortgesetzt.
 
-Keine breite Suite vor Abschluss restlicher Root-Cause-Tasks. Erster Fehler im
-kleinsten Fokuscheck stoppt nur diese Root-Cause-Task.
+Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
+Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
+aktuellen Workflow und öffnet genau eine Root-Cause-Task.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 
