@@ -1,5 +1,8 @@
 """WorkspaceSetupController — Refactored from WorkspaceSetupMixin."""
 
+from dataclasses import dataclass
+from typing import Any
+
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QFrame, QWidget, QMenu,
 )
@@ -27,6 +30,44 @@ class _NoKeyboardActivationFilter(QObject):
         if t in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) and event.key() in self._KEYS:
             return True
         return False
+
+
+@dataclass(frozen=True)
+class _SchnittProjectSnapshot:
+    """B-715: Vollstaendiger, im Worker gelesener SCHNITT-Projektzustand."""
+
+    project_id: int | None
+    timeline_entry_count: int
+    notes: str
+    gate_context: Any
+    transition_type: str | None
+    cut_list: tuple[dict, ...]
+
+
+def _build_schnitt_project_snapshot(db_engine) -> _SchnittProjectSnapshot:
+    """Liest den kompletten Projektwechsel-Snapshot ausserhalb des GUI-Threads."""
+    from database import Project, get_active_project_id, nullpool_session
+    from services.project_notes_service import get_notes
+    from services.schnitt_context import build_schnitt_context
+    from services.timeline_service import get_cut_list
+
+    project_id = get_active_project_id()
+    context = build_schnitt_context(db_engine, project_id)
+    if project_id is None:
+        return _SchnittProjectSnapshot(None, 0, "", context, None, ())
+
+    with nullpool_session() as session:
+        project = session.get(Project, project_id)
+        transition_type = project.transition_type if project is not None else None
+
+    return _SchnittProjectSnapshot(
+        project_id=project_id,
+        timeline_entry_count=context.timeline_entry_count,
+        notes=get_notes(project_id),
+        gate_context=context,
+        transition_type=transition_type,
+        cut_list=tuple(get_cut_list(project_id)),
+    )
 
 
 def _migrate_workflow_stage_index(settings) -> None:
@@ -627,71 +668,110 @@ class WorkspaceSetupController(PBComponent):
         self.window._media_ws.audio_analysis_panel.set_media("audio", track_id)
 
     def _push_active_project_to_schnitt(self) -> None:
-        """B-285 Phase B — Triple-Hook (Tab-Wechsel, Cockpit-Action,
-        ProjectManager.project_changed) ruft hier durch, damit
-        SchnittWorkspace und tab_rl_notes das aktive Projekt kennen.
-        Vorher: set_active_project wurde nirgendwo gerufen, _project_id
-        blieb None, refresh_state_from_db schaltete immer auf STATE_EMPTY.
+        """B-715: Laedt kompletten SCHNITT-Projektwechsel im Worker.
+
+        Tab-Wechsel, Cockpit-Action und ``project_changed`` duerfen keine
+        Datenbank-Queries im GUI-Thread ausfuehren. Der Worker baut deshalb
+        genau einen Snapshot; der Callback wendet nur UI-Zustand an.
         """
         manager = getattr(self.window, "_project_manager", None)
         current_project_path = getattr(manager, "current_project_path", None)
         if current_project_path is None:
-            pid = None
-        else:
-            try:
-                from database import get_active_project_id
-                pid = get_active_project_id()
-            except Exception as exc:
-                self.logger.debug("active project id unavailable: %s", exc)
-                pid = None
-        self.logger.debug("[B-285] _push_active_project_to_schnitt: pid=%s", pid)
+            from ui.controllers.schnitt_action_binder import _blocked_context
+            self._apply_schnitt_project_snapshot(
+                _SchnittProjectSnapshot(
+                    None, 0, "", _blocked_context("Projekt fehlt"), None, (),
+                )
+            )
+            return
+
+        binder = getattr(self.window, "_schnitt_action_binder", None)
+        db_engine = getattr(binder, "db_engine", None)
+        if db_engine is None:
+            from database import engine as db_engine
+
+        sequence = getattr(self, "_schnitt_snapshot_sequence", 0) + 1
+        self._schnitt_snapshot_sequence = sequence
+        self.logger.debug(
+            "[B-715] schedule SCHNITT snapshot sequence=%s path=%s",
+            sequence, current_project_path,
+        )
+
+        from workers.base import BaseWorker, run_worker
+
+        class _SchnittProjectSnapshotWorker(BaseWorker):
+            def __init__(self, snapshot_engine):
+                super().__init__()
+                self._snapshot_engine = snapshot_engine
+
+            def _do_work(self):
+                return _build_schnitt_project_snapshot(self._snapshot_engine)
+
+        worker = _SchnittProjectSnapshotWorker(db_engine)
+
+        def _apply(snapshot):
+            if sequence != getattr(self, "_schnitt_snapshot_sequence", None):
+                self.logger.debug(
+                    "[B-715] discard stale SCHNITT snapshot sequence=%s", sequence,
+                )
+                return
+            self._schnitt_snapshot_worker = None
+            self._schnitt_snapshot_thread = None
+            self._apply_schnitt_project_snapshot(snapshot)
+
+        self._schnitt_snapshot_worker = worker
+        self._schnitt_snapshot_thread = run_worker(
+            self.window, worker,
+            on_finish=_apply,
+            on_error=lambda _msg: _apply(None),
+        )
+
+    def _apply_schnitt_project_snapshot(
+        self, snapshot: _SchnittProjectSnapshot | None,
+    ) -> None:
+        """B-715: Main-Thread-Teil des Projektwechsels, ausschliesslich UI."""
+        if snapshot is None:
+            self.logger.warning("[B-715] SCHNITT-Projekt-Snapshot fehlgeschlagen")
+            return
+
         ws = getattr(self.window, "_schnitt_ws", None)
         if ws is None:
-            self.logger.warning("[B-285] _push_active_project_to_schnitt: _schnitt_ws missing!")
+            self.logger.warning("[B-715] _schnitt_ws missing while applying snapshot")
             return
-        ctrl = getattr(self.window, "_schnitt_ctrl", None)
-        if ctrl is not None:
-            self.logger.debug("[B-285] -> SchnittController.set_active_project_protected(%s)", pid)
-            ctrl.set_active_project_protected(pid)
-        else:
-            self.logger.debug("[B-285] -> SchnittWorkspace.set_active_project(%s) (no controller)", pid)
-            ws.set_active_project(pid)
-        try:
-            ws.editor_view.tab_rl_notes.set_active_project(pid)
-        except Exception as exc:
-            self.logger.debug("tab_rl_notes set_active_project failed: %s", exc)
-        try:
-            cut_list = ws.editor_view.tab_schnitt.cut_list_panel
-            # virt-M4-Fix 2026-07-10 (Watchdog-Beweis workspace_switch_perf):
-            # set_project lief bei JEDEM SCHNITT-Klick synchron im Main-Thread
-            # (get_cut_list, 1428 Rows — bei DB-Last 2.5-7.4s Klick-Freeze).
-            # Gleiches Projekt: Refresh via QTimer(0) NACH dem ersten Paint —
-            # Klick reagiert sofort, Daten bleiben frisch (Timeline-Aenderungen
-            # refreshen ohnehin separat via _defer_cut_list_refresh).
-            if getattr(cut_list, "_project_id", None) == pid and pid is not None:
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(0, cut_list.refresh)
-            else:
-                cut_list.set_project(pid)
-        except Exception as exc:
-            self.logger.debug("cut_list_panel set_project failed: %s", exc)
-        binder = getattr(self.window, "_schnitt_action_binder", None)
-        if binder is not None:
-            binder.refresh(pid)
 
-        # transition_type aus DB laden und UI-Widget transition_combo synchronisieren
-        if pid:
-            try:
-                from database import nullpool_session, Project
-                with nullpool_session() as session:
-                    proj = session.get(Project, pid)
-                    if proj and proj.transition_type:
-                        idx = 1 if proj.transition_type == "cut" else 0
-                        self.window.transition_combo.blockSignals(True)
-                        self.window.transition_combo.setCurrentIndex(idx)
-                        self.window.transition_combo.blockSignals(False)
-            except Exception as db_exc:
-                self.logger.warning("Fehler beim Laden von transition_type: %s", db_exc)
+        self.logger.debug(
+            "[B-715] apply SCHNITT snapshot pid=%s timeline=%s",
+            snapshot.project_id, snapshot.timeline_entry_count,
+        )
+        ws.apply_project_snapshot(snapshot.project_id, snapshot.timeline_entry_count)
+
+        notes = ws.editor_view.tab_rl_notes
+        notes._project_id = snapshot.project_id
+        notes._autosave_timer.stop()
+        notes.notes_edit.blockSignals(True)
+        notes.notes_edit.setPlainText(snapshot.notes)
+        notes.notes_edit.blockSignals(False)
+        notes.saved_label.setText(
+            "Gespeicherten Stand geladen."
+            if snapshot.project_id is not None else "Kein Projekt aktiv."
+        )
+
+        cut_list = ws.editor_view.tab_schnitt.cut_list_panel
+        cut_list._project_id = snapshot.project_id
+        if snapshot.project_id is None:
+            cut_list._render_empty("Kein Projekt aktiv.")
+        else:
+            cut_list._render_cuts(list(snapshot.cut_list))
+
+        binder = getattr(self.window, "_schnitt_action_binder", None)
+        if binder is not None and snapshot.gate_context is not None:
+            binder.apply_context(snapshot.gate_context)
+
+        combo = getattr(self.window, "transition_combo", None)
+        if combo is not None and snapshot.transition_type:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(1 if snapshot.transition_type == "cut" else 0)
+            combo.blockSignals(False)
 
     def _on_schnitt_clip_property_changed(self, entry_id: int, field: str, value: float) -> None:
         """Host-Rueckmeldung fuer Inspector-Aenderungen."""

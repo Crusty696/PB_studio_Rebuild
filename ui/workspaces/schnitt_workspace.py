@@ -56,6 +56,23 @@ class SchnittWorkspace(QWidget):
         self.empty_view.set_project_available(project_id is not None)
         self.refresh_state_from_db()
 
+    def apply_project_snapshot(
+        self, project_id: int | None, timeline_entry_count: int,
+    ) -> None:
+        """B-715: Wendet einen bereits im Worker gelesenen Projektzustand an.
+
+        Diese Methode darf keine Datenbank lesen: Der GUI-Thread setzt nur
+        Verfuegbarkeit und den aus dem Snapshot bekannten Workspace-State.
+        """
+        self._project_id = project_id
+        self.empty_view.set_project_available(project_id is not None)
+        if project_id is None:
+            self._stack.setCurrentIndex(STATE_EMPTY)
+            return
+        self._stack.setCurrentIndex(
+            STATE_EDITOR if timeline_entry_count > 0 else STATE_EMPTY
+        )
+
     def refresh_state_from_db(self) -> None:
         if self._project_id is None:
             self._stack.setCurrentIndex(STATE_EMPTY)

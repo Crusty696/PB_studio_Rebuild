@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d3b9a4ca75c0494caba5075400bf0f35",
+  "recorded_at": "2026-07-28T02:27:29+00:00",
+  "session_id": "386d362ce74e48e4bb7f80cc9d47eb32",
+  "head_at_start": "963586a798eac04f82839c4a20ca137c7ab5638f",
+  "problem": "SCHNITT-Projektwechsel las Gate-, Notes-, Timeline-, Cut-List- und Transition-Daten verteilt im GUI-Slot",
+  "cause": "Einzelne bereits asynchrone Gate-Refreshes koexistierten mit direkten UI-Settern, die jeweils eigene Datenbank-Reads auslösten",
+  "rule": "Projektwechsel als vollständigen immutable Worker-Snapshot modellieren; GUI-Callback darf nur vorhandene Widgets aus Snapshotdaten anwenden",
+  "applies_to": "Qt-Projektwechsel und datenbankgebundene Workspace-Initialisierung"
+}
