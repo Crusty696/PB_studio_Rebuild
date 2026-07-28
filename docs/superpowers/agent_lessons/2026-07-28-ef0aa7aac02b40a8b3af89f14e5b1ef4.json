@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ef0aa7aac02b40a8b3af89f14e5b1ef4",
+  "recorded_at": "2026-07-28T10:29:55+00:00",
+  "session_id": "2bc12aef8bf04e3f82ad7a4f47fd6d63",
+  "head_at_start": "12a0b6c744b63c3866919f5f7d84ff2248092e9d",
+  "problem": "Isolierter APPDATA-Live-Start übernahm historische Ollama-/Shortcut-Werte.",
+  "cause": "Windows-QSettings speichert Legacy-Werte in Registry; fehlende Session-JSON löste automatische Migration trotz Dateipfad-Isolation aus.",
+  "rule": "Isolierte GUI-Harnesses müssen registry-backed Legacy-Migration explizit verhindern, vorzugsweise durch gültige leere Session-Settings vor Produktstart; normale Benutzermigration unverändert lassen.",
+  "applies_to": "Live-Launcher, SettingsStore-Migration, Windows-QSettings"
+}
