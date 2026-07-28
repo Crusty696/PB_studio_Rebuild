@@ -4,7 +4,7 @@ Letztes Update: 2026-07-28 03:55 Europe/Zurich
 
 Gesamtfortschritt: **ca. 12–15 %**  
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease**
+Aktiv: **STAB-4 / B-726 RAFT-Direktpfad unter GPU-Execution-Lease**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -12,7 +12,7 @@ Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease**
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
 | STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
-| STAB-4 GPU/Threads/Soak | **ca. 12 %** | B-723 Codefix live-pending; B-725 aktiv; Stressgate D-078-verschoben |
+| STAB-4 GPU/Threads/Soak | **ca. 18 %** | B-723/B-725 live-pending; B-726 aktiv; Stressgate D-078-verschoben |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
 | STAB-7 Endabnahme | **0 %** | blockiert durch STAB-6 |
@@ -41,6 +41,8 @@ Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease**
   Current-Suite-/GPU-Livebeweis bleibt offen.
 - B-723: Stem- und Video-Exception-Cleanup unter Execution-Lease;
   zwei fokussierte Verträge grün. GPU-/Cancel-Livebeweis bleibt offen.
+- B-725: CPU-/Copy-Codecs außerhalb GPU-Lease; zwei Fokusverträge grün.
+  FFmpeg-/GPU-/Cancel-Livebeweis bleibt offen.
 - D-078: breite Suite/Live/GPU/Soak/Release-Tests erst nach übriger
   Fix-/Auditarbeit; je Codefix nur kleinster zwingender Fokus.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
@@ -48,8 +50,7 @@ Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease**
 
 ## Nächste einzige Task
 
-B-725: CPU-/Copy-Konvertierung außerhalb GPU-Lease führen; NVENC bleibt
-serialisiert.
+B-726: öffentliche RAFT-Motion-API unter GPU-Execution-Lease bringen.
 Keine breite Suite; nur kleinster zwingender Fokuscheck bei Codeänderung.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
