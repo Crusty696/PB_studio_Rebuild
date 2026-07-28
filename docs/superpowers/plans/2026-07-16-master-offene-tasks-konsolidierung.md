@@ -414,6 +414,22 @@ Wiederholungen aus D-076:
 Ein Fehler stoppt weiterhin das nächste Gate. Nur betroffener Fokus- und
 angrenzender Regressionstest werden nach Fix wiederholt.
 
+## Nachtrag 2026-07-28: D-078 breite Tests bis Fixabschluss verschoben
+
+Userentscheidung: Während übriger Fix-/Auditarbeit nur absolut notwendige
+Tests. Breite Verifikation wird gesammelt nach Abschluss dieser Arbeit
+ausgeführt.
+
+- Pro Produktcode-Fix nur kleinster zwingender RED-/Fokuscheck des konkreten
+  Root Cause sowie Syntax/Import der geänderten Produktdatei.
+- Keine wiederholten Varianten, angrenzenden Sweeps oder Suites nach identisch
+  grünem Beleg.
+- Current-Vollsuite, acht Live-Workflows, Brain-A/B, GPU-/Thread-/Soak,
+  UI-Klickaudit sowie Frozen-/Installer-/Clean-VM-Gates ans Ende verschoben.
+- Alle Codefixes bleiben bis diesen Endgates
+  `code-fix-pending-live-verification`; kein `fixed`.
+- D-077 definiert weiter den minimalen Endumfang; D-078 ändert Zeitpunkt.
+
 ## Nachtrag 2026-07-27: D-076 Current-HEAD-Stabilitätsprogramm
 
 Userentscheidung: bestehende Funktionen vor weiterer Entwicklung vollständig
@@ -630,4 +646,12 @@ Decision: Vault
   54 skipped, 3 deselected; 13/13 reale DBs unverändert. Runner-Gate fail:
   orphaned Ollama runner PID 3980 plus conhost, Parent 6876 verschwunden.
 - Neuer High-Bug B-740; kein Prozess blind beendet.
-- Genau nächste Task: `STAB-1 / B-740 orphaned Ollama-Runner`.
+- B-740 Root Cause: unisolierter PBWindow-Layouttest startete Host-Ollama;
+  Stop/Start-Races und Parent-only-Cleanup ließen Runner-Kind zurück.
+- B-740 Commit `abedf08`: Stop-Generation, serialisierter Owned-Tree-Cleanup,
+  External-Null-Kill und PBWindow-Testisolation. Fokus 11/11, Syntax/Ruff und
+  Post-Commit-Prozessgate grün; Status live-pending, kein `fixed`.
+- Folgefund B-741: vier Default-Suite-Tests können echtes localhost/Ollama
+  erreichen. Gemäß D-078 keine breite Suite; nur Source-Isolation plus
+  kleinster zwingender Fokuscheck bei Codeänderung.
+- Genau nächste Task: `STAB-1 / B-741 Default-Suite-Ollama-Isolation`.
