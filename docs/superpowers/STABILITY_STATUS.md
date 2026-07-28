@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 12:07 Europe/Zurich
+Letztes Update: 2026-07-28 12:28 Europe/Zurich
 
 Gesamtfortschritt: **ca. 15–18 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / B-743 AppData-Isolation**
+Aktiv: **LIVE-VERIFY / B-744 QSettings-Isolation**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -59,12 +59,17 @@ Aktiv: **LIVE-VERIFY / B-743 AppData-Isolation**
 - B-743 Current-Regression: SettingsStore schrieb dennoch echte
   `%APPDATA%\PBStudio\settings.json` und ergänzte Host-RecentProjects.
   App sofort sauber beendet; Host-Datei nicht geraten zurückgesetzt.
+- B-743-Fix `b0aac7e` live: `STAB-W1-B` sichtbar erstellt; Settings und
+  RecentProjects nur im Session-APPDATA; Host-JSON + 15 Pre-DBs unverändert;
+  neue isolierte Projekt-DB quick_check ok. Kein `fixed` ohne Usermarker.
+- B-744 offen: Windows-QSettings-Registrywerte wurden beim isolierten Erststart
+  in Session-JSON migriert. Kein Host-Write, aber Host-State-Read.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-B-743 Root Cause der Settings-/Recent-Project-AppData-Isolation beheben; nur
-fokussierter Regressionstest, danach beobachteter W1-Live-Retry.
+B-744 nur im Live-Launcher schließen: leere Session-Settings-JSON vor Appstart
+seeden; fokussierter Launcher-Vertrag, danach beobachteter W1-Live-Retry.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

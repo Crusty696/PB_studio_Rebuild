@@ -705,3 +705,9 @@ Decision: Vault
 - B-743 Current-Regression: SettingsStore schrieb trotz isoliertem Launcher in
   echte `%APPDATA%\PBStudio\settings.json` und ergänzte Host-RecentProjects.
   App sofort sauber beendet; Host-Datei nicht geraten zurückgesetzt.
+- B-743-Fix `b0aac7e` live bewiesen: sichtbare Projektanlage, Session-Settings
+  und RecentProjects isoliert; Host-JSON und 15 Pre-DBs unverändert.
+- B-744: isolierter Erststart migriert Host-QSettings aus Windows-Registry in
+  Session-JSON. Kein Host-Write; dennoch Host-State-Read.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-744 isolierte Session-Settings ohne Host-QSettings`.

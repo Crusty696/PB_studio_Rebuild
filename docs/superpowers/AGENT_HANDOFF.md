@@ -2,6 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-744 Current-Live-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `5607b0c`.
+- B-743 live bewiesen: sichtbare Projektanlage `STAB-W1-B`; Settings und
+  RecentProjects ausschließlich Session-APPDATA; Host-JSON SHA unverändert;
+  15 geschützte Pre-DBs unverändert, neue Projekt-DB quick_check ok.
+- Neuer Fund: fehlende Session-JSON löst Windows-QSettings-Registrymigration
+  aus; isolierte JSON übernimmt Host-Ollama-/Shortcut-Werte.
+- B-744 `open`; kein Host-Write, aber Host-State-Read.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-744 isolierte Session-Settings ohne Host-QSettings`.
+- Kleinster Fix nur im Live-Launcher: `{}` vor Appstart seeden. Produktmigration
+  für normale Starts unverändert. Fokusvertrag + beobachteter W1-Retry.
+
 ## B-743 Current-Live-Blocker 2026-07-28 (newest)
 
 - Integration: `codex/B-727-stability-gate` / `6fb4131`.
