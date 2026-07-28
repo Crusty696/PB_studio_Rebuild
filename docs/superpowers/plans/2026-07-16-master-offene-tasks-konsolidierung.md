@@ -674,3 +674,15 @@ Decision: Vault
   Lease-Vertrag `1 passed in 0.38s`; Syntax grün.
 - B-723: `code-fix-pending-live-verification`, kein GPU-/Cancel-/Stress-Livebeweis.
 - Nächste einzige Task: `STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease`.
+
+### Restfix-Fortschritt 2026-07-28
+
+- B-725 Commit `5f174fd`: CPU-/Copy-Codecs außerhalb GPU-Lease; Fokus `2 passed`.
+- B-726 Commit `963586a`: öffentlicher RAFT-Direktpfad unter Execution-Lease;
+  Fokus `2 passed`.
+- B-715 Commit `df617fa`: vollständiger SCHNITT-Projektsnapshot vor Workerstart;
+  Fokus `8 passed`.
+- B-735 Commit `ddcb027`: `role_match_weight` als 18. sichtbare, lernbare
+  Brain-Achse; 59 fokussierte Tests grün.
+- Alle vier Codefixes `code-fix-pending-live-verification`; kein `fixed`.
+- Nächste einzige Task: `B-736 Stub-Servicepfad fail-closed`.
