@@ -1,15 +1,15 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 02:46 Europe/Zurich
+Letztes Update: 2026-07-28 02:14 Europe/Zurich
 
 Gesamtfortschritt: **ca. 12–15 %**  
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-1 / eine Current-Vollsuite**
+Aktiv: **STAB-1 / B-740 orphaned Ollama-Runner**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
-| STAB-1 Testfundament | **ca. 65 %** | aktiv; eine Current-Vollsuite |
+| STAB-1 Testfundament | **ca. 65 %** | blockiert durch B-740-Prozessrest |
 | STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **0 %** | blockiert durch STAB-3 |
@@ -31,6 +31,8 @@ Aktiv: **STAB-1 / eine Current-Vollsuite**
 - Current-Ruff: Exit 0; DB-Evidenz unverändert.
 - Alembic: ein Head, Fresh-Upgrade bis Head, quick_check ok.
 - B-727-Fokusbeleg bleibt gültig; Schutz-/Testpfade unverändert.
+- Current-Pytest: 3362 passed, 54 skipped, 3 deselected.
+- Runner-Gate fail: neuer orphaned Ollama runner + conhost; DBs unverändert.
 - D-077 Minimalprogramm: eine Current-Suite, einmalige Livepfade,
   30-Minuten-Soak.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
@@ -39,6 +41,6 @@ Aktiv: **STAB-1 / eine Current-Vollsuite**
 
 ## Nächste einzige Task
 
-Eine Current-Vollsuite über Evidenzrunner.
+B-740 Ursprung belegen und kleinsten Root-Cause-Fix durchführen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

@@ -626,4 +626,8 @@ Decision: Vault
   unverändert, 0 Prozessreste.
 - B-727-Beleg 33/33 + 3/3 wird gemäß D-077 nicht wiederholt:
   Guard-/Testpfade seit `321dc31` unverändert; Runner nur verschärft.
-- Genau nächste Task: `STAB-1 / eine Current-Vollsuite`.
+- Current-Suite `20260728T0250-stab1-current-suite`: pytest 3362 passed,
+  54 skipped, 3 deselected; 13/13 reale DBs unverändert. Runner-Gate fail:
+  orphaned Ollama runner PID 3980 plus conhost, Parent 6876 verschwunden.
+- Neuer High-Bug B-740; kein Prozess blind beendet.
+- Genau nächste Task: `STAB-1 / B-740 orphaned Ollama-Runner`.
