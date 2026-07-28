@@ -1,0 +1,10 @@
+{
+  "lesson_id": "89e472996aa34485a742fbfe2b548468",
+  "recorded_at": "2026-07-28T10:34:33+00:00",
+  "session_id": "6500c60977b245ee88e1f92c313af044",
+  "head_at_start": "f9aaa69c629a50fb86c73af9508b1f6bb88a9892",
+  "problem": "Live-Harness brauchte vollständig leere Settings, Produktmigration muss für echte Benutzerstarts erhalten bleiben.",
+  "cause": "Ein globaler SettingsStore-Schalter hätte Produktverhalten geändert; Fehler existiert nur, weil isolierter Harness ohne JSON startet.",
+  "rule": "Testharness-Isolationsprobleme im Harness lösen: benötigte leere Zustandsdatei vor Appstart seeden; produktive Migrationslogik nicht für Testzwecke abschalten.",
+  "applies_to": "GUI-Harness, Live-Launcher, Legacy-Migration"
+}
