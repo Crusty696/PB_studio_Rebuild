@@ -8,9 +8,8 @@ Hintergrund
 Die Clip-Auswahl (``services/brain/bridge_dimensions.py``) bewertet u.a.
 ``brightness_match_weight`` und ``color_temp_match_weight`` ueber
 ``ClipCandidate.brightness`` / ``.saturation`` / ``.color_temp``. Fuer diese
-drei Felder gab es bis dato KEINE Datenquelle — sie wurden konstant auf
-0.5 / 0.5 / 0.0 gesetzt (siehe ``brain_v3_service._build_service_candidates``),
-womit beide Achsen fuer alle Kandidaten identisch und damit wirkungslos waren.
+drei Felder gab es bis dato KEINE Datenquelle. Ohne reale Messwerte blieben
+beide Achsen fuer alle Kandidaten identisch und damit wirkungslos.
 
 WICHTIG — Abgrenzung: ``timeline_entries.brightness`` ist ein
 Farbkorrektur-REGLER (User-Eingabe), KEIN Messwert. Er wird hier weder
