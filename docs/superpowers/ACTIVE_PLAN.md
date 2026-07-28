@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / B-744 isolierte Session-Settings ohne Host-QSettings`.
+`LIVE-VERIFY / W1 Projektwechsel und Neustart`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -30,11 +30,11 @@ schaut zu. B-737/B-738 bleiben offen und werden danach fortgesetzt.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
-aktuellen Workflow und öffnet genau eine Root-Cause-Task. B-743-Fix `b0aac7e`
-ist live bewiesen: Settings/RecentProjects nur im Session-APPDATA, Host-JSON
-und 15 geschützte DBs unverändert. Neuer B-744-Fund: isolierter Erststart
-migriert Host-QSettings aus Windows-Registry in Session-JSON. W1 bleibt bis
-kleinstem Launcher-Fix, Fokusbeweis und beobachtetem Live-Retry blockiert.
+aktuellen Workflow und öffnet genau eine Root-Cause-Task. B-743 `b0aac7e` und
+B-744 `ebc6546` sind live bewiesen: Session-Settings/RecentProjects isoliert,
+null QSettings-Migration, Host-JSON und 15 geschützte DBs unverändert. Beide
+bleiben ohne Usermarker `code-fix-pending-live-verification`. W1 fährt jetzt
+mit bestehendem Projekt, drei Wechseln, Shutdown und Neustart fort.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 

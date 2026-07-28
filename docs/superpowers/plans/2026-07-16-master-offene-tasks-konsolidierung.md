@@ -711,3 +711,8 @@ Decision: Vault
   Session-JSON. Kein Host-Write; dennoch Host-State-Read.
 - Nächste einzige Task:
   `LIVE-VERIFY / B-744 isolierte Session-Settings ohne Host-QSettings`.
+- B-744-Fix `ebc6546` live bewiesen: Session-JSON startet `{}`, null
+  QSettings-Migration; sichtbare Projektanlage ergänzt nur isolierten Pfad.
+  Host-JSON und 15 geschützte DBs unverändert.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W1 Projektwechsel und Neustart`.

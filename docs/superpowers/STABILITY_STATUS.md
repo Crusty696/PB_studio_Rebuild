@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 12:28 Europe/Zurich
+Letztes Update: 2026-07-28 12:40 Europe/Zurich
 
 Gesamtfortschritt: **ca. 15–18 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / B-744 QSettings-Isolation**
+Aktiv: **LIVE-VERIFY / W1 Projektwechsel/Neustart**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -64,12 +64,15 @@ Aktiv: **LIVE-VERIFY / B-744 QSettings-Isolation**
   neue isolierte Projekt-DB quick_check ok. Kein `fixed` ohne Usermarker.
 - B-744 offen: Windows-QSettings-Registrywerte wurden beim isolierten Erststart
   in Session-JSON migriert. Kein Host-Write, aber Host-State-Read.
+- B-744-Fix `ebc6546` live: Session-JSON vor Projektanlage `{}`, null
+  QSettings-Migration; danach nur isolierter Recent-Project-Pfad. Host-JSON und
+  15 geschützte DBs unverändert; neue Projekt-DB quick_check ok.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-B-744 nur im Live-Launcher schließen: leere Session-Settings-JSON vor Appstart
-seeden; fokussierter Launcher-Vertrag, danach beobachteter W1-Live-Retry.
+W1 fortsetzen: bestehende isolierte Projekte öffnen, dreimal wechseln,
+sauberer Shutdown und Neustart; bei erstem Fehler stoppen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

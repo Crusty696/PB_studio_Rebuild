@@ -2,6 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W1 Projektwechsel/Neustart 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `2d619a5`.
+- B-743/B-744 live bewiesen; beide ohne Usermarker live-pending.
+- Session `2026-07-28_123634`: JSON vor Projekt `{}`, null QSettings-Migration;
+  `STAB-W1-C` sichtbar erstellt; JSON danach nur isolierter Recent-Pfad.
+- Host-Settings SHA unverändert; 15 geschützte DBs unverändert; neue Projekt-DB
+  quick_check ok; Shutdown/Prozesscleanup grün.
+- Nächste einzige Task: `LIVE-VERIFY / W1 Projektwechsel und Neustart`.
+- Vorhandene isolierte Projekte: `STAB-W1-B` in Session `..._122204`,
+  `STAB-W1-C` in Session `..._123634`. Öffnen/Wechseln ausschließlich per UI.
+
 ## B-744 Current-Live-Blocker 2026-07-28 (newest)
 
 - Integration: `codex/B-727-stability-gate` / `5607b0c`.
