@@ -655,3 +655,13 @@ Decision: Vault
   erreichen. Gemäß D-078 keine breite Suite; nur Source-Isolation plus
   kleinster zwingender Fokuscheck bei Codeänderung.
 - Genau nächste Task: `STAB-1 / B-741 Default-Suite-Ollama-Isolation`.
+
+### B-741 Default-Suite-Ollama-Isolation 2026-07-28
+
+- Vier Deep-Test-Pfade hostisoliert: Vision nutzt Fake-Client; OllamaService-
+  Socket/API/Inference/Pull werden gemockt; OllamaClient blockiert `urlopen`;
+  Orchestrator-Generalpfad bleibt offline.
+- Kleinster zwingender Fokus: exakt vier betroffene Tests `4 passed in 8.70s`;
+  Syntaxcheck grün. Keine breite Suite nach D-078.
+- B-741: `code-fix-pending-live-verification`, kein `fixed`.
+- Nächste einzige Task: `STAB-4 / B-723 GPU-Cleanup-Lockscope`.

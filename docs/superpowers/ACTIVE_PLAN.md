@@ -7,7 +7,7 @@ vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-stu
 decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-071-master-offene-tasks-konsolidierung.md
 supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
 stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
-updated: 2026-07-27
+updated: 2026-07-28
 worktree: Repo-Root (main) + Agent-Worktrees unter .worktrees/
 branch: main
 
@@ -20,15 +20,15 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`STAB-1 / B-727 Vertrauensgate`.
+`STAB-4 / B-723 GPU-Cleanup-Lockscope`.
 
-Zuerst reale DB-/WAL-/SHM-Baseline und externe Backups erstellen. Danach acht
-B-727-Negativkontrollen: beide SQLite-Connect-Namen, 0 Originalcalls,
-Collection, Kindprozess, APP_ROOT/Projektwechsel blockiert, Temp-DB erlaubt,
-bewusst deaktivierte Gefahrkontrolle.
+STAB-1-Teilgates und B-741 sind code-complete/live-pending. Gemäß D-078 sind
+breite Suite-/Live-/GPU-Stressprüfungen bis Abschluss restlicher Fixarbeit
+verschoben. B-723 statisch gegen Current HEAD prüfen; nur bei Codeänderung
+kleinsten betroffenen Fokuscheck ausführen.
 
-Keine Vollsuite vor grünen Negativkontrollen. Erster Fehler stoppt Gate und
-öffnet genau eine Root-Cause-Task.
+Keine breite Suite vor Abschluss restlicher Root-Cause-Tasks. Erster Fehler im
+kleinsten Fokuscheck stoppt nur diese Root-Cause-Task.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 

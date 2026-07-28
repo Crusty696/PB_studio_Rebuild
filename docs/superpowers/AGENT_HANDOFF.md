@@ -2,6 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-741 Default-Suite-Ollama-Isolation 2026-07-28 (newest)
+
+- Commit folgt diesem Handoff-Update: Test-only Isolation in
+  `tests/test_deep_functional.py`; keine Produktdatei geändert.
+- Vier zuvor echte Hostpfade: Vision, OllamaService, OllamaClient,
+  Orchestrator-Generalantwort. Isolation: Fake/Mocks + `urlopen`-Block.
+- Minimalbeweis: kanonische `pb-studio`-Env, exakt vier Tests,
+  `4 passed in 8.70s`; Syntaxcheck grün. Keine Suite/GPU/E2E-Wiederholung.
+- Status: B-741 `code-fix-pending-live-verification`; Current-Suite- und
+  echter GPU-/Ollama-Livebeweis gemäß D-078 bewusst offen.
+- Genau nächste Task: `STAB-4 / B-723 GPU-Cleanup-Lockscope`.
+
 ## D-076 STAB-0 Governance-Reconciliation 2026-07-27 (newest)
 
 - Baseline/Current HEAD vor Governance-Commit: `02cddee`.
