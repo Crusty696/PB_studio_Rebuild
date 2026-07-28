@@ -1,0 +1,10 @@
+{
+  "lesson_id": "efe21d0a6e8a471a80e39352e162c612",
+  "recorded_at": "2026-07-28T09:50:28+00:00",
+  "session_id": "6d5ba96af0184c5195b76b8ecda1a31b",
+  "head_at_start": "3026ded10b686ed2747ccd12cba53187b8cfd2ee",
+  "problem": "Live-Startup zeigte gleichzeitig KI: Fallback und AI ready.",
+  "cause": "SystemStatus.ollama_ok aus dem begrenzten Future und OllamaService.ready_cached() wurden im on_done-Callback separat ausgewertet; langsamer Start machte ersten Wert stale und zweiten true.",
+  "rule": "Alle sichtbaren Statusfragmente desselben Backends aus genau einem aktuellen Readiness-Snapshot ableiten und diesen vor dem Rendern in das Statusmodell synchronisieren.",
+  "applies_to": "Startup-Statusleisten, asynchrone Health-Checks und Backend-Ready-Anzeigen"
+}
