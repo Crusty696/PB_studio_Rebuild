@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 12:55 Europe/Zurich
+Letztes Update: 2026-07-28 13:07 Europe/Zurich
 
-Gesamtfortschritt: **ca. 15–18 %**
+Gesamtfortschritt: **ca. 17–20 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / B-745 W1-Shutdown 0x80010108**
+Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
+| STAB-2 Acht Live-Workflows | **12,5 %** | W1 live-pass; Usermarker offen |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
@@ -68,15 +68,15 @@ Aktiv: **LIVE-VERIFY / B-745 W1-Shutdown 0x80010108**
   QSettings-Migration; danach nur isolierter Recent-Project-Pfad. Host-JSON und
   15 geschützte DBs unverändert; neue Projekt-DB quick_check ok.
 - W1: drei Projektwechsel, Neustart, Screenshot, Prozesscleanup und
-  DB-Vergleich bestanden. Abschluss blockiert: vier frühere Logs enden mit
-  `Windows fatal exception: code 0x80010108`. Neuester normaler
-  `CloseMainWindow()`-Run ohne Meldung; Root Cause noch unbelegt.
+  DB-Vergleich bestanden. B-745 geklärt: vier programmatische
+  UI-Automationsschlüsse `spontaneous=False` erzeugten `RPC_E_DISCONNECTED`;
+  zwei native `spontaneous=True`-Schlüsse ohne Fatal. Kein Produktdefekt.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-B-745: Shutdown-Methode/Produktpfad vergleichen, Root Cause belegen, nur
-notwendigen normalen Shutdown-Re-Run ausführen.
+W2: isolierte Audio-/Video-Kopien importieren, Duplikat, Papierkorb, Restore,
+Reimport und UI-/DB-Konsistenz sichtbar prüfen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

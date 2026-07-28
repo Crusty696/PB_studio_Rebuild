@@ -723,3 +723,11 @@ Decision: Vault
   `CloseMainWindow()`-Run nicht.
 - Nächste einzige Task:
   `LIVE-VERIFY / B-745 W1-Shutdown 0x80010108`.
+- B-745 geklärt: programmatischer UI-Automationsschluss
+  (`spontaneous=False`) erzeugte `RPC_E_DISCONNECTED`; zwei native
+  Windows-Schlüsse (`spontaneous=True`) ohne Fatal. Kein Produktcodefix.
+- W1-Bericht:
+  `docs/superpowers/synthesis/functional-test-w1-boot-projects-2026-07-28.md`;
+  Verdict `live-pass-user-marker-pending`.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.

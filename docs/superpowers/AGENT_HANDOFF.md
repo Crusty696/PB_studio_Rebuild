@@ -2,6 +2,17 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W2 Import/Papierkorb/Restore 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / Current nach W1-Bericht.
+- W1 live-pass; Usermarker offen. Bericht:
+  `docs/superpowers/synthesis/functional-test-w1-boot-projects-2026-07-28.md`.
+- B-745 `wontfix`: programmatisches UI-Automations-Schließartefakt, kein
+  Produktdefekt; zwei native Shutdowns grün.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+- Nur isolierte Medienkopien/Projekt-DBs; Originale bleiben read-only.
+
 ## B-745 W1-Shutdown-Blocker 2026-07-28 (newest)
 
 - Integration: `codex/B-727-stability-gate` / `6e3bc98`.
