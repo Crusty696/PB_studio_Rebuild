@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`USER-DECISION / W2 fehlende 20 Clip-Fixtures`.
+`LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -37,9 +37,9 @@ bleiben ohne Usermarker `code-fix-pending-live-verification`. W1 ist
 Current-live bestanden, Usermarker offen. B-745 war
 UI-Automations-Schließartefakt; zwei native Windows-Schlüsse ohne Fatal,
 kein Produktcodefix. W2-Preflight fand die festgelegten 20 Clip-Fixtures nicht:
-Provenienzpfade zeigen auf ein nicht vorhandenes Altprofil. 46 MP4-Proxies in
-`outputs/test-tabelle/storage/proxies` wären verfügbar, ihre Substitution ist
-aber eine Planabweichung und braucht Userentscheidung.
+Provenienzpfade zeigen auf ein nicht vorhandenes Altprofil. D-086 akzeptiert
+deshalb 20 deterministisch ausgewählte MP4-Proxies plus zwei WAV-Stems als
+ausschließlich isolierte Kopien. Quellen bleiben read-only.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 

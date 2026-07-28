@@ -737,3 +737,8 @@ Decision: Vault
 - Nächste einzige Task:
   `USER-DECISION / W2 fehlende 20 Clip-Fixtures`: Proxy-Substitution freigeben
   oder echten Quellpfad nennen.
+- D-086 akzeptiert: 20 deterministisch ausgewählte MP4-Proxies und zwei
+  WAV-Stems werden ausschließlich nach `%LOCALAPPDATA%\PBStudioStability`
+  kopiert; Quellen bleiben read-only.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.

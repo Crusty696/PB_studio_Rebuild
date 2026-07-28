@@ -2,6 +2,14 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W2 D-086 Fortsetzung 2026-07-28 (newest)
+
+- Userauftrag „arbeite weiter am Plan“ hebt Fixture-Blocker auf.
+- D-086: 20 deterministisch ausgewählte MP4-Proxies + zwei WAV-Stems nur als
+  isolierte Kopien; Quellen read-only.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+
 ## W2 Fixture-Blocker 2026-07-28 (newest)
 
 - `tests/fixtures/clips_20` enthält nur Report/Provenienz, keine MP4-Dateien.

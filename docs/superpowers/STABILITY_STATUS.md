@@ -4,7 +4,7 @@ Letztes Update: 2026-07-28 13:15 Europe/Zurich
 
 Gesamtfortschritt: **ca. 17–20 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **USER-DECISION / W2 fehlende 20 Clip-Fixtures**
+Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -76,9 +76,7 @@ Aktiv: **USER-DECISION / W2 fehlende 20 Clip-Fixtures**
 
 ## Nächste einzige Task
 
-W2: isolierte Audio-/Video-Kopien importieren, Duplikat, Papierkorb, Restore,
-Reimport und UI-/DB-Konsistenz sichtbar prüfen. Blocker: festgelegte 20
-Provenienz-Clips existieren nicht. User entscheidet: 20 vorhandene
-`test-tabelle`-MP4-Proxies substituieren oder echten Quellpfad liefern.
+W2: D-086-Medienkopien isolieren; Audio/Video importieren, Duplikat,
+Papierkorb, Restore, Reimport und UI-/DB-Konsistenz sichtbar prüfen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
