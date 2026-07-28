@@ -6,6 +6,7 @@ echo   Alle Events werden aufgezeichnet:
 echo   - UI-Klicks, Pipeline-Events, Fehler
 echo   - Clip-Auswahl, Timeline-Generierung
 echo   - GPU/CUDA, Worker-Lifecycle
+echo   - Git-Commit/Branch, Ressourcen, Datenfluss
 echo ============================================
 echo.
 
@@ -79,11 +80,34 @@ if not defined PB_TS set "PB_TS=no_timestamp"
 
 :: Clicklog-Datei: alles in eine Datei (stdout + stderr zusammen)
 set "PB_CLICKLOG_FILE=logs\clicklog_%PB_TS%.log"
+set "PB_RESOURCE_LOG=logs\resource_%PB_TS%.log"
+set "PB_STOP_FILE=logs\.stop_%PB_TS%"
+set "PB_SESSION_META=logs\session_%PB_TS%.txt"
+if exist "%PB_STOP_FILE%" del /q "%PB_STOP_FILE%"
+
+set "PB_GIT_COMMIT=unknown"
+set "PB_GIT_BRANCH=unknown"
+for /f %%I in ('git rev-parse HEAD 2^>nul') do set "PB_GIT_COMMIT=%%I"
+for /f "delims=" %%I in ('git branch --show-current 2^>nul') do set "PB_GIT_BRANCH=%%I"
+
+(
+  echo run_id=%PB_TS%
+  echo started_at=%DATE% %TIME%
+  echo branch=%PB_GIT_BRANCH%
+  echo commit=%PB_GIT_COMMIT%
+  echo python=%PB_PYTHON%
+  echo clicklog=%PB_CLICKLOG_FILE%
+  echo resource_log=%PB_RESOURCE_LOG%
+) > "%PB_SESSION_META%"
 
 echo   === CLICKLOG-AUFZEICHNUNG AKTIV ===
+echo   Branch:    %PB_GIT_BRANCH%
+echo   Commit:    %PB_GIT_COMMIT%
+echo   Session:   %PB_SESSION_META%
 echo   Logdatei:  %PB_CLICKLOG_FILE%
 echo   Standard:  logs\pb_studio.log (wie immer)
 echo   Monitor:   logs\monitor_%PB_TS%.log (gefilterte Kern-Events)
+echo   Ressourcen:%PB_RESOURCE_LOG%
 echo   Level:     DEBUG (alle Events)
 echo.
 
@@ -102,15 +126,31 @@ start "PB Dataflow-Recorder" /min powershell -NoProfile -ExecutionPolicy Bypass 
 
 echo   Dataflow:  logs\dataflow_%PB_TS%.md (DB + Datei-Fluss alle 30s)
 
+start "PB Resource-Monitor" /min powershell -NoProfile -ExecutionPolicy Bypass ^
+  -File "%~dp0scripts\start_pipeline_resource_monitor.ps1" ^
+  -OutputLog "%~dp0%PB_RESOURCE_LOG%" -StopFile "%~dp0%PB_STOP_FILE%" ^
+  -AppLog "%~dp0logs\pb_studio.log"
+
 echo   Starte PB Studio...
 echo.
 
-:: stdout und stderr in die gleiche Clicklog-Datei + gleichzeitig auf Konsole
-"%PB_PYTHON%" main.py 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -FilePath '%PB_CLICKLOG_FILE%'"
+:: stdout/stderr gleichzeitig auf Konsole + Clicklog. PowerShell reicht
+:: $LASTEXITCODE der App an CMD durch; Pipeline darf Crash nicht verdecken.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "& '%PB_PYTHON%' main.py 2^>^&1 | Tee-Object -FilePath '%PB_CLICKLOG_FILE%'; exit $LASTEXITCODE"
+set "PB_APP_EXIT=%ERRORLEVEL%"
 
-if %ERRORLEVEL% NEQ 0 (
+type nul > "%PB_STOP_FILE%"
+(
+  echo ended_at=%DATE% %TIME%
+  echo app_exit_code=%PB_APP_EXIT%
+) >> "%PB_SESSION_META%"
+
+if %PB_APP_EXIT% NEQ 0 (
     echo.
-    echo   App beendet mit Fehlercode: %ERRORLEVEL%
+    echo   App beendet mit Fehlercode: %PB_APP_EXIT%
     echo   Clicklog: %PB_CLICKLOG_FILE%
     pause
 )
+
+exit /b %PB_APP_EXIT%
