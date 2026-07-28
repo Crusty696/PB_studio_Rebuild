@@ -28,7 +28,10 @@ start_pb_studio_clicklog.bat
 ```
 
 Launcher protokolliert Branch, Commit, Python, Clicklog, App-Log, Datenfluss
-und GPU-/Prozessressourcen. Exitcode der App wird durchgereicht.
+und GPU-/Prozessressourcen. Exitcode der App wird durchgereicht. Launcher setzt
+`APPDATA` und `LOCALAPPDATA` run-spezifisch unter
+`%LOCALAPPDATA%\PBStudioStability\<run_id>\AppData` und zeigt exakten
+isolierten Projektpfad an.
 
 ## Workflow-Reihenfolge
 

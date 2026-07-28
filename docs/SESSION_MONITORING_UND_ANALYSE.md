@@ -37,6 +37,8 @@ Das Skript startet automatisch **fünf** Dinge:
 | `<projekt>\pb_studio.db` | Timeline, Szenen, Analyse-Daten | Analyse-Skript |
 
 `<ts>` = Session-Zeitstempel, wird beim Start im Konsolenfenster angezeigt.
+`session_<ts>.txt` enthält zusätzlich isolierte `APPDATA`-/`LOCALAPPDATA`- und
+Projektpfade. Originale Recent-Project-/Brain-Zustände werden nicht geladen.
 
 ## 3. Kern-Events im Monitor-Log (Marker)
 

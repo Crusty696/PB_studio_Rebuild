@@ -78,6 +78,17 @@ set "PB_TS="
 for /f %%I in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Date -Format yyyy-MM-dd_HHmmss" 2^>nul') do set "PB_TS=%%I"
 if not defined PB_TS set "PB_TS=no_timestamp"
 
+:: D-085/B-743: Live-Session vollstaendig von echten AppData-/Recent-Project-
+:: Zustaenden isolieren. Host-LOCALAPPDATA vor Override sichern.
+set "PB_HOST_LOCALAPPDATA=%LOCALAPPDATA%"
+set "PB_STABILITY_ROOT=%PB_HOST_LOCALAPPDATA%\PBStudioStability\%PB_TS%"
+set "PB_STABILITY_PROJECT=%PB_STABILITY_ROOT%\project"
+set "APPDATA=%PB_STABILITY_ROOT%\AppData\Roaming"
+set "LOCALAPPDATA=%PB_STABILITY_ROOT%\AppData\Local"
+if not exist "%APPDATA%" mkdir "%APPDATA%"
+if not exist "%LOCALAPPDATA%" mkdir "%LOCALAPPDATA%"
+if not exist "%PB_STABILITY_PROJECT%" mkdir "%PB_STABILITY_PROJECT%"
+
 :: Clicklog-Datei: alles in eine Datei (stdout + stderr zusammen)
 set "PB_CLICKLOG_FILE=logs\clicklog_%PB_TS%.log"
 set "PB_RESOURCE_LOG=logs\resource_%PB_TS%.log"
@@ -96,6 +107,10 @@ for /f "delims=" %%I in ('git branch --show-current 2^>nul') do set "PB_GIT_BRAN
   echo branch=%PB_GIT_BRANCH%
   echo commit=%PB_GIT_COMMIT%
   echo python=%PB_PYTHON%
+  echo stability_root=%PB_STABILITY_ROOT%
+  echo project_root=%PB_STABILITY_PROJECT%
+  echo appdata=%APPDATA%
+  echo localappdata=%LOCALAPPDATA%
   echo clicklog=%PB_CLICKLOG_FILE%
   echo resource_log=%PB_RESOURCE_LOG%
 ) > "%PB_SESSION_META%"
@@ -104,6 +119,8 @@ echo   === CLICKLOG-AUFZEICHNUNG AKTIV ===
 echo   Branch:    %PB_GIT_BRANCH%
 echo   Commit:    %PB_GIT_COMMIT%
 echo   Session:   %PB_SESSION_META%
+echo   Projekt:   %PB_STABILITY_PROJECT%
+echo   AppData:   %APPDATA%
 echo   Logdatei:  %PB_CLICKLOG_FILE%
 echo   Standard:  logs\pb_studio.log (wie immer)
 echo   Monitor:   logs\monitor_%PB_TS%.log (gefilterte Kern-Events)
