@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5c1b39f7ddb6450d8c8ec3a3d8e30d6e",
+  "recorded_at": "2026-07-28T01:34:05+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "GPU-Cleanup lief in StemWorker und Video-Exception-Path nach Freigabe der Inference-Lease.",
+  "cause": "Cleanup lag im Outer-finally außerhalb GPU_EXECUTION_LOCK; Normalbatch-Schutz deckt Exception-Exit nicht.",
+  "rule": "CUDA-Modell-/Cache-Cleanup immer unter derselben GPU-Execution-Lease wie zugehörige Inferenz, auch im Fehler-finally.",
+  "applies_to": "GPU-Worker, ModelManager-Unload und Exception-Cleanup-Pfade"
+}

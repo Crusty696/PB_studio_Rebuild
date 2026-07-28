@@ -657,17 +657,22 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             _emitted_terminal = True
         finally:
             # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
-            if raft_model_device is not None:
-                try:
-                    _release_batch_raft(raft_model_device)
-                except (RuntimeError, AttributeError) as e:
-                    logger.warning("RAFT cleanup failed during finally block: %s", e)
-            if siglip_model_processor is not None:
-                try:
-                    from services.model_manager import ModelManager
-                    ModelManager().unload()
-                except (RuntimeError, AttributeError) as e:
-                    logger.warning("SigLIP cleanup failed during finally block: %s", e)
+            # B-723: Dieser Pfad läuft NACH einem Fehler aus dem normalen
+            # Batch-Lease. RAFT-/SigLIP-Unload kann `.cpu()` + empty_cache()
+            # ausführen; daher denselben Execution-Lock erneut halten.
+            if raft_model_device is not None or siglip_model_processor is not None:
+                from services.model_manager import ModelManager, gpu_execution_lease
+                with gpu_execution_lease("video_analysis_exception_cleanup"):
+                    if raft_model_device is not None:
+                        try:
+                            _release_batch_raft(raft_model_device)
+                        except (RuntimeError, AttributeError) as e:
+                            logger.warning("RAFT cleanup failed during finally block: %s", e)
+                    if siglip_model_processor is not None:
+                        try:
+                            ModelManager().unload()
+                        except (RuntimeError, AttributeError) as e:
+                            logger.warning("SigLIP cleanup failed during finally block: %s", e)
             # B-686: Embeds erst NACH dem Modell-Cleanup fortsetzen (P2), damit
             # der Embedder-Reload nicht mit noch residentem SigLIP/RAFT um VRAM
             # konkurriert. Refcount im Scheduler haelt das Gate zu, solange ein

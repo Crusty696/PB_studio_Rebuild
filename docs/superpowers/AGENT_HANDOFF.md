@@ -2,6 +2,15 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-723 GPU-Cleanup-Lockscope 2026-07-28 (newest)
+
+- Commit folgt: Stem-Cache-Cleanup und Video-Exception-RAFT/SigLIP-Cleanup
+  unter GPU-Execution-Lease. Keine Architekturänderung.
+- Belegt: zwei fokussierte Lock-Verträge grün (`1 passed` jeweils), Syntax grün.
+- Status `code-fix-pending-live-verification`; echter GPU-/Cancel-/Stresspfad
+  gemäß D-078 offen.
+- Genau nächste Task: `STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease`.
+
 ## B-741 Default-Suite-Ollama-Isolation 2026-07-28 (newest)
 
 - Commit folgt diesem Handoff-Update: Test-only Isolation in

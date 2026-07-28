@@ -31,11 +31,25 @@ class StemSeparationWorker(QObject, CancellableMixin):
 
             # F-004 Fix: Inferenz-Phase global locken
             with GPU_EXECUTION_LOCK:
-                result = separator.separate_and_store(
-                    self.track_id,
-                    progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
-                    should_stop=self.should_stop,
-                )
+                try:
+                    result = separator.separate_and_store(
+                        self.track_id,
+                        progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
+                        should_stop=self.should_stop,
+                    )
+                finally:
+                    # B-723: CUDA-Cleanup ist Teil derselben GPU-Operation wie
+                    # die Inferenz. Ein neuer Job darf nicht zwischen Inferenz
+                    # und empty_cache() dieselbe GPU betreten.
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError as e:
+                        logger.warning(
+                            "torch not available for VRAM cleanup after stem separation: %s",
+                            e,
+                        )
 
             mark_done("audio", self.track_id, "stem_separation", {
                 "stems": result.get("stem_count", 4),
@@ -55,13 +69,6 @@ class StemSeparationWorker(QObject, CancellableMixin):
             mark_error("audio", self.track_id, "stem_separation", str(e))
             self.error.emit(self.track_id, format_user_error(e))
         finally:
-            # VRAM-Schutz: GPU-Speicher nach Demucs freigeben (6GB Limit)
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError as e:
-                logger.warning("torch not available for VRAM cleanup after stem separation: %s", e)
             gc.collect()
             if not _ok and not self._errored:
                 self.finished.emit(self.track_id, {})
@@ -107,5 +114,4 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         finally:
             if not _ok and not self._errored:
                 self.finished.emit("")
-
 

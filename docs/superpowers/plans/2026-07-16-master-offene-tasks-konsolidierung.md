@@ -665,3 +665,12 @@ Decision: Vault
   Syntaxcheck grün. Keine breite Suite nach D-078.
 - B-741: `code-fix-pending-live-verification`, kein `fixed`.
 - Nächste einzige Task: `STAB-4 / B-723 GPU-Cleanup-Lockscope`.
+
+### B-723 GPU-Cleanup-Lockscope 2026-07-28
+
+- Stem-CUDA-Cache-Cleanup in Inference-Lock verschoben.
+- Video-RAFT-/SigLIP-Exception-Cleanup in eigene Execution-Lease verschoben.
+- Kleinste Fokusbelege: Stem-Lockscope `1 passed in 5.16s`; Video-Exception-
+  Lease-Vertrag `1 passed in 0.38s`; Syntax grün.
+- B-723: `code-fix-pending-live-verification`, kein GPU-/Cancel-/Stress-Livebeweis.
+- Nächste einzige Task: `STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease`.

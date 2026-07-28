@@ -20,12 +20,12 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`STAB-4 / B-723 GPU-Cleanup-Lockscope`.
+`STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease`.
 
-STAB-1-Teilgates und B-741 sind code-complete/live-pending. Gemäß D-078 sind
-breite Suite-/Live-/GPU-Stressprüfungen bis Abschluss restlicher Fixarbeit
-verschoben. B-723 statisch gegen Current HEAD prüfen; nur bei Codeänderung
-kleinsten betroffenen Fokuscheck ausführen.
+STAB-1-Teilgates sowie B-723/B-741 sind code-complete/live-pending. Gemäß
+D-078 sind breite Suite-/Live-/GPU-Stressprüfungen bis Abschluss restlicher
+Fixarbeit verschoben. B-725 trennt CPU-/Copy-Codecs von NVENC-Execution-Lease;
+nur bei Codeänderung kleinsten betroffenen Fokuscheck ausführen.
 
 Keine breite Suite vor Abschluss restlicher Root-Cause-Tasks. Erster Fehler im
 kleinsten Fokuscheck stoppt nur diese Root-Cause-Task.

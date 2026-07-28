@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 03:24 Europe/Zurich
+Letztes Update: 2026-07-28 03:55 Europe/Zurich
 
 Gesamtfortschritt: **ca. 12–15 %**  
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-4 / B-723 GPU-Cleanup-Lockscope**
+Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -12,7 +12,7 @@ Aktiv: **STAB-4 / B-723 GPU-Cleanup-Lockscope**
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
 | STAB-2 Acht Live-Workflows | **0 %** | blockiert durch STAB-1 |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
-| STAB-4 GPU/Threads/Soak | **ca. 5 %** | B-723 statische Root-Cause-Arbeit aktiv; Stressgate D-078-verschoben |
+| STAB-4 GPU/Threads/Soak | **ca. 12 %** | B-723 Codefix live-pending; B-725 aktiv; Stressgate D-078-verschoben |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
 | STAB-7 Endabnahme | **0 %** | blockiert durch STAB-6 |
@@ -39,6 +39,8 @@ Aktiv: **STAB-4 / B-723 GPU-Cleanup-Lockscope**
   Status `code-fix-pending-live-verification`, kein `fixed`.
 - B-741: vier Default-Suite-Pfade hostisoliert; Fokus `4 passed in 8.70s`.
   Current-Suite-/GPU-Livebeweis bleibt offen.
+- B-723: Stem- und Video-Exception-Cleanup unter Execution-Lease;
+  zwei fokussierte Verträge grün. GPU-/Cancel-Livebeweis bleibt offen.
 - D-078: breite Suite/Live/GPU/Soak/Release-Tests erst nach übriger
   Fix-/Auditarbeit; je Codefix nur kleinster zwingender Fokus.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
@@ -46,7 +48,8 @@ Aktiv: **STAB-4 / B-723 GPU-Cleanup-Lockscope**
 
 ## Nächste einzige Task
 
-B-723: GPU-Cleanup-Lockscope statisch gegen Current HEAD prüfen.
+B-725: CPU-/Copy-Konvertierung außerhalb GPU-Lease führen; NVENC bleibt
+serialisiert.
 Keine breite Suite; nur kleinster zwingender Fokuscheck bei Codeänderung.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
