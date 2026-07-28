@@ -1,0 +1,10 @@
+{
+  "lesson_id": "59a2c6b214e446959dcd53db6087c5df",
+  "recorded_at": "2026-07-28T03:21:41+00:00",
+  "session_id": "63099c0ecfaa4b44b7e7bedc04342289",
+  "head_at_start": "7a6b7e5f36c3d3553a7d0544206ae51d3535342e",
+  "problem": "BrainV3Service.suggest erzeugte aus Audio-/Video-IDs und Listenpositionen eine scheinbar fachliche Rangliste.",
+  "cause": "Die Skeleton-Servicefassade fabrizierte Soft-Score, Motion und Contributions aus Index und festen Defaults, obwohl SuggestRequest keine realen Kandidaten-, Audio- oder Pacing-Features transportiert.",
+  "rule": "Ranking-APIs ohne vollständige fachliche Eingabedaten müssen fail-closed mit leerem Ergebnis und explizitem Missing-Input-Status antworten; niemals semantische Scores aus IDs, Reihenfolge oder Defaults ableiten.",
+  "applies_to": "Brain-/Pacing-Servicefassaden, Candidate-Adapter und Ranking-APIs"
+}
