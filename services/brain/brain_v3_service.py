@@ -9,10 +9,9 @@
 
 KEINE REST/HTTP-Endpoints. Aufruf direkt aus PySide6-UI-Layer.
 
-Phase-4-Status: SKELETON. Reranker (`reranker.py`) + Smart-Sampler
-(`smart_sampler.py`) sind Folge-Sub-Tasks. `suggest()` und
-`learning_session()` liefern aktuell Stub-Daten + erlauben damit
-End-to-End-UI-Integration ohne den vollen Rerank-Pfad.
+Phase-4-Status: SKELETON. `suggest()` liefert ohne echte
+Kandidaten-/Audio-/Pacing-Daten bewusst keine Vorschlaege. Der
+`learning_session()`-Fallback bleibt fuer die bestehende Lern-UI erhalten.
 """
 from __future__ import annotations
 
@@ -29,7 +28,6 @@ from services.brain.context_resolver import CutContext, context_keys
 from services.brain.feedback_logger import FeedbackLogger
 from services.brain.schemas.brain_v3_schemas import (
     BrainV3HealthResponse,
-    CutSuggestion,
     FeedbackRequest,
     FeedbackResponse,
     LearningSampleCut,
@@ -56,22 +54,6 @@ _FEEDBACK_WRITE_LOCK = threading.RLock()
 @dataclass
 class _ResetTokenState:
     token: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class _SuggestClipFeatures:
-    clip_id: int
-    motion_score: float = 0.5
-    embedding: Optional[object] = None
-
-
-@dataclass(frozen=True)
-class _SuggestAudioContext:
-    at_section_type: str = "verse"
-    at_mood_audio: str = "neutral"
-    at_bpm: float = 120.0
-    at_energy: float = 0.5
-    at_harmonic_tension: float = 0.0
 
 
 class BrainV3Service:
@@ -107,122 +89,27 @@ class BrainV3Service:
         self._pattern_notifier = pattern_notifier
 
     def suggest(self, request: SuggestRequest) -> SuggestResponse:
-        """Liefert Top-N Cut-Vorschlaege fuer eine Audio/Video-Kombination.
+        """Fail-closed bis echte Ranking-Eingaben an dieser API anliegen.
 
-        Service-Fassade uebergibt eine leichte Kandidatenliste an den
-        BrainV3Reranker. Die Pacing-Pipeline bleibt der reichere Live-Pfad;
-        dieser In-Process-API-Pfad liefert stabile Top-N-Vorschlaege fuer UI
-        und Smoke-Tests.
+        ``SuggestRequest`` traegt nur IDs. Daraus lassen sich weder fachliche
+        Kandidatenmerkmale noch Audio- oder Pacing-Kontext ableiten. IDs oder
+        Listenpositionen duerfen deshalb keine scheinbare Rangliste erzeugen.
         """
-        if request.n_top <= 0 or not request.video_clip_ids:
-            return SuggestResponse(
-                cuts=[],
-                used_brain_v3=request.use_brain_v3,
-                explanation={
-                    "phase4_status": "reranker",
-                    "reason": "no_candidates",
-                },
-            )
-
-        logger.info(
-            "BrainV3Service.suggest(audio=%d, n_video=%d, n_top=%d, brain=%s)",
-            request.audio_clip_id, len(request.video_clip_ids), request.n_top,
-            request.use_brain_v3,
+        requested_video_clip_count = len(request.video_clip_ids)
+        logger.warning(
+            "BrainV3Service.suggest: keine echten Ranking-Eingaben "
+            "(audio=%d, n_video=%d); fail-closed",
+            request.audio_clip_id,
+            requested_video_clip_count,
         )
-
-        scored = self._build_service_candidates(request.video_clip_ids)
-        if request.use_brain_v3:
-            try:
-                from services.brain.reranker import BrainV3Reranker
-                reranked = BrainV3Reranker(
-                    self._weight_store,
-                    brain_weight=1.0,
-                    min_confidence=request.min_confidence,
-                ).rerank(scored, _SuggestAudioContext())
-                cuts = [
-                    self._suggestion_from_reranked(request.audio_clip_id, rank, item)
-                    for rank, item in enumerate(reranked[:request.n_top], start=1)
-                ]
-                return SuggestResponse(
-                    cuts=cuts,
-                    used_brain_v3=True,
-                    explanation={
-                        "phase4_status": "reranker",
-                        "candidate_count": len(scored),
-                        "returned_count": len(cuts),
-                    },
-                )
-            except Exception as exc:
-                logger.warning(
-                    "BrainV3Service.suggest: reranker failed, fallback soft-score: %s",
-                    exc,
-                    exc_info=True,
-                )
-
-        fallback = sorted(scored, key=lambda row: row[1], reverse=True)
-        cuts = [
-            CutSuggestion(
-                cut_id=f"a{request.audio_clip_id}:v{getattr(clip, 'clip_id')}:r{rank}",
-                clip_id=int(getattr(clip, "clip_id")),
-                audio_clip_id=request.audio_clip_id,
-                score=float(soft_score),
-                metadata={
-                    "brain_v3_scores": {},
-                    "brain_v3_enabled": False,
-                    "original_soft_score": float(soft_score),
-                },
-            )
-            for rank, (clip, soft_score, _contribs) in enumerate(
-                fallback[:request.n_top], start=1
-            )
-        ]
         return SuggestResponse(
-            cuts=cuts,
+            cuts=[],
             used_brain_v3=False,
             explanation={
-                "phase4_status": "fallback",
-                "candidate_count": len(scored),
-                "returned_count": len(cuts),
-            },
-        )
-
-    @staticmethod
-    def _build_service_candidates(
-        video_clip_ids: list[int],
-    ) -> list[tuple[_SuggestClipFeatures, float, dict[str, float]]]:
-        total = max(1, len(video_clip_ids))
-        rows: list[tuple[_SuggestClipFeatures, float, dict[str, float]]] = []
-        for idx, clip_id in enumerate(video_clip_ids):
-            soft_score = 1.0 - (idx / (total + 1))
-            motion = 0.25 + (0.5 * ((idx % 5) / 4.0))
-            rows.append((
-                _SuggestClipFeatures(clip_id=int(clip_id), motion_score=motion),
-                float(soft_score),
-                {
-                    "duration_s": 1.0,
-                    "brightness": 0.5,
-                    "saturation": 0.5,
-                    "color_temp": 0.0,
-                },
-            ))
-        return rows
-
-    @staticmethod
-    def _suggestion_from_reranked(
-        audio_clip_id: int,
-        rank: int,
-        item,
-    ) -> CutSuggestion:
-        return CutSuggestion(
-            cut_id=f"a{audio_clip_id}:v{item.clip_id}:r{rank}",
-            clip_id=int(item.clip_id),
-            audio_clip_id=audio_clip_id,
-            score=float(item.final_score),
-            metadata={
-                "brain_v3_scores": dict(item.brain_v3_scores),
-                "brain_score": float(item.brain_score),
-                "original_soft_score": float(item.original_soft_score),
-                "rank": rank,
+                "phase4_status": "unavailable",
+                "reason": "missing_real_ranking_inputs",
+                "candidate_count": 0,
+                "requested_video_clip_count": requested_video_clip_count,
             },
         )
 
