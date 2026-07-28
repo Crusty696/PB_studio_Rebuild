@@ -154,7 +154,7 @@ echo.
 :: stdout/stderr gleichzeitig auf Konsole + Clicklog. PowerShell reicht
 :: $LASTEXITCODE der App an CMD durch; Pipeline darf Crash nicht verdecken.
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "& '%PB_PYTHON%' main.py 2^>^&1 | Tee-Object -FilePath '%PB_CLICKLOG_FILE%'; exit $LASTEXITCODE"
+  "& '%PB_PYTHON%' main.py 2>&1 | Tee-Object -FilePath '%PB_CLICKLOG_FILE%'; exit $LASTEXITCODE"
 set "PB_APP_EXIT=%ERRORLEVEL%"
 
 type nul > "%PB_STOP_FILE%"
