@@ -731,3 +731,9 @@ Decision: Vault
   Verdict `live-pass-user-marker-pending`.
 - Nächste einzige Task:
   `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+- W2-Preflight: `tests/fixtures/clips_20` enthält nur Provenienz; alle 20
+  referenzierten MP4-Pfade fehlen. 46 MP4-Proxies und 8 WAV-Stems in
+  `outputs/test-tabelle/storage` sind vorhanden.
+- Nächste einzige Task:
+  `USER-DECISION / W2 fehlende 20 Clip-Fixtures`: Proxy-Substitution freigeben
+  oder echten Quellpfad nennen.

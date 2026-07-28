@@ -2,6 +2,17 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W2 Fixture-Blocker 2026-07-28 (newest)
+
+- `tests/fixtures/clips_20` enthält nur Report/Provenienz, keine MP4-Dateien.
+- Alle 20 Provenienzpfade zeigen auf fehlendes Altprofil
+  `C:\Users\David Lochmann`; korrigiertes aktuelles Profil ebenfalls fehlend.
+- 46 MP4-Proxies und 8 WAV-Stems unter kanonischem read-only
+  `outputs/test-tabelle/storage` vorhanden.
+- Nächste einzige Task:
+  `USER-DECISION / W2 fehlende 20 Clip-Fixtures`.
+- Keine Substitution ohne Freigabe.
+
 ## W2 Import/Papierkorb/Restore 2026-07-28 (newest)
 
 - Integration: `codex/B-727-stability-gate` / Current nach W1-Bericht.

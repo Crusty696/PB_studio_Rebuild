@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 13:07 Europe/Zurich
+Letztes Update: 2026-07-28 13:15 Europe/Zurich
 
 Gesamtfortschritt: **ca. 17–20 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
+Aktiv: **USER-DECISION / W2 fehlende 20 Clip-Fixtures**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -77,6 +77,8 @@ Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
 ## Nächste einzige Task
 
 W2: isolierte Audio-/Video-Kopien importieren, Duplikat, Papierkorb, Restore,
-Reimport und UI-/DB-Konsistenz sichtbar prüfen.
+Reimport und UI-/DB-Konsistenz sichtbar prüfen. Blocker: festgelegte 20
+Provenienz-Clips existieren nicht. User entscheidet: 20 vorhandene
+`test-tabelle`-MP4-Proxies substituieren oder echten Quellpfad liefern.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
