@@ -690,5 +690,11 @@ Decision: Vault
 - B-736 `code-fix-pending-live-verification`; kein `fixed`.
 - B-737 am 2026-07-28 vor erstem Codeedit sauber gestoppt; keine Tests/Commits.
 - D-085 priorisiert beobachtete Live-Session vor B-737/B-738.
-- Nächste einzige Task: `LIVE-VERIFY / Preflight + W1 Boot und Projekte`.
+- W1 Retry 1: Boot/Setup/Hauptfenster/Shutdown mit Exit 0; 13/13 geschützte
+  DB-Quellen danach byte- und logisch unverändert.
+- W1 Retry 2: sichtbare Statusleiste meldete gleichzeitig `KI: Fallback` und
+  `AI ready`, obwohl Ollama API-ready war. B-278 deshalb `partial-fix`;
+  Workflow vor Projektanlage gestoppt.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-278 widerspruechlichen Ollama-/AI-Startupstatus beheben`.
 - Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.

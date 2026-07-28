@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 05:43 Europe/Zurich
+Letztes Update: 2026-07-28 11:45 Europe/Zurich
 
 Gesamtfortschritt: **ca. 15–18 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / Preflight + W1 Boot und Projekte**
+Aktiv: **LIVE-VERIFY / B-278 Ollama-/AI-Startupstatus**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -51,12 +51,16 @@ Aktiv: **LIVE-VERIFY / Preflight + W1 Boot und Projekte**
 - B-742: Clicklog-Launcher reicht App-Exitcode jetzt durch; Livebeweis offen.
 - D-085: User beobachtet jetzt echte Live-Workflows. D-078 bleibt für
   redundante breite Pytest-Suites bestehen.
+- W1 Retry 1: Boot/Setup/Hauptfenster/Shutdown Exit 0; reale 13/13 DB-Quellen
+  danach byte-/logisch unverändert.
+- W1 Retry 2: `KI: Fallback` und `AI ready` gleichzeitig sichtbar, obwohl
+  Ollama bereit war. B-278 `partial-fix`; W1 vor Projektanlage gestoppt.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
 
 ## Nächste einzige Task
 
-Current-Preflight, isoliertes Projekt, danach W1 Boot/Projektwechsel/Shutdown/
-Neustart. Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.
+B-278 Root Cause des widersprüchlichen Startupstatus beheben; nur
+fokussierter Regressionstest, danach beobachteter W1-Live-Retry.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

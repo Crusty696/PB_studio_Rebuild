@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-278 Current-Live-Blocker 2026-07-28 (newest)
+
+- Branch/HEAD vor Governance-Commit:
+  `codex/B-727-stability-gate` / `3026ded`.
+- W1 Retry 1 endete sauber Exit 0; 13/13 reale DB-Quellen blieben byte-/
+  logisch unverändert.
+- W1 Retry 2 zeigte sichtbar gleichzeitig `KI: Fallback` und `AI ready`,
+  obwohl Ollama API-ready war. Kein Traceback, kein Crash.
+- B-278 auf `partial-fix`; Projektanlage wurde planmäßig nicht fortgesetzt.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-278 widerspruechlichen Ollama-/AI-Startupstatus beheben`.
+- Danach nur Fokusbeweis + beobachteter W1-Retry. Keine breite Suite.
+
 ## D-085 beobachtete Live-Test-Session 2026-07-28 (newest)
 
 - Current Integrationsbranch: `codex/B-727-stability-gate`.
