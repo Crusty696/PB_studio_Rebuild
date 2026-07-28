@@ -226,7 +226,7 @@ def _raft_motion_score(
     return _normalize_motion(raw)
 
 
-def compute_motion_scores(
+def _compute_motion_scores(
     video_path: str,
     scenes: list[SceneInfo],
     progress_cb: Callable[[int, str], None] | None = None,
@@ -353,6 +353,24 @@ def compute_motion_scores(
     logger.info("Motion-Scores berechnet für %d Szenen (%s)", len(scenes),
                 "RAFT/CUDA" if use_raft else "CPU-Fallback")
     return scenes
+
+
+def compute_motion_scores(
+    video_path: str,
+    scenes: list[SceneInfo],
+    progress_cb: Callable[[int, str], None] | None = None,
+    raft_model_device: tuple | None = None,
+) -> list[SceneInfo]:
+    """Öffentlicher Motion-Entry-Point mit direktem RAFT-Lease-Schutz."""
+    if raft_model_device is not None:
+        # Batch-Worker hält die reentrante Execution-Lease bereits außen.
+        return _compute_motion_scores(video_path, scenes, progress_cb, raft_model_device)
+
+    # B-726: Direkte Service-/Action-Caller laden, inferieren, bereinigen und
+    # entladen RAFT in einem einzigen GPU-Abschnitt.
+    from services.model_manager import gpu_execution_lease
+    with gpu_execution_lease("motion_scores"):
+        return _compute_motion_scores(video_path, scenes, progress_cb, None)
 
 
 def _cpu_motion_score(frame1_bgr: np.ndarray, frame2_bgr: np.ndarray) -> float:
