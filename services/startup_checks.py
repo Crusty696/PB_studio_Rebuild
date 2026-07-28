@@ -146,6 +146,17 @@ class SystemStatus:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
+    def sync_ollama_readiness(self, service_ready: bool) -> bool:
+        """Synchronisiert alle sichtbaren KI-Statuswerte auf einen Snapshot.
+
+        Der begrenzte Startup-Future kann bei langsamem Ollama-Start bereits
+        ``False`` geliefert haben, obwohl der Service beim UI-Rendern bereit
+        ist. Der aktuelle gecachte Servicewert ist deshalb die eine Quelle
+        fuer Statusleiste und Ready-Dot.
+        """
+        self.ollama_ok = bool(service_ready)
+        return self.ollama_ok
+
     def status_bar_text(self) -> str:
         parts: list[str] = []
         if self.cuda_ok and self.gpu_name:
