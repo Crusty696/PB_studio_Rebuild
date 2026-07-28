@@ -685,4 +685,7 @@ Decision: Vault
 - B-735 Commit `ddcb027`: `role_match_weight` als 18. sichtbare, lernbare
   Brain-Achse; 59 fokussierte Tests grün.
 - Alle vier Codefixes `code-fix-pending-live-verification`; kein `fixed`.
-- Nächste einzige Task: `B-736 Stub-Servicepfad fail-closed`.
+- B-736 Commit `dc253d4`: synthetischer ID-/Index-Rankingpfad entfernt;
+  ohne echte Ranking-Eingaben fail-closed. RED 1 fail → GREEN 1 pass.
+- B-736 `code-fix-pending-live-verification`; kein `fixed`.
+- Nächste einzige Task: `B-737 Feedback → Pattern-Learning-Persistenz`.

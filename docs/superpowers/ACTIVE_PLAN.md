@@ -20,10 +20,11 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`B-736 Stub-Servicepfad fail-closed`.
+`B-737 Feedback → Pattern-Learning-Persistenz`.
 
-B-715/B-723/B-725/B-726/B-735 sowie B-741 sind code-complete/live-pending.
-User-Freigabe D-084 aktiviert Restreihenfolge B-736 → B-737 → B-738.
+B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
+code-complete/live-pending. User-Freigabe D-084 aktiviert Restreihenfolge
+B-737 → B-738.
 Gemäß D-078 nur kleinste Fokuschecks; breite Suite-/Live-/GPU-Stressprüfungen
 erst nach Abschluss restlicher Fixarbeit.
 
