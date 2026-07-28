@@ -285,6 +285,22 @@ def test_b735_missing_confidence_keeps_legacy_behaviour():
     assert apply_role_confidence(raw, 0.0) == pytest.approx(0.5)
 
 
+def test_b735_role_bridge_axis_changes_brain_score_and_order(isolated_appdata):
+    """D-080: Rolle ist eigene, sichtbare Brain-Achse — nicht nur Pacing-Metadatum."""
+    reranker = _reranker()
+    hero = _clip(1, role="hero", role_confidence=1.0, seed=7)
+    filler = _clip(2, role="filler", role_confidence=1.0, seed=7)
+
+    out = reranker.rerank([(hero, 0.5, {}), (filler, 0.5, {})], _Ctx())
+
+    scores = {candidate.clip_id: candidate for candidate in out}
+    assert scores[1].brain_v3_scores["role_match_weight"] > (
+        scores[2].brain_v3_scores["role_match_weight"]
+    )
+    assert out[0].clip_id == 1
+    assert "role_match_weight" not in scores[1].no_signal_axes
+
+
 # ======================================================================
 # B-736 — Musik-Snapshot am Cut-Zeitpunkt
 # ======================================================================

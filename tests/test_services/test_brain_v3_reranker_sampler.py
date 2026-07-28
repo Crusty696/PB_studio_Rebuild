@@ -63,8 +63,8 @@ def test_reranker_returns_sorted_list(isolated_appdata):
     # sortiert absteigend
     for i in range(len(out) - 1):
         assert out[i].final_score >= out[i + 1].final_score
-    # brain_v3_scores hat alle 17 Achsen
-    assert len(out[0].brain_v3_scores) == 17
+    # brain_v3_scores hat alle 18 Achsen
+    assert len(out[0].brain_v3_scores) == 18
 
 
 def test_reranker_brain_weight_zero_keeps_original_order(isolated_appdata):

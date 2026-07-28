@@ -2,7 +2,7 @@
 
 Kombiniert Bridge-Werte (BridgeDimensions) mit gelernten Gewichten
 (WeightStore.get_posterior_mean) → Final-Score pro Kandidat plus
-17 Sub-Scores für UI-Diagnostik.
+18 Sub-Scores für UI-Diagnostik (inkl. D-080 Role-Bridge).
 """
 from __future__ import annotations
 

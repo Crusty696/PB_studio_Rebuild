@@ -291,7 +291,7 @@ tests/qa_artifacts/):
 - B6 (Media-Re-Analyse): Per-Schritt "Wiederholen"-Buttons + "Alle Fehler wiederholen".
 - T1.1 (Studio-Brain-Pacing): Checkbox aktiv.
 - T1.4/T1.5 (RL-Feedback + Lernschleife): RL-Notes Gut/Schlecht + Brain-V3-Lernstatus
-  187 Klicks / 17-17 Achsen / Feedback heute / Buckets gefuellt.
+  187 Klicks / 18 Brain-Achsen / Feedback heute / Buckets gefuellt.
 - T2.1 (LLM-Pacing schaltbar): LLM-Strategist/LLM-EDL-Toggles.
 - T2.2 (audio.v2_default Settings): Checkbox "Audio-Analyse V2 als Standard".
 - T2.3 (Timeline-Snapshots): Snapshots-Control in Timeline-Leiste.
@@ -511,7 +511,7 @@ Fehler einzeln schließen, bevor nächster Workflow startet.
 #### STAB-3 — Brain, Pacing und Lernen
 
 - Medien, Seed, Settings und Modellversion fixieren.
-- Auto-Edit A inklusive Rangfolge, 17 Achsen, Pacing, Pattern und Gewichten.
+- Auto-Edit A inklusive Rangfolge, 18 Brain-Achsen, Pacing, Pattern und Gewichten.
 - Negativkontrolle ohne Feedback muss deterministisch bleiben.
 - Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart.
 - Persistenz und `mem_learned_pattern > 0` prüfen.

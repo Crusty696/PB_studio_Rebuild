@@ -65,8 +65,8 @@ def isolated_appdata(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 # cold_start
 # ---------------------------------------------------------------------------
-def test_bridge_axes_count_is_17():
-    assert len(BRIDGE_AXES) == 17
+def test_bridge_axes_count_is_18():
+    assert len(BRIDGE_AXES) == 18
 
 
 def test_cold_start_covers_all_axes():
@@ -231,9 +231,9 @@ def test_top_buckets_returns_strongest_positive(store: WeightStore):
 
 def test_cold_start_status_all_axes_in_cold_start(store: WeightStore):
     s = store.cold_start_status()
-    assert s["total_axes"] == 17
+    assert s["total_axes"] == 18
     assert s["confident_axes"] == 0
-    assert s["cold_start_axes"] == 17
+    assert s["cold_start_axes"] == 18
 
 
 def test_cold_start_status_one_axis_confident(store: WeightStore):
@@ -241,7 +241,7 @@ def test_cold_start_status_one_axis_confident(store: WeightStore):
         store.update("kick_weight", 0, "", 1.0, 0)
     s = store.cold_start_status()
     assert s["confident_axes"] == 1
-    assert s["cold_start_axes"] == 16
+    assert s["cold_start_axes"] == 17
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def test_log_feedback_updates_85_buckets(store: WeightStore):
     ctx = CutContext()
     keys = context_keys(ctx)
     res = fl.log_feedback("perfect", keys)
-    assert res["n_buckets_updated"] == 17 * 6  # = 102 Achsen × Levels
+    assert res["n_buckets_updated"] == 18 * 6  # = 108 Achsen × Levels
     # WAIT: Plan-Doc sagt 17 × 5 = 85, aber wir haben 6 Levels (Level 0..5)
     # — überprüfen wir mit der Realität: context_keys liefert 6 Werte
     assert len(keys) == 6
@@ -365,7 +365,7 @@ def test_bridge_compute_all_returns_17():
     cand = ClipCandidate(clip_id="c1", duration_s=2.0)
     ctx = CutContext()
     all_vals = bd.compute_all(cand, ctx)
-    assert len(all_vals) == 17
+    assert len(all_vals) == 18
     assert set(all_vals.keys()) == set(BRIDGE_AXES)
 
 
@@ -403,7 +403,7 @@ def test_scorer_returns_scored_candidate(store: WeightStore):
     res = sc.score(cand, ctx)
     assert res.candidate is cand
     assert 0.0 <= res.final_score <= 2.0  # bridge*weight, weight ≤ 2.0
-    assert len(res.brain_v3_scores) == 17
+    assert len(res.brain_v3_scores) == 18
 
 
 def test_scorer_normalizes_by_weight_sum_not_axis_count():

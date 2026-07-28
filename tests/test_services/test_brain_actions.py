@@ -331,7 +331,7 @@ def test_brain_stats_reports_axes_gap(migrated_project, monkeypatch, tmp_path):
     assert result["status"] == "ok"
     assert result["weights_error"] is not None
     assert result["axes_with_signal"] == 0
-    assert len(result["no_signal_axes"]) == result["total_axes"] == 17
+    assert len(result["no_signal_axes"]) == result["total_axes"] == 18
     assert any("weights.db" in g for g in result["gaps"])
 
 

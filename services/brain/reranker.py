@@ -2,7 +2,7 @@
 
 Eingriff in `services.pacing.pipeline.PacingPipeline.select_best()` Stage 4:
 - Input: `scored`-Liste aus Pacing-Pipeline (passed_stage2 == True)
-- Brain-V3-Reranker bewertet jeden Kandidaten ueber 17 Achsen x 6 Levels
+- Brain-V3-Reranker bewertet jeden Kandidaten ueber 18 Achsen x 6 Levels
 - Output: re-sortierte Liste + `brain_v3_scores` pro Kandidat
 
 Stages 1-3 (Hard-Rules, Variations-Budget, Collision-Check) bleiben
@@ -389,13 +389,16 @@ class BrainV3Reranker:
         else:
             no_signal.add("mood_match_weight")
 
-        # style_tags: aktuell wertet KEINE Bridge-Achse sie aus. Trotzdem
-        # ehrlich befuellen (role + Style-Bucket sind echte per-Clip-Labels),
-        # statt eine leere Liste zu uebergeben.
+        # style_tags bleiben Diagnostik; D-080 führt Rolle zusätzlich als
+        # explizites Candidate-Feld für die lernbare Brain-Bridge-Achse.
         style_tags: list[str] = []
         role = getattr(clip_feat, "role", None)
+        normalized_role: Optional[str] = None
         if role and str(role).strip().lower() not in ("", "unknown"):
-            style_tags.append(f"role:{str(role).strip().lower()}")
+            normalized_role = str(role).strip().lower()
+            style_tags.append(f"role:{normalized_role}")
+        else:
+            no_signal.add("role_match_weight")
         bucket = getattr(clip_feat, "style_bucket_id", None)
         if bucket:  # 0 ist das Sentinel fuer "unbekannter Bucket"
             style_tags.append(f"style_bucket:{int(bucket)}")
@@ -422,7 +425,7 @@ class BrainV3Reranker:
         if brightness is not None:
             kwargs["brightness"] = brightness
         if saturation is not None:
-            # Aktuell wertet KEINE der 17 Achsen die Saettigung aus. Sie wird
+            # Aktuell wertet KEINE der 18 Achsen die Saettigung aus. Sie wird
             # trotzdem durchgereicht (echter Messwert, kein Default) — damit
             # ein spaeterer Term sie vorfindet, statt still 0.5 zu lesen.
             kwargs["saturation"] = saturation
@@ -436,6 +439,8 @@ class BrainV3Reranker:
             embedding=emb_arr,
             mood_tags=mood_tags,
             style_tags=style_tags,
+            role=normalized_role,
+            role_confidence=getattr(clip_feat, "role_confidence", None),
             **kwargs,
         )
         return candidate, frozenset(no_signal)

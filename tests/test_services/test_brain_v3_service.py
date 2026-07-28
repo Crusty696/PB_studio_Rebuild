@@ -35,7 +35,7 @@ def test_suggest_returns_top_n_with_brain_scores(isolated_appdata):
     assert resp.explanation["phase4_status"] == "reranker"
     assert all(c.audio_clip_id == 1 for c in resp.cuts)
     assert all("brain_v3_scores" in c.metadata for c in resp.cuts)
-    assert all(len(c.metadata["brain_v3_scores"]) == 17 for c in resp.cuts)
+    assert all(len(c.metadata["brain_v3_scores"]) == 18 for c in resp.cuts)
 
 
 def test_feedback_perfect_updates_buckets(isolated_appdata):
@@ -465,7 +465,7 @@ def test_stats_after_init_shows_cold_start(isolated_appdata):
     s = svc.stats()
     assert s.total_clicks >= 0
     # Initial = no learned axes
-    assert s.cold_start_axes == 17
+    assert s.cold_start_axes == 18
     assert s.learned_axes == 0
 
 
@@ -475,8 +475,8 @@ def test_stats_after_feedback_shows_some_learning(isolated_appdata):
     for _ in range(10):
         svc.feedback(FeedbackRequest(cut_id=1, rating="perfect"))
     s = svc.stats()
-    # 17 Achsen sollten alle gelernt sein (10 x 2.0 alpha = 20 Samples >= 10)
-    assert s.learned_axes == 17
+    # 18 Achsen sollten alle gelernt sein (10 x 2.0 alpha = 20 Samples >= 10)
+    assert s.learned_axes == 18
     assert s.cold_start_axes == 0
     assert len(s.top_positive_buckets) > 0
 

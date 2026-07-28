@@ -58,7 +58,7 @@ class FeedbackResponse(BaseModel):
     rating: RatingLiteral
     n_buckets_updated: int = Field(..., ge=0,
                                    description="Anzahl axis_weights-Updates "
-                                               "(17 Achsen x 6 Levels = 102 max)")
+                                               "(18 Achsen x 6 Levels = 108 max)")
     alpha_delta: float
     beta_delta: float
     credit_mode: Literal["weighted", "uniform"] = Field(
