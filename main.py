@@ -2263,7 +2263,10 @@ def main():
 
             def on_done(status):
                 app.system_status = status
-                _ai_status = '● AI ready' if OllamaService.get().ready_cached() else '● AI loading...'
+                _ollama_ready = status.sync_ollama_readiness(
+                    OllamaService.get().ready_cached()
+                )
+                _ai_status = '● AI ready' if _ollama_ready else '● AI loading...'
                 window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
                 logger.info("Startup checks completed: %s", status.status_bar_text())
