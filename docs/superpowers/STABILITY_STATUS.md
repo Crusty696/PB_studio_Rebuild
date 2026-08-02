@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-02 08:07 Europe/Zurich
+Letztes Update: 2026-08-02 08:19 Europe/Zurich
 
 Gesamtfortschritt: **ca. 17–20 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup**
+Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **12,5 %** | W1 live-pass; W2 Funktionspfade grün, Prozessgate B-740 rot |
+| STAB-2 Acht Live-Workflows | **25 %** | W1 und W2 live-pass; Usermarker offen |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
@@ -79,12 +79,14 @@ Aktiv: **ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup**
   Current-Live-Dialog grün; Usermarker offen.
 - W2 DB-Gate: 15/15 geschützte Pre-Pfade byte-identisch, 18/18 Post-DBs
   `quick_check=ok`, Host-Settings-SHA unverändert.
-- W2 Prozessgate rot: `ollama.exe` PID 5944 mit altem W2-App-Parent PID 4620;
-  Prozess nicht beendet. W2 bleibt offen.
+- B-740 Current-live: eigener App→Serve→Runner-Prozessbaum; nativer Shutdown
+  beendete alle drei PIDs, Port 11434 frei. Usermarker offen.
+- W2 Finalmanifest: 15/15 geschützte Pre-Pfade unverändert, 18/18 Quickcheck,
+  Host-Settings-SHA unverändert, PB-/Ollama-Prozesse 0. W2 live-pass.
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`. Nur betroffenen
-Ownership-/Shutdownpfad prüfen; bestandene W2-Funktionspfade nicht wiederholen.
+`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+Vollständiger Audio-V2-Lauf mit vier Stems ist bereits Teilevidenz.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

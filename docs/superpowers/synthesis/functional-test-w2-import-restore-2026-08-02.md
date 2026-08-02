@@ -1,7 +1,7 @@
 ---
 title: PB Studio W2 Import, Papierkorb, Restore und Reuse — Current Live
 date: 2026-08-02
-status: blocked-by-B-740
+status: live-pass-user-marker-pending
 plan: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 phase: STAB-2/W2
 branch: codex/B-727-stability-gate
@@ -12,11 +12,11 @@ current_commit: b97dec4003475b8823f609938009f7ae08f5df01
 
 ## Verdict
 
-Nutzerpfade bestanden, Gesamtworkflow blockiert. Kein `fixed`.
+`pass`, Usermarker offen. Kein `fixed`.
 
 Import, aktiver Duplikatimport, Bulk-Soft-Delete, Papierkorb, Bulk-Restore,
 Reimport und Cross-Project-Reuse wurden in sichtbarer Current-App ausgeführt.
-W2-Gesamtgate scheitert an verwaistem Ollama-Prozess B-740.
+B-740-Ownership-/Shutdownpfad wurde anschließend Current-live bestanden.
 
 ## Isolierte Daten
 
@@ -29,6 +29,8 @@ W2-Gesamtgate scheitert an verwaistem Ollama-Prozess B-740.
   `%LOCALAPPDATA%\PBStudioStability\20260728T131800-w2-pre\manifest.json`
 - Postmanifest:
   `%LOCALAPPDATA%\PBStudioStability\20260802T0801-w2-post\manifest.json`
+- Finalmanifest nach B-740:
+  `%LOCALAPPDATA%\PBStudioStability\20260802T0818-w2-final\manifest.json`
 
 15/15 geschützte Pre-Pfade blieben für DB/WAL/SHM in Existenz, Größe und
 SHA256 unverändert. Post: 18/18 `quick_check=ok`; drei zusätzliche DBs sind
@@ -56,8 +58,10 @@ isolierte Laufdaten. Host-Settings SHA256 unverändert:
   Audioansicht schaltete sichtbar um. Kein Codefix.
 - B-747 Mute-Key-Kollision: projektpfadgebundener SHA-256-Key, RED/GREEN,
   Ruff und Current-Live-Dialog grün; Usermarker offen.
-- B-740 Prozessgate: `ollama.exe` PID 5944 lebt mit Parent PID 4620, dem
-  W2-App-PID vom 2026-07-28. Prozess wurde nicht beendet.
+- B-740: alter PID-5944-Rest stammte aus abnormal beendeter Session ohne
+  Exitmetadaten. Nach Ownership-Beweis exakt entfernt. Frische Current-App
+  startete eigenen Serve+Runner; nativer Shutdown beendete App, Serve und
+  Runner vollständig. Port 11434 frei; Usermarker offen.
 
 ## Artefakte
 
@@ -78,8 +82,8 @@ isolierte Laufdaten. Host-Settings SHA256 unverändert:
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
+`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
 
-W2 wird erst nach belegtem Prozesscleanup abgeschlossen. Bestandene Import-/
-Restore-/Reuse-Pfade werden nicht vollständig wiederholt; nur betroffener
-Shutdown-/Ownership-Pfad.
+W2 ist Current-live bestanden. Vollständiger Audio-V2-Lauf mit vier Stems liegt
+bereits als W3-Teilevidenz vor; offen bleiben Cancel während AV-Pacing, Retry,
+Neustartvergleich und fehlendes Stem-Artefakt.

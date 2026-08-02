@@ -1,0 +1,10 @@
+{
+  "lesson_id": "45f75d3a996c41e9b563656d087a2bf8",
+  "recorded_at": "2026-08-02T06:49:45+00:00",
+  "session_id": "a44235af301c469789af9998722d4a6b",
+  "head_at_start": "b97dec4003475b8823f609938009f7ae08f5df01",
+  "problem": "Alter Ollama-Orphan wurde zunaechst als moegliche Normal-Shutdown-Regression behandelt.",
+  "cause": "Prozessbesitz war belegt, Beendigungsart der Eltern-App jedoch nicht; fehlendes ended_at belegte abnormal abgebrochene Launcher-Session.",
+  "rule": "Prozessleck-Regression nur nach Besitz UND normalem Shutdown beweisen. Orphan nach abnormalem Parent-Ende ist kein Beleg gegen normalen Cleanup; frischen Prozessbaum per nativer App-Schliessung pruefen.",
+  "applies_to": "Ollama-Prozessbesitz, Shutdown-, Cancel- und Zombie-Prozess-Verifikation"
+}

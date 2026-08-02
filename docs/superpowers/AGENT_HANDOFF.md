@@ -2,6 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W2 Final-Pass / W3 Start 2026-08-02 (newest)
+
+- B-740 Current-live: App PID 4172 → Serve 11796 → Runner 10484; nativer
+  Shutdown beendete alle, Port 11434 frei.
+- Finalmanifest `20260802T0818-w2-final`: 15/15 geschützte Pre-Pfade
+  unverändert, 18/18 Quickcheck, Host-Settings-SHA unverändert,
+  PB-/Ollama-Prozesse 0.
+- W2 `live-pass-user-marker-pending`; STAB-2 25 %.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+- Bereits belegt: kompletter Audio-V2-Lauf mit vier Stems; nicht wiederholen.
+
 ## W2 B-747 pass / B-740 Prozessblocker 2026-08-02 (newest)
 
 - Branch `codex/B-727-stability-gate`, Basis `b97dec4`.

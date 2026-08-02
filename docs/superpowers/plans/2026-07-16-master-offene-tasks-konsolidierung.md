@@ -749,6 +749,19 @@ Decision: Vault
   `ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
 - Bestandene W2-Funktionspfade werden nicht wiederholt; nur betroffener
   Ownership-/Shutdownpfad.
+
+### B-740/W2 Abschluss 2026-08-02
+
+- Historischer PID-5944-Rest stammt aus abnormal beendetem W2-Launcher ohne
+  Exitmetadaten; nach Ownership-Beweis exakt Prozessbaum entfernt.
+- Frische Current-App startete eigenen Ollama-Serve und Runner. Nativer
+  Shutdown beendete App, Serve und Runner; Port 11434 frei.
+- Finalmanifest `20260802T0818-w2-final`: 15/15 geschützte Pre-Pfade
+  unverändert, 18/18 Quickcheck, Host-Settings-SHA unverändert,
+  PB-/Ollama-Prozesse 0.
+- W2 Verdict `live-pass-user-marker-pending`; STAB-2 25 %.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
 - W2-Preflight: `tests/fixtures/clips_20` enthält nur Provenienz; alle 20
   referenzierten MP4-Pfade fehlen. 46 MP4-Proxies und 8 WAV-Stems in
   `outputs/test-tabelle/storage` sind vorhanden.

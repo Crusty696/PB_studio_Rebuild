@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
+`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -44,10 +44,11 @@ ausschließlich isolierte Kopien. Quellen bleiben read-only.
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 
 W2 Import, Duplikat, Papierkorb, Bulk-Restore, Reimport und Cross-Project-Reuse
-sind Current-live grün. B-747 wurde minimal behoben und live belegt. W2 bleibt
-offen, weil `ollama.exe` PID 5944 nach altem W2-App-PID 4620 weiterlebt. Prozess
-nicht beendet. Nur B-740-Ownership-/Shutdownpfad folgt; keine komplette W2-
-Wiederholung.
+sind Current-live grün. B-747 wurde minimal behoben und live belegt. B-740-
+Owned-Tree-Cleanup wurde mit echter App→Serve→Runner-Kette und nativem Shutdown
+bewiesen. Finalmanifest: reale DBs/Settings unverändert, PB-/Ollama-Prozesse 0.
+W2 live-pass, Usermarker offen. W3-Komplettlauf mit vier Stems ist bereits
+Teilevidenz; offen bleiben Cancel, Retry, Neustartvergleich und fehlendes Stem.
 
 ## Agent Behavior
 
