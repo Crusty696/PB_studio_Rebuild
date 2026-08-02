@@ -146,7 +146,7 @@ class BrainV3LearningSessionDialog(QDialog):
         self._audio_preview_duration_s = 4.0
         self._audio_preview_process: subprocess.Popen | None = None
         self._preview_stop_requested = False
-        self.setWindowTitle("Brain V3 — Lern-Session")
+        self.setWindowTitle("Brain V3 — Gewichte-Lernsession")
         self.setModal(True)
         self.resize(760, 560)
         self._build_ui()
@@ -157,9 +157,17 @@ class BrainV3LearningSessionDialog(QDialog):
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(8)
 
-        title = QLabel("Lern-Session — unsicherste Cuts bewerten")
+        title = QLabel("Gewichte-Lernsession — unsicherste Cuts bewerten")
         title.setStyleSheet("font-weight: 600; font-size: 14px;")
         root.addWidget(title)
+
+        scope = QLabel(
+            "Trainiert Brain-V3-Achsengewichte. Pacing-Muster lernen nur aus "
+            "bewerteten Entscheidungen einer aktiven Timeline."
+        )
+        scope.setWordWrap(True)
+        scope.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 11px;")
+        root.addWidget(scope)
 
         self._lbl_status = QLabel("Lade Stichproben ...")
         self._lbl_status.setStyleSheet("color: rgba(255,255,255,0.6); font-size: 11px;")
@@ -483,6 +491,9 @@ class BrainV3LearningSessionDialog(QDialog):
                 f"Stichprobe Cut #{cut_id} — {self._context_label(cut_id)}"
             ),
             parent=self,
+            # state.db-cut_id ist keine mem_decision/scene_id. Keine falsche
+            # Pattern-Zuordnung erfinden; Dialog trainiert Gewichte separat.
+            pattern_feedback_target=None,
         )
         popup.feedback_submitted.connect(self._on_feedback_done)
         popup.exec()

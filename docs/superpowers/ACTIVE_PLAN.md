@@ -21,12 +21,13 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.
+`ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`.
 
-B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
-code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
-Userentscheidung D-085 priorisiert jetzt beobachtete Live-Workflows; User
-schaut zu. B-737/B-738 bleiben offen und werden danach fortgesetzt.
+B-737 ist code-complete/live-pending: semantischer Timeline-Write vor
+Pattern-Notifier, Debounce/Run-/Projekt-/App-End-Drain, generation-sicheres
+Warten, Fehler-Retry und ehrliche Gewichte-Lernsession. Fokus 27 + 9 + 9
+Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 wurde dabei als
+getrennter Medium-Blocker reproduziert. B-738 wartet genau dahinter.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
@@ -95,7 +96,15 @@ B-756 ist code-complete: sieben Video-`should_stop()`-Zweige nutzen den
 kanonischen `mark_cancelled()`-Vertrag; echte Exceptions bleiben
 `mark_error()`. RED 7/7, zwei direkte Routing/Timestamp-Verträge, Syntax, Ruff
 und Diffcheck grün. Video-Live-Cancel bleibt W4. Gemäß Uservorgabe breite/live
-Tests erst nach Codeaufgaben; nächste einzige Code-Task ist B-737, danach B-738.
+Tests erst nach Codeaufgaben.
+
+B-737 ist code-complete: ein semantisches Brain-Timeline-Rating schreibt
+`mem_decision.user_rating`, plant Pattern-Aggregation und persistiert nach
+DB-Neustart; Feedback unter 20 Events flusht per Debounce/Lifecycle. Shutdown
+drainiert Nachfolgegenerationen, Best-Effort kann nicht endlos loopen.
+Gewichte-Lernsession ist mangels autoritativer Run-/Scene-Verknuepfung ehrlich
+separat. Kein App-Livebeweis, daher `code-fix-pending-live-verification`.
+Nächste einzige Task: B-757, danach B-738.
 
 ## Agent Behavior
 

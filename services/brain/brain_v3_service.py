@@ -84,8 +84,9 @@ class BrainV3Service:
         self._reset_state = _ResetTokenState()
         self._project_root = Path(project_root) if project_root is not None else None
         self._session_factory = session_factory
-        # B-737: Brain-Feedback muss auch das Muster-Lernen anstossen. Default
-        # ist der modulweite MemoryUpdaterWorker; Tests injizieren einen Fake.
+        # Kept for constructor compatibility/thread-local clones. Pattern
+        # aggregation is triggered by FeedbackService.record_brain_rating only,
+        # after an authoritative mem_decision rating was committed.
         self._pattern_notifier = pattern_notifier
 
     def suggest(self, request: SuggestRequest) -> SuggestResponse:
@@ -156,7 +157,6 @@ class BrainV3Service:
                 keys_by_level,
                 axis_contributions=contribs,
             )
-        self._notify_pattern_learning()
         return FeedbackResponse(
             cut_id=request.cut_id,
             rating=request.rating,
@@ -166,29 +166,6 @@ class BrainV3Service:
             credit_mode=diag.get("credit_mode", "uniform"),
             n_axes_credited=int(diag.get("n_axes_credited", 0)),
         )
-
-    def _notify_pattern_learning(self) -> None:
-        """B-737: Brain-Feedback an das Muster-Lernen koppeln.
-
-        Der 4-Klick-Pfad schrieb bisher nur in ``weights.db``. Der
-        PatternAggregator (``mem_learned_pattern``) wurde ausschliesslich vom
-        Verdict-Pfad in ``ui/timeline.py`` angestossen — ein Klick im
-        Feedback-Popup oder in der Lern-Session erreichte ihn nie.
-
-        Best-effort: Fehler werden geloggt, nie geraised. Feedback darf die
-        UI nicht crashen, nur weil die Aggregation nicht bereitsteht.
-        """
-        notifier = self._pattern_notifier
-        try:
-            if notifier is None:
-                from workers.memory_updater import get_memory_updater
-
-                notifier = get_memory_updater().notify_feedback
-            notifier()
-        except Exception as exc:  # broad: Lernkreis darf UI nicht killen
-            logger.debug(
-                "BrainV3Service: Muster-Lernen nicht benachrichtigt: %s", exc,
-            )
 
     # ------------------------------------------------------------------
     # 3. LEARNING-SESSION

@@ -14,6 +14,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from services.brain.brain_v3_service import BrainV3Service
+from services.brain.cold_start import BRIDGE_AXES
 from services.brain.context_resolver import CutContext
 from services.brain.schemas.brain_v3_schemas import FeedbackRequest
 from services.brain.schemas.brain_v3_schemas import (
@@ -47,6 +48,12 @@ def _process_until(predicate, timeout_ms: int = 8000) -> bool:
     return bool(predicate())
 
 
+def _assert_no_default_memory_updater() -> None:
+    import workers.memory_updater as memory_updater
+
+    assert memory_updater._default_memory_updater is None
+
+
 @pytest.fixture
 def isolated_appdata(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
@@ -56,7 +63,7 @@ def isolated_appdata(tmp_path: Path, monkeypatch):
 # ---- Stats-Panel -------------------------------------------------------
 def test_stats_panel_initial_render(qt_app, isolated_appdata):
     from ui.widgets.brain_v3_stats_panel import BrainV3StatsPanel
-    svc = BrainV3Service()
+    svc = BrainV3Service(pattern_notifier=lambda: None)
     panel = BrainV3StatsPanel(service=svc, auto_refresh_ms=10_000)
     panel.refresh()  # synchron
     assert "Total Klicks: 0" in panel._lbl_total_clicks.text()
@@ -152,7 +159,7 @@ def test_stats_panel_auto_refresh_skips_hidden_panel(qt_app):
 # ---- Feedback-Popup ----------------------------------------------------
 def test_feedback_popup_submits(qt_app, isolated_appdata):
     from ui.widgets.brain_v3_feedback_popup import BrainV3FeedbackPopup
-    svc = BrainV3Service()
+    svc = BrainV3Service(pattern_notifier=lambda: None)
     received: list[tuple[int, str, int]] = []
     popup = BrainV3FeedbackPopup(
         cut_id=42, service=svc, context=CutContext(),
@@ -162,7 +169,8 @@ def test_feedback_popup_submits(qt_app, isolated_appdata):
     )
     popup._submit("perfect")
     assert _process_until(lambda: bool(received)), "Feedback nicht empfangen"
-    assert received == [(42, "perfect", 102)]
+    assert received == [(42, "perfect", len(BRIDGE_AXES) * 6)]
+    _assert_no_default_memory_updater()
     popup.deleteLater()
 
 
@@ -175,7 +183,7 @@ def test_feedback_popup_defers_default_service_until_submit(qt_app, monkeypatch)
         def __init__(self):
             constructed.append("init")
 
-        def feedback(self, request, context=None):
+        def feedback(self, request, context=None, axis_contributions=None):
             class Resp:
                 n_buckets_updated = 7
 
@@ -194,7 +202,25 @@ def test_feedback_popup_defers_default_service_until_submit(qt_app, monkeypatch)
     assert _process_until(lambda: bool(received)), "Feedback nicht empfangen"
     assert constructed == ["init"]
     assert received == [(42, "perfect", 7)]
+    _assert_no_default_memory_updater()
     popup.deleteLater()
+
+
+def test_popup_thread_local_service_preserves_pattern_notifier(isolated_appdata):
+    """Injected B-737 notifier must survive the worker-thread service clone."""
+    from ui.widgets.brain_v3_feedback_popup import build_thread_local_brain_service
+
+    def notifier():
+        return None
+
+    src = BrainV3Service(pattern_notifier=notifier)
+    cloned = build_thread_local_brain_service(src)
+    try:
+        assert cloned._pattern_notifier is notifier
+        _assert_no_default_memory_updater()
+    finally:
+        src._weight_store.close()
+        cloned._weight_store.close()
 
 
 def test_feedback_popup_all_4_ratings(qt_app, isolated_appdata):
@@ -202,7 +228,7 @@ def test_feedback_popup_all_4_ratings(qt_app, isolated_appdata):
         BrainV3FeedbackPopup,
         FEEDBACK_BUTTONS,
     )
-    svc = BrainV3Service()
+    svc = BrainV3Service(pattern_notifier=lambda: None)
     for rating, _, _ in FEEDBACK_BUTTONS:
         popup = BrainV3FeedbackPopup(cut_id=1, service=svc, context=CutContext())
         done: list = []
@@ -334,7 +360,7 @@ class _FakeBrainV3TimelineService:
     def __init__(self):
         self.calls: list[tuple[int, str, object]] = []
 
-    def feedback(self, request, context=None):
+    def feedback(self, request, context=None, axis_contributions=None):
         self.calls.append((int(request.cut_id), str(request.rating), context))
         return SimpleNamespace(n_buckets_updated=102)
 
@@ -502,6 +528,16 @@ class _FakeFeedbackService:
         self.verdicts.append((run_id, scene_id, verdict))
         return SimpleNamespace(success=True, event_id=None, decision_id=1, error=None)
 
+    def record_brain_rating(self, run_id, scene_id, brain_rating):
+        mapped = {
+            "perfect": 5,
+            "fits": 4,
+            "not_quite": 2,
+            "no_match": 1,
+        }[brain_rating]
+        self.ratings.append((run_id, scene_id, mapped))
+        return SimpleNamespace(success=True, event_id=8, decision_id=1, error=None)
+
 
 def _timeline_with_selected_clip(monkeypatch):
     from ui.timeline import InteractiveTimeline, TimelineClipItem
@@ -521,6 +557,7 @@ def _timeline_with_selected_clip(monkeypatch):
     monkeypatch.setattr(timeline, "_resolve_scene_id", lambda _i: 42)
     # kein DB-Zugriff im Unit-Test
     monkeypatch.setattr(timeline, "_brain_v3_learning_signal", lambda _i: (None, {}))
+    monkeypatch.setattr(timeline, "_notify_memory_updater", lambda: None)
     item.setSelected(True)
     return timeline, item, brain, fake_fb
 
@@ -535,7 +572,7 @@ def test_plain_digit_still_goes_to_brain_v3(qt_app, monkeypatch):
     timeline, _item, brain, fake_fb = _timeline_with_selected_clip(monkeypatch)
     _press(timeline, Qt.Key.Key_2)
     assert [c[1] for c in brain.calls] == ["fits"]
-    assert fake_fb.ratings == []
+    assert fake_fb.ratings == [(7, 42, 4)]
     timeline.deleteLater()
 
 

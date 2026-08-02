@@ -1,17 +1,17 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-02 08:19 Europe/Zurich
+Letztes Update: 2026-08-02 19:20 Europe/Zurich
 
-Gesamtfortschritt: **ca. 17–20 %**
+Gesamtfortschritt: **ca. 20–22 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
+Aktiv: **ROOT-CAUSE / B-757 Brain-Stats-Achszahl**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
 | STAB-2 Acht Live-Workflows | **25 %** | W1 und W2 live-pass; Usermarker offen |
-| STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
+| STAB-3 Brain/Lernen A/B | **ca. 10 %** | B-737 codefix gruen; echter A/B-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
@@ -47,7 +47,11 @@ Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
 - B-715: SCHNITT-Projektsnapshot vor Workerstart; Fokus 8/8.
 - B-735: 18. lernbare `role_match_weight`-Achse; Fokus 59/59.
 - B-736: synthetischen Rankingpfad entfernt; RED→GREEN Fokus.
-- B-737 vor Codeedit sauber gestoppt; bleibt offen.
+- B-737 code-complete/live-pending: semantischer Timeline-Write,
+  Debounce/Lifecycle-Drain, generation-sicheres Shutdown, Fehler-Retry und
+  persistiertes Einzelrating nach DB-Neustart. Fokus 27 + 9 + 9 gruen;
+  Abschlussreview ohne Critical/High/Medium. App-Livebeweis offen.
+- B-757 offen: StatsResponse validiert max. 17, kanonische Achsen sind 18.
 - B-742: Clicklog-Launcher reicht App-Exitcode jetzt durch; Livebeweis offen.
 - D-085: User beobachtet jetzt echte Live-Workflows. D-078 bleibt für
   redundante breite Pytest-Suites bestehen.
@@ -86,7 +90,7 @@ Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
 
 ## Nächste einzige Task
 
-`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
-Vollständiger Audio-V2-Lauf mit vier Stems ist bereits Teilevidenz.
+`ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`.
+Danach B-738; breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.

@@ -292,6 +292,10 @@ class ProjectManager(QObject):
         import database
         import database.session as _ses
         _previous_root = _ses.APP_ROOT
+        # B-737: Singleton follows APP_ROOT. Drain and wait before swapping,
+        # otherwise PatternAggregator can read old DB and upsert into new DB.
+        from workers.memory_updater import flush_default_memory_updater
+        flush_default_memory_updater(raise_on_error=True)
         # B-490 Followup (CRF-005): eigene task_id durchreichen — der
         # CreateWorker-Task selbst ist "running" und darf nicht blocken.
         database.set_project(path, exclude_task_id=task_id)
@@ -425,6 +429,9 @@ class ProjectManager(QObject):
         import database
         import database.session as _ses
         _previous_root = _ses.APP_ROOT
+        # B-737: finish old-project pattern writes before APP_ROOT changes.
+        from workers.memory_updater import flush_default_memory_updater
+        flush_default_memory_updater(raise_on_error=True)
         # B-490 Followup (CRF-005): eigene task_id durchreichen — der
         # OpenWorker-Task selbst ist "running" und darf nicht blocken.
         database.set_project(path, exclude_task_id=task_id)

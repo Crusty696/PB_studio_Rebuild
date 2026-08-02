@@ -55,45 +55,43 @@ def build_thread_local_brain_service(src):
         weight_store=WeightStore(brain.weights_path),
         project_root=getattr(src, "_project_root", None),
         session_factory=getattr(src, "_session_factory", None),
+        pattern_notifier=getattr(src, "_pattern_notifier", None),
     )
 
 
 class _FeedbackSubmitWorker(BaseWorker):
-    """Schreibt einen Feedback-Klick (bis zu 102 Bucket-UPSERTs) off-thread."""
+    """Schreibt Feedback fuer alle Achsen/Backoff-Buckets off-thread."""
 
     def __init__(self, service, cut_id: int, rating: str, context,
-                 axis_contributions: Optional[dict] = None):
+                 axis_contributions: Optional[dict] = None,
+                 pattern_feedback_target=None):
         super().__init__()
         self._src = service
         self._cut_id = int(cut_id)
         self._rating = rating
         self._context = context
         self._axis_contributions = axis_contributions or None
+        self._pattern_feedback_target = pattern_feedback_target
 
     def _do_work(self):
-        if self._axis_contributions:
-            # Credit-Assignment: alpha/beta pro Achse nach Beitrag an DIESER
-            # Entscheidung. BrainV3Service.feedback reicht die Beitraege nicht
-            # durch, deshalb direkt ueber den FeedbackLogger — gleicher
-            # Schreibpfad, gleicher prozessweiter Lock.
-            from services.brain.feedback_logger import submit_feedback
-
-            diag = submit_feedback(
-                rating=self._rating,
-                context=self._context,
-                axis_contributions=self._axis_contributions,
+        if self._pattern_feedback_target is not None:
+            feedback_service, run_id, scene_id = self._pattern_feedback_target
+            result = feedback_service.record_brain_rating(
+                run_id, scene_id, self._rating,
             )
-            return {
-                "cut_id": self._cut_id,
-                "rating": self._rating,
-                "n_buckets": int(diag.get("n_buckets_updated", 0)),
-            }
+            if not result.success:
+                raise RuntimeError(
+                    result.error or "Brain-Pattern-Feedback fehlgeschlagen"
+                )
 
+        # BrainV3Service writes weights only. Pattern notification happens in
+        # record_brain_rating above, after an authoritative mem_decision write.
         svc = build_thread_local_brain_service(self._src)
         try:
             resp = svc.feedback(
                 FeedbackRequest(cut_id=self._cut_id, rating=self._rating),
                 context=self._context,
+                axis_contributions=self._axis_contributions,
             )
             return {
                 "cut_id": self._cut_id,
@@ -143,6 +141,7 @@ class BrainV3FeedbackPopup(QDialog):
         cut_label: Optional[str] = None,
         parent: Optional[QWidget] = None,
         axis_contributions: Optional[dict] = None,
+        pattern_feedback_target=None,
     ):
         super().__init__(parent)
         self._cut_id = int(cut_id)
@@ -151,6 +150,7 @@ class BrainV3FeedbackPopup(QDialog):
         # Beitrag pro Bridge-Achse an dieser Entscheidung (Credit-Assignment).
         # None -> Uniform-Fallback, der das Ranking nicht veraendern kann.
         self._axis_contributions = axis_contributions or None
+        self._pattern_feedback_target = pattern_feedback_target
         self.setWindowTitle("Brain V3 — Cut bewerten")
         self.setModal(True)
         self.setMinimumWidth(360)
@@ -207,6 +207,7 @@ class BrainV3FeedbackPopup(QDialog):
         worker = _FeedbackSubmitWorker(
             self._service, self._cut_id, rating, self._context,
             axis_contributions=self._axis_contributions,
+            pattern_feedback_target=self._pattern_feedback_target,
         )
         run_worker(self, worker, on_finish=self._on_submit_done, on_error=self._on_submit_error)
 

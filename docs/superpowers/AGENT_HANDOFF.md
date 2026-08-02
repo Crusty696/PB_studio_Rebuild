@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-737 Fokus-PASS / B-757 aktiv 2026-08-02 (newest)
+
+- Brain-Timeline-Rating persistiert semantisch vor Pattern-Notifier; ein
+  Feedback erzeugt nach Flush und DB-Neustart ein `mem_learned_pattern`.
+- MemoryUpdater nutzt Debounce, Run-/Projekt-/App-End-Drain und
+  Condition-Generationen; Sync-Shutdown drainiert Nachfolgefeedback.
+- Fehler bleiben retrybar; atexit-Best-Effort hat keine Endlosschleife.
+- Learning-Session trainiert mangels sicherer Run-/Scene-Verknuepfung ehrlich
+  nur Brain-Achsengewichte. Keine ID geraten.
+- Fokus 27 + 9 + 9 Tests; Ruff/Compileall/Diffcheck gruen; Abschlussreview
+  ohne Critical/High/Medium. Kein App-Livebeweis; B-737 live-pending.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`;
+  danach B-738.
+
 ## B-756 Fokus-PASS / B-737 aktiv 2026-08-02 (newest)
 
 - Sieben explizite Video-Cancelzweige nutzen `mark_cancelled()`; echte

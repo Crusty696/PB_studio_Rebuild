@@ -925,3 +925,25 @@ Decision: Vault
 - Uservorgabe: breite/live Tests erst nach Codeaufgaben gebündelt.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.
+
+#### B-737 Memory-Updater/Lernkreis Fokus-PASS 2026-08-02
+
+- Semantisches Brain-Timeline-Rating schreibt zuerst `mem_decision.user_rating`;
+  erst danach wird Pattern-Aggregation benachrichtigt. Unverbundene
+  state.db-Lernsample trainieren ehrlich nur Brain-Achsengewichte.
+- Debounce unter 20 Events; Run-/Projekt-/App-End-Flush; Condition-basierte
+  Generationen; Shutdown drainiert Feedback waehrend eigenem Flush.
+- Aggregatorfehler stellen Pending-Events wieder her; strikte Lifecycle-Pfade
+  propagieren; Best-Effort/atexit endet gebunden statt Log-/Retry-Endlosschleife.
+- DB-Neustart-Beweis: ein Rating persistiert als `user_rating=1` und
+  `mem_learned_pattern=(accept=0,reject=1,sample=1)`.
+- Fokus: 27 Lernkreis/DB/Concurrency, 9 UI-Regressions, final 9 Review-Fixes;
+  Ruff, Compileall und Diffcheck gruen. Unabhaengiger Abschlussreview:
+  keine Critical-/High-/Medium-Luecke.
+- Kein echter App-/Projektwechsel-/Shutdown-Livebeweis; B-737
+  `code-fix-pending-live-verification`.
+- Getrennter reproduzierter Medium-Bug B-757: StatsResponse max 17 bei
+  18 kanonischen Achsen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`;
+  danach B-738.

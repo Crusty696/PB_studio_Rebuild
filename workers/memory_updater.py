@@ -36,6 +36,7 @@ import atexit
 import logging
 import sys
 import threading
+import time
 import traceback
 from typing import Any, Callable
 
@@ -107,6 +108,7 @@ class MemoryUpdaterWorker(QObject):
         # raises a feedback event. ``self._pending += 1`` is not atomic
         # in CPython, and the threshold check + flush is a TOCTOU race.
         self._pending_lock: threading.Lock = threading.Lock()
+        self._flush_condition = threading.Condition(self._pending_lock)
         self._flush_in_progress: bool = False
         self._gui_thread_warning_logged: bool = False
         self._aggregator = PatternAggregator(session_factory=session_factory)
@@ -131,15 +133,16 @@ class MemoryUpdaterWorker(QObject):
         Bedeutung ("Batch SOFORT geschedult?"), damit bestehende Aufrufer
         und Tests unveraendert weiterlaufen.
         """
-        with self._pending_lock:
+        with self._flush_condition:
             self._pending += 1
-            if self._pending < self._batch_size or self._flush_in_progress:
+            if self._flush_in_progress:
+                return False
+            if self._pending < self._batch_size:
                 self._arm_flush_timer_locked()
                 return False
-            self._pending = 0
-            self._flush_in_progress = True
+            claimed_pending = self._claim_flush_locked()
             self._cancel_flush_timer_locked()
-        self._start_background_flush()
+        self._start_background_flush(claimed_pending)
         return True
 
     # ── B-737: Debounce-Timer ────────────────────────────────────────────────
@@ -162,97 +165,188 @@ class MemoryUpdaterWorker(QObject):
             timer.cancel()
 
     def _on_flush_timer(self) -> None:
-        with self._pending_lock:
+        with self._flush_condition:
             self._flush_timer = None
             if self._pending <= 0 or self._flush_in_progress:
                 return
-            self._pending = 0
-            self._flush_in_progress = True
+            claimed_pending = self._claim_flush_locked()
         logger.info(
             "MemoryUpdaterWorker: Debounce-Flush nach %.1fs "
             "(unterhalb BATCH_SIZE=%d).",
             self._flush_delay_sec, self._batch_size,
         )
-        self._run_aggregation(clear_pending_after=False)
+        self._run_aggregation(claimed_pending)
 
-    def shutdown(self) -> int:
+    def shutdown(
+        self,
+        timeout_sec: float = 30.0,
+        *,
+        raise_on_error: bool = False,
+    ) -> int:
         """B-737: letzter Flush beim Schliessen / am Lauf-Ende.
 
         Stoppt den Debounce-Timer und aggregiert synchron, falls noch
         Ereignisse offen sind. Ohne offene Ereignisse passiert nichts.
         Returns: Anzahl upserteter Pattern-Zeilen.
         """
-        with self._pending_lock:
-            self._cancel_flush_timer_locked()
-            pending = self._pending
-        if pending <= 0:
-            return 0
-        return self.run()
+        return self._drain_flush_generations(
+            timeout_sec=timeout_sec,
+            context="shutdown",
+            force_first=False,
+            raise_on_error=raise_on_error,
+        )
 
-    def _start_background_flush(self) -> None:
+    def _start_background_flush(self, claimed_pending: int) -> None:
         thread = threading.Thread(
             target=self._run_scheduled_flush,
+            args=(claimed_pending,),
             name="MemoryUpdaterWorkerFlush",
             daemon=True,
         )
         thread.start()
 
-    def _run_scheduled_flush(self) -> None:
-        self._run_aggregation(clear_pending_after=False)
+    def _run_scheduled_flush(self, claimed_pending: int) -> None:
+        self._run_aggregation(claimed_pending)
 
-    def notify_run_end(self) -> int:
+    def notify_run_end(
+        self,
+        timeout_sec: float = 30.0,
+        *,
+        raise_on_error: bool = False,
+    ) -> int:
         """Called when a pacing run ends.
 
         Always flushes regardless of the pending counter.
         Returns the number of patterns upserted (0 if nothing was pending).
         """
-        return self.run()
+        return self._drain_flush_generations(
+            timeout_sec=timeout_sec,
+            context="run end",
+            force_first=True,
+            raise_on_error=raise_on_error,
+        )
 
-    def run(self) -> int:
+    def run(self, *, raise_on_error: bool = False) -> int:
         """Synchronous aggregation.
 
         Runs PatternAggregator, resets the pending counter, and emits Qt
         signals so the caller can wire this into a QThread if desired.
         Returns the number of patterns upserted.
         """
-        with self._pending_lock:
+        with self._flush_condition:
             # B-737: ein expliziter Lauf macht den Debounce-Timer gegenstandslos.
             self._cancel_flush_timer_locked()
             if self._flush_in_progress:
                 logger.info("MemoryUpdaterWorker: flush already in progress; skip sync run.")
                 return 0
-            self._flush_in_progress = True
-        return self._run_aggregation(clear_pending_after=True)
+            claimed_pending = self._claim_flush_locked()
+        return self._run_aggregation(
+            claimed_pending,
+            raise_on_error=raise_on_error,
+        )
 
-    def _run_aggregation(self, *, clear_pending_after: bool) -> int:
+    def _claim_flush_locked(self) -> int:
+        """Claim current generation while ``_flush_condition`` is held."""
+        claimed_pending = self._pending
+        self._pending = 0
+        self._flush_in_progress = True
+        return claimed_pending
+
+    def _wait_for_idle_locked(self, timeout_sec: float, context: str) -> None:
+        """Generation-safe wait while ``_flush_condition`` is held."""
+        if self._flush_condition.wait_for(
+            lambda: not self._flush_in_progress,
+            timeout=max(0.0, timeout_sec),
+        ):
+            return
+        raise TimeoutError(
+            "MemoryUpdaterWorker: active aggregation did not finish "
+            f"within {timeout_sec:.1f}s at {context}"
+        )
+
+    def _drain_flush_generations(
+        self,
+        *,
+        timeout_sec: float,
+        context: str,
+        force_first: bool,
+        raise_on_error: bool,
+    ) -> int:
+        """Drain generations until no feedback arrived during the last flush."""
+        deadline = time.monotonic() + max(0.0, timeout_sec)
+        total = 0
+        must_flush = force_first
+        attempted_generation = False
+        while True:
+            with self._flush_condition:
+                self._cancel_flush_timer_locked()
+                remaining = max(0.0, deadline - time.monotonic())
+                self._wait_for_idle_locked(remaining, context)
+                if self._pending <= 0 and not must_flush:
+                    return total
+                if attempted_generation and remaining <= 0.0:
+                    message = (
+                        "MemoryUpdaterWorker: pending feedback remained after "
+                        f"{timeout_sec:.1f}s at {context}"
+                    )
+                    if raise_on_error:
+                        raise TimeoutError(message)
+                    logger.warning(message)
+                    return total
+                claimed_pending = self._claim_flush_locked()
+                must_flush = False
+                attempted_generation = True
+            try:
+                total += self._run_aggregation(
+                    claimed_pending,
+                    raise_on_error=True,
+                )
+            except Exception:
+                if raise_on_error:
+                    raise
+                return total
+
+    def _run_aggregation(
+        self,
+        claimed_pending: int,
+        *,
+        raise_on_error: bool = False,
+    ) -> int:
         self.started.emit()
-        n = 0
         try:
             n = self._aggregator.run()
-            with self._pending_lock:
-                if clear_pending_after:
-                    self._pending = 0
-                self._flush_in_progress = False
+            self._finish_flush(claimed_pending, failed=False)
             self.finished.emit(n)
+            return n
         except Exception as exc:  # broad catch — top-level worker safety net
             logger.error(
                 "MemoryUpdaterWorker: aggregation failed: %s\n%s",
                 exc,
                 traceback.format_exc(),
             )
-            with self._pending_lock:
-                if clear_pending_after:
-                    self._pending = 0
-                self._flush_in_progress = False
+            self._finish_flush(claimed_pending, failed=True)
             self.error.emit(str(exc))
-        return n
+            if raise_on_error:
+                raise
+            return 0
+
+    def _finish_flush(self, claimed_pending: int, *, failed: bool) -> None:
+        """Close one generation and wake waiters under the same condition."""
+        with self._flush_condition:
+            if failed:
+                self._pending += claimed_pending
+            self._flush_in_progress = False
+            if self._pending > 0:
+                self._arm_flush_timer_locked()
+            self._flush_condition.notify_all()
 
     # ── Diagnostics ──────────────────────────────────────────────────────────
 
     @property
     def pending_events(self) -> int:
         """Internal counter — for diagnostics and tests."""
-        return self._pending
+        with self._pending_lock:
+            return self._pending
 
 
 # ---------------------------------------------------------------------------
@@ -299,18 +393,27 @@ def get_memory_updater() -> MemoryUpdaterWorker:
     return _default_memory_updater
 
 
-def flush_default_memory_updater() -> int:
+def flush_default_memory_updater(
+    *,
+    timeout_sec: float = 30.0,
+    raise_on_error: bool = False,
+) -> int:
     """B-737: Restereignisse des Singletons aggregieren (Lauf-Ende/Shutdown).
 
     Legt KEINEN Singleton an — gab es keinen, gab es auch keine Ereignisse.
-    Best-effort: Fehler werden geloggt, nie geraised (laeuft u.a. in
-    ``atexit``, wo eine Exception nur Rauschen im Shutdown erzeugt).
+    ``raise_on_error=False`` ist fuer ``atexit`` best-effort. Explizite
+    Projektwechsel-/Shutdown-Pfade koennen Fehler strikt propagieren.
     """
     updater = _default_memory_updater
     if updater is None:
         return 0
     try:
-        return updater.shutdown()
+        return updater.shutdown(
+            timeout_sec=timeout_sec,
+            raise_on_error=raise_on_error,
+        )
     except Exception as exc:  # broad: Shutdown darf nie eskalieren
         logger.warning("MemoryUpdaterWorker: Shutdown-Flush fehlgeschlagen: %s", exc)
+        if raise_on_error:
+            raise
         return 0

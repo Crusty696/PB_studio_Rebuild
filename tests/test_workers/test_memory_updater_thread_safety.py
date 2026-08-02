@@ -137,3 +137,203 @@ def test_concurrent_batch_trigger_starts_exactly_one_flush() -> None:
 
     assert calls == [calls[0]]
     assert results.count(True) == 1
+
+
+def test_shutdown_waits_for_inflight_background_flush() -> None:
+    """Project switch must not overtake PatternAggregator's second DB session."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=1,
+        flush_delay_sec=0.0,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_run() -> int:
+        entered.set()
+        assert release.wait(timeout=2.0)
+        return 1
+
+    worker._aggregator.run = slow_run  # type: ignore[method-assign]
+    assert worker.notify_feedback() is True
+    assert entered.wait(timeout=1.0)
+
+    result: list[int] = []
+    shutdown_thread = threading.Thread(
+        target=lambda: result.append(worker.shutdown(timeout_sec=2.0)),
+    )
+    shutdown_thread.start()
+    time.sleep(0.05)
+    assert shutdown_thread.is_alive(), "shutdown overtook active aggregation"
+
+    release.set()
+    shutdown_thread.join(timeout=1.0)
+    assert not shutdown_thread.is_alive()
+    assert result == [0]
+
+
+def test_feedback_during_flush_rearms_debounce_after_inflight_finishes() -> None:
+    """A timer firing during an active flush must not strand new feedback."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=1,
+        flush_delay_sec=0.05,
+    )
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_done = threading.Event()
+    calls = 0
+
+    def controlled_run() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_entered.set()
+            release_first.wait(timeout=2.0)
+        else:
+            second_done.set()
+        return 1
+
+    worker._aggregator.run = controlled_run  # type: ignore[method-assign]
+    assert worker.notify_feedback() is True
+    assert first_entered.wait(timeout=1.0)
+    assert worker.notify_feedback() is False
+
+    time.sleep(0.1)  # first debounce fires while flush #1 is still active
+    release_first.set()
+
+    assert second_done.wait(timeout=1.0), "new feedback remained pending forever"
+    assert calls == 2
+
+
+def test_shutdown_waits_for_successor_flush_generation() -> None:
+    """An older completion must not release waiters for a successor flush."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=1,
+        flush_delay_sec=0.01,
+    )
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+    release_second = threading.Event()
+    calls = 0
+
+    def controlled_run() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_entered.set()
+            assert release_first.wait(timeout=2.0)
+        else:
+            second_entered.set()
+            assert release_second.wait(timeout=2.0)
+        return 1
+
+    worker._aggregator.run = controlled_run  # type: ignore[method-assign]
+    assert worker.notify_feedback() is True
+    assert first_entered.wait(timeout=1.0)
+    assert worker.notify_feedback() is False
+    release_first.set()
+    assert second_entered.wait(timeout=1.0)
+
+    result: list[int] = []
+    shutdown_thread = threading.Thread(
+        target=lambda: result.append(worker.shutdown(timeout_sec=2.0)),
+    )
+    shutdown_thread.start()
+    time.sleep(0.05)
+    assert shutdown_thread.is_alive(), "shutdown accepted stale flush completion"
+
+    release_second.set()
+    shutdown_thread.join(timeout=1.0)
+    assert not shutdown_thread.is_alive()
+    assert result == [0]
+
+
+def test_strict_shutdown_propagates_error_and_restores_pending() -> None:
+    """Lifecycle flush failure must be visible and retryable."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=20,
+        flush_delay_sec=0.0,
+    )
+    assert worker.notify_feedback() is False
+
+    def fail() -> int:
+        raise RuntimeError("aggregation failed")
+
+    worker._aggregator.run = fail  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="aggregation failed"):
+        worker.shutdown(raise_on_error=True)
+    assert worker.pending_events == 1
+
+    worker._aggregator.run = lambda: 2  # type: ignore[method-assign]
+    assert worker.shutdown(raise_on_error=True) == 2
+    assert worker.pending_events == 0
+
+
+def test_shutdown_drains_feedback_arriving_during_its_own_flush() -> None:
+    """Project switch may return only after its own successor generation."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=20,
+        flush_delay_sec=30.0,
+    )
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_done = threading.Event()
+    calls = 0
+
+    def controlled_run() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_entered.set()
+            assert release_first.wait(timeout=2.0)
+        else:
+            second_done.set()
+        return 1
+
+    worker._aggregator.run = controlled_run  # type: ignore[method-assign]
+    assert worker.notify_feedback() is False
+
+    result: list[int] = []
+    shutdown_thread = threading.Thread(
+        target=lambda: result.append(worker.shutdown(timeout_sec=2.0)),
+    )
+    shutdown_thread.start()
+    assert first_entered.wait(timeout=1.0)
+    assert worker.notify_feedback() is False
+    release_first.set()
+
+    assert second_done.wait(timeout=1.0)
+    shutdown_thread.join(timeout=1.0)
+    assert not shutdown_thread.is_alive()
+    assert result == [2]
+    assert worker.pending_events == 0
+
+
+def test_best_effort_shutdown_stops_after_persistent_error() -> None:
+    """atexit best-effort must preserve pending without retry loop/log storm."""
+    worker = MemoryUpdaterWorker(
+        session_factory=lambda: object(),
+        batch_size=20,
+        flush_delay_sec=0.0,
+    )
+    calls = 0
+
+    def fail() -> int:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("persistent DB failure")
+
+    worker._aggregator.run = fail  # type: ignore[method-assign]
+    assert worker.notify_feedback() is False
+
+    started = time.monotonic()
+    assert worker.shutdown(timeout_sec=0.1, raise_on_error=False) == 0
+
+    assert time.monotonic() - started < 0.5
+    assert calls == 1
+    assert worker.pending_events == 1

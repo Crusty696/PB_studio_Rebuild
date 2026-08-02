@@ -1731,9 +1731,12 @@ def _auto_edit_phase3_inner(
     if _studio_brain_run_id is not None:
         try:
             _complete_mem_pacing_run(_studio_brain_run_id, len(cut_points))
+            from workers.memory_updater import get_memory_updater
+
+            get_memory_updater().notify_run_end(raise_on_error=True)
         except Exception as exc:  # broad: timeline output must not be lost
             logger.warning(
-                "mem_pacing_run completion failed for run_id=%s: %s",
+                "mem_pacing_run completion/learning flush failed for run_id=%s: %s",
                 _studio_brain_run_id,
                 exc,
             )

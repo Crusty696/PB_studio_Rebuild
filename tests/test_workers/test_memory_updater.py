@@ -104,6 +104,31 @@ def _seed_decisions(engine: Any, n: int) -> int:
     return run_id
 
 
+def _seed_unrated_decision(engine: Any) -> int:
+    """Seed one decision without verdict/rating for the B-737 feedback loop."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO audio_tracks (id, file_path, original_filename, sha256, status, created_at) "
+            "VALUES (1, '/f.mp3', 'f.mp3', 'x', 'ready', datetime('now'))"
+        ))
+        row = conn.execute(text(
+            "INSERT INTO mem_pacing_run (audio_track_id, started_at, is_dj_mix, total_duration_sec, "
+            "total_cuts, agent_version, weights_profile) VALUES (1, datetime('now'), 0, 120.0, 0, "
+            "'test', 'default') RETURNING id"
+        )).fetchone()
+        assert row is not None
+        run_id = int(row[0])
+        conn.execute(text("""
+            INSERT INTO mem_decision
+            (run_id, sequence_idx, at_timestamp_sec, at_section_type, at_bpm, at_genre,
+             at_enricher_version, scene_id, clip_role, clip_mood_refined, clip_style_bucket_id,
+             agent_score, agent_rationale, user_verdict, user_rating)
+            VALUES (:rid, 0, 60.0, 'drop', 140.0, 'psytrance', :ver, 42, 'hero', 'euphoric', 1,
+                    0.7, '{}', NULL, NULL)
+        """), {"rid": run_id, "ver": ENRICHER_VERSION})
+    return run_id
+
+
 def test_worker_flushes_after_batch_size(tmp_path: Path) -> None:
     engine, Session = _build_sqlite_with_migrations(tmp_path)
     _seed_decisions(engine, n=1)
@@ -142,3 +167,44 @@ def test_worker_is_idempotent_when_no_decisions(tmp_path: Path) -> None:
     worker = MemoryUpdaterWorker(session_factory=Session)
     # No decisions seeded; run() should return 0, not raise
     assert worker.run() == 0
+
+
+def test_b737_one_brain_feedback_flushes_and_survives_reopen(tmp_path: Path) -> None:
+    """One Brain click must become a persisted pacing pattern after flush."""
+    from services.feedback_service import FeedbackService
+
+    engine, Session = _build_sqlite_with_migrations(tmp_path)
+    run_id = _seed_unrated_decision(engine)
+
+    worker = MemoryUpdaterWorker(
+        session_factory=Session,
+        batch_size=20,
+        flush_delay_sec=0.0,
+    )
+    result = FeedbackService(
+        Session,
+        pattern_notifier=worker.notify_feedback,
+    ).record_brain_rating(
+        run_id, scene_id=42, brain_rating="no_match"
+    )
+    assert result.success is True
+    assert worker.pending_events == 1
+    assert worker.shutdown() == 1
+
+    db_url = str(engine.url)
+    engine.dispose()
+    reopened = create_engine(db_url, future=True)
+    try:
+        with reopened.begin() as conn:
+            decision_rating = conn.execute(
+                text("SELECT user_rating FROM mem_decision WHERE run_id = :rid"),
+                {"rid": run_id},
+            ).scalar_one()
+            pattern = conn.execute(text(
+                "SELECT stat_accept_count, stat_reject_count, stat_sample_size "
+                "FROM mem_learned_pattern"
+            )).one()
+        assert decision_rating == 1
+        assert tuple(pattern) == (0, 1, 1)
+    finally:
+        reopened.dispose()
