@@ -2,6 +2,16 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-757 Fokus-PASS / B-738 aktiv 2026-08-02 (newest)
+
+- `BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)` ist kanonische Stats-Grenze 18.
+- `StatsResponse`, Stats-Label und Progressbar nutzen dieselbe Grenze.
+- Sechs Kernbelege plus verschaerfter 18/19-Grenztest, Ruff, Compileall und
+  Diffcheck gruen. Abschlussreview ohne Critical/High/Medium.
+- Kein echter App-/Stats-Panel-Livebeweis; B-757
+  `code-fix-pending-live-verification`.
+- Nächste einzige Task: `ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+
 ## B-737 Fokus-PASS / B-757 aktiv 2026-08-02 (newest)
 
 - Brain-Timeline-Rating persistiert semantisch vor Pattern-Notifier; ein

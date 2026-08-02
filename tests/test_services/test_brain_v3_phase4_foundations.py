@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from services.brain.cold_start import BRIDGE_AXIS_COUNT
 from services.brain.context_resolver import (
     quantize_quartile,
     quantize_tertile,
@@ -162,11 +163,30 @@ def test_feedback_request_validates_rating():
 
 
 def test_stats_response_axis_bounds():
-    s = StatsResponse(total_clicks=10, cold_start_axes=5, learned_axes=12)
-    assert 0 <= s.cold_start_axes <= 17
-    assert 0 <= s.learned_axes <= 17
+    cold_start_max = StatsResponse(
+        total_clicks=10,
+        cold_start_axes=BRIDGE_AXIS_COUNT,
+        learned_axes=0,
+    )
+    learned_max = StatsResponse(
+        total_clicks=10,
+        cold_start_axes=0,
+        learned_axes=BRIDGE_AXIS_COUNT,
+    )
+    assert cold_start_max.cold_start_axes == BRIDGE_AXIS_COUNT
+    assert learned_max.learned_axes == BRIDGE_AXIS_COUNT
     with pytest.raises(Exception):
-        StatsResponse(total_clicks=0, cold_start_axes=20, learned_axes=0)
+        StatsResponse(
+            total_clicks=0,
+            cold_start_axes=BRIDGE_AXIS_COUNT + 1,
+            learned_axes=0,
+        )
+    with pytest.raises(Exception):
+        StatsResponse(
+            total_clicks=0,
+            cold_start_axes=0,
+            learned_axes=BRIDGE_AXIS_COUNT + 1,
+        )
 
 
 def test_reset_request_optional_token():

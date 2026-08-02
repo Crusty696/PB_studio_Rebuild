@@ -947,3 +947,14 @@ Decision: Vault
 - Nächste einzige Task:
   `ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`;
   danach B-738.
+
+#### B-757 Brain-Stats-Achszahl Fokus-PASS 2026-08-02
+
+- `BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)` ersetzt veraltete feste 17 in
+  `StatsResponse` und Stats-Panel; kanonische Achsenzahl bleibt D-080-gemaess 18.
+- Sechs gezielte Service-/Schema-/UI-Belege gruen; verschaerfter Grenztest
+  akzeptiert beide Felder bei 18 und lehnt beide bei 19 ab.
+- Ruff, Compileall, Diffcheck gruen; unabhaengiger Abschlussreview ohne
+  Critical-/High-/Medium-Finding.
+- Kein App-Livebeweis; B-757 `code-fix-pending-live-verification`.
+- Nächste einzige Task: `ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.

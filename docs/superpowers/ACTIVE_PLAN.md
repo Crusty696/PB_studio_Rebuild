@@ -21,13 +21,14 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`.
+`ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
 
 B-737 ist code-complete/live-pending: semantischer Timeline-Write vor
 Pattern-Notifier, Debounce/Run-/Projekt-/App-End-Drain, generation-sicheres
 Warten, Fehler-Retry und ehrliche Gewichte-Lernsession. Fokus 27 + 9 + 9
-Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 wurde dabei als
-getrennter Medium-Blocker reproduziert. B-738 wartet genau dahinter.
+Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 leitet Schema-
+und UI-Grenze jetzt aus 18 kanonischen Achsen ab; Fokus und Review gruen,
+App-Livebeweis offen. B-738 ist naechste einzige Task.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
@@ -104,7 +105,10 @@ DB-Neustart; Feedback unter 20 Events flusht per Debounce/Lifecycle. Shutdown
 drainiert Nachfolgegenerationen, Best-Effort kann nicht endlos loopen.
 Gewichte-Lernsession ist mangels autoritativer Run-/Scene-Verknuepfung ehrlich
 separat. Kein App-Livebeweis, daher `code-fix-pending-live-verification`.
-Nächste einzige Task: B-757, danach B-738.
+B-757 ist code-complete/live-pending: `BRIDGE_AXIS_COUNT` bindet Stats-Schema,
+Label und Progressbar an `BRIDGE_AXES`; sechs Kernbelege plus verschaerfter
+18/19-Grenztest, Ruff, Compileall und Diffcheck gruen. Abschlussreview ohne
+Critical/High/Medium. Naechste einzige Task: B-738.
 
 ## Agent Behavior
 

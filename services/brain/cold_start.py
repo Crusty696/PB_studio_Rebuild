@@ -29,8 +29,9 @@ BRIDGE_AXES: tuple[str, ...] = (
     # D-080 / B-735: explizite Clip-Rolle gegen Audio-Section
     "role_match_weight",
 )
+BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)
 
-assert len(BRIDGE_AXES) == 18, "BRIDGE_AXES muss exakt 18 Achsen haben (D-080)"
+assert BRIDGE_AXIS_COUNT == 18, "BRIDGE_AXES muss exakt 18 Achsen haben (D-080)"
 
 COLD_START_DEFAULTS: dict[str, float] = {
     # Audio aus TriggerSettings-Defaults

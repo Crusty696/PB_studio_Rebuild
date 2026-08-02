@@ -10,6 +10,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.brain.cold_start import BRIDGE_AXIS_COUNT
+
 
 RatingLiteral = Literal["perfect", "fits", "not_quite", "no_match"]
 
@@ -92,8 +94,8 @@ class LearningSessionResponse(BaseModel):
 
 class StatsResponse(BaseModel):
     total_clicks: int
-    cold_start_axes: int = Field(..., ge=0, le=17)
-    learned_axes: int = Field(..., ge=0, le=17)
+    cold_start_axes: int = Field(..., ge=0, le=BRIDGE_AXIS_COUNT)
+    learned_axes: int = Field(..., ge=0, le=BRIDGE_AXIS_COUNT)
     top_positive_buckets: list[dict[str, Any]] = Field(default_factory=list)
     top_negative_buckets: list[dict[str, Any]] = Field(default_factory=list)
     last_feedback_at: Optional[str] = None

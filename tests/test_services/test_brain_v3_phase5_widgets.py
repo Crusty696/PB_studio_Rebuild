@@ -67,8 +67,10 @@ def test_stats_panel_initial_render(qt_app, isolated_appdata):
     panel = BrainV3StatsPanel(service=svc, auto_refresh_ms=10_000)
     panel.refresh()  # synchron
     assert "Total Klicks: 0" in panel._lbl_total_clicks.text()
-    assert "0/17" in panel._lbl_learned.text()
-    assert "Cold-Start: 17" in panel._lbl_learned.text()
+    axis_count = len(BRIDGE_AXES)
+    assert f"0/{axis_count}" in panel._lbl_learned.text()
+    assert f"Cold-Start: {axis_count}" in panel._lbl_learned.text()
+    assert panel._bar_learned.maximum() == axis_count
     panel.deleteLater()
 
 
@@ -79,7 +81,7 @@ def test_stats_panel_after_feedback_shows_learning(qt_app, isolated_appdata):
         svc.feedback(FeedbackRequest(cut_id=1, rating="perfect"))
     panel = BrainV3StatsPanel(service=svc, auto_refresh_ms=10_000)
     panel.refresh()
-    assert "17/17" in panel._lbl_learned.text() or "/17" in panel._lbl_learned.text()
+    assert f"{len(BRIDGE_AXES)}/{len(BRIDGE_AXES)}" in panel._lbl_learned.text()
     assert panel._tree_pos.topLevelItemCount() > 0
     panel.deleteLater()
 
@@ -140,7 +142,7 @@ def test_stats_panel_auto_refresh_skips_hidden_panel(qt_app):
             return SimpleNamespace(
                 total_clicks=0,
                 learned_axes=0,
-                cold_start_axes=17,
+                cold_start_axes=len(BRIDGE_AXES),
                 last_feedback_at=None,
                 top_positive_buckets=[],
                 top_negative_buckets=[],

@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-02 19:20 Europe/Zurich
+Letztes Update: 2026-08-02 19:34 Europe/Zurich
 
 Gesamtfortschritt: **ca. 20–22 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-757 Brain-Stats-Achszahl**
+Aktiv: **ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -51,7 +51,9 @@ Aktiv: **ROOT-CAUSE / B-757 Brain-Stats-Achszahl**
   Debounce/Lifecycle-Drain, generation-sicheres Shutdown, Fehler-Retry und
   persistiertes Einzelrating nach DB-Neustart. Fokus 27 + 9 + 9 gruen;
   Abschlussreview ohne Critical/High/Medium. App-Livebeweis offen.
-- B-757 offen: StatsResponse validiert max. 17, kanonische Achsen sind 18.
+- B-757 code-complete/live-pending: Stats-Schema und Stats-UI leiten Grenze
+  aus 18 kanonischen Achsen ab; 6 Kernbelege plus verschaerfter Grenztest,
+  Ruff/Compileall/Diffcheck gruen; Abschlussreview ohne relevante Findings.
 - B-742: Clicklog-Launcher reicht App-Exitcode jetzt durch; Livebeweis offen.
 - D-085: User beobachtet jetzt echte Live-Workflows. D-078 bleibt für
   redundante breite Pytest-Suites bestehen.
@@ -90,7 +92,7 @@ Aktiv: **ROOT-CAUSE / B-757 Brain-Stats-Achszahl**
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`.
-Danach B-738; breite/live Tests bleiben gemäß Uservorgabe gebündelt.
+`ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
