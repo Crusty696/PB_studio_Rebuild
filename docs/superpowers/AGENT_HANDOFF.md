@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W2 B-747 pass / B-740 Prozessblocker 2026-08-02 (newest)
+
+- Branch `codex/B-727-stability-gate`, Basis `b97dec4`.
+- W2 Import/Duplikat/Papierkorb/Bulk-Restore/Reimport/Reuse Current-live grün.
+- B-747 projektpfadgebundener Reuse-Mute-Key: RED/GREEN, Ruff, sichtbarer
+  Dialog und nativer Shutdown grün; Usermarker offen.
+- 15/15 geschützte Pre-DB/WAL/SHM-Snapshots byte-identisch; 18/18 Quickcheck;
+  Host-Settings-SHA unverändert.
+- W2 blockiert: `ollama.exe` PID 5944 lebt mit Parent PID 4620 (alter W2-App-
+  Prozess). Nicht beenden.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
+- Bericht:
+  `docs/superpowers/synthesis/functional-test-w2-import-restore-2026-08-02.md`.
+
 ## W2 D-086 Fortsetzung 2026-07-28 (newest)
 
 - Userauftrag „arbeite weiter am Plan“ hebt Fixture-Blocker auf.

@@ -731,6 +731,24 @@ Decision: Vault
   Verdict `live-pass-user-marker-pending`.
 - Nächste einzige Task:
   `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+
+### W2 Laufstatus 2026-08-02
+
+- Import, aktiver Duplikatimport, Bulk-Soft-Delete, Papierkorb, Bulk-Restore,
+  Reimport und Cross-Project-Reuse Current-live bestanden.
+- B-746 Fresh Current-Live nicht reproduzierbar; Audio-Modus schaltet korrekt.
+- B-747 projektpfadgebundener Mute-Key: RED/GREEN, Ruff und sichtbarer
+  Reuse-Dialog grün; ohne Usermarker nicht `fixed`.
+- DB-Gate: 15/15 geschützte Pre-Pfade für DB/WAL/SHM byte-identisch;
+  18/18 Post-Quickchecks ok; Host-Settings-SHA unverändert.
+- Prozessgate rot: `ollama.exe` PID 5944 lebt mit Parent PID 4620, dem alten
+  W2-App-PID. Prozess nicht beendet.
+- Bericht:
+  `docs/superpowers/synthesis/functional-test-w2-import-restore-2026-08-02.md`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
+- Bestandene W2-Funktionspfade werden nicht wiederholt; nur betroffener
+  Ownership-/Shutdownpfad.
 - W2-Preflight: `tests/fixtures/clips_20` enthält nur Provenienz; alle 20
   referenzierten MP4-Pfade fehlen. 46 MP4-Proxies und 8 WAV-Stems in
   `outputs/test-tabelle/storage` sind vorhanden.

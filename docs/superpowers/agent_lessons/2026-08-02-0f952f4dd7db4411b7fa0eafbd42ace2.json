@@ -1,0 +1,10 @@
+{
+  "lesson_id": "0f952f4dd7db4411b7fa0eafbd42ace2",
+  "recorded_at": "2026-08-02T06:10:00+00:00",
+  "session_id": "a44235af301c469789af9998722d4a6b",
+  "head_at_start": "b97dec4003475b8823f609938009f7ae08f5df01",
+  "problem": "Cross-project reuse notification mute was keyed by project-local database ID, so different project databases using ID 1 shared one Windows QSettings mute value.",
+  "cause": "The notification key treated a locally unique project_id as globally unique across separate project databases; QSettings persisted outside isolated APPDATA in the Windows registry.",
+  "rule": "Any per-project persistent setting shared across databases must use a stable globally unique project identity such as a normalized project-path digest, never a database-local numeric ID.",
+  "applies_to": "UI notification preferences, QSettings keys, multi-project databases, isolated live tests"
+}

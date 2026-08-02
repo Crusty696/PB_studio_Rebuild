@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
 stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
 live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
-updated: 2026-07-28
+updated: 2026-08-02
 worktree: .worktrees/stab1-b727
 branch: codex/B-727-stability-gate
 
@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+`ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -42,6 +42,12 @@ deshalb 20 deterministisch ausgewählte MP4-Proxies plus zwei WAV-Stems als
 ausschließlich isolierte Kopien. Quellen bleiben read-only.
 
 Details: `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
+
+W2 Import, Duplikat, Papierkorb, Bulk-Restore, Reimport und Cross-Project-Reuse
+sind Current-live grün. B-747 wurde minimal behoben und live belegt. W2 bleibt
+offen, weil `ollama.exe` PID 5944 nach altem W2-App-PID 4620 weiterlebt. Prozess
+nicht beendet. Nur B-740-Ownership-/Shutdownpfad folgt; keine komplette W2-
+Wiederholung.
 
 ## Agent Behavior
 

@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-07-28 13:15 Europe/Zurich
+Letztes Update: 2026-08-02 08:07 Europe/Zurich
 
 Gesamtfortschritt: **ca. 17–20 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
+Aktiv: **ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **12,5 %** | W1 live-pass; Usermarker offen |
+| STAB-2 Acht Live-Workflows | **12,5 %** | W1 live-pass; W2 Funktionspfade grün, Prozessgate B-740 rot |
 | STAB-3 Brain/Lernen A/B | **0 %** | blockiert durch STAB-2 |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
@@ -73,10 +73,18 @@ Aktiv: **LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport**
   zwei native `spontaneous=True`-Schlüsse ohne Fatal. Kein Produktdefekt.
 - Selbstreview-Restverträge für frühes Skeleton, Source-Status und
   Post-CIM-Exception grün.
+- W2 Import/Duplikat/Papierkorb/Bulk-Restore/Reimport/Cross-Project-Reuse
+  Current-live bestanden. B-746 nicht reproduzierbar.
+- B-747 projektpfadgebundener Reuse-Mute-Key: RED/GREEN, Ruff und sichtbarer
+  Current-Live-Dialog grün; Usermarker offen.
+- W2 DB-Gate: 15/15 geschützte Pre-Pfade byte-identisch, 18/18 Post-DBs
+  `quick_check=ok`, Host-Settings-SHA unverändert.
+- W2 Prozessgate rot: `ollama.exe` PID 5944 mit altem W2-App-Parent PID 4620;
+  Prozess nicht beendet. W2 bleibt offen.
 
 ## Nächste einzige Task
 
-W2: D-086-Medienkopien isolieren; Audio/Video importieren, Duplikat,
-Papierkorb, Restore, Reimport und UI-/DB-Konsistenz sichtbar prüfen.
+`ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`. Nur betroffenen
+Ownership-/Shutdownpfad prüfen; bestandene W2-Funktionspfade nicht wiederholen.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
