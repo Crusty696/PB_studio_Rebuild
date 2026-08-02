@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+`ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -54,6 +54,10 @@ Fail-Closed-Stability-Scope blockierte absichtlichen Host-Projektversuch vor
 DB-Zugriff; 6/6 geschuetzte Pre-Pfade blieben unveraendert. Usermarker offen.
 W3 wird ausschließlich mit `gui_harness.py start --stability-project ...`
 fortgesetzt.
+B-752 None-Summary-Crash wurde im echten Resume-Pfad behoben und Current-live
+bewiesen. W3-Cancel stoppte AV-Pacing kooperativ bei Chunk 1; aktueller Defekt:
+Worker/AnalysisStatus behandeln User-Cancel als `error`/`Worker-Fehler` und der
+Komplett-Controller kann danach Erfolgstext schreiben. B-751 blockiert Retry.
 
 ## Agent Behavior
 

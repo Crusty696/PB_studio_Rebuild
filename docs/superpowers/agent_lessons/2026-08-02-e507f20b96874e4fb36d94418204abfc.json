@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e507f20b96874e4fb36d94418204abfc",
+  "recorded_at": "2026-08-02T10:11:30+00:00",
+  "session_id": "a44235af301c469789af9998722d4a6b",
+  "head_at_start": "b97dec4003475b8823f609938009f7ae08f5df01",
+  "problem": "Audio-V2 Resume erzeugte neun UI-Crashdialoge bei bereits erledigten Stages.",
+  "cause": "AnalysisStatusPanel pruefte Summary-Keys, aber nicht None-Werte, und formatierte bpm/lufs direkt als Float.",
+  "rule": "UI-Formatter fuer persistierte oder rehydrierte Analyse-Summaries muessen None und nichtnumerische Werte vor Formatierung filtern; fehlende Messwerte als nicht verfuegbar statt Ersatzwert anzeigen.",
+  "applies_to": "ui/widgets/analysis_status_panel.py, Audio-V2 Resume/Retry UI"
+}

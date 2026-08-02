@@ -788,3 +788,17 @@ Decision: Vault
 - B-748 Code+Live abgeschlossen, `fixed`-Usermarker offen.
 - Nächste einzige Task:
   `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
+### B-752 Audio-Statuspanel None-Crash 2026-08-02
+
+- Echter W3-Resume-Pfad lieferte fuer neun Checkpoint-Skips legitime None-
+  Summaries; Formatter erzeugte neun `TypeError`-Crashdialoge.
+- Fix: numerische Werte nur nach Konvertierung formatieren, None-Werte filtern,
+  leere Summary als `—` anzeigen. Keine Ersatzmesswerte.
+- RED/GREEN `4 passed`, Syntax/Ruff gruen. Current-live gleicher Skip-Pfad:
+  null neue Exceptions/Crashdialoge, App responsive, graceful Shutdown.
+- DB-Gate: Host-DB byte-identisch; isolierte W3-DB quick_check ok.
+- Cancel selbst stoppte AV-Pacing kooperativ bei Chunk 1, wird aber falsch als
+  `error`/`Worker-Fehler` behandelt.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.

@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-752 Live-PASS / B-751 Next 2026-08-02 (newest)
+
+- Audio-V2 Resume mit neun geskippten Stages erzeugte neun Crashdialoge:
+  `bpm=None` wurde als Float formatiert.
+- B-752 Fix filtert None/nichtnumerische Werte; RED/GREEN 4/4, Syntax/Ruff.
+- Echter Resume-Pfad: null neue Exceptions/Crashdialoge, App responsive,
+  Screenshot und graceful Shutdown gruen; Host-DB unveraendert.
+- Cancel stoppte AV-Pacing bei Chunk 1 nach 29.8 s kooperativ.
+- B-751 bleibt: Cancel wird als Analysis `error` und Task `Worker-Fehler`
+  behandelt; Controller-Erfolgstextpfad ist ebenfalls offen.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.
+
 ## B-748 Stability-Projektsperre Current-live 2026-08-02 (newest)
 
 - W3-Start oeffnete versehentlich Host-Projekt `abnahme-block-c2`; App sofort
