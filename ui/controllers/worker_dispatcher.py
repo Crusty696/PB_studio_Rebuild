@@ -71,6 +71,9 @@ def _try_claim_worker_resources(worker: QObject) -> bool:
         for key in keys:
             _WORKER_RESOURCE_OWNERS[key] = owner
     worker._pb_resource_claims = keys
+    # Generischer Hook: TaskManager kennt keine Audio-Keylogik, kann aber bei
+    # seinem echten QThread-Cleanup denselben idempotenten Release ausführen.
+    worker._pb_resource_release = _release_worker_resources
     return True
 
 
@@ -88,6 +91,12 @@ def _release_worker_resources(worker: QObject) -> None:
 
 class WorkerDispatcherController(PBComponent):
     """Controller fuer MainWindow: kapselt Worker/Thread-Spawning und -Cleanup."""
+
+    def _cleanup_taskmanager_worker(self, worker: QObject) -> None:
+        """Entfernt TaskManager-eigenen BG-Worker aus lokaler UI-GC-Liste."""
+        worker._pb_terminal_cleanup_done = True
+        if worker in self.window._active_workers:
+            self.window._active_workers.remove(worker)
 
     def _start_worker_thread(self, worker: QObject, on_finish=None, on_error=None):
         """Leitet an GlobalTaskManager.start_task() weiter."""
@@ -113,7 +122,7 @@ class WorkerDispatcherController(PBComponent):
             worker._start_conflict = message
             logger.warning("Workerstart blockiert: %s", message)
             if task and existing_task_id:
-                tm.finish_task(existing_task_id, "error", message)
+                tm.finish_task(existing_task_id, "cancelled", message)
             if on_error:
                 on_error(track_id, message)
             try:
@@ -123,69 +132,81 @@ class WorkerDispatcherController(PBComponent):
             return None
 
         if task:
-            thread = QThread()
-            worker.moveToThread(thread)
-            thread.started.connect(worker.run)
+            thread = None
+            try:
+                thread = QThread()
+                worker.moveToThread(thread)
+                thread.started.connect(worker.run)
 
-            # B-222 (F2): ALLE worker.<signal>-Connections von einem Lambda
-            # oder einer freien Funktion gehen MIT explizitem
-            # Qt.QueuedConnection. Sonst hat der Slot kein Receiver-QObject
-            # und Qt's AutoConnection faellt auf DirectConnection zurueck —
-            # der Slot laeuft im Worker-Thread und greift Cross-Thread auf
-            # UI-Widgets zu (Use-after-free auf <deleted> Receiver, siehe
-            # B-222 Crash-Stack).
-            qc = Qt.ConnectionType.QueuedConnection
+                # B-222 (F2): ALLE worker.<signal>-Connections von einem Lambda
+                # oder einer freien Funktion gehen MIT explizitem
+                # Qt.QueuedConnection.
+                qc = Qt.ConnectionType.QueuedConnection
 
-            if on_finish:
-                def _guarded_finish(*args, _w=worker, _cb=on_finish):
-                    if not getattr(_w, '_errored', False):
-                        _cb(*args)
-                worker.finished.connect(_guarded_finish, qc)
+                if on_finish:
+                    def _guarded_finish(*args, _w=worker, _cb=on_finish):
+                        if not getattr(_w, '_errored', False):
+                            _cb(*args)
+                    worker.finished.connect(_guarded_finish, qc)
 
-            if on_error:
-                worker.error.connect(on_error, qc)
-            else:
-                def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
-                    _tm._handle_worker_error(_tid, _name, args)
-                worker.error.connect(_default_error_handler, qc)
+                if on_error:
+                    worker.error.connect(on_error, qc)
+                else:
+                    def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
+                        _tm._handle_worker_error(_tid, _name, args)
+                    worker.error.connect(_default_error_handler, qc)
 
-            if hasattr(worker, "progress"):
-                worker.progress.connect(
-                    lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg),
+                if hasattr(worker, "progress"):
+                    worker.progress.connect(
+                        lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg),
+                        qc,
+                    )
+
+                worker.finished.connect(thread.quit)
+                worker.error.connect(thread.quit)
+                thread.finished.connect(worker.deleteLater)
+                thread.finished.connect(thread.deleteLater)
+                thread.finished.connect(
+                    lambda _tid=existing_task_id: tm._on_thread_done(_tid),
                     qc,
                 )
 
-            # thread-interne Signals (started/quit/finished) sind safe — Sender
-            # und Slot leben jeweils im selben Thread bzw. die Slots sind Qt-
-            # internal cleanup-Hooks. Qt.AutoConnection reicht.
-            worker.finished.connect(thread.quit)
-            # B-353: Audio-Worker emittieren im Fehlerpfad error ohne finished.
-            # Ohne quit bleibt der QThread-Eventloop offen und Cleanup laeuft nie.
-            worker.error.connect(thread.quit)
-            thread.finished.connect(worker.deleteLater)
-            thread.finished.connect(thread.deleteLater)
-            # Diese Lambda greift auf tm (QObject) zu — QueuedConnection schickt
-            # den Aufruf in den Main-Thread wo tm lebt.
-            thread.finished.connect(
-                lambda _tid=existing_task_id: tm._on_thread_done(_tid),
-                qc,
-            )
-
-            task.thread = thread
-            task.worker = worker
-            self.window._active_threads.append(thread)
-            self.window._active_workers.append(worker)
-            thread.finished.connect(
-                lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w),
-                qc,
-            )
-            try:
+                task.thread = thread
+                task.worker = worker
+                self.window._active_threads.append(thread)
+                self.window._active_workers.append(worker)
+                thread.finished.connect(
+                    lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w),
+                    qc,
+                )
                 thread.start()
-            except Exception:
+            except Exception as exc:
+                try:
+                    thread_running = thread is not None and thread.isRunning()
+                except RuntimeError:
+                    thread_running = False
+                if thread_running:
+                    raise
+                if thread is not None and thread in self.window._active_threads:
+                    self.window._active_threads.remove(thread)
+                if worker in self.window._active_workers:
+                    self.window._active_workers.remove(worker)
+                if task.thread is thread:
+                    task.thread = None
+                if task.worker is worker:
+                    task.worker = None
                 _release_worker_resources(worker)
+                try:
+                    tm.finish_task(existing_task_id, "error", str(exc))
+                except Exception:
+                    logger.exception(
+                        "Taskstatus nach Worker-Setupfehler konnte nicht gesetzt werden"
+                    )
                 raise
             return thread
         else:
+            worker._pb_terminal_cleanup_done = False
+            worker._pb_terminal_cleanup = self._cleanup_taskmanager_worker
             try:
                 task = tm.start_task(
                     name=worker_name,
@@ -197,12 +218,25 @@ class WorkerDispatcherController(PBComponent):
                 _release_worker_resources(worker)
                 raise
             if isinstance(task, str):
-                self.window._active_workers.append(worker)
+                if worker not in self.window._active_workers:
+                    self.window._active_workers.append(worker)
+                if getattr(worker, "_pb_terminal_cleanup_done", False):
+                    self._cleanup_taskmanager_worker(worker)
+                    return None
                 return None
-            if task.thread:
-                self.window._active_threads.append(task.thread)
-                task.thread.finished.connect(
-                    lambda _t=task.thread, _w=worker: self._cleanup_worker(_t, _w),
+            thread_ref = task.thread
+            if thread_ref is None:
+                _release_worker_resources(worker)
+                return None
+            if worker not in self.window._active_workers:
+                self.window._active_workers.append(worker)
+            if getattr(worker, "_pb_terminal_cleanup_done", False):
+                self._cleanup_worker(thread_ref, worker)
+                return None
+            try:
+                self.window._active_threads.append(thread_ref)
+                thread_ref.finished.connect(
+                    lambda _t=thread_ref, _w=worker: self._cleanup_worker(_t, _w),
                     Qt.ConnectionType.QueuedConnection,
                 )
                 # B-173: tm.start_task hat den Thread bereits gestartet —
@@ -210,14 +244,18 @@ class WorkerDispatcherController(PBComponent):
                 # emitted sein bevor wir connecten. Race-Guard: manueller
                 # Cleanup wenn Thread nicht mehr laeuft. _cleanup_worker
                 # ist idempotent (worker-in-list Check).
-                try:
-                    if not task.thread.isRunning():
-                        self._cleanup_worker(task.thread, worker)
-                except RuntimeError:
-                    # C++ thread-object schon weg — auch cleanup
-                    self._cleanup_worker(task.thread, worker)
-            self.window._active_workers.append(worker)
-            return task.thread
+                if (
+                    getattr(worker, "_pb_terminal_cleanup_done", False)
+                    or not thread_ref.isRunning()
+                ):
+                    self._cleanup_worker(thread_ref, worker)
+                    return None
+            except (RuntimeError, AttributeError):
+                # TaskManager-Cleanup kann Qt-Wrapper direkt vor Connect/Status
+                # löschen. Lokale Listen trotzdem idempotent bereinigen.
+                self._cleanup_worker(thread_ref, worker)
+                return None
+            return thread_ref
 
     def _cancel_worker_for_task(self, task_id: str):
         """Cancel via TaskEngine."""

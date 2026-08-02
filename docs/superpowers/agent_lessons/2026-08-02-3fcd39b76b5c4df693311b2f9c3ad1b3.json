@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3fcd39b76b5c4df693311b2f9c3ad1b3",
+  "recorded_at": "2026-08-02T15:21:18+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "WorkerDispatcher konnte bei sehr schnellem Taskende tote Worker/Thread-Refs re-appendieren oder mutable task.thread zwischen Reads verlieren.",
+  "cause": "Registrierung las terminalen Shared-State vor Append bzw. task.thread mehrfach, waehrend TaskManager-Cleanup parallel Status und Thread-Ref veraenderte.",
+  "rule": "Async-Registrierung: Ref einmal snapshotten, Ref vor terminaler Pruefung registrieren, danach done/running erneut pruefen und Cleanup idempotent ausfuehren; Claim erst bei echtem Threadende oder eindeutig terminalem No-Thread-Pfad releasen.",
+  "applies_to": "PySide6 QThread WorkerDispatcher TaskManager Claim-Lifecycle Fast-Finish"
+}

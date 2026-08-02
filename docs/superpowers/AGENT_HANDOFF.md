@@ -2,7 +2,33 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-750 Review-Follow-up Fokus-PASS 2026-08-02 (newest)
+## B-750 Stand-6 Abschlussreview PASS 2026-08-02 (newest)
+
+- Re-Review-Lücken geschlossen: ehrliche Cancel-/Konfliktklassifizierung;
+  Claim-Release bei Setupfehler, Shutdown, terminal/no-thread und Fast-Finish.
+- Deterministische Race-Verträge decken BG-`str`, TaskInfo-Thread-Snapshot,
+  Teilstart und terminal-before-return ab.
+- Final: 65 direkte B-750/Lifecycle-Regressionen, `py_compile`, Ruff und
+  `git diff --check` grün.
+- Unabhängiger Read-only-Abschlussreview: PASS, keine verbleibende
+  Critical-/High-/Medium-Lücke. LOW Setup-QObject nur theoretisch.
+- Kein App-GUI-/Medien-Livebeweis; B-750 bleibt
+  `code-fix-pending-live-verification`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+## B-750 Re-Review 8a4fef7 NOT PASS 2026-08-02
+
+- 22/22 Reviewer-Fokus grün; Claims/Stem-Heal/Retry-all-Grundmechanik korrekt.
+- Medium: Einzel-/Batch-V2 und Stem melden `User-Cancel`/`Bereits aktiv`
+  weiterhin als Fehler/Fehlgeschlagen.
+- Low/Medium: Claim kann bei QThread-/Signal-Setup-Exception vor Start,
+  BG-`str` oder Task ohne Thread-Cleanup leaken.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Re-Review-Follow-up: UI-Klassifizierung und Claim-Leaks`.
+- B-754 wartet.
+
+## B-750 Review-Follow-up Fokus-PASS 2026-08-02
 
 - Review-RED: Cancel-Ehrlichkeit, Stem-Selbstheilung, Retry-all und
   Single-Flight reproduziert.

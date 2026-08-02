@@ -866,3 +866,29 @@ Decision: Vault
 - Nächste einzige Task:
   `REVIEW / B-750 Follow-up-Commit unabhängig auf Cross-Path-Single-Flight prüfen`.
 - B-754 wartet.
+
+#### B-750 Re-Review 8a4fef7 NOT PASS 2026-08-02
+
+- 22/22 Reviewer-Fokus grün; Kernmechanik bestätigt.
+- Rest-Medium: Full-/Batch-V2-Cancel, `Bereits aktiv` und Stem-Konflikt noch
+  als Fehler/Fehlgeschlagen sichtbar.
+- Rest-Low/Medium: Claim-Release unvollständig bei frühem Setupfehler,
+  BG-`str` und Task ohne QThread-Cleanup.
+- B-750 bleibt `in_progress`; B-754 wartet.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Re-Review-Follow-up: UI-Klassifizierung und Claim-Leaks`.
+
+#### B-750 Stand-6 Abschlussreview PASS 2026-08-02
+
+- UI trennt Startkonflikt, Task-Cancel/`User-Cancel` und echten Fehler für
+  Einzel-/Batch-V2 sowie Stems.
+- Dispatcher-Claim-Release deckt frühen Setupfehler, Shutdown,
+  terminal/no-thread, BG-`str`- und TaskInfo-Fast-Finish ab; Thread-Ref wird
+  einmalig gesnapshottet und terminal nachgeprüft.
+- Final notwendiger Fokus: `65 passed in 11.77s`; `py_compile`, Ruff und
+  `git diff --check` grün.
+- Unabhängiger Stand-6-Review PASS: keine Critical-/High-/Medium-Lücke. LOW
+  Setup-QObject bleibt theoretisch ohne reproduzierbare Nutzerwirkung.
+- B-750 → `code-fix-pending-live-verification`; App-GUI-/Medienbeweis W3 offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.

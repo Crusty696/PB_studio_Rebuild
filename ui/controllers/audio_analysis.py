@@ -9,6 +9,20 @@ from ui.base_component import PBComponent
 logger = logging.getLogger(__name__)
 task_manager = TaskManagerProxy()
 
+
+def _audio_v2_error_outcome(task_id: str, error_msg: str) -> str:
+    """Klassifiziert Startkonflikt, User-Cancel und echten Fehler getrennt."""
+    message = str(error_msg)
+    if "bereits aktiv" in message.casefold():
+        return "blocked"
+    task = task_manager.get_task(task_id)
+    if (
+        getattr(task, "status", None) == "cancelled"
+        or "user-cancel" in message.casefold()
+    ):
+        return "cancelled"
+    return "error"
+
 class _SeqStepSignalHelper(QObject):
     """Hilfs-QObject fuer sequentielle Analyse."""
     step_done = Signal(str, bool)  # step_name, success
@@ -121,9 +135,8 @@ class AudioAnalysisController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            lambda tid, err: (
-                self.window._console_append(f"[Audio-V2] Fehler: {err}"),
-                self.window.progress_bar.setVisible(False),
+            lambda tid, err, task_id=task.task_id: self._handle_single_v2_error(
+                task_id, tid, err,
             ),
             Qt.ConnectionType.QueuedConnection,
         )
@@ -131,6 +144,22 @@ class AudioAnalysisController(PBComponent):
         if getattr(worker, "_start_conflict", None):
             return
         self.window.console_text.append(f"[Audio-V2] Starte Pipeline fuer '{title}'...")
+
+    def _handle_single_v2_error(
+        self, task_id: str, track_id: int, error_msg: str
+    ) -> None:
+        """Meldet Cancel/Startblockade nicht als Produktfehler."""
+        outcome = _audio_v2_error_outcome(task_id, error_msg)
+        if outcome == "blocked":
+            prefix = "Nicht gestartet"
+        elif outcome == "cancelled":
+            prefix = "Abgebrochen"
+        else:
+            prefix = "Fehler"
+        self.window._console_append(
+            f"[Audio-V2] {prefix} (ID {track_id}): {error_msg}"
+        )
+        self.window.progress_bar.setVisible(False)
 
     def _detect_key(self):
         """Erkennt die musikalische Tonart des ausgewaehlten Audio-Tracks."""
@@ -558,13 +587,14 @@ class AudioAnalysisController(PBComponent):
 
     def _v2_handle_error(self, task_id: str, track_id: int, error_msg: str):
         """B-751: Fehler/Cancel beendet Batch ohne Erfolgszaehler/-meldung."""
-        task = task_manager.get_task(task_id)
-        is_cancelled = (
-            getattr(task, "status", None) == "cancelled"
-            or "User-Cancel" in str(error_msg)
-        )
+        outcome = _audio_v2_error_outcome(task_id, error_msg)
         self._v2_queue = []
-        if is_cancelled:
+        if outcome == "blocked":
+            self.window._console_append(
+                f"[Audio-V2] Nicht gestartet (ID {track_id}): {error_msg}"
+            )
+            self._v2_finalize("blocked")
+        elif outcome == "cancelled":
             self.window._console_append(
                 f"[Audio-V2] Abgebrochen (ID {track_id}): {error_msg}"
             )
@@ -592,6 +622,8 @@ class AudioAnalysisController(PBComponent):
             label = "Fertig"
         elif outcome == "cancelled":
             label = "Abgebrochen"
+        elif outcome == "blocked":
+            label = "Nicht gestartet"
         else:
             label = "Fehlgeschlagen"
         self.window.console_text.append(

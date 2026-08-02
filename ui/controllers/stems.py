@@ -196,7 +196,15 @@ class StemsController(PBComponent):
         self.window.btn_stem_separate.setEnabled(True)
         self.window.btn_stem_separate.setText("Stems")
         self.window.progress_bar.setVisible(False)
-        if "abgebrochen" in error_msg.lower() or "cancel" in error_msg.lower():
+        if "bereits aktiv" in error_msg.casefold():
+            self.window.console_text.append(f"[Stems] Nicht gestartet: {error_msg}")
+            task_manager.finish_task(task_id, "cancelled", error_msg)
+            return
+        task = task_manager.get_task(task_id)
+        if (
+            getattr(task, "status", None) == "cancelled"
+            or "user-cancel" in error_msg.casefold()
+        ):
             self.window.console_text.append(f"[Stems] {error_msg}")
             task_manager.finish_task(task_id, "cancelled", error_msg)
             return
