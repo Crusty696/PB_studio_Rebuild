@@ -427,7 +427,9 @@ class OrchestratorAgent(BaseAgent):
 
         # System-Prompt + DB-Kontext (summarize_project)
         logger.info("Tool-Use-Loop: starte mit model=%s, %d tools", model, len(tool_defs))
-        system_content = _TOOL_USE_SYSTEM_PROMPT
+        from services.brain_gateway import build_tool_prompt, has_explicit_learn_intent
+
+        system_content = build_tool_prompt(_TOOL_USE_SYSTEM_PROMPT, user_text)
         try:
             logger.info("Tool-Use-Loop: rufe summarize_project fuer DB-Kontext")
             proj = action_registry.execute("summarize_project", {})
@@ -498,6 +500,17 @@ class OrchestratorAgent(BaseAgent):
                     logger.warning(
                         "Tool-Use-Loop: LLM hat '%s' angefragt (nicht in Whitelist).",
                         tool_name,
+                    )
+                elif (
+                    tool_name == "brain_learn_note"
+                    and not has_explicit_learn_intent(user_text)
+                ):
+                    tool_content = (
+                        "brain_learn_note abgelehnt: ausdruecklicher "
+                        "Merk-/Speicherauftrag fehlt."
+                    )
+                    logger.warning(
+                        "Tool-Use-Loop: Learn ohne expliziten User-Intent abgelehnt."
                     )
                 else:
                     try:
@@ -945,7 +958,10 @@ class OrchestratorAgent(BaseAgent):
             # B-411: Ein Aktions-Befehl, der bis hierher KEINEN Executor erreicht hat
             # (kein Agent/keine Action, Modell ohne Tool-Support), darf nicht in einer
             # halluzinierten LLM-Erfolgsmeldung enden. Transparent ablehnen statt chat().
-            if self._looks_like_action_command(user_text):
+            from services.brain_gateway import has_explicit_learn_intent
+
+            learn_intent = has_explicit_learn_intent(user_text)
+            if self._looks_like_action_command(user_text) and not learn_intent:
                 return {
                     "agent": self.name,
                     "action": "action_not_executable",
@@ -962,12 +978,31 @@ class OrchestratorAgent(BaseAgent):
 
             svc = OllamaService.get()
             if svc.is_ready:
+                from services.brain_gateway import (
+                    build_nontool_prompt,
+                    execute_gateway_response,
+                )
+
                 llm_response = svc.chat(
                     messages=[
-                        {"role": "system", "content": _GENERAL_SYSTEM_PROMPT},
+                        {
+                            "role": "system",
+                            "content": build_nontool_prompt(
+                                _GENERAL_SYSTEM_PROMPT,
+                                user_text,
+                            ),
+                        },
                         {"role": "user", "content": user_text}
                     ],
                 )
+                gateway_result = execute_gateway_response(
+                    llm_response,
+                    mode="chat",
+                    allow_learn=learn_intent,
+                )
+                if gateway_result is not None:
+                    gateway_result["agent"] = self.name
+                    return gateway_result
                 return {
                     "agent": self.name,
                     "action": "chat",

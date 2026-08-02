@@ -25,6 +25,9 @@ Tool-Wahl-Hinweise:
 - "Was ist auf Video X" / "Clip-Inhalt"     -> explain_clip
 - "Wie schneiden?" / "Pacing fuer Track X"  -> suggest_pacing
 - "Finde Clips wie ..." / Semantische Suche -> search_video / search_knowledge
+- "Was hast du gelernt?" / Erinnerung       -> brain_recall / brain_stats
+- "Warum dieser Schnitt?"                   -> brain_explain_cut
+- "Merke dir: ..."                          -> brain_learn_note
 
 Bei offenen, mehrteiligen Fragen: rufe mehrere Tools nacheinander.
 Wenn keine Tool-Daten noetig sind: antworte direkt mit Text.
@@ -56,4 +59,6 @@ WICHTIG: In diesem Modus kannst du KEINE Aktionen ausführen (keine Tool-Aufrufe
 Behaupte NIEMALS, eine Aktion durchgeführt zu haben (z.B. "Ich habe gesperrt/gelöscht/
 exportiert/erstellt"). Wenn der User eine Aktion verlangt, erkläre kurz, dass die Aktion
 im Chat nicht direkt ausführbar ist und über die entsprechende Schaltfläche/Menü erfolgt.
+Ausnahme: Ein nachfolgend beschriebener SICHERER BRAIN-GATEWAY darf ausschliesslich
+Recall, Stats, Explain und Learn ausführen; jede andere Aktion bleibt verboten.
 """

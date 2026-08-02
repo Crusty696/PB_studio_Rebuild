@@ -883,6 +883,19 @@ def analyze_scene_with_caption(
 
     vision_model = _resolve_vision_caption_model(client, vision_model)
 
+    # D-083 / B-738: Captioning erhaelt projektisolierten, read-only
+    # Brain-Kontext. Einmal pro Batch bauen; niemals Learn aus Vision.
+    from services.brain_gateway import build_vision_prompt
+
+    caption_prompt = build_vision_prompt(
+        f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
+        query="vision caption video scene schnitt",
+    )
+    plain_caption_prompt = build_vision_prompt(
+        _CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
+        query="vision caption video scene schnitt",
+    )
+
     logger.info("[CAPTION] Starte Vision-Captioning für %d Szenen mit '%s' via OllamaService...",
                 len(keyframe_scenes), vision_model)
 
@@ -924,7 +937,7 @@ def analyze_scene_with_caption(
             # das Schema dem Prompt vorangestellt.
             raw = svc.vision(
                 image_paths=[scene.keyframe_path],
-                prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
+                prompt=caption_prompt,
                 model=vision_model,
                 # Fix 2026-07-17: 256 war zu wenig fuer Thinking-Modelle. qwen3-vl
                 # denkt im 'thinking'-Feld und verbrauchte das ganze 256-Budget ->
@@ -949,7 +962,7 @@ def analyze_scene_with_caption(
                 )
                 raw = svc.vision(
                     image_paths=[scene.keyframe_path],
-                    prompt=f"{_CAPTION_SYSTEM_PROMPT}\n\n{_CAPTION_USER_PROMPT}",
+                    prompt=caption_prompt,
                     model=vision_model,
                     num_predict=3072,
                     read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
@@ -963,7 +976,7 @@ def analyze_scene_with_caption(
                 )
                 raw = svc.vision(
                     image_paths=[scene.keyframe_path],
-                    prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
+                    prompt=plain_caption_prompt,
                     model=vision_model,
                     read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
                     task="caption",  # B-650
@@ -1021,7 +1034,7 @@ def analyze_scene_with_caption(
                 )
                 retry_raw = svc.vision(
                     image_paths=[scene.keyframe_path],
-                    prompt=_CAPTION_PLAIN_TEXT_FALLBACK_PROMPT,
+                    prompt=plain_caption_prompt,
                     model=vision_model,
                     read_timeout_s=HTTP_OLLAMA_VISION_CAPTION_TIMEOUT_SEC,
                     task="caption",  # B-650

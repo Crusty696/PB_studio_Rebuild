@@ -21,14 +21,16 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
 
 B-737 ist code-complete/live-pending: semantischer Timeline-Write vor
 Pattern-Notifier, Debounce/Run-/Projekt-/App-End-Drain, generation-sicheres
 Warten, Fehler-Retry und ehrliche Gewichte-Lernsession. Fokus 27 + 9 + 9
 Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 leitet Schema-
 und UI-Grenze jetzt aus 18 kanonischen Achsen ab; Fokus und Review gruen,
-App-Livebeweis offen. B-738 ist naechste einzige Task.
+App-Livebeweis offen. B-738 ist code-complete/live-pending: sicherer Tool-/
+Non-Tool-Gateway, reservierter Learn-Control-Prefix und read-only Vision-
+Recall/Explain sind fokussiert gruen. Naechste einzige Task ist W3-Liveverify.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt
@@ -108,7 +110,17 @@ separat. Kein App-Livebeweis, daher `code-fix-pending-live-verification`.
 B-757 ist code-complete/live-pending: `BRIDGE_AXIS_COUNT` bindet Stats-Schema,
 Label und Progressbar an `BRIDGE_AXES`; sechs Kernbelege plus verschaerfter
 18/19-Grenztest, Ruff, Compileall und Diffcheck gruen. Abschlussreview ohne
-Critical/High/Medium. Naechste einzige Task: B-738.
+Critical/High/Medium.
+
+B-738 ist code-complete/live-pending: echter Orchestrator-Tool-/Non-Tool-Pfad
+erhaelt projektisolierten Recall. Non-Tool-Aktionen brauchen eindeutigen
+`pb_brain_gateway=v1`-Envelope; persistentes Learn zusätzlich reservierten
+User-Prefix mit Doppelpunkt. Vision erhaelt Recall-Miss-Fallback und neueste
+Cut-Erklaerung read-only, Fachprompt bleibt letzte Anweisung. Fokus 44 Tests,
+Learn-Recall-Kreis, Ruff, Compileall und Diffcheck gruen; Abschlussreview ohne
+Critical/High/Medium. Kein ChatDock-/Ollama-/Neustart-Livebeweis. Naechste
+einzige Task: `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes
+Stem`.
 
 ## Agent Behavior
 

@@ -958,3 +958,23 @@ Decision: Vault
   Critical-/High-/Medium-Finding.
 - Kein App-Livebeweis; B-757 `code-fix-pending-live-verification`.
 - Nächste einzige Task: `ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+
+#### B-738 modellunabhaengiger Brain-Gateway Fokus-PASS 2026-08-02
+
+- Tool- und Non-Tool-Orchestratorpfade erhalten frischen projektisolierten
+  Recall-Kontext; Phi3/Gemma-Familien laufen ueber echten NO-TOOLS-Fallback.
+- Non-Tool-Gateway ist fail-closed: eindeutiger `pb_brain_gateway=v1`-
+  Envelope, strikte Brain-Allowlist und Parameterpruefung. Normales JSON bleibt
+  Daten. Persistentes Learn braucht zusaetzlich reservierten User-Prefix mit
+  Doppelpunkt; B-411 laesst nur diesen sicheren Control-Pfad passieren.
+- Vision-Caption und Moondream erhalten Recall; spezifischer Miss faellt auf
+  neuesten Projektsnapshot zurueck. Neueste Cut-Erklaerung wird read-only
+  vorab geladen. Fachprompt/JSON-Schema bleibt letzte dominante Anweisung;
+  Vision kann niemals Learn ausloesen.
+- Fokus 44 Gateway-/Tool-/Non-Tool-/Action-/Pacing-/Vision-Vertraege plus
+  persistenter Learn-Recall-Kreis gruen. Ruff, Compileall und Diffcheck gruen.
+  Unabhaengiger Abschlussreview ohne Critical/High/Medium.
+- Kein echter ChatDock-/Ollama-/App-Neustart-Livebeweis; B-738
+  `code-fix-pending-live-verification`, nicht `fixed`.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.

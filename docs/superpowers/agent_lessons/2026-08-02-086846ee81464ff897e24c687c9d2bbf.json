@@ -1,0 +1,10 @@
+{
+  "lesson_id": "086846ee81464ff897e24c687c9d2bbf",
+  "recorded_at": "2026-08-02T19:00:44+00:00",
+  "session_id": "811853fdb44a409b8e3696bfacb996c1",
+  "head_at_start": "983f83e772b66d00aefcf43c78fe10440de9738e",
+  "problem": "B-738 Brain-Kontext war nur im inneren LocalAgent-Prompt verdrahtet und persistentes LLM-Learn vermischte Daten-JSON mit Kontrollbefehlen.",
+  "cause": "Der reale ChatDock-Pfad endete bereits im aeusseren Orchestrator; zusaetzlich fehlten eindeutiger Gateway-Envelope und deterministischer User-Control-Prefix.",
+  "rule": "LLM-Integrationen am aeussersten realen Callgraph per Call-Capture pruefen; persistente Writes nur ueber markierten Envelope plus reservierten expliziten User-Control-Prefix erlauben.",
+  "applies_to": "agents/orchestrator_agent.py, services/brain_gateway.py, alle LLM-Tool/Non-Tool-Gateways"
+}

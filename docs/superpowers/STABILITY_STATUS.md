@@ -1,17 +1,17 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-02 19:34 Europe/Zurich
+Letztes Update: 2026-08-02 20:57 Europe/Zurich
 
-Gesamtfortschritt: **ca. 20–22 %**
+Gesamtfortschritt: **ca. 21–23 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade**
+Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
 | STAB-2 Acht Live-Workflows | **25 %** | W1 und W2 live-pass; Usermarker offen |
-| STAB-3 Brain/Lernen A/B | **ca. 10 %** | B-737 codefix gruen; echter A/B-Livebeweis offen |
+| STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
@@ -54,6 +54,12 @@ Aktiv: **ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade**
 - B-757 code-complete/live-pending: Stats-Schema und Stats-UI leiten Grenze
   aus 18 kanonischen Achsen ab; 6 Kernbelege plus verschaerfter Grenztest,
   Ruff/Compileall/Diffcheck gruen; Abschlussreview ohne relevante Findings.
+- B-738 code-complete/live-pending: sicherer modellunabhaengiger Gateway mit
+  Envelope, reserviertem Learn-Control-Prefix und B-411-Integration; Tool-
+  und Phi3/Gemma-Non-Tool-Chat erhalten projektisolierten Recall. Vision nutzt
+  read-only Recall-Miss-Fallback plus neueste Cut-Erklaerung. 44 Fokusbelege,
+  Learn-Recall-Kreis, Ruff/Compileall/Diffcheck gruen; Abschlussreview ohne
+  Critical/High/Medium. ChatDock-/Ollama-/Neustart-Livebeweis offen.
 - B-742: Clicklog-Launcher reicht App-Exitcode jetzt durch; Livebeweis offen.
 - D-085: User beobachtet jetzt echte Live-Workflows. D-078 bleibt für
   redundante breite Pytest-Suites bestehen.

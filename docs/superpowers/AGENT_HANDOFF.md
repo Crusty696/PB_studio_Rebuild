@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-738 Fokus-PASS / W3 Liveverify aktiv 2026-08-02 (newest)
+
+- Echter Orchestrator-Tool-/Non-Tool-Pfad erhaelt projektisolierten Recall.
+- Non-Tool-Gateway akzeptiert nur `pb_brain_gateway=v1`; persistentes Learn
+  zusaetzlich nur mit reserviertem User-Prefix wie `Merke dir:`/`Save:`.
+- B-411 bleibt fuer alle anderen unerreichbaren Action-Kommandos aktiv.
+- Vision-Caption und Moondream erhalten read-only Recall-Fallback plus neueste
+  Cut-Erklaerung; urspruenglicher Fachprompt bleibt letzte Anweisung.
+- Fokus 44 Tests plus Learn-Recall-Kreis, Ruff, Compileall und Diffcheck gruen;
+  unabhaengiger Abschlussreview ohne Critical/High/Medium.
+- Kein echter ChatDock-/Ollama-/Neustart-Livebeweis; B-738
+  `code-fix-pending-live-verification`.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
 ## B-757 Fokus-PASS / B-738 aktiv 2026-08-02 (newest)
 
 - `BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)` ist kanonische Stats-Grenze 18.
