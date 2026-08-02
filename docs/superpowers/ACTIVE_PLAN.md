@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.
+`ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -65,6 +65,12 @@ Syntax/Ruff sowie echter QThread-Interleaving-Beweis grün. Terminalsignal und
 Threadende binnen 2 s belegt; App-GUI-Liveklick/Usermarker offen. Nächste
 Root-Cause-Task ist B-750. B-754 (stale `completed_at` nach Cancel) bleibt
 eigener offener Bug.
+
+B-750 ist code-complete: sichtbare Onset-/AV-Pacing-Retries starten gezielte
+V2-Worker; Checkpoint-Reset bleibt atomar und auf Zielstage begrenzt. RED 5/5,
+final 13 fokussierte B-750/B-753/B-722-Tests sowie Syntax/Ruff grün.
+App-GUI-/Medien-Livebeweis bleibt gebündelt für W3 offen. Nächste Root-Cause-
+Task ist B-754.
 
 ## Agent Behavior
 

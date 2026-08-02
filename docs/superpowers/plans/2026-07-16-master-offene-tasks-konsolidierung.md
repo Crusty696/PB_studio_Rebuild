@@ -831,3 +831,15 @@ Decision: Vault
 - B-753: `code-fix-pending-live-verification`; Usermarker offen.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.
+
+### B-750 Audio-V2-Retry optionale Stages 2026-08-02
+
+- Root Cause: sichtbare optionale Step-Keys ohne MediaWorkspace-Dispatch;
+  Full-Pipeline-Start allein hätte done/degraded Zielstage per Checkpoint
+  erneut übersprungen.
+- Fix: gezielter V2-Retry mit atomarem Zielstage-Reset. Onset nimmt
+  `stem_gen` nur als rehydrierbare Prerequisite; AV-Pacing läuft isoliert.
+- RED 5/5; final 13/13 fokussierte B-750/B-753/B-722-Tests, Syntax/Ruff grün.
+- B-750: `code-fix-pending-live-verification`; App-GUI-/Medienbeweis offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.

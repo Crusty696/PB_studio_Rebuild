@@ -1523,6 +1523,35 @@ class MediaWorkspace(QWidget):
                 Qt.ConnectionType.QueuedConnection,
             )
 
+        elif step_key in ("onset_detection", "av_pacing_curves"):
+            from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+
+            label = (
+                "Onset-Erkennung"
+                if step_key == "onset_detection"
+                else "AV-Pacing-Kurven"
+            )
+            task_name = f"{label}: {title}"
+            task = task_manager.create_task(task_name, f"Audio-V2 {label} Retry")
+            worker = AudioPipelineV2Worker(
+                audio_id,
+                file_path,
+                retry_step_keys=(step_key,),
+            )
+            worker.task_id = task.task_id
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Audio-V2 Retry] {msg}"),
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.finished.connect(
+                lambda tid, res: (
+                    pb_window._console_append(f"[Audio-V2 Retry] {label} fertig"),
+                    pb_window.media_table_controller._refresh_media_table_debounced(),
+                    self.audio_analysis_panel.refresh(),
+                ),
+                Qt.ConnectionType.QueuedConnection,
+            )
+
         if worker:
             worker.error.connect(
                 lambda tid, err: (

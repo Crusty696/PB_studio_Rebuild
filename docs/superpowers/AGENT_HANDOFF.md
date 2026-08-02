@@ -2,7 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-753 QThread-PASS / B-750 Next 2026-08-02 (newest)
+## B-750 Fokus-PASS / B-754 Next 2026-08-02 (newest)
+
+- Root Cause: Statuspanel emittierte `onset_detection`/`av_pacing_curves`,
+  MediaWorkspace besaß keine Dispatch-Branches. Vollpipeline-Retry hätte bei
+  bereits done/degraded Stage wegen Checkpoint erneut übersprungen.
+- Fix: gezielter V2-Retryworker, atomarer Zielstage-Reset, Onset mit
+  rehydrierbarer Stem-Prerequisite, AV-Pacing allein.
+- RED 5/5; final 13/13 fokussierte B-750/B-753/B-722-Tests, Syntax/Ruff grün.
+- Kein App-GUI-/Medien-Livebeweis; Status
+  `code-fix-pending-live-verification`, Usermarker offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+## B-753 QThread-PASS / B-750 Next 2026-08-02
 
 - Root Cause: `AudioPipelineV2Worker.run()` kehrte bei vor Start gesetztem
   Cancel ohne `finished`/`error` zurück; Dispatcher/QThread/UI-Batch konnten

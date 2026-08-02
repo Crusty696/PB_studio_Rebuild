@@ -269,6 +269,27 @@ def mark_stage_done(track_id: int, stage_name: str) -> None:
             _save_meta_atomic(track_id, meta)
 
 
+def reset_stages(track_id: int, stage_names: tuple[str, ...]) -> None:
+    """Entfernt gezielt Stage-Done-Marker für einen sichtbaren Retry.
+
+    B-750: Ein kompletter V2-Worker würde eine bereits erfolgreiche Stage
+    sonst per Checkpoint überspringen. Der Read-Modify-Write nutzt denselben
+    Lock und atomaren Writer wie ``mark_stage_done``; andere Stage-Marker
+    bleiben in ihrer Reihenfolge erhalten.
+    """
+    requested = set(stage_names)
+    if not requested:
+        return
+    with _CheckpointLock(stem_cache.cache_meta_path(track_id)):
+        meta = _ensure_meta(track_id)
+        current = list(meta.get("stages_done", []))
+        remaining = [name for name in current if name not in requested]
+        if remaining == current:
+            return
+        meta["stages_done"] = remaining
+        _save_meta_atomic(track_id, meta)
+
+
 def is_stage_done(track_id: int, stage_name: str) -> bool:
     meta = stem_cache.load_cache_meta(track_id)
     if not meta:

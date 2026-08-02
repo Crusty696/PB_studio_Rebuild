@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8c41c932c9874cc3b2cab4310a900f56",
+  "recorded_at": "2026-08-02T11:21:03+00:00",
+  "session_id": "4ef14dcc7294479084f44b303c276935",
+  "head_at_start": "19434c873d21559ef31b4c4d6ce393d3281e118d",
+  "problem": "Visible onset and AV-pacing retry actions emitted UI step keys that MediaWorkspace did not dispatch",
+  "cause": "Optional Audio-V2 stages were added to the status panel without a matching worker dispatch path; a naive full retry would also be skipped by done checkpoints",
+  "rule": "Every visible analysis step needs a dispatch contract; targeted retries must reset only requested checkpoint stages inside the worker and include only required prerequisites",
+  "applies_to": "AnalysisStatusPanel, MediaWorkspace, AudioPipelineV2Worker, audio pipeline checkpoints"
+}
