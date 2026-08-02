@@ -15,3 +15,22 @@ def test_mark_cancelled_sets_retryable_status(test_engine, monkeypatch):
     assert entry.status == "error"
     assert entry.error_message == "cancelled"
 
+
+def test_mark_cancelled_clears_completed_at_from_previous_done(
+    test_engine,
+    monkeypatch,
+):
+    from services import analysis_status_service as status_service
+
+    monkeypatch.setattr(status_service, "nullpool_session", database.nullpool_session)
+
+    status_service.mark_done("audio", 14, "av_pacing_curves", {"points": 3})
+    assert status_service.get_status("audio", 14)["av_pacing_curves"].completed_at
+
+    status_service.mark_started("audio", 14, "av_pacing_curves")
+    status_service.mark_cancelled("audio", 14, "av_pacing_curves")
+
+    entry = status_service.get_status("audio", 14)["av_pacing_curves"]
+    assert entry.status == "error"
+    assert entry.error_message == "cancelled"
+    assert entry.completed_at is None

@@ -892,3 +892,16 @@ Decision: Vault
 - B-750 → `code-fix-pending-live-verification`; App-GUI-/Medienbeweis W3 offen.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+#### B-754 Cancel-Zeitsemantik Fokus-PASS 2026-08-02
+
+- Root Cause: `mark_cancelled()` aktualisierte bei bestehender Done-Row nur
+  Status/Fehlermeldung und behielt altes `completed_at`.
+- Fix: `completed_at=None` im Conflict-Update.
+- Echter Done→Started→Cancel-Vertrag RED→GREEN; drei direkte
+  Cancel-/Idempotenztests, Syntax, Ruff und Diffcheck grün.
+- Kein App-/DB-Live-Retry; B-754 `code-fix-pending-live-verification`.
+- Neue getrennte Mediums: B-755 Running-Altzeit; B-756 Video-Cancel via
+  `mark_error("cancelled")`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-755 Analysis-Retry running muss stale completed_at löschen`.

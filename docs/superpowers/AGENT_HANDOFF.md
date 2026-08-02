@@ -2,7 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-750 Stand-6 Abschlussreview PASS 2026-08-02 (newest)
+## B-754 Fokus-PASS / B-755 aktiv 2026-08-02 (newest)
+
+- Root Cause: `mark_cancelled()`-Conflict-Update behielt `completed_at` einer
+  früheren Done-Row.
+- Fix: `completed_at=None`; echter Done→Started→Cancel-RED/GREEN-Vertrag.
+- Minimalbeweis: drei direkte Cancel-/Idempotenztests, Syntax, Ruff, Diffcheck
+  grün. Kein App-/DB-Live-Retry; B-754 `code-fix-pending-live-verification`.
+- Separat entdeckt: B-755 stale Altzeit während `running`; B-756 Video-Cancel
+  via `mark_error("cancelled")`. Keine Mitfixes.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-755 Analysis-Retry running muss stale completed_at löschen`.
+
+## B-750 Stand-6 Abschlussreview PASS 2026-08-02
 
 - Re-Review-Lücken geschlossen: ehrliche Cancel-/Konfliktklassifizierung;
   Claim-Release bei Setupfehler, Shutdown, terminal/no-thread und Fast-Finish.

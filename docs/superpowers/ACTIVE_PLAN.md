@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+`ROOT-CAUSE / B-755 Analysis-Retry running muss stale completed_at löschen`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -79,7 +79,14 @@ Shutdown-, terminal/no-thread- und Fast-Finish-Pfade ab. Final 65 direkte
 Lifecycle-/B-750-Regressionen, Syntax, Ruff und Diff-Check grün;
 unabhängiger Abschlussreview PASS ohne Critical/High/Medium. B-750 bleibt
 `code-fix-pending-live-verification`, weil App-GUI-/Medienbeweis W3 offen ist.
-Nächste einzige Task: B-754.
+Nächste einzige Task: B-755.
+
+B-754 ist code-complete: Done→Started→Cancel löscht stale `completed_at` im
+zentralen `mark_cancelled()`-Conflict-Update. RED→GREEN; drei direkte
+Cancel-/Idempotenzverträge, Syntax, Ruff und Diffcheck grün. App-/DB-Live-Retry
+bleibt W3. Parallel-Mapping fand getrennt B-755 (`running` behält Altzeit) und
+B-756 (Video-Cancel via `mark_error("cancelled")`); B-755 ist aktiv, B-756
+wartet.
 
 ## Agent Behavior
 
