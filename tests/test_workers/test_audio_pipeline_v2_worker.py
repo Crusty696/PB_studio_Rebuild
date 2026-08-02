@@ -129,4 +129,7 @@ def test_worker_cancellation(qapp, tmp_path, monkeypatch):
     worker.run()
 
     assert "fin" not in got
-    assert "err" not in got
+    assert got == {
+        "tid": 7,
+        "err": "Audio-V2 Pipeline abgebrochen (User-Cancel vor Start)",
+    }

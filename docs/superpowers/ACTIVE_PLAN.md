@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
+`ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -59,10 +59,12 @@ bewiesen. B-751 ist Code+Current-live abgeschlossen: AV-Pacing stoppt bei
 Chunk 1, Task bleibt `cancelled`, persistierter Retry-Vertrag ist
 `status=error/error_message=cancelled`, kein Worker-ERROR und kein falscher
 Batch-Erfolg. 13 Fokustests, Syntax/Ruff, Host-DB-Manifeste und isolierter
-Runtime-Quickcheck gruen; Usermarker offen. Parallel-Review bestätigte B-753:
-Pre-Start-Cancel sendet kein Terminalsignal und kann Batch/UI hängen lassen.
-B-753 wird vor B-750 geschlossen. B-754 (stale `completed_at` nach Cancel)
-bleibt eigener offener Bug.
+Runtime-Quickcheck gruen; Usermarker offen. B-753 Pre-Start-Cancel ist
+code-complete: RED→GREEN, 15 fokussierte B-753/B-751/B-724-Tests,
+Syntax/Ruff sowie echter QThread-Interleaving-Beweis grün. Terminalsignal und
+Threadende binnen 2 s belegt; App-GUI-Liveklick/Usermarker offen. Nächste
+Root-Cause-Task ist B-750. B-754 (stale `completed_at` nach Cancel) bleibt
+eigener offener Bug.
 
 ## Agent Behavior
 

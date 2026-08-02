@@ -1,0 +1,10 @@
+{
+  "lesson_id": "50cef1a9effb4483b6cdd7bd65f57634",
+  "recorded_at": "2026-08-02T11:03:07+00:00",
+  "session_id": "5a6d26bd3fe243499168458fdf06bbe0",
+  "head_at_start": "c09cdb16e4e25a4e8d8f586d158cd013974da9a1",
+  "problem": "Audio-V2 worker returned before emitting terminal signals when cancel was already set before QThread start",
+  "cause": "run() had an early should_stop() return before the shared exception and terminal-signal path",
+  "rule": "Every worker exit path, including pre-start cancellation, must emit exactly one terminal signal so dispatcher threads and UI batches can finish",
+  "applies_to": "QObject workers, QThread dispatch, cancellation, batch controllers"
+}

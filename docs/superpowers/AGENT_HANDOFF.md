@@ -2,7 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-751 Live-PASS / B-750 Next 2026-08-02 (newest)
+## B-753 QThread-PASS / B-750 Next 2026-08-02 (newest)
+
+- Root Cause: `AudioPipelineV2Worker.run()` kehrte bei vor Start gesetztem
+  Cancel ohne `finished`/`error` zurück; Dispatcher/QThread/UI-Batch konnten
+  offen bleiben.
+- Fix: genau ein terminaler `User-Cancel vor Start`-Transport; keine Stage,
+  kein AnalysisStatus-Write.
+- RED 2/2 exakt reproduziert; final 15/15 fokussierte B-753/B-751/B-724-
+  Tests sowie Syntax/Ruff grün.
+- Erzwungenes echtes QThread-Interleaving: Thread endet binnen 2 s, exakt ein
+  Terminalsignal. Kein App-GUI-Liveklick; `fixed`-Usermarker offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.
+
+## B-751 Live-PASS / B-753 Next 2026-08-02
 
 - Audio-V2 AV-Pacing wurde im isolierten STAB-W3 bei Chunk 1 sichtbar
   abgebrochen.
@@ -17,9 +31,8 @@ This file is a repository-local continuity checkpoint for all agents.
 - B-751 Code+Live abgeschlossen; `fixed`-Usermarker offen.
 - Neue getrennte Befunde: B-753 Pre-Start-Cancel ohne Terminalsignal; B-754
   stale `completed_at` nach Cancel.
-- Naechste einzige Task:
+- Damalige nächste Task:
   `ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
-- Danach B-750 optionaler Retry.
 
 ## B-752 Live-PASS / B-751 Next 2026-08-02 (newest)
 

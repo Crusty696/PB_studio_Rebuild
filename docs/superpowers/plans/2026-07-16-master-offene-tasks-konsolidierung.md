@@ -819,3 +819,15 @@ Decision: Vault
 - Naechste einzige Task:
   `ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
 - Danach B-750 optionaler Retry.
+
+### B-753 Audio-V2 Pre-Start-Cancel 2026-08-02
+
+- Root Cause: früher `should_stop()`-Return ohne Terminalsignal.
+- RED 2/2 bestätigte fehlendes Worker-Signal und offenen Controller-Batch.
+- Fix emittiert genau einen `User-Cancel vor Start`-Transport; keine Stage und
+  kein DB-Statuswrite werden begonnen.
+- Final: 15/15 fokussierte B-753/B-751/B-724-Tests, Syntax/Ruff und echtes
+  QThread-Interleaving grün. Threadende binnen 2 s; kein App-GUI-Liveklick.
+- B-753: `code-fix-pending-live-verification`; Usermarker offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.

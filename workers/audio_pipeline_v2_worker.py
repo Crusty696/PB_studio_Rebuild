@@ -58,6 +58,13 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
         self._errored = False
         try:
             if self.should_stop():
+                self._errored = True
+                message = "Audio-V2 Pipeline abgebrochen (User-Cancel vor Start)"
+                logger.info(
+                    "AudioPipelineV2Worker vor Start abgebrochen (track=%s)",
+                    self.audio_track_id,
+                )
+                self.error.emit(self.audio_track_id, message)
                 return
             from services.audio_pipeline.orchestrator import AudioAnalysisPipeline
             from services.audio_pipeline.context import PipelineContext
