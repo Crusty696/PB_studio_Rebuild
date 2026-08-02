@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+`REVIEW / B-750 Follow-up-Commit unabhängig auf Cross-Path-Single-Flight prüfen`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -66,11 +66,14 @@ Threadende binnen 2 s belegt; App-GUI-Liveklick/Usermarker offen. Nächste
 Root-Cause-Task ist B-750. B-754 (stale `completed_at` nach Cancel) bleibt
 eigener offener Bug.
 
-B-750 ist code-complete: sichtbare Onset-/AV-Pacing-Retries starten gezielte
-V2-Worker; Checkpoint-Reset bleibt atomar und auf Zielstage begrenzt. RED 5/5,
-final 13 fokussierte B-750/B-753/B-722-Tests sowie Syntax/Ruff grün.
-App-GUI-/Medien-Livebeweis bleibt gebündelt für W3 offen. Nächste Root-Cause-
-Task ist B-754.
+B-750-Follow-up ist code-complete: Canceltext ehrlich; Audio-Retry-all startet
+einen resumierbaren Strict-Sequential-Worker; Onset resettiert/läuft
+`stem_gen` zur Artefakt-Selbstheilung; zentraler Dispatcher-Claim schützt
+Einzel-V2, Batch-V2, Retry und kollidierende StemSeparation pro Projekt/Track.
+Release erfolgt erst im QThread-Cleanup. Review-RED 5/5 plus Cross-Path-RED
+3/3; final 27 fokussierte B-750/Dispatcher/B-751/B-222-Tests sowie
+Syntax/Ruff grün. App-GUI-/Medien-Livebeweis bleibt gebündelt für W3 offen.
+Unabhängiges Re-Review des Follow-up-Commits ist nächste Task; B-754 wartet.
 
 ## Agent Behavior
 

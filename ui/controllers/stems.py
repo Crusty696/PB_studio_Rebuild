@@ -149,7 +149,6 @@ class StemsController(PBComponent):
         self.window.progress_bar.setValue(0)
         self.window.progress_bar.setVisible(True)
         self.window.progress_bar.setFormat("KI-Stems: %p%% — Initialisierung...")
-        self.window.console_text.append(f"[Stems] Starte KI-Stem-Separation fuer '{title}'...")
 
         worker = StemSeparationWorker(track_id)
         worker.task_id = task.task_id
@@ -167,6 +166,11 @@ class StemsController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker, on_error=lambda *_args: None)
+        if getattr(worker, "_start_conflict", None):
+            return
+        self.window.console_text.append(
+            f"[Stems] Starte KI-Stem-Separation fuer '{title}'..."
+        )
 
     def _on_stem_progress(self, pct: int, msg: str):
         """B-290: Demucs-Progress an progress_bar binden."""

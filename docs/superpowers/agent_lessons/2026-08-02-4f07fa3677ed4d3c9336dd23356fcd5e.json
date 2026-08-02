@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4f07fa3677ed4d3c9336dd23356fcd5e",
+  "recorded_at": "2026-08-02T14:01:44+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "Ein lokaler Retry-Guard verhinderte Doppelklicks, ließ aber Full-V2 und Stem-Worker auf denselben Checkpoint- und Artefaktpfaden kollidieren.",
+  "cause": "Single-Flight war am sichtbaren UI-Handler statt an gemeinsamer Worker-Dispatch-Ressource modelliert; abhängige Startpfade wurden nicht gemeinsam betrachtet.",
+  "rule": "Single-Flight nach gemeinsam geschriebener Ressource und Projektidentität zentral am Dispatcher claimen; alle kollidierenden Workerklassen einschließen; Claim erst beim echten Thread-Cleanup freigeben.",
+  "applies_to": "Audio-V2, Stem-Separation, Retry-/Batch-Worker und weitere Worker mit gemeinsamen DB-/Artefaktwrites"
+}

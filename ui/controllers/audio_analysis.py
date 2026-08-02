@@ -128,6 +128,8 @@ class AudioAnalysisController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
+        if getattr(worker, "_start_conflict", None):
+            return
         self.window.console_text.append(f"[Audio-V2] Starte Pipeline fuer '{title}'...")
 
     def _detect_key(self):
@@ -546,6 +548,8 @@ class AudioAnalysisController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         self.window.worker_dispatcher._start_worker_thread(worker)
+        if getattr(worker, "_start_conflict", None):
+            return
         self.window.console_text.append(f"[Audio-V2] Starte Pipeline fuer '{title}'...")
 
     def _v2_advance(self):

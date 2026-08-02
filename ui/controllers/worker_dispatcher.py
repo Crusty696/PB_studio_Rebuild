@@ -7,6 +7,9 @@ Kapselt die gesamte Worker/Thread-Lifecycle-Logik:
 """
 
 import logging
+import threading
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QThread, QObject
 from services.task_manager import GlobalTaskManager
 from ui.base_component import PBComponent
@@ -16,6 +19,72 @@ from ui.base_component import PBComponent
 _GLOBAL_ACTIVE_THREADS: list[tuple] = []
 
 logger = logging.getLogger(__name__)
+
+_WORKER_RESOURCE_LOCK = threading.Lock()
+_WORKER_RESOURCE_OWNERS: dict[tuple[str, str, int], int] = {}
+
+
+def _worker_resource_keys(worker: QObject) -> tuple[tuple[str, str, int], ...]:
+    """B-750: gemeinsame Schreibressourcen eines Audio-Workers.
+
+    Projektpfad ist Teil des Keys: gleiche Track-ID in zwei Projekten darf
+    parallel laufen. Jeder V2-Worker kollidiert mit anderem V2 desselben
+    Tracks. Full-/Onset-V2 beanspruchen zusätzlich Stem-Artefakte; reines
+    AV-Pacing nicht.
+    """
+    from database import session as db_session
+    from workers import StemSeparationWorker
+    from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+
+    root = getattr(db_session, "APP_ROOT", None)
+    project_key = (
+        str(Path(root).resolve()).casefold() if root is not None else "<no-project>"
+    )
+    if isinstance(worker, AudioPipelineV2Worker):
+        track_id = int(worker.audio_track_id)
+        keys = [("audio-v2", project_key, track_id)]
+        retry_keys = set(getattr(worker, "retry_step_keys", ()))
+        if not retry_keys or "onset_detection" in retry_keys:
+            keys.append(("audio-stems", project_key, track_id))
+        return tuple(keys)
+    if isinstance(worker, StemSeparationWorker):
+        return (("audio-stems", project_key, int(worker.track_id)),)
+    return ()
+
+
+def _try_claim_worker_resources(worker: QObject) -> bool:
+    """Atomarer Single-Flight-Claim vor Workerstart."""
+    existing = getattr(worker, "_pb_resource_claims", None)
+    if existing:
+        return True
+    keys = _worker_resource_keys(worker)
+    if not keys:
+        return True
+    owner = id(worker)
+    with _WORKER_RESOURCE_LOCK:
+        if any(
+            key in _WORKER_RESOURCE_OWNERS
+            and _WORKER_RESOURCE_OWNERS[key] != owner
+            for key in keys
+        ):
+            return False
+        for key in keys:
+            _WORKER_RESOURCE_OWNERS[key] = owner
+    worker._pb_resource_claims = keys
+    return True
+
+
+def _release_worker_resources(worker: QObject) -> None:
+    """Idempotentes Release; Dispatcher ruft dies erst beim Thread-Cleanup."""
+    keys = tuple(getattr(worker, "_pb_resource_claims", ()) or ())
+    if not keys:
+        return
+    owner = id(worker)
+    with _WORKER_RESOURCE_LOCK:
+        for key in keys:
+            if _WORKER_RESOURCE_OWNERS.get(key) == owner:
+                _WORKER_RESOURCE_OWNERS.pop(key, None)
+    worker._pb_resource_claims = ()
 
 class WorkerDispatcherController(PBComponent):
     """Controller fuer MainWindow: kapselt Worker/Thread-Spawning und -Cleanup."""
@@ -30,6 +99,28 @@ class WorkerDispatcherController(PBComponent):
             task = tm.get_task(existing_task_id)
         else:
             task = None
+
+        if not _try_claim_worker_resources(worker):
+            track_id = getattr(
+                worker,
+                "audio_track_id",
+                getattr(worker, "track_id", "?"),
+            )
+            message = (
+                f"Bereits aktiv: Audioanalyse für Track #{track_id} "
+                "im aktuellen Projekt."
+            )
+            worker._start_conflict = message
+            logger.warning("Workerstart blockiert: %s", message)
+            if task and existing_task_id:
+                tm.finish_task(existing_task_id, "error", message)
+            if on_error:
+                on_error(track_id, message)
+            try:
+                worker.error.emit(track_id, message)
+            except (AttributeError, TypeError):
+                logger.exception("Konfliktsignal für %s fehlgeschlagen", worker_name)
+            return None
 
         if task:
             thread = QThread()
@@ -88,15 +179,23 @@ class WorkerDispatcherController(PBComponent):
                 lambda _t=thread, _w=worker: self._cleanup_worker(_t, _w),
                 qc,
             )
-            thread.start()
+            try:
+                thread.start()
+            except Exception:
+                _release_worker_resources(worker)
+                raise
             return thread
         else:
-            task = tm.start_task(
-                name=worker_name,
-                worker=worker,
-                on_finish=on_finish,
-                on_error=on_error,
-            )
+            try:
+                task = tm.start_task(
+                    name=worker_name,
+                    worker=worker,
+                    on_finish=on_finish,
+                    on_error=on_error,
+                )
+            except Exception:
+                _release_worker_resources(worker)
+                raise
             if isinstance(task, str):
                 self.window._active_workers.append(worker)
                 return None
@@ -135,3 +234,4 @@ class WorkerDispatcherController(PBComponent):
         pair = (thread, worker)
         if pair in _GLOBAL_ACTIVE_THREADS:
             _GLOBAL_ACTIVE_THREADS.remove(pair)
+        _release_worker_resources(worker)

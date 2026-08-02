@@ -14,15 +14,15 @@ def test_checkpoint_reset_stages_removes_only_requested(tmp_path, monkeypatch):
     for name in ("stem_gen", "onset", "av_pacing"):
         checkpoint.mark_stage_done(7, name)
 
-    checkpoint.reset_stages(7, ("onset",))
+    checkpoint.reset_stages(7, ("stem_gen", "onset"))
 
-    assert checkpoint.stages_done(7) == ["stem_gen", "av_pacing"]
+    assert checkpoint.stages_done(7) == ["av_pacing"]
 
 
 @pytest.mark.parametrize(
     ("step_key", "expected_run", "expected_rehydrate"),
     [
-        ("onset_detection", ["onset"], ["stem_gen"]),
+        ("onset_detection", ["stem_gen", "onset"], []),
         ("av_pacing_curves", ["av_pacing"], []),
     ],
 )
@@ -36,6 +36,7 @@ def test_targeted_worker_runs_only_requested_stage_and_prerequisite(
     ran: list[str] = []
     rehydrated: list[str] = []
     reset: list[tuple[int, tuple[str, ...]]] = []
+    reset_names: set[str] = set()
 
     class _Stage:
         def __init__(self, name):
@@ -51,16 +52,19 @@ def test_targeted_worker_runs_only_requested_stage_and_prerequisite(
     fake_stages = [_Stage("stem_gen"), _Stage("onset"), _Stage("av_pacing")]
     monkeypatch.setattr(stages_module, "build_default_stages", lambda: fake_stages)
     monkeypatch.setattr(checkpoint, "invalidate_if_stale", lambda *_args: False)
-    monkeypatch.setattr(
-        checkpoint,
-        "reset_stages",
-        lambda track_id, names: reset.append((track_id, tuple(names))),
-        raising=False,
-    )
+    def _reset(track_id, names):
+        reset.append((track_id, tuple(names)))
+        reset_names.update(names)
+
+    monkeypatch.setattr(checkpoint, "reset_stages", _reset)
     monkeypatch.setattr(
         checkpoint,
         "is_stage_done",
-        lambda _track_id, name: name == "stem_gen" and step_key == "onset_detection",
+        lambda _track_id, name: (
+            name == "stem_gen"
+            and step_key == "onset_detection"
+            and name not in reset_names
+        ),
     )
     monkeypatch.setattr(checkpoint, "mark_stage_done", lambda *_args: None)
     monkeypatch.setattr(status_module, "mark_started", lambda *_args: None)

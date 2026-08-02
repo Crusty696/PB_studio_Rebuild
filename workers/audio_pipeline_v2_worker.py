@@ -100,24 +100,27 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                 retry_stages = tuple(
                     _RETRY_STEP_TO_STAGE[key] for key in self.retry_step_keys
                 )
-                # Stale Track-ID/Inhalt zuerst invalidieren; danach nur die
-                # explizit angeforderten Done-Marker entfernen. Prerequisites
-                # bleiben done und werden vom Orchestrator rehydriert.
-                checkpoint.invalidate_if_stale(self.audio_track_id, self.file_path)
-                checkpoint.reset_stages(self.audio_track_id, retry_stages)
                 selected = set(retry_stages)
                 for stage_name in retry_stages:
                     selected.update(_RETRY_PREREQUISITES[stage_name])
-                stages = [
-                    stage for stage in stages
+                selected_stages = tuple(
+                    getattr(stage, "name", "") for stage in stages
                     if getattr(stage, "name", None) in selected
-                ]
-                available = {getattr(stage, "name", None) for stage in stages}
-                missing = set(retry_stages) - available
+                )
+                missing = selected - set(selected_stages)
                 if missing:
                     raise RuntimeError(
                         f"Audio-V2-Retry-Stages fehlen: {sorted(missing)}"
                     )
+                # Prerequisites mit resetten und ausfuehren: deren Stage darf
+                # gueltige Artefakte schnell wiederverwenden, muss fehlende
+                # Artefakte trotz altem Done-Marker aber selbst reparieren.
+                checkpoint.invalidate_if_stale(self.audio_track_id, self.file_path)
+                checkpoint.reset_stages(self.audio_track_id, selected_stages)
+                stages = [
+                    stage for stage in stages
+                    if getattr(stage, "name", None) in selected
+                ]
             total = max(1, len(stages))
             pipeline = AudioAnalysisPipeline(stages)
 

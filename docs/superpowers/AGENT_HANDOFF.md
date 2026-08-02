@@ -2,7 +2,34 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-750 Fokus-PASS / B-754 Next 2026-08-02 (newest)
+## B-750 Review-Follow-up Fokus-PASS 2026-08-02 (newest)
+
+- Review-RED: Cancel-Ehrlichkeit, Stem-Selbstheilung, Retry-all und
+  Single-Flight reproduziert.
+- Fix: Audio-Retry-all genau ein Full-Resume-Worker; Onset läuft `stem_gen`
+  selbstheilend vor Onset; Cancel/Startkonflikt ehrlich sichtbar.
+- Zentraler WorkerDispatcher-Claim: pro Projekt/Track V2↔V2 sowie
+  Full/Onset↔Stem blockiert; Release erst im echten QThread-Cleanup.
+- Review-RED 5/5 plus Cross-Path-RED 3/3; final 27 fokussierte Tests,
+  `py_compile` und Ruff grün.
+- Kein App-GUI-/Medien-Livebeweis; kein `fixed`.
+- Nächste einzige Task:
+  `REVIEW / B-750 Follow-up-Commit unabhängig auf Cross-Path-Single-Flight prüfen`.
+- B-754 wartet.
+
+## B-750 Review-Fund 2026-08-02
+
+- Unabhängiger Review auf `07161bb`: 13/13 Fokus grün, aber kein PASS.
+- Medium 1: Cancel wird im neuen MediaWorkspace-Handler als `Error` gemeldet.
+- Medium 2: done `stem_gen` mit fehlendem Artefakt wird nur rehydriert;
+  Onset-Retry baut Stem nicht selbstheilend neu.
+- Medium 3: Doppelklick/Retry-all startet konkurrierende gleiche oder abhängige
+  Trackworker; Checkpoint-Lock schützt nicht Stage-/DB-/Artefaktraces.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Review-Follow-up: Cancel, Stem-Selbstheilung, Single-Flight`.
+- B-754 wartet.
+
+## B-750 Fokus-PASS / B-754 geplant 2026-08-02
 
 - Root Cause: Statuspanel emittierte `onset_detection`/`av_pacing_curves`,
   MediaWorkspace besaß keine Dispatch-Branches. Vollpipeline-Retry hätte bei
@@ -12,7 +39,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - RED 5/5; final 13/13 fokussierte B-750/B-753/B-722-Tests, Syntax/Ruff grün.
 - Kein App-GUI-/Medien-Livebeweis; Status
   `code-fix-pending-live-verification`, Usermarker offen.
-- Nächste einzige Task:
+- Damals geplante nächste Task:
   `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
 
 ## B-753 QThread-PASS / B-750 Next 2026-08-02

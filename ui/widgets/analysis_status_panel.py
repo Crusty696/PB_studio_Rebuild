@@ -699,6 +699,13 @@ class AnalysisStatusPanel(QWidget):
             or expected_id != self._media_id
         ):
             return  # superseded — anderes Media inzwischen aktiv
+        if expected_type == "audio":
+            # Audio-V2 muss strict-sequential bleiben. Ein resumierbarer
+            # Vollworker ueberspringt Done-Checkpoints und arbeitet alle
+            # fehlerhaften/ausstehenden Stages in Pipeline-Reihenfolge ab.
+            logger.info("Retrying %d audio error steps sequentially", len(error_steps))
+            self.analysis_requested.emit("audio_v2_retry_errors")
+            return
         for step_key in error_steps:
             logger.info("Retrying error step: %s", step_key)
             self.analysis_requested.emit(step_key)

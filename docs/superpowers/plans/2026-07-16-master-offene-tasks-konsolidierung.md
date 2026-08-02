@@ -843,3 +843,26 @@ Decision: Vault
 - B-750: `code-fix-pending-live-verification`; App-GUI-/Medienbeweis offen.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+#### B-750 Parallelreview-Follow-up 2026-08-02
+
+- Commit `07161bb` nicht freigegeben: Cancel-Fehlertext, fehlende
+  Stem-Selbstheilung und Retry-Single-Flight bleiben Medium-offen.
+- B-750 zurück auf `in_progress`; B-754 wartet.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Review-Follow-up: Cancel, Stem-Selbstheilung, Single-Flight`.
+
+#### B-750 Review-Follow-up Fokus-PASS 2026-08-02
+
+- Cancel- und Konflikttexte sind ehrlich; kein falsches `Error:`/Startsignal.
+- Audio-Retry-all startet genau einen resumierbaren Strict-Sequential-Worker.
+- Onset-Retry resettiert/läuft `stem_gen`; gültige Artefakte werden reused,
+  fehlende werden durch Stem-Stage neu gebaut.
+- WorkerDispatcher hält atomaren Projekt-/Track-Claim über Einzel-V2,
+  Batch-V2, Retry und StemSeparation; Release erst im QThread-Cleanup.
+- Review-RED 5/5, Cross-Path-RED 3/3; final 27 fokussierte Tests,
+  `py_compile` und Ruff grün. Breite Suite/GPU/Medien bewusst später.
+- B-750 bleibt bis unabhängigem Re-Review `in_progress`; App-Livebeweis offen.
+- Nächste einzige Task:
+  `REVIEW / B-750 Follow-up-Commit unabhängig auf Cross-Path-Single-Flight prüfen`.
+- B-754 wartet.
