@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.
+`ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -55,9 +55,14 @@ DB-Zugriff; 6/6 geschuetzte Pre-Pfade blieben unveraendert. Usermarker offen.
 W3 wird ausschließlich mit `gui_harness.py start --stability-project ...`
 fortgesetzt.
 B-752 None-Summary-Crash wurde im echten Resume-Pfad behoben und Current-live
-bewiesen. W3-Cancel stoppte AV-Pacing kooperativ bei Chunk 1; aktueller Defekt:
-Worker/AnalysisStatus behandeln User-Cancel als `error`/`Worker-Fehler` und der
-Komplett-Controller kann danach Erfolgstext schreiben. B-751 blockiert Retry.
+bewiesen. B-751 ist Code+Current-live abgeschlossen: AV-Pacing stoppt bei
+Chunk 1, Task bleibt `cancelled`, persistierter Retry-Vertrag ist
+`status=error/error_message=cancelled`, kein Worker-ERROR und kein falscher
+Batch-Erfolg. 13 Fokustests, Syntax/Ruff, Host-DB-Manifeste und isolierter
+Runtime-Quickcheck gruen; Usermarker offen. Parallel-Review bestätigte B-753:
+Pre-Start-Cancel sendet kein Terminalsignal und kann Batch/UI hängen lassen.
+B-753 wird vor B-750 geschlossen. B-754 (stale `completed_at` nach Cancel)
+bleibt eigener offener Bug.
 
 ## Agent Behavior
 

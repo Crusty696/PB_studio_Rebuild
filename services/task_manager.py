@@ -326,18 +326,18 @@ class GlobalTaskManager(QObject):
         Controller-Code bleibt unveraendert wirksam.
         """
         err_msg = extract_worker_error_message(args)
-        logging.error(
-            "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-            name, task_id, err_msg,
-        )
         existing = self.get_task(task_id)
         if existing is not None and existing.status == "cancelled":
             logging.info(
                 "[TaskEngine] B-724: Task %s ist bereits 'cancelled' — "
-                "spaeter Worker-Fehler wird nicht als Status uebernommen (%s)",
+                "spaeter Worker-Abbruch wird nicht als Fehler uebernommen (%s)",
                 task_id, err_msg,
             )
             return
+        logging.error(
+            "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+            name, task_id, err_msg,
+        )
         self.finish_task(task_id, status="error", message=err_msg)
 
     def _start_in_main_thread(

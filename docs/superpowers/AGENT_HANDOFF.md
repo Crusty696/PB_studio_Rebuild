@@ -2,6 +2,25 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-751 Live-PASS / B-750 Next 2026-08-02 (newest)
+
+- Audio-V2 AV-Pacing wurde im isolierten STAB-W3 bei Chunk 1 sichtbar
+  abgebrochen.
+- Worker markiert Cancel retry-faehig; Task bleibt `cancelled`; B-724 loggt
+  INFO statt `Worker-Fehler`.
+- Batch stoppt ohne `_v2_done`-Erhoehung und ohne falsches `Fertig`.
+- 13/13 Fokus + angrenzende B-713/B-724, Syntax/Ruff gruen.
+- Current-live: kein Worker-/Analysis-Error, kein Batch-Erfolg, keine neue
+  UI-Exception; App responsive und graceful beendet.
+- Host-DB/WAL/SHM: 15/15 Pre/Post-Signaturen unveraendert. Isolierte W3-DB:
+  quick_check ok, Alembic Head, WAL/SHM absent.
+- B-751 Code+Live abgeschlossen; `fixed`-Usermarker offen.
+- Neue getrennte Befunde: B-753 Pre-Start-Cancel ohne Terminalsignal; B-754
+  stale `completed_at` nach Cancel.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
+- Danach B-750 optionaler Retry.
+
 ## B-752 Live-PASS / B-751 Next 2026-08-02 (newest)
 
 - Audio-V2 Resume mit neun geskippten Stages erzeugte neun Crashdialoge:

@@ -8,7 +8,7 @@ Kapselt die gesamte Worker/Thread-Lifecycle-Logik:
 
 import logging
 from PySide6.QtCore import Qt, QThread, QObject
-from services.task_manager import GlobalTaskManager, extract_worker_error_message
+from services.task_manager import GlobalTaskManager
 from ui.base_component import PBComponent
 
 # P-017: Legacy Thread-Registry — nur noch fuer GC-Schutz,
@@ -55,12 +55,7 @@ class WorkerDispatcherController(PBComponent):
                 worker.error.connect(on_error, qc)
             else:
                 def _default_error_handler(*args, _tid=existing_task_id, _name=worker_name, _tm=tm):
-                    err_msg = extract_worker_error_message(args)
-                    logging.error(
-                        "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-                        _name, _tid, err_msg,
-                    )
-                    _tm.finish_task(_tid, status="error", message=err_msg)
+                    _tm._handle_worker_error(_tid, _name, args)
                 worker.error.connect(_default_error_handler, qc)
 
             if hasattr(worker, "progress"):

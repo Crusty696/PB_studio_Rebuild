@@ -144,6 +144,21 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             self.finished.emit(self.audio_track_id, dict(ctx.results))
         except Exception as e:  # noqa: BLE001
             self._errored = True
+            is_cancelled = self.should_stop() or "User-Cancel" in str(e)
+            if is_cancelled:
+                logger.info(
+                    "AudioPipelineV2Worker abgebrochen (track=%s, stage=%s): %s",
+                    self.audio_track_id,
+                    self._current_stage,
+                    e,
+                )
+                if self._current_stage:
+                    step_key = _STAGE_TO_STEP.get(self._current_stage)
+                    if step_key:
+                        from services.analysis_status_service import mark_cancelled
+                        mark_cancelled("audio", self.audio_track_id, step_key)
+                self.error.emit(self.audio_track_id, str(e))
+                return
             logger.error("AudioPipelineV2Worker fehlgeschlagen (track=%s): %s",
                          self.audio_track_id, e, exc_info=True)
             if self._current_stage:

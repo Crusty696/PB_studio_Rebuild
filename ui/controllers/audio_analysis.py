@@ -518,17 +518,7 @@ class AudioAnalysisController(PBComponent):
 
     def _v2_next(self):
         if not getattr(self, "_v2_queue", None):
-            self._seq_running = False
-            try:
-                self.window._media_ws.btn_analyze_all.setEnabled(True)
-                self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
-                self.window.progress_bar.setVisible(False)
-                self.window.media_table_controller._refresh_media_table_debounced()
-            except (RuntimeError, AttributeError):
-                pass
-            self.window.console_text.append(
-                f"[Komplett-Analyse V2] Fertig: {self._v2_done}/{getattr(self, '_v2_total', 0)} Track(s)."
-            )
+            self._v2_finalize("finished")
             return
         track_id, file_path, title = self._v2_queue.pop(0)
         from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
@@ -550,9 +540,8 @@ class AudioAnalysisController(PBComponent):
             Qt.ConnectionType.QueuedConnection,
         )
         worker.error.connect(
-            lambda tid, err: (
-                self.window._console_append(f"[Audio-V2] Fehler: {err}"),
-                self._v2_advance(),
+            lambda tid, err, task_id=task.task_id: self._v2_handle_error(
+                task_id, tid, err,
             ),
             Qt.ConnectionType.QueuedConnection,
         )
@@ -562,6 +551,48 @@ class AudioAnalysisController(PBComponent):
     def _v2_advance(self):
         self._v2_done = getattr(self, "_v2_done", 0) + 1
         self._v2_next()
+
+    def _v2_handle_error(self, task_id: str, track_id: int, error_msg: str):
+        """B-751: Fehler/Cancel beendet Batch ohne Erfolgszaehler/-meldung."""
+        task = task_manager.get_task(task_id)
+        is_cancelled = (
+            getattr(task, "status", None) == "cancelled"
+            or "User-Cancel" in str(error_msg)
+        )
+        self._v2_queue = []
+        if is_cancelled:
+            self.window._console_append(
+                f"[Audio-V2] Abgebrochen (ID {track_id}): {error_msg}"
+            )
+            self._v2_finalize("cancelled")
+        else:
+            self.window._console_append(
+                f"[Audio-V2] Fehler (ID {track_id}): {error_msg}"
+            )
+            self._v2_finalize("error")
+
+    def _v2_finalize(self, outcome: str):
+        """Setzt V2-Batch-UI terminal und meldet Ergebnis wahrheitsgetreu."""
+        self._seq_running = False
+        try:
+            self.window._media_ws.btn_analyze_all.setEnabled(True)
+            self.window._media_ws.btn_analyze_all.setText("KOMPLETT-ANALYSE")
+            self.window.progress_bar.setVisible(False)
+            self.window.media_table_controller._refresh_media_table_debounced()
+        except (RuntimeError, AttributeError):
+            pass
+
+        done = getattr(self, "_v2_done", 0)
+        total = getattr(self, "_v2_total", 0)
+        if outcome == "finished":
+            label = "Fertig"
+        elif outcome == "cancelled":
+            label = "Abgebrochen"
+        else:
+            label = "Fehlgeschlagen"
+        self.window.console_text.append(
+            f"[Komplett-Analyse V2] {label}: {done}/{total} Track(s)."
+        )
 
     def _analyze_all_sequential(self):
         """Startet alle Audio-Analysen nacheinander fuer alle gewaehlten Tracks.

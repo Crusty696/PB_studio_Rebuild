@@ -802,3 +802,20 @@ Decision: Vault
   `error`/`Worker-Fehler` behandelt.
 - Naechste einzige Task:
   `ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.
+
+### B-751 Audio-V2 Cancel-Ehrlichkeit 2026-08-02
+
+- Root Cause geschlossen: Worker-Cancelzweig, Legacy-Dispatcher-B-724-Pfad
+  und Batch-Abschlusslogik getrennt von Produktfehler/Erfolg.
+- RED → GREEN: 13/13 Fokustests inkl. B-713/B-724; Syntax/Ruff gruen.
+- Current-live im isolierten STAB-W3: AV-Pacing stoppte bei Chunk 1; Task
+  `cancelled`; persistierter Retry-Vertrag `status=error` plus
+  `error_message=cancelled`; kein generischer Worker-/Analysis-Error; kein
+  falscher Batch-Erfolg; keine neue UI-Exception.
+- Hostschutz: 15/15 DB/WAL/SHM-Signaturen unveraendert. W3-DB quick_check ok,
+  Alembic Head, WAL/SHM absent. Usermarker offen.
+- Neue getrennte Bugs: B-753 Pre-Start-Cancel ohne Terminalsignal; B-754 stale
+  `completed_at` nach Cancel.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
+- Danach B-750 optionaler Retry.
