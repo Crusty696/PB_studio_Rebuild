@@ -905,3 +905,12 @@ Decision: Vault
   `mark_error("cancelled")`.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-755 Analysis-Retry running muss stale completed_at löschen`.
+
+#### B-755 Running-Zeitsemantik Fokus-PASS 2026-08-02
+
+- Root Cause: `mark_started()` behielt `completed_at` einer früheren Done-Row.
+- Fix: `completed_at=None` im Done→Running-Conflict-Update.
+- Drei direkte Transitionstests, Syntax, Ruff und Diffcheck grün.
+- B-755 `code-fix-pending-live-verification`; Live-Sichtung W3 offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-756 Video-Cancel muss stale completed_at löschen`.

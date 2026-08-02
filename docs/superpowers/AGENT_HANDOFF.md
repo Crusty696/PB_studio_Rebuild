@@ -2,7 +2,16 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-754 Fokus-PASS / B-755 aktiv 2026-08-02 (newest)
+## B-755 Fokus-PASS / B-756 aktiv 2026-08-02 (newest)
+
+- Root Cause: `mark_started()` behielt bei Done→Running altes `completed_at`.
+- Fix: Conflict-Update setzt `completed_at=None`.
+- Drei direkte Transitionstests, Syntax, Ruff und Diffcheck grün.
+- Kein UI-/Worker-Livebeweis; B-755 `code-fix-pending-live-verification`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-756 Video-Cancel muss stale completed_at löschen`.
+
+## B-754 Fokus-PASS / B-755 aktiv 2026-08-02
 
 - Root Cause: `mark_cancelled()`-Conflict-Update behielt `completed_at` einer
   früheren Done-Row.
