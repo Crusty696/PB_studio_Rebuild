@@ -773,3 +773,18 @@ Decision: Vault
   kopiert; Quellen bleiben read-only.
 - Nächste einzige Task:
   `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+
+### B-748 Incident-Recovery und Stability-Scope 2026-08-02
+
+- Beim W3-Start wurde Host-Projekt `abnahme-block-c2` statt isolierter Kopie
+  geoeffnet. App sofort graceful beendet; keine Audioanalyse gestartet.
+- Host-DB aus beweisbarer Vor-Incident-Kopie logisch/schema-identisch
+  wiederhergestellt; B-749 dokumentiert fehlende archivierte WAL/SHM-Rohbytes.
+- Root Cause: kein Fail-Closed-Scope im Live-Harness/ProjectManager.
+- Code-Fix: `PB_STABILITY_PROJECT`/`PB_STABILITY_PROJECT_ROOT` werden vor jeder
+  Create/Open/Save-As-Arbeit erzwungen; GUI-Harness setzt Scope explizit.
+- RED → GREEN `4 passed`; Syntax/Ruff gruen. Current-live Host-Pfad sichtbar
+  blockiert; Pre/Post 6/6 geschuetzte Pfade unveraendert.
+- B-748 Code+Live abgeschlossen, `fixed`-Usermarker offen.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.

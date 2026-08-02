@@ -49,6 +49,11 @@ Owned-Tree-Cleanup wurde mit echter App→Serve→Runner-Kette und nativem Shutd
 bewiesen. Finalmanifest: reale DBs/Settings unverändert, PB-/Ollama-Prozesse 0.
 W2 live-pass, Usermarker offen. W3-Komplettlauf mit vier Stems ist bereits
 Teilevidenz; offen bleiben Cancel, Retry, Neustartvergleich und fehlendes Stem.
+B-748 Incident beim W3-Start ist recovered und Current-live geschlossen:
+Fail-Closed-Stability-Scope blockierte absichtlichen Host-Projektversuch vor
+DB-Zugriff; 6/6 geschuetzte Pre-Pfade blieben unveraendert. Usermarker offen.
+W3 wird ausschließlich mit `gui_harness.py start --stability-project ...`
+fortgesetzt.
 
 ## Agent Behavior
 

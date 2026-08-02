@@ -2,6 +2,22 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-748 Stability-Projektsperre Current-live 2026-08-02 (newest)
+
+- W3-Start oeffnete versehentlich Host-Projekt `abnahme-block-c2`; App sofort
+  graceful beendet, keine Audioanalyse gestartet.
+- Host-DB aus bewiesener Vor-Incident-Kopie logisch/schema-identisch
+  wiederhergestellt. Rohbyte-Restore von altem WAL/SHM wegen B-749 unbeweisbar.
+- Root Cause: Live-Harness besass keine Fail-Closed-Projektsperre.
+- Fix: `PB_STABILITY_PROJECT`/`PB_STABILITY_PROJECT_ROOT` blockieren
+  Create/Open/Save-As vor Task-Wait, SQLite, Backup oder Migration;
+  GUI-Harness bietet explizite Startflags.
+- Fokus: 4/4 Tests, Syntax, Ruff gruen. Current-live Host-Pfad sichtbar
+  blockiert; 6/6 geschuetzte Pre-Pfade unveraendert.
+- B-748 Code+Live abgeschlossen, `fixed`-Usermarker offen.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
 ## W2 Final-Pass / W3 Start 2026-08-02 (newest)
 
 - B-740 Current-live: App PID 4172 → Serve 11796 → Runner 10484; nativer

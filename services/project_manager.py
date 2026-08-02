@@ -6,6 +6,7 @@ containing a pb_studio.db plus storage sub-directories.
 """
 
 import logging
+import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -185,6 +186,43 @@ class ProjectManager(QObject):
     # public API
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _enforce_stability_project_scope(path: Path) -> None:
+        """Fail closed when a stability run is restricted to isolated data.
+
+        Normal app runs do not set either environment variable and remain
+        unchanged.  The check intentionally runs before task waits, SQLite
+        reads, directory creation, backups, or migrations.
+        """
+        exact_raw = os.environ.get("PB_STABILITY_PROJECT", "").strip()
+        root_raw = os.environ.get("PB_STABILITY_PROJECT_ROOT", "").strip()
+        if not exact_raw and not root_raw:
+            return
+
+        candidate = Path(path).resolve(strict=False)
+        if exact_raw:
+            allowed = Path(exact_raw).resolve(strict=False)
+            permitted = os.path.normcase(str(candidate)) == os.path.normcase(str(allowed))
+            scope = allowed
+        else:
+            scope = Path(root_raw).resolve(strict=False)
+            try:
+                candidate.relative_to(scope)
+                permitted = True
+            except ValueError:
+                permitted = False
+
+        if not permitted:
+            logger.critical(
+                "B-748: Stability-Scope blockiert Projektpfad %s (erlaubt: %s)",
+                candidate,
+                scope,
+            )
+            raise PermissionError(
+                "B-748: Stability-Lauf darf nur isolierte Projektpfade verwenden. "
+                f"Blockiert: {candidate}; erlaubt: {scope}"
+            )
+
     def create_project(self, path: Path, name: str,
                        resolution: str = "1920x1080",
                        fps: float = 30.0,
@@ -210,6 +248,9 @@ class ProjectManager(QObject):
         FileExistsError
             If the target folder already contains a ``pb_studio.db``.
         """
+        path = Path(path)
+        self._enforce_stability_project_scope(path)
+
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
         # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
         if not self._wait_for_tasks_idle(
@@ -220,7 +261,6 @@ class ProjectManager(QObject):
                 "Bitte warte bis alle Tasks beendet sind."
             )
 
-        path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
 
         db_file = path / "pb_studio.db"
@@ -323,6 +363,9 @@ class ProjectManager(QObject):
         FileNotFoundError
             If ``pb_studio.db`` is missing in *path*.
         """
+        path = Path(path)
+        self._enforce_stability_project_scope(path)
+
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
         # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
         if not self._wait_for_tasks_idle(
@@ -333,7 +376,6 @@ class ProjectManager(QObject):
                 "Bitte warte bis alle Tasks beendet sind."
             )
 
-        path = Path(path)
         db_file = path / "pb_studio.db"
         if not db_file.exists():
             raise FileNotFoundError(
@@ -449,6 +491,9 @@ class ProjectManager(QObject):
         RuntimeError
             If background tasks are still running.
         """
+        target_path = Path(target_path)
+        self._enforce_stability_project_scope(target_path)
+
         # B-136: Aktive Wartezeit statt single-shot TOCTOU-Check.
         # B-047 Cycle 13: exclude_task_id=task_id durchreichen.
         if not self._wait_for_tasks_idle(
@@ -466,8 +511,6 @@ class ProjectManager(QObject):
                 "Kein aktives Projekt geöffnet. APP_ROOT ist nicht initialisiert."
             )
         source = Path(_session.APP_ROOT)
-        target_path = Path(target_path)
-
         if target_path.exists():
             raise FileExistsError(
                 f"Zielordner existiert bereits: {target_path}"

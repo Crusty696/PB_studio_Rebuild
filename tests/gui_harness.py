@@ -150,6 +150,16 @@ def cmd_start(args) -> int:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if getattr(args, "stability_project", None):
+        env["PB_STABILITY_PROJECT"] = str(
+            Path(args.stability_project).resolve(strict=False)
+        )
+        env.pop("PB_STABILITY_PROJECT_ROOT", None)
+    elif getattr(args, "stability_root", None):
+        env["PB_STABILITY_PROJECT_ROOT"] = str(
+            Path(args.stability_root).resolve(strict=False)
+        )
+        env.pop("PB_STABILITY_PROJECT", None)
     # Optionaler Freeze-Profiler aktivieren ueber Harness:
     if getattr(args, "freeze_probe", False):
         env["PB_STUDIO_FREEZE_PROBE"] = "1"
@@ -916,6 +926,15 @@ def main() -> int:
                           help="Laufende App vorher killen statt Fehler zu werfen")
     sp_start.add_argument("--freeze-probe", action="store_true",
                           help="Aktiviert faulthandler → dumped Stack bei >3s Hangs in logs/freeze_stacks.log")
+    stability_scope = sp_start.add_mutually_exclusive_group()
+    stability_scope.add_argument(
+        "--stability-project",
+        help="B-748: App auf exakt dieses isolierte Testprojekt begrenzen",
+    )
+    stability_scope.add_argument(
+        "--stability-root",
+        help="B-748: App auf Projekte unter diesem isolierten Test-Root begrenzen",
+    )
     sp_start.set_defaults(func=cmd_start)
 
     kp = sub.add_parser("kill")
