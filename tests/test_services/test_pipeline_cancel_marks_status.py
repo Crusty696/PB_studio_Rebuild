@@ -18,8 +18,8 @@ from services import video_analysis_service
 
 def test_cancel_branches_mark_status_before_return() -> None:
     """For each step in run_full_pipeline, the ``if should_stop()``
-    cancel-branch must mark the step's status (mark_error /
-    mark_cancelled) before returning."""
+    cancel-branch must use the canonical mark_cancelled contract before
+    returning."""
     src = inspect.getsource(video_analysis_service)
 
     # Heuristic: count cancel-branches vs cancel-mark calls within them.
@@ -33,7 +33,7 @@ def test_cancel_branches_mark_status_before_return() -> None:
         "test inspection target may have changed."
     )
 
-    # Each cancel-branch should now mention mark_error or mark_cancelled.
+    # Each cancel-branch must use the canonical cancel transition.
     # Crude line-by-line: find each ``if should_stop`` and check the next
     # 5 lines for one of the mark-functions.
     lines = src.splitlines()
@@ -42,11 +42,11 @@ def test_cancel_branches_mark_status_before_return() -> None:
         if "if should_stop and should_stop():" not in line:
             continue
         window = "\n".join(lines[i:i + 8])
-        if "mark_error" not in window and "mark_cancelled" not in window:
+        if "mark_cancelled" not in window:
             branches_without_mark += 1
 
     assert branches_without_mark == 0, (
         f"BUG-147 regression: {branches_without_mark} cancel-branches "
-        f"in run_full_pipeline still don't call mark_error/mark_cancelled. "
+        f"in run_full_pipeline still don't call mark_cancelled. "
         f"User-cancel leaves analysis_status forever on 'running'."
     )

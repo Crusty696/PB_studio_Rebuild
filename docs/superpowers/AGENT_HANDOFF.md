@@ -2,7 +2,17 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-755 Fokus-PASS / B-756 aktiv 2026-08-02 (newest)
+## B-756 Fokus-PASS / B-737 aktiv 2026-08-02 (newest)
+
+- Sieben explizite Video-Cancelzweige nutzen `mark_cancelled()`; echte
+  Exception-/Storage-Fehler bleiben `mark_error()`.
+- RED 7/7; Routing plus zentraler Timestamp-Vertrag `2 passed`; Syntax, Ruff,
+  Diffcheck grün. Kein Video-Live-Cancel; B-756 live-pending.
+- Breite/live Tests bleiben gemäß Uservorgabe bis nach Codeaufgaben gebündelt.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.
+
+## B-755 Fokus-PASS / B-756 aktiv 2026-08-02
 
 - Root Cause: `mark_started()` behielt bei Done→Running altes `completed_at`.
 - Fix: Conflict-Update setzt `completed_at=None`.

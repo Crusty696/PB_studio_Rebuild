@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4364d48dedf04240b80c7abd5ac9e34c",
+  "recorded_at": "2026-08-02T16:01:44+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "Video-User-Cancel wurde ueber mark_error transportiert und als Produktfehler geloggt.",
+  "cause": "B-147 beendete running Status mit generischem Fehler-API, obwohl zentraler mark_cancelled-Vertrag existiert.",
+  "rule": "Explizite User-Cancel-Kontrollzweige muessen kanonisches Cancel-API nutzen; textbasierte Sonderlogik im generischen Error-Handler vermeiden, damit echte Exceptions Fehler bleiben.",
+  "applies_to": "Videoanalyse Cancel Status Routing Logging AnalysisStatus"
+}

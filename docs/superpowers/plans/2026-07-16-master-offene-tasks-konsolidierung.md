@@ -914,3 +914,14 @@ Decision: Vault
 - B-755 `code-fix-pending-live-verification`; Live-Sichtung W3 offen.
 - Nächste einzige Task:
   `ROOT-CAUSE / B-756 Video-Cancel muss stale completed_at löschen`.
+
+#### B-756 Video-Cancel-Vertrag Fokus-PASS 2026-08-02
+
+- Sieben explizite `should_stop()`-Zweige in Deferred-/Full-Videoanalyse auf
+  kanonisches `mark_cancelled()` umgestellt; echte Fehler bleiben `mark_error()`.
+- RED 7/7; Routing- plus Timestamp-Vertrag `2 passed in 8.65s`; Syntax, Ruff
+  und Diffcheck grün.
+- B-756 `code-fix-pending-live-verification`; Video-Live-Cancel W4 offen.
+- Uservorgabe: breite/live Tests erst nach Codeaufgaben gebündelt.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.

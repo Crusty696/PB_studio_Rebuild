@@ -21,7 +21,7 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-756 Video-Cancel muss stale completed_at löschen`.
+`ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.
 
 B-715/B-723/B-725/B-726/B-735/B-736 sowie B-741 sind
 code-complete/live-pending. B-737 wurde vor erstem Codeedit sauber gestoppt.
@@ -89,7 +89,13 @@ B-756 (Video-Cancel via `mark_error("cancelled")`) als getrennte Bugs.
 
 B-755 ist code-complete: `mark_started()` löscht stale `completed_at` beim
 Übergang Done→Running. RED→GREEN; drei direkte Transitionstests, Syntax, Ruff
-und Diffcheck grün. Live-Sichtung bleibt W3. B-756 ist aktive nächste Task.
+und Diffcheck grün. Live-Sichtung bleibt W3.
+
+B-756 ist code-complete: sieben Video-`should_stop()`-Zweige nutzen den
+kanonischen `mark_cancelled()`-Vertrag; echte Exceptions bleiben
+`mark_error()`. RED 7/7, zwei direkte Routing/Timestamp-Verträge, Syntax, Ruff
+und Diffcheck grün. Video-Live-Cancel bleibt W4. Gemäß Uservorgabe breite/live
+Tests erst nach Codeaufgaben; nächste einzige Code-Task ist B-737, danach B-738.
 
 ## Agent Behavior
 

@@ -1465,7 +1465,9 @@ def run_deferred_captioning(
         if progress_cb:
             progress_cb(85, "Gemma Vision Captioning...")
         if should_stop and should_stop():
-            analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", "cancelled")
+            analysis_status_service.mark_cancelled(
+                "video", video_clip_id, "ai_scene_caption"
+            )
             return scenes
 
         scenes = analyze_scene_with_caption(
@@ -1567,10 +1569,9 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(5, "Szenen erkennen...")
         if should_stop and should_stop():
-            # B-147: cancel-branch markiert Status als error("cancelled")
-            # damit der Clip nicht forever auf "running" steht.
-            analysis_status_service.mark_error(
-                "video", video_clip_id, "scene_detection", "cancelled"
+            # B-147/B-756: kanonischer Cancel-Vertrag statt Fehler-Logging.
+            analysis_status_service.mark_cancelled(
+                "video", video_clip_id, "scene_detection"
             )
             return result
 
@@ -1592,8 +1593,8 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
         if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "motion_scores", "cancelled"
+            analysis_status_service.mark_cancelled(  # B-147/B-756
+                "video", video_clip_id, "motion_scores"
             )
             return result
 
@@ -1614,8 +1615,8 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(40, "Keyframes extrahieren...")
         if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "keyframe_extraction", "cancelled"
+            analysis_status_service.mark_cancelled(  # B-147/B-756
+                "video", video_clip_id, "keyframe_extraction"
             )
             return result
 
@@ -1637,8 +1638,8 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(55, "SigLIP Embeddings generieren...")
         if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "siglip_embeddings", "cancelled"
+            analysis_status_service.mark_cancelled(  # B-147/B-756
+                "video", video_clip_id, "siglip_embeddings"
             )
             return result
 
@@ -1678,8 +1679,8 @@ def run_full_pipeline(
             if progress_cb:
                 progress_cb(85, "Gemma Vision Captioning...")
             if should_stop and should_stop():
-                analysis_status_service.mark_error(  # B-147
-                    "video", video_clip_id, "ai_scene_caption", "cancelled"
+                analysis_status_service.mark_cancelled(  # B-147/B-756
+                    "video", video_clip_id, "ai_scene_caption"
                 )
                 return result
 
@@ -1733,8 +1734,8 @@ def run_full_pipeline(
         if progress_cb:
             progress_cb(96, "In LanceDB speichern...")
         if should_stop and should_stop():
-            analysis_status_service.mark_error(  # B-147
-                "video", video_clip_id, "vector_db_storage", "cancelled"
+            analysis_status_service.mark_cancelled(  # B-147/B-756
+                "video", video_clip_id, "vector_db_storage"
             )
             return result
 
