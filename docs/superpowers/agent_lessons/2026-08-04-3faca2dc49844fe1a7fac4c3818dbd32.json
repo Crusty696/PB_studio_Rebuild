@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3faca2dc49844fe1a7fac4c3818dbd32",
+  "recorded_at": "2026-08-04T15:29:03+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Recon-Agent meldete 15+20 Bugs mit falschem Statusmarker; beide Befunde waren Fehlalarme und haetten fast zu unnoetigen Statusaenderungen und einer Userentscheidung gefuehrt.",
+  "cause": "Bugfiles enthalten Textabschnitte aus einer frueheren Read-only-Audit-Phase ('Kein Fix im Audit', 'Fix-Richtung (nicht implementiert)'), die beim spaeteren echten Fix nie nachgezogen wurden. Der Agent bewertete Fliesstext als Statuswahrheit.",
+  "rule": "Statusaussagen in Bugfiles nie aus Fliesstext ableiten. Vor jeder Statuskorrektur oder Statusmeldung gegen git log --grep=B-XXX und den realen Code gegenpruefen; Frontmatter plus Commitbeleg schlagen Prosa.",
+  "applies_to": "Vault-Bugfiles, STAB-0-Reconciliation, jede Status- oder Fortschrittsmeldung an den User"
+}
