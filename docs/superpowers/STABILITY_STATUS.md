@@ -98,7 +98,13 @@ Aktiv: **ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL**
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+`ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+Danach W3 Retry/Neustart/fehlendes Stem.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
+
+Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und
+widersprach damit dem Kopf derselben Datei (Z. 7), `ACTIVE_PLAN.md`,
+`PLAN_REGISTRY.md` und `AGENT_HANDOFF.md`. B-738 ist seit 2026-08-02
+code-complete/live-pending, nicht die nächste Task.
 
 Diese Datei nach jedem Gate, Blocker, Bugstatus oder Phasenwechsel aktualisieren.
