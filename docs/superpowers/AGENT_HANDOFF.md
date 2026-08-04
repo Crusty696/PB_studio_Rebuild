@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-758 blockiert W3 2026-08-02 (newest)
+
+- Current HEAD `e85a2c2`, isolierte APPDATA/LOCALAPPDATA und exakter
+  `--stability-project`-Scope.
+- Systemcheck modal: `CUDA GPU FAIL`, `NVENC Encode FAIL`, GPU `0/0 GB`.
+- Degradierter Start bewusst nicht gewählt; W3 muss GTX-1060-CUDA beweisen.
+- Screenshot `w3-missing-stem-project-nav_20260802_213113.png`.
+- Pre-Manifest `20260802T2126-w3-final-pre`; Post `20260802T2134-w3-b758-post`.
+- W3-/Hostprojekt-DBs unverändert. Neu erzeugte Repo-Root-WAL/SHM extern
+  gesichert und nach Prozessfreiheit recoverable entfernt.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
 ## B-738 Fokus-PASS / W3 Liveverify aktiv 2026-08-02 (newest)
 
 - Echter Orchestrator-Tool-/Non-Tool-Pfad erhaelt projektisolierten Recall.

@@ -21,7 +21,13 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+`ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
+W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler
+Systemcheck meldete `CUDA GPU FAIL` und `NVENC Encode FAIL`; degradierter Start
+wurde nicht gewählt. Screenshot und Pre-/Post-Manifeste vorhanden. Repo-Root-
+WAL/SHM-Drift wurde extern gesichert und recoverable bereinigt. W3 bleibt 25 %;
+Fortsetzung erst nach B-758 Root Cause, kleinstem Fix und Current-Livebeweis.
 
 B-737 ist code-complete/live-pending: semantischer Timeline-Write vor
 Pattern-Notifier, Debounce/Run-/Projekt-/App-End-Drain, generation-sicheres

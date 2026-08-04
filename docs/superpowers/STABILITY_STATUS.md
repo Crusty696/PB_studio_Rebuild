@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-02 20:57 Europe/Zurich
+Letztes Update: 2026-08-02 21:35 Europe/Zurich
 
 Gesamtfortschritt: **ca. 21–23 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem**
+Aktiv: **ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **25 %** | W1 und W2 live-pass; Usermarker offen |
+| STAB-2 Acht Live-Workflows | **25 %** | W1/W2 live-pass; W3 durch B-758 Systemcheck blockiert |
 | STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |

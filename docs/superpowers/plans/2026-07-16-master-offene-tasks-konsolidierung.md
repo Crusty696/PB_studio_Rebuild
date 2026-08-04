@@ -978,3 +978,16 @@ Decision: Vault
   `code-fix-pending-live-verification`, nicht `fixed`.
 - Naechste einzige Task:
   `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
+#### W3 Gate-Stopp B-758 2026-08-02
+
+- Current-Appstart auf `e85a2c2`, isolierter AppData und exaktem
+  `--stability-project`-Scope zeigt modal `CUDA GPU FAIL` und
+  `NVENC Encode FAIL`; GPU-Anzeige `0/0 GB`.
+- Degradierter Start nicht gewählt. Screenshot, Pre-/Post-Manifest und
+  Prozesscleanup belegt. W3-/Hostprojekt-DBs unverändert.
+- Repo-Root-WAL/SHM wurden beim Start neu erzeugt, extern als Evidenz gesichert
+  und nach Prozessfreiheit recoverable entfernt; Zusammenhang noch ungeklärt.
+- W3 bleibt 25 %. Erster Fehler stoppt Workflow.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
