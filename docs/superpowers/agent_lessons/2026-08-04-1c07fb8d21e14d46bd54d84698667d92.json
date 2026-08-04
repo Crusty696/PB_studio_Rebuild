@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1c07fb8d21e14d46bd54d84698667d92",
+  "recorded_at": "2026-08-04T16:02:28+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Userauftrag lautete 'variety_memory verdrahten'; die Analyse zeigte, dass die aequivalente Funktion bereits verdrahtet war und der Anschluss das gemeldete Symptom nicht beseitigt haette.",
+  "cause": "Im Pacing-Auswahlpfad war jeder Wiederholungsschutz ein gewichteter Score-Term (freshness 0.15) oder ein Gate mit stillem Fallback. Eine harte Regel 'nicht derselbe Clip wie der direkte Vorgaenger' existierte nirgends; ein besserer Mood-Match (0.25) ueberstimmte die Strafe.",
+  "rule": "Bei Auswahl-/Ranking-Bugs zuerst pruefen, ob der fehlende Schutz wirklich fehlt oder nur weich ist. Ein zusaetzlicher weicher Term behebt Ueberstimmbarkeit nie — dafuer braucht es eine harte Ausschlussregel mit lautem Fallback. Vor Umsetzung eines Userauftrags dessen Praemisse gegen den Code pruefen und bei Widerlegung Optionen vorlegen.",
+  "applies_to": "services/pacing_edit_helpers.py, services/pacing/scorer.py, PacingPipeline, jede scorebasierte Kandidatenauswahl"
+}
