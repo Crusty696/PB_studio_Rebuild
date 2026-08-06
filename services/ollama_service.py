@@ -20,9 +20,13 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from services.ollama_client import _normalize_ollama_host
+
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE = "http://localhost:11434"
+# B-760: localhost -> 127.0.0.1 (IPv6-::1-Falle unter Windows; fremde
+# Ollama-Instanz auf ::1 zog Vision am 2026-08-04 auf CPU).
+OLLAMA_BASE = _normalize_ollama_host("http://localhost:11434")
 
 # B-239: Default-Modell wird live ueber /api/tags resolved.
 # Reihenfolge: installiertes PB_OLLAMA_MODEL env-var > Gemma-4-Family-Match >
@@ -438,7 +442,8 @@ class OllamaService:
         """Prüft ob der Ollama-Port bereits belegt ist."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
-            return s.connect_ex(('localhost', port)) == 0
+            # B-760: 127.0.0.1 statt localhost — konsistent zu OLLAMA_BASE.
+            return s.connect_ex(('127.0.0.1', port)) == 0
 
     def _is_api_ready(self) -> bool:
         """B-240: Vollstaendiger API-Ready-Check (TCP-Port + HTTP /api/version).

@@ -20,6 +20,7 @@ import json
 import logging
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -63,6 +64,25 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_TIMEOUT_SEC = 120  # Chat-Inference kann dauern
 
 
+def _normalize_ollama_host(base_url: str) -> str:
+    """B-760: ``localhost`` loest unter Windows bevorzugt nach ::1 (IPv6) auf.
+
+    Dort kann eine fremde Ollama-Instanz lauschen (real passiert 2026-08-04:
+    0.30.10 auf ::1 zog Vision auf CPU). 127.0.0.1 trifft deterministisch
+    den gepinnten GPU-faehigen Server. Schema, Port und Pfad bleiben erhalten;
+    andere Hostnamen (z. B. Remote-Ollama) werden nicht angefasst.
+    """
+    parsed = urllib.parse.urlsplit(base_url)
+    if parsed.hostname != "localhost":  # .hostname liefert lowercase
+        return base_url
+    netloc = "127.0.0.1"
+    if parsed.port is not None:
+        netloc += f":{parsed.port}"
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+
+
 class OllamaClient:
     """HTTP-Client für einen lokal laufenden Ollama-Server.
 
@@ -81,7 +101,8 @@ class OllamaClient:
         timeout: int = DEFAULT_TIMEOUT_SEC,
         wall_clock_timeout: float | None = None,
     ):
-        self.base_url = base_url.rstrip("/")
+        # B-760: localhost -> 127.0.0.1 (IPv6-::1-Falle unter Windows)
+        self.base_url = _normalize_ollama_host(base_url.rstrip("/"))
         self.timeout = timeout
         # B-669: Gesamtlaufzeit-Grenze der generierenden Methoden. ``timeout``
         # oben bleibt unveraendert das urllib-Socket-Timeout (Inaktivitaet pro
