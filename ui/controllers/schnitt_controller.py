@@ -114,6 +114,15 @@ class SchnittController(QObject):
                     except (RuntimeError, TypeError):
                         pass  # bereits getrennt / C++-Objekt weg
             if hasattr(prev, "cancel"):
+                # B-766: Der Supersede-Cancel war komplett still — ein neuer
+                # Auto-Edit-Klick ersetzte den laufenden Lauf ohne Log-Zeile
+                # oder UI-Hinweis. Genau das liess am 2026-08-06 einen
+                # 4,5-Minuten-Lauf scheinbar grundlos bei Segment 0 sterben.
+                logger.warning(
+                    "B-766: Laufender Worker %s wird durch neuen Lauf "
+                    "ersetzt (Supersede-Cancel).",
+                    type(prev).__name__,
+                )
                 try:
                     prev.cancel()
                 except Exception:

@@ -829,6 +829,14 @@ def _auto_edit_phase3_inner(
         except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("LLM Pacing-Strategist uebersprungen: %s", e)
 
+    # B-766: Der Strategist-Block kann minutenlang blockieren (LLM-Ladezeit,
+    # 300s-Wall-Clock B-669). Ein waehrenddessen eingegangener Cancel
+    # (z. B. stiller Supersede durch neuen Auto-Edit-Klick) wurde bisher
+    # erst im Segment-Loop erkannt — nach dem naechsten LLM-Block.
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request nach LLM-Strategist erkannt")
+        return [], []
+
     # F-009: Vocal-Activity fuer Vocal-Aware Pacing
     vocal_activity = compute_vocal_activity(audio_id, beats)
 
@@ -1121,6 +1129,11 @@ def _auto_edit_phase3_inner(
         cross_modal_matcher = None
 
     # ── Ollama Direct EDL Reasoning (Stufe 3) ──────────────────────
+    # B-766: Cancel-Check VOR dem bis zu 300s blockierenden EDL-Call —
+    # sonst wartet ein laengst abgebrochener Lauf die volle Wall-Clock ab.
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request vor LLM-EDL erkannt")
+        return [], []
     if getattr(settings, "use_llm_pacing", False):
         try:
             from services.pacing.ollama_pacing import OllamaPacingService
