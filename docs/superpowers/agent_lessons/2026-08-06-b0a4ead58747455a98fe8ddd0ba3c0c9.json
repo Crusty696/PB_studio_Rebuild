@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b0a4ead58747455a98fe8ddd0ba3c0c9",
+  "recorded_at": "2026-08-06T21:04:22+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Der B-763-Livebeweis-Lauf rechnete mit dem alten Code: der Auto-Edit wurde in einer App-Instanz gestartet, die seit Stunden lief und vor dem Fix-Commit gestartet worden war. Ergebnis sah aus wie Fix wirkungslos.",
+  "cause": "Python laedt Module nur beim Prozessstart. Ein Commit im Worktree aendert eine bereits laufende App nicht. Der Agent prüfte vor dem Klick nicht, mit welchem Commit der laufende Prozess gestartet war.",
+  "rule": "Vor jedem Livebeweis eines Codefixes: laufende App beenden und frisch starten; Start-Commit im Log-Header festhalten und gegen den Fix-Commit pruefen. Zusaetzlich Fix-Wirkung immer zuerst deterministisch ohne GUI beweisen (Loop-/Integrationsvertrag), erst dann GUI-Lauf.",
+  "applies_to": "alle Livebeweise von Codefixes, gui_harness-Laeufe, pacing/pipeline"
+}
