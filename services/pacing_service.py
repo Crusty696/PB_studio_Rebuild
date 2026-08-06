@@ -1416,7 +1416,13 @@ def _auto_edit_phase3_inner(
         if should_stop_cb is not None and should_stop_cb():
             logger.info("auto_edit_phase3: cancel-request bei Segment %d/%d",
                         i, len(cut_beats) - 1)
-            return segments, cut_points
+            # B-767: Ein abgebrochener Lauf darf NIE seinen Teilstand
+            # zurueckgeben — der Aufrufer wendet ihn sonst an und
+            # ueberschreibt die bestehende Timeline mit einem Fragment
+            # (real passiert 2026-08-07 00:07: Cancel bei 572/1410
+            # ersetzte die vollstaendige 1410er-Timeline durch 572
+            # Segmente mit 1437s-Loch). Cancel = nichts anwenden.
+            return [], []
         seg_start = cut_beats[i]
         seg_end = cut_beats[i + 1]
         seg_duration = seg_end - seg_start

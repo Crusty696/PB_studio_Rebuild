@@ -63,3 +63,22 @@ def test_supersede_cancel_logs_visibly():
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
 
+
+
+def test_b767_segment_loop_cancel_returns_nothing():
+    '''B-767: Cancel im Segment-Loop darf NIE den Teilstand zurueckgeben.
+
+    Real passiert 2026-08-07 00:07: Cancel bei Segment 572/1410 lieferte
+    die 572 Teil-Segmente, der Aufrufer wendete sie an und ersetzte die
+    vollstaendige Timeline durch ein Fragment mit 1437s-Loch.
+    '''
+    src = _phase3_source()
+    idx = src.find("cancel-request bei Segment")
+    assert idx > 0
+    tail = src[idx:idx + 600]
+    assert "return [], []" in tail, (
+        "Segment-Loop-Cancel muss leere Listen liefern (kein Teil-Apply)"
+    )
+    assert "return segments" not in tail.split("seg_start")[0], (
+        "Teilstand-Rueckgabe im Cancel-Pfad gefunden"
+    )
