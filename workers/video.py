@@ -24,6 +24,17 @@ from .base import CancellableMixin, format_user_error
 logger = logging.getLogger(__name__)
 
 
+def _emit_shielded(emit_call, what: str) -> bool:
+    """B-762: Nach Thread-Orphaning beim Hard-Exit kann das Qt-Objekt
+    bereits geloescht sein — ein Emit darf dann nie den Prozess crashen."""
+    try:
+        emit_call()
+        return True
+    except RuntimeError as exc:
+        logger.debug("%s.emit unterdrueckt (B-762, Qt-Objekt geloescht): %s", what, exc)
+        return False
+
+
 def _pause_embeddings_for_analysis():
     """B-686: Embedding-Scheduler pausieren + persistente Brain-V3-Embedder
     (SigLIP-2 + CLAP) freigeben, BEVOR die Video-Analyse eine GPU-Lease nimmt.
@@ -311,7 +322,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             now = time.monotonic()
             # Immer senden bei: 0%, 100%, oder wenn 500ms vergangen
             if pct == 0 or pct >= 99 or (now - _last_progress_time[0]) >= 0.5:
-                self.progress.emit(pct, msg)
+                _emit_shielded(lambda: self.progress.emit(pct, msg), "progress")
                 _last_progress_time[0] = now
 
         siglip_model_processor = None  # Vor try-Block definiert für finally-Zugriff
@@ -631,10 +642,9 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         "VideoAnalysisPipelineWorker deferred-caption clip %d/%d crashed: %s\n%s",
                         caption_idx, caption_total, caption_exc, traceback.format_exc(),
                     )
-                    self.progress.emit(
-                        min(99, int(caption_idx / caption_total * 100)),
-                        f"[{caption_idx}/{caption_total}] FEHLER (Caption): {caption_exc}"
-                    )
+                    _caption_pct = min(99, int(caption_idx / caption_total * 100))
+                    _caption_msg = f"[{caption_idx}/{caption_total}] FEHLER (Caption): {caption_exc}"
+                    _emit_shielded(lambda: self.progress.emit(_caption_pct, _caption_msg), "progress")
                     continue
 
             # B-289: 100%-Tick vor finished, sonst bleibt UI bei 99%.
@@ -653,7 +663,8 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
                           e, traceback.format_exc())
             self._errored = True
-            self.error.emit(last_clip_id, format_user_error(e))
+            _error_msg = format_user_error(e)
+            _emit_shielded(lambda: self.error.emit(last_clip_id, _error_msg), "error")
             _emitted_terminal = True
         finally:
             # RAFT + SigLIP Cleanup auch bei unerwarteten Exceptions
@@ -687,7 +698,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                     self.progress.emit(100, "Pipeline abgeschlossen (fallback)")
                 except Exception as _emit_exc:
                     logger.debug("progress.emit(100) fallback suppressed: %s", _emit_exc)
-                self.finished.emit(last_clip_id, {})
+                _emit_shielded(lambda: self.finished.emit(last_clip_id, {}), "finished")
 
 
 class VisionAnalysisWorker(QObject, CancellableMixin):
