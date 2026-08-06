@@ -1,0 +1,10 @@
+{
+  "lesson_id": "99e6536512e84d079df2b989e596288d",
+  "recorded_at": "2026-08-04T16:56:46+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Schliessbefehl an die laufende App gesendet, waehrend der User eine mehrminuetige GPU-Analyse gestartet hatte; es oeffnete sich ein modaler Bestaetigungsdialog und der Nutzer musste eingreifen.",
+  "cause": "Vor dem Neustart wurde weder das Clicklog noch der Taskstatus auf aktive Nutzeraktionen geprueft. Der Agent behandelte den Neustart als eigenen Arbeitsschritt statt als Eingriff in eine fremde, laufende Sitzung.",
+  "rule": "Vor jedem Schliess-, Kill- oder Neustartbefehl an eine laufende App zuerst Clicklog, Taskstatus und GPU-Belegung auf aktive Arbeit pruefen. Bei laufender Analyse nicht schliessen, sondern den User fragen und warten. taskkill /F bleibt unter GPU-Last generell verboten.",
+  "applies_to": "Live-Sessions, gui_harness kill, App-Neustarts waehrend Nutzertests, jede Aktion an fremden laufenden Prozessen"
+}
