@@ -3830,17 +3830,20 @@ class InteractiveTimeline(QGraphicsView):
             )
             return
         run_id = int(runs[0]["id"])
-        from ui.story_map_dialog import StoryMapDialog
+        from ui.story_map_dialog import open_story_map_async
 
-        dialog = StoryMapDialog(svc, run_id, parent=self)
-        # Hold a reference so the non-modal dialog is not GC'd.
-        if not hasattr(self, "_story_map_dialogs"):
-            self._story_map_dialogs = []
-        self._story_map_dialogs.append(dialog)
-        dialog.finished.connect(
-            lambda _result, d=dialog: self._drop_story_map_dialog(d)
-        )
-        dialog.show()
+        # B-765: Daten im Worker laden statt synchron im GUI-Thread
+        # (AppHangB1-Incident 2026-08-06 unter Auto-Edit-DB-Last).
+        def _on_ready(dialog):
+            # Hold a reference so the non-modal dialog is not GC'd.
+            if not hasattr(self, "_story_map_dialogs"):
+                self._story_map_dialogs = []
+            self._story_map_dialogs.append(dialog)
+            dialog.finished.connect(
+                lambda _result, d=dialog: self._drop_story_map_dialog(d)
+            )
+
+        open_story_map_async(svc, run_id, parent=self, on_ready=_on_ready)
 
     def _drop_story_map_dialog(self, dialog) -> None:
         try:

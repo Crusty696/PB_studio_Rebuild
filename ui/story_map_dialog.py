@@ -32,7 +32,14 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import (
+    QObject,
+    QPoint,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    Signal,
+)
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QDialog,
@@ -296,6 +303,67 @@ class _TimePlot(pg.PlotWidget):  # type: ignore[misc]
         event.ignore()
 
 
+# ── B-765: asynchroner Oeffnungspfad ────────────────────────────────────────
+
+
+class _StoryMapLoadBridge(QObject):
+    """Signal-Bruecke Worker-Thread -> GUI-Thread (QueuedConnection)."""
+
+    loaded = Signal(object)  # Optional[dict]
+
+
+class _StoryMapLoadRunnable(QRunnable):
+    def __init__(self, svc: BrainService, run_id: int,
+                 bridge: _StoryMapLoadBridge) -> None:
+        super().__init__()
+        self._svc = svc
+        self._run_id = int(run_id)
+        self._bridge = bridge
+
+    def run(self) -> None:  # Worker-Thread
+        try:
+            data = self._svc.story_map_data(self._run_id)
+        except Exception as exc:  # noqa: BLE001 — Hang/DB-Fehler darf UI nie treffen
+            logger.warning(
+                "B-765: story_map_data(%d) im Worker fehlgeschlagen: %s",
+                self._run_id, exc,
+            )
+            data = None
+        self._bridge.loaded.emit(data)
+
+
+# Starke Referenzen auf laufende Bridges, sonst raeumt der GC die
+# Signal-Bruecke ab, bevor der Worker fertig ist.
+_PENDING_STORY_MAP_LOADS: list[_StoryMapLoadBridge] = []
+
+
+def open_story_map_async(svc: BrainService, run_id: int, parent, on_ready) -> None:
+    """B-765: Story-Map-Daten im QThreadPool laden, Dialog erst danach bauen.
+
+    ``story_map_data`` synchron im GUI-Thread wartete unter DB-Last unbegrenzt
+    auf den SQLite-Lock (AppHangB1-Incident 2026-08-06). Diese Funktion kehrt
+    sofort zurueck; ``on_ready(dialog)`` laeuft im GUI-Thread, der Dialog ist
+    beim Aufruf bereits mit Daten gebaut und ``show()`` wurde ausgefuehrt.
+    """
+    bridge = _StoryMapLoadBridge()
+    _PENDING_STORY_MAP_LOADS.append(bridge)
+
+    def _deliver(data: object) -> None:
+        try:
+            dialog = StoryMapDialog(svc, run_id, parent=parent, data=data)
+            dialog.show()
+            if on_ready is not None:
+                on_ready(dialog)
+        finally:
+            try:
+                _PENDING_STORY_MAP_LOADS.remove(bridge)
+            except ValueError:
+                pass
+
+    bridge.loaded.connect(_deliver, Qt.ConnectionType.QueuedConnection)
+    QThreadPool.globalInstance().start(_StoryMapLoadRunnable(svc, run_id, bridge))
+
+
 # ── StoryMapDialog ───────────────────────────────────────────────────────────
 
 
@@ -309,6 +377,7 @@ class StoryMapDialog(QDialog):
         brain_service: BrainService,
         run_id: int,
         parent: Optional[QWidget] = None,
+        data: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(parent)
         self.setModal(False)
@@ -322,17 +391,24 @@ class StoryMapDialog(QDialog):
         self._clip_cards: list[_ClipCard] = []
         self._linked_plots: list[_TimePlot] = []
 
-        # Fetch data up-front; the dialog's contents are static for the
-        # lifetime of one open instance (re-open to refresh).
-        try:
-            self._data = self._svc.story_map_data(self._run_id)
-        except Exception as exc:
-            logger.warning(
-                "StoryMapDialog: story_map_data(%d) failed: %s",
-                self._run_id,
-                exc,
-            )
-            self._data = None
+        # B-765: ``story_map_data`` ist eine SQLite-Query-Sammlung. Synchron
+        # im GUI-Thread wartete sie unter DB-Last (laufende Auto-Edit-Writes)
+        # unbegrenzt auf den Lock — Windows meldete AppHangB1, die App wurde
+        # hart beendet und riss den laufenden Auto-Edit mit. Aufrufer laden
+        # deshalb via ``open_story_map_async`` vor und reichen ``data`` herein;
+        # der Sync-Fallback bleibt fuer Altpfade/Tests erhalten.
+        if data is not None:
+            self._data = data
+        else:
+            try:
+                self._data = self._svc.story_map_data(self._run_id)
+            except Exception as exc:
+                logger.warning(
+                    "StoryMapDialog: story_map_data(%d) failed: %s",
+                    self._run_id,
+                    exc,
+                )
+                self._data = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 6, 6, 6)

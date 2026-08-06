@@ -943,17 +943,21 @@ class AuditTab(QWidget):
             return
         # Local import keeps the StoryMapDialog (and its pyqtgraph imports)
         # off the AuditTab import path until the user actually triggers it.
-        from ui.story_map_dialog import StoryMapDialog
+        from ui.story_map_dialog import open_story_map_async
 
-        dialog = StoryMapDialog(self._svc, int(rid), parent=self)
-        dialog.thumbnailClicked.connect(self.storyMapThumbnailClicked)
-        # Keep a strong reference so Python doesn't GC the non-modal dialog.
-        self._story_map_dialogs.append(dialog)
-        # Drop the reference once the user closes it.
-        dialog.finished.connect(
-            lambda _result, d=dialog: self._on_story_map_closed(d)
-        )
-        dialog.show()
+        # B-765: Daten im Worker laden — der synchrone Service-Call im
+        # Dialog-Konstruktor blockierte den GUI-Thread unter DB-Last
+        # unbegrenzt (AppHangB1-Incident 2026-08-06).
+        def _on_ready(dialog):
+            dialog.thumbnailClicked.connect(self.storyMapThumbnailClicked)
+            # Keep a strong reference so Python doesn't GC the non-modal dialog.
+            self._story_map_dialogs.append(dialog)
+            # Drop the reference once the user closes it.
+            dialog.finished.connect(
+                lambda _result, d=dialog: self._on_story_map_closed(d)
+            )
+
+        open_story_map_async(self._svc, int(rid), parent=self, on_ready=_on_ready)
 
     def _on_story_map_closed(self, dialog: Any) -> None:
         try:
