@@ -327,6 +327,32 @@ Jeder Flow-Eintrag hat:
   Testlaufs (Projekt-Load, Tab-Switches, Play/Stop, Trash-Dialog) → alle
   echten App-Interaktionen freeze-frei.
 
+### 2.21 Agent-Livetest-Erkenntnisse (Fix-Verify B-759/760/761/762) — NEU 2026-08-06
+- **Autoload + Auto-Resume:** App laedt beim Start das letzte Projekt
+  automatisch (Titel wechselt ohne Klick auf `— <projektname>`) und startet
+  selbststaendig eine Batch-Analyse fuer alle unfertigen Clips
+  (`[Pipeline] Starte Batch-Analyse fuer N Video(s)` direkt nach
+  `[Projekt] Geoeffnet`). Fuer isolierte Tests: Pipeline zuerst abbrechen.
+- **Workspace-Tabs sind `control_type=CheckBox`**, nicht Button —
+  `click-element --name-re "^Schnitt Workflow$"` OHNE `--control-type`.
+- **Pipeline-Abbruch:** TASKS-Panel rechts, Button `name="Abbrechen"`
+  (rot, ca. x=3142, y=186). Log-Beleg: `[TaskEngine] Kooperativer Abbruch`
+  + `Analysis cancelled: video/<id>/<step>`; GPU_EXECUTION_LOCK released
+  folgt einige Sekunden spaeter.
+- **Auto-Edit Empty-State:** vier Preset-Karten
+  (`auto_id="schnitt_empty.preset_button"`, Namen `Auto-Edit Preset
+  Techno|Cinematic|House|Festival`). Klick startet direkt. Dauer bei 251
+  Clips / 5531s Audio / Studio-Brain+Reranker: ca. 19 Minuten bis
+  `ApplyAutoEditCommand.redo`.
+- **App-Schliessen mit laufenden Tasks (automatisiert):** `gui_harness kill`
+  braucht `.app_pid` (nur nach `start` vorhanden); bei Direktstart
+  stattdessen `(Get-Process ...).CloseMainWindow()`. Danach erscheint
+  Dialog-Fenster `"Laufende Tasks"` mit Buttons `Yes`/`No` —
+  `click-element --window-title "Laufende Tasks" --name-re "^Yes$"`.
+- **LOG-Panel** (Kontext rechts, TabItem `LOG`, center 2934,132) zeigt die
+  `console_text`-Zeilen (`[StemPlayer] ...`), die NICHT in stdout/Logfile
+  landen — fuer B-761-artige Verifikationen Panel-Screenshot noetig.
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
