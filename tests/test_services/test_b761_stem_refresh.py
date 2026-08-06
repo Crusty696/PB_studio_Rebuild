@@ -13,6 +13,11 @@ Vertraege:
 3. B-355-Schutz: Solange Onsets noch fehlen, wird weiter nachgefragt
    (spaet eintreffende Beat-Analyse erreicht den Onsets-Subtab).
 4. Trackwechsel setzt alles zurueck.
+
+Testinfrastruktur: ``test_engine``-Fixture + monkeypatch wie in
+``test_apply_auto_edit_locked.py`` — der globale conftest-Temp-Engine
+haengt bei ``audio_tracks``-INSERTs in ``database is locked``
+(eigener Infrastruktur-Befund, siehe Vault-Log 2026-08-06).
 """
 from __future__ import annotations
 
@@ -21,9 +26,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.orm import Session as DBSession
 
-from database import engine, AudioTrack, Beatgrid
-from database.models import Project
-from ui.controllers.stems import StemsController
+from database.models import AudioTrack, Beatgrid, Project
 
 
 class _FakePlayer:
@@ -78,14 +81,21 @@ def _make_window():
 
 
 @pytest.fixture()
-def two_tracks():
-    """Zwei AudioTracks: #1 mit Onset-Daten, #2 ohne Beatgrid-Zeile."""
-    with DBSession(engine) as s:
+def stems_ctrl(test_engine, monkeypatch):
+    """StemsController gegen isolierte In-Memory-DB mit zwei Tracks.
+
+    Track #1 hat Stems + Onset-Daten, Track #2 nur einen Stem und keine
+    Beatgrid-Zeile.
+    """
+    import ui.controllers.stems as stems_mod
+    monkeypatch.setattr(stems_mod, "engine", test_engine)
+
+    with DBSession(test_engine) as s:
         project = Project(name="b761", path="C:/x/b761")
         s.add(project)
         s.flush()
         t1 = AudioTrack(
-            project_id=project.id, file_path="C:/x/a.wav", title="a",
+            id=1, project_id=project.id, file_path="C:/x/a.wav", title="a",
             duration=5531.0,
             stem_vocals_path="C:/x/a_vocals.wav",
             stem_drums_path="C:/x/a_drums.wav",
@@ -93,35 +103,29 @@ def two_tracks():
             stem_other_path="C:/x/a_other.wav",
         )
         t2 = AudioTrack(
-            project_id=project.id, file_path="C:/x/b.wav", title="b",
+            id=2, project_id=project.id, file_path="C:/x/b.wav", title="b",
             duration=100.0,
             stem_vocals_path="C:/x/b_vocals.wav",
             stem_drums_path=None, stem_bass_path=None, stem_other_path=None,
         )
         s.add_all([t1, t2])
-        s.flush()
         s.add(Beatgrid(
-            audio_track_id=t1.id, bpm=128.0, offset=0.0,
-            onset_kick_data=b"\x01", onset_snare_data=b"\x02",
-            onset_hihat_data=b"\x03",
+            audio_track_id=1, bpm=128.0, offset=0.0,
+            onset_kick_data=[0.1, 0.5], onset_snare_data=[0.2],
+            onset_hihat_data=[0.3],
         ))
         s.commit()
-        ids = (t1.id, t2.id)
-    yield ids
-    with DBSession(engine) as s:
-        s.query(Beatgrid).delete()
-        s.query(AudioTrack).delete()
-        s.query(Project).filter(Project.name == "b761").delete()
-        s.commit()
 
-
-def test_repeated_sync_prints_console_only_once(two_tracks):
-    """Kernvertrag: identisches Ziel -> genau eine 'geladen'-Meldung."""
-    t1, _ = two_tracks
     win = _make_window()
-    ctrl = StemsController(win)
+    ctrl = stems_mod.StemsController(win)
+    return ctrl, win
+
+
+def test_repeated_sync_prints_console_only_once(stems_ctrl):
+    """Kernvertrag: identisches Ziel -> genau eine 'geladen'-Meldung."""
+    ctrl, win = stems_ctrl
     for _ in range(5):
-        ctrl._update_stem_workspace(t1)
+        ctrl._update_stem_workspace(1)
     loaded_lines = [x for x in win.console_text.lines if "geladen" in x]
     assert len(loaded_lines) == 1, (
         f"Konsole meldete {len(loaded_lines)}x 'geladen' fuer dasselbe "
@@ -129,40 +133,34 @@ def test_repeated_sync_prints_console_only_once(two_tracks):
     )
 
 
-def test_repeated_sync_skips_onset_query_when_onsets_present(two_tracks):
+def test_repeated_sync_skips_onset_query_when_onsets_present(stems_ctrl):
     """Onsets vorhanden -> zweiter Sync wiederholt update_analysis nicht."""
-    t1, _ = two_tracks
-    win = _make_window()
-    ctrl = StemsController(win)
-    ctrl._update_stem_workspace(t1)
-    ctrl._update_stem_workspace(t1)
+    ctrl, win = stems_ctrl
+    ctrl._update_stem_workspace(1)
+    ctrl._update_stem_workspace(1)
     assert len(win._stems_ws.analyses) == 1, (
         "update_analysis (inkl. Beatgrid-BLOB-Query) lief mehrfach fuer "
         "unveraendertes Ziel mit bereits vorhandenen Onsets"
     )
 
 
-def test_missing_onsets_keep_refreshing(two_tracks):
+def test_missing_onsets_keep_refreshing(stems_ctrl):
     """B-355-Schutz: ohne Onset-Daten wird weiter nachgefragt."""
-    _, t2 = two_tracks
-    win = _make_window()
-    ctrl = StemsController(win)
-    ctrl._update_stem_workspace(t2)
-    ctrl._update_stem_workspace(t2)
+    ctrl, win = stems_ctrl
+    ctrl._update_stem_workspace(2)
+    ctrl._update_stem_workspace(2)
     assert len(win._stems_ws.analyses) == 2, (
         "Spaet eintreffende Onset-Daten wuerden den Onsets-Subtab nie "
         "erreichen, wenn hier nicht erneut abgefragt wird"
     )
 
 
-def test_track_switch_resets_console_and_analysis(two_tracks):
+def test_track_switch_resets_console_and_analysis(stems_ctrl):
     """Trackwechsel ist ein neues Ziel: Meldung + Analyse laufen wieder."""
-    t1, t2 = two_tracks
-    win = _make_window()
-    ctrl = StemsController(win)
-    ctrl._update_stem_workspace(t1)
-    ctrl._update_stem_workspace(t2)
-    ctrl._update_stem_workspace(t1)
+    ctrl, win = stems_ctrl
+    ctrl._update_stem_workspace(1)
+    ctrl._update_stem_workspace(2)
+    ctrl._update_stem_workspace(1)
     loaded_lines = [x for x in win.console_text.lines if "geladen" in x]
     assert len(loaded_lines) == 3, (
         f"Trackwechsel muss neu melden; erhalten: {win.console_text.lines}"

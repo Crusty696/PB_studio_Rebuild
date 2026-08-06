@@ -96,6 +96,23 @@ class StemsController(PBComponent):
                         self.window._schnitt_audio_binder.set_duration(self.window.stem_player.duration)
                     else:
                         self.window._schnitt_audio_binder.set_duration(0.0)
+                # B-761: Der B-253-Bridge-Pfad ruft diese Methode bei JEDEM
+                # Medien-Tabellen-Refresh — waehrend einer Videoanalyse
+                # hunderte Male fuer dasselbe unveraenderte Ziel. Der Player
+                # ueberspringt identische Pfade ohnehin (Signatur-Guard);
+                # Konsole und Onset-BLOB-Query muessen dasselbe tun, sonst
+                # behauptet die Konsole Ladearbeit, die nicht stattfindet,
+                # und die beatgrids-Blobs werden unter Analyse-Last immer
+                # wieder gelesen.
+                stem_sig = tuple(
+                    sorted((k, str(v)) for k, v in stem_paths.items() if v)
+                )
+                prev = getattr(self, "_b761_last_state", None)
+                same_target = (
+                    prev is not None
+                    and prev[0] == track_id
+                    and prev[1] == stem_sig
+                )
                 if hasattr(self.window, "_stems_ws"):
                     # B-355: Onset-Daten (Kick/Snare/Hihat) liegen in der beatgrids-
                     # Tabelle, NICHT am AudioTrack. Innerhalb der Session laden und
@@ -104,29 +121,47 @@ class StemsController(PBComponent):
                     # bleiben. B-494: SNR (acoustic_metadata) wird nach StemGen
                     # persistiert und hier aus track_row durchgereicht; NULL bei
                     # Alt-Tracks ohne SNR-Backfill (Subtab zeigt "nicht verfuegbar").
-                    beatgrid_row = (
-                        session.query(
-                            Beatgrid.onset_kick_data,
-                            Beatgrid.onset_snare_data,
-                            Beatgrid.onset_hihat_data,
+                    # B-761: Query nur wiederholen, solange Onsets noch fehlen
+                    # (B-355: spaete Beat-Analyse muss ankommen) oder das Ziel
+                    # neu ist.
+                    if not (same_target and prev[2]):
+                        beatgrid_row = (
+                            session.query(
+                                Beatgrid.onset_kick_data,
+                                Beatgrid.onset_snare_data,
+                                Beatgrid.onset_hihat_data,
+                            )
+                            .filter(Beatgrid.audio_track_id == track_id)
+                            .first()
                         )
-                        .filter(Beatgrid.audio_track_id == track_id)
-                        .first()
-                    )
-                    self.window._stems_ws.update_analysis(
-                        SimpleNamespace(
-                            id=track_row.id,
-                            title=track_row.title,
-                            duration=track_row.duration,
-                            energy_curve=track_row.energy_curve,
-                            onset_kick_data=(beatgrid_row.onset_kick_data if beatgrid_row else None),
-                            onset_snare_data=(beatgrid_row.onset_snare_data if beatgrid_row else None),
-                            onset_hihat_data=(beatgrid_row.onset_hihat_data if beatgrid_row else None),
-                            acoustic_metadata=track_row.acoustic_metadata,  # B-494
+                        self.window._stems_ws.update_analysis(
+                            SimpleNamespace(
+                                id=track_row.id,
+                                title=track_row.title,
+                                duration=track_row.duration,
+                                energy_curve=track_row.energy_curve,
+                                onset_kick_data=(beatgrid_row.onset_kick_data if beatgrid_row else None),
+                                onset_snare_data=(beatgrid_row.onset_snare_data if beatgrid_row else None),
+                                onset_hihat_data=(beatgrid_row.onset_hihat_data if beatgrid_row else None),
+                                acoustic_metadata=track_row.acoustic_metadata,  # B-494
+                            )
                         )
-                    )
-                if loaded and hasattr(self.window, "console_text"):
+                        has_onsets = bool(
+                            beatgrid_row
+                            and (
+                                beatgrid_row.onset_kick_data
+                                or beatgrid_row.onset_snare_data
+                                or beatgrid_row.onset_hihat_data
+                            )
+                        )
+                    else:
+                        has_onsets = True
+                else:
+                    # Ohne Onsets-Subtab gibt es nichts nachzuliefern.
+                    has_onsets = True
+                if loaded and not same_target and hasattr(self.window, "console_text"):
                     self.window.console_text.append(f"[StemPlayer] Track #{track_id} geladen: {self.window.stem_player.duration:.1f}s")
+                self._b761_last_state = (track_id, stem_sig, has_onsets)
         except Exception as e:
             logger.error("[StemWorkspace] Error: %s", e, exc_info=True)
             # console_text (LOG-Panel) existiert erst nach panel_setup; beim
