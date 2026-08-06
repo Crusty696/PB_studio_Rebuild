@@ -1545,6 +1545,11 @@ def _auto_edit_phase3_inner(
                             predecessor=_sb_predecessor,
                             recent_clip_ids=used_recently[-3:] if used_recently else None,
                             boost_scene_ids=_steer_boost or None,
+                            # B-763: Nutzungs-Cap galt bisher nur im
+                            # Legacy-Matcher — der Studio-Brain-Pfad liess
+                            # 5 von 251 Clips ~95 % der Timeline gewinnen.
+                            usage_counts=usage_counts,
+                            max_uses=max_uses_per_video,
                         )
                         if _sb_result.chosen is not None:
                             _sb_chosen_vid = _sb_result.chosen.clip_id

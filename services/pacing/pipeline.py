@@ -253,6 +253,8 @@ class PacingPipeline:
         predecessor: ClipFeatures | None = None,
         recent_clip_ids: Sequence[int] | None = None,
         boost_scene_ids: "set[int] | None" = None,
+        usage_counts: "Mapping[int, int] | None" = None,
+        max_uses: int | None = None,
     ) -> PipelineResult:
         """Run all 4 stages and return (chosen, rationale).
 
@@ -372,6 +374,38 @@ class PacingPipeline:
                 c for c, r in zip(candidates, stage_results) if r.passed_stage2
             ]
 
+        # === Stage 3.5 — Globales Nutzungs-Cap (B-763) ===
+        # Livebefund 2026-08-06: ohne Cap gewannen 5 von 251 Clips ~95 %
+        # aller 1415 Segmente — das 3er-Recency-Fenster laesst Topscorer
+        # als Karussell rotieren. pacing_service berechnet max_uses laengst
+        # (ceil(Segmente/Kandidaten)+1), reichte es aber nur an den
+        # Legacy-Matcher. Kandidaten am Cap fliegen raus, solange eine
+        # Alternative unter dem Cap existiert; sonst Regel aussetzen
+        # (nie leerer Cut) — hoerbar via WARNING + rationale-Flag.
+        usage_cap_forced = False
+        if usage_counts is not None and max_uses is not None and max_uses > 0:
+            survivors = [
+                (c, r) for c, r in zip(candidates, stage_results) if r.passed_stage2
+            ]
+            uncapped = [
+                (c, r) for c, r in survivors
+                if usage_counts.get(c.clip_id, 0) < max_uses
+            ]
+            if uncapped and len(uncapped) < len(survivors):
+                for c, r in survivors:
+                    if usage_counts.get(c.clip_id, 0) >= max_uses:
+                        r.passed_stage2 = False
+                        r.rejected_reason = "usage_cap"
+            elif not uncapped and survivors:
+                usage_cap_forced = True
+                logger.warning(
+                    "B-763: Nutzungs-Cap ausgesetzt — alle %d Kandidaten "
+                    "haben max_uses=%d erreicht. Wiederholungs-Konzentration "
+                    "moeglich; Ursache pruefen: zu wenig Material fuer die "
+                    "Segmentanzahl.",
+                    len(survivors), max_uses,
+                )
+
         # === Stage 4 — Soft Scoring ===
         scored: list[tuple[ClipFeatures, float, dict[str, float]]] = []
         for c, r in zip(candidates, stage_results):
@@ -473,6 +507,8 @@ class PacingPipeline:
             "contribs": rationale_contribs,
             "stage1_softened": stage1_softened,
             "stage2_forced": stage2_forced,
+            # B-763: Cap-Aussetzung sichtbar machen (alle Kandidaten am Limit)
+            "usage_cap_forced": usage_cap_forced,
             "forced_negative": forced_negative,
             "brain_v3_scores": brain_v3_scores_by_clip.get(best_clip.clip_id, {}),
             "brain_v3_final_score": brain_v3_final_score_by_clip.get(best_clip.clip_id),
