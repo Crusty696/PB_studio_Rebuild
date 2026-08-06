@@ -1,0 +1,10 @@
+{
+  "lesson_id": "93713af9f0e246b5a974a1465d7c06c8",
+  "recorded_at": "2026-08-06T12:21:16+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "audio_tracks-INSERT in die globale conftest-Temp-DB haengt 120s in database-is-locked, waehrend Projekt-INSERT sofort durchgeht; kostete drei Diagnose-Laeufe.",
+  "cause": "Bestandstests nutzen nie den globalen Temp-Engine fuer solche Inserts, sondern das test_engine-Fixture (In-Memory StaticPool + monkeypatch der Modul-Engines). Der globale Engine haelt offenbar eine konkurrierende Verbindung; Root Cause ungeklaert.",
+  "rule": "Neue Tests mit DB-Schreibzugriff immer nach dem Muster bestehender gruener Tests bauen (test_engine-Fixture + monkeypatch), nie direkt gegen den globalen conftest-Engine schreiben. Bei Testinfra-Haengern zuerst gruenen Nachbartest als Referenz bisektieren statt Theorien testen.",
+  "applies_to": "tests/conftest.py, alle neuen Service-/Controller-Tests mit DB-Writes"
+}
