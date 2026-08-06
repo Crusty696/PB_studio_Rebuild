@@ -91,6 +91,43 @@ def test_all_capped_still_picks_best_and_flags(pipeline):
     )
 
 
+def test_loop_distribution_like_pacing_service(pipeline):
+    """End-to-End-Vertrag des echten Auswahl-Loops (pacing_service-Muster):
+
+    Wahl -> usage_counts[vid] += 1 -> naechstes Segment, mit einem
+    dominanten Topscorer. Ohne Cap gewann der Topscorer (fast) alles;
+    mit Cap darf KEIN Clip oefter als max_uses gewinnen und die Auswahl
+    muss sich real verteilen.
+    """
+    n_segments = 100
+    candidates = [_clip(i, motion=0.6 if i == 1 else 0.2 + (i % 7) * 0.01)
+                  for i in range(1, 21)]  # 20 Kandidaten, Clip 1 dominiert
+    max_uses = (n_segments // len(candidates)) + 1  # = 6, wie pacing_service
+    usage: dict[int, int] = {}
+    used_recently: list[int] = []
+    wins: dict[int, int] = {}
+    for _ in range(n_segments):
+        result = pipeline.select_best(
+            candidates=candidates,
+            ctx=_ctx(),
+            recent_clip_ids=used_recently[-3:] or None,
+            usage_counts=usage,
+            max_uses=max_uses,
+        )
+        assert result.chosen is not None
+        vid = result.chosen.clip_id
+        wins[vid] = wins.get(vid, 0) + 1
+        usage[vid] = usage.get(vid, 0) + 1
+        used_recently.append(vid)
+    worst = max(wins.values())
+    assert worst <= max_uses, (
+        f"Ein Clip gewann {worst}x trotz max_uses={max_uses}: {wins}"
+    )
+    assert len(wins) >= n_segments // max_uses, (
+        f"Nur {len(wins)} verschiedene Clips fuer {n_segments} Segmente: {wins}"
+    )
+
+
 def test_without_max_uses_behavior_unchanged(pipeline):
     """Rueckwaerts-Vertrag: ohne Cap gewinnt weiterhin der Topscorer."""
     a, b = _clip(1, motion=0.6), _clip(2, motion=0.2)
