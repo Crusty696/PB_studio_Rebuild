@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4a9710dfd6df49768790a7306284562b",
+  "recorded_at": "2026-08-06T17:13:01+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Livetest der App musste vollautomatisch laufen (Projekt oeffnen, Analyse abbrechen, Auto-Edit, Schliessen mit Task-Dialog) ohne User am Bildschirm.",
+  "cause": "App laedt letztes Projekt automatisch und startet selbststaendig Batch-Resume; Workspace-Tabs sind CheckBox statt Button; console_text-Zeilen erscheinen nur im LOG-Panel, nie in stdout; gui_harness kill braucht .app_pid.",
+  "rule": "Vor GUI-Livetests Playbook 2.21 lesen: Auto-Resume zuerst abbrechen, click-element ohne control_type fuer Workspace-Tabs, LOG-Panel-Screenshot fuer console_text-Beweise, CloseMainWindow+Laufende-Tasks-Yes fuer Shutdown-Tests.",
+  "applies_to": "GUI-Livetests, gui_harness, docs/GUI_NAVIGATION_PLAYBOOK.md"
+}
