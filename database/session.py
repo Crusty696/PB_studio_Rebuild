@@ -125,6 +125,38 @@ class EngineProxy:
                 inflight.pop(id(eng), None)
                 cv.notify_all()
 
+    # ------------------------------------------------------------------
+    # B-764: Identitaets-Delegation an die innere Engine.
+    # ``SessionTransaction._connection_for_bind`` (sqlalchemy 2.0.51,
+    # orm/session.py ab Z. 1154) cached offene Verbindungen unter
+    # ``conn.engine`` (= ECHTE innere Engine, Z. 1254), sucht aber mit dem
+    # Session-bind — diesem Proxy — als Dict-Key (Z. 1162:
+    # ``if bind in self._connections``). Ohne Hash-/Eq-Delegation traf der
+    # Lookup nie -> jeder flush-/execute-Batch innerhalb EINER
+    # Session-Transaktion zog eine NEUE Pool-Verbindung -> SQLite-
+    # Self-Deadlock ("database is locked" nach busy_timeout 120s).
+    # Der Dict-Lookup vergleicht ``stored_key.__eq__(proxy)`` ->
+    # ``NotImplemented`` (Engine hat kein eigenes __eq__) -> Python
+    # reflektiert auf ``Proxy.__eq__(stored_key)`` -> hash-Gleichheit +
+    # dieses __eq__ reichen.
+    #
+    # GRENZE (Hash-Stabilitaet): ``swap()`` ersetzt die innere Engine und
+    # aendert damit den Hash des Proxys. Ein Objekt mit veraenderlichem
+    # Hash darf NICHT in einem Dict/Set liegen, WAEHREND es dort liegt.
+    # SQLAlchemy haelt den Proxy nur fuer die Dauer einer offenen
+    # SessionTransaction als Dict-Key; ein swap() bei offener Session ist
+    # ohnehin verboten/kaputt (set_project blockt bei laufenden Tasks,
+    # B-490/CRF-005). Den Proxy NIEMALS als langlebigen Dict-/Set-Key
+    # verwenden, der einen swap() ueberleben soll.
+    def __hash__(self):
+        return hash(object.__getattribute__(self, '_engine'))
+
+    def __eq__(self, other):
+        inner = object.__getattribute__(self, '_engine')
+        if isinstance(other, EngineProxy):
+            return inner is object.__getattribute__(other, '_engine')
+        return inner is other
+
     # Explicit delegates needed for SQLAlchemy internals that bypass __getattr__:
     def connect(self, *a, **kw):
         eng = self._checkout_engine()
