@@ -1230,11 +1230,53 @@ def store_scenes_in_db(
             )
             return False
         try:
-            # Alte Szenen löschen
-            session.query(Scene).filter_by(video_clip_id=video_clip_id).delete()
+            # B-771: KEIN delete+insert mehr. mem_decision.scene_id (NOT NULL,
+            # ohne CASCADE — "deleted clips must not wipe history") blockierte
+            # den Bulk-Delete mit sqlite3.IntegrityError 'FOREIGN KEY
+            # constraint failed', sobald ein Clip nach einem Auto-Edit-Lauf
+            # re-analysiert wurde (Live-Session 2026-08-07: 9 von 251 Clips).
+            # Stattdessen Upsert mit STABILEN Scene-IDs: bestehende Rows werden
+            # in-place ueberschrieben, dadurch bleiben mem_decision-Referenzen
+            # gueltig und die Brain-Historie intakt.
+            #
+            # Nebeneffekte des alten Deletes werden explizit repliziert, damit
+            # kein staler Enrichment-/Memory-Stand ueberlebt:
+            # - struct_clip_tags / struct_compat_edge: vorher ON DELETE CASCADE
+            #   -> jetzt explizit loeschen (Szenen-Inhalt ist neu).
+            # - ai_pacing_memory.scene_id: vorher ON DELETE SET NULL
+            #   -> jetzt explizit auf NULL setzen.
+            from sqlalchemy import bindparam as _bindparam, text as _text
 
-            for scene in scenes:
-                db_scene = Scene(
+            def _in_ids(sql: str, ids: list[int], **extra):
+                stmt = _text(sql).bindparams(
+                    _bindparam("ids", expanding=True), **extra
+                )
+                return session.execute(stmt, {"ids": ids})
+
+            existing = (
+                session.query(Scene)
+                .filter_by(video_clip_id=video_clip_id)
+                .order_by(Scene.id)
+                .all()
+            )
+
+            reused_ids: list[int] = []
+            for db_scene, scene in zip(existing, scenes):
+                db_scene.start_time = scene.start_time
+                db_scene.end_time = scene.end_time
+                db_scene.energy = scene.motion_score
+                db_scene.label = f"Scene {scene.index}"
+                db_scene.ai_caption = scene.ai_caption if scene.ai_caption else None
+                db_scene.ai_mood = scene.ai_mood
+                db_scene.ai_tags = scene.ai_tags if scene.ai_tags else None
+                # Wie ein frischer Insert: Pipeline-Anker zuruecksetzen.
+                db_scene.scene_index = None
+                db_scene.keyframe_paths = None
+                db_scene.embedding_indices = None
+                reused_ids.append(db_scene.id)
+
+            for scene in scenes[len(existing):]:
+                session.add(Scene(
                     video_clip_id=video_clip_id,
                     start_time=scene.start_time,
                     end_time=scene.end_time,
@@ -1243,8 +1285,60 @@ def store_scenes_in_db(
                     ai_caption=scene.ai_caption if scene.ai_caption else None,
                     ai_mood=scene.ai_mood,
                     ai_tags=scene.ai_tags if scene.ai_tags else None,
+                ))
+
+            surplus = existing[len(scenes):]
+            if surplus:
+                surplus_ids = [s.id for s in surplus]
+                if reused_ids:
+                    # Historie erhalten: Referenzen auf ueberzaehlige Szenen
+                    # auf die letzte ueberlebende Szene DESSELBEN Clips
+                    # umhaengen (der denormalisierte Kontext-Snapshot in
+                    # mem_decision bleibt die unveraenderte Wahrheit).
+                    _in_ids(
+                        "UPDATE mem_decision SET scene_id = :keep "
+                        "WHERE scene_id IN :ids",
+                        surplus_ids,
+                        keep=reused_ids[-1],
+                    )
+                    for s in surplus:
+                        session.delete(s)
+                else:
+                    # Keine ueberlebende Szene (scenes leer): referenzierte
+                    # Rows NICHT loeschen — Historie darf nicht brechen.
+                    referenced = {
+                        row[0] for row in _in_ids(
+                            "SELECT DISTINCT scene_id FROM mem_decision "
+                            "WHERE scene_id IN :ids",
+                            surplus_ids,
+                        )
+                    }
+                    for s in surplus:
+                        if s.id in referenced:
+                            logger.warning(
+                                "store_scenes_in_db: Szene %d (VideoClip %d) "
+                                "wird von mem_decision referenziert und "
+                                "bleibt trotz leerer Neuanalyse erhalten "
+                                "(B-771).", s.id, video_clip_id,
+                            )
+                        else:
+                            session.delete(s)
+
+            if reused_ids:
+                _in_ids(
+                    "DELETE FROM struct_compat_edge "
+                    "WHERE scene_id_a IN :ids OR scene_id_b IN :ids",
+                    reused_ids,
                 )
-                session.add(db_scene)
+                _in_ids(
+                    "DELETE FROM struct_clip_tags WHERE scene_id IN :ids",
+                    reused_ids,
+                )
+                _in_ids(
+                    "UPDATE ai_pacing_memory SET scene_id = NULL "
+                    "WHERE scene_id IN :ids",
+                    reused_ids,
+                )
 
             session.commit()
         except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types
