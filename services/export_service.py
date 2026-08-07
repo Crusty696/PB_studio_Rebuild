@@ -42,6 +42,7 @@ from services.export._common import (
     _sanitize_concat_path,
     _source_duration_from_entry,
     _validate_video_timeline_gaps,
+    heal_video_timeline_gaps,
 )
 from services.export.probe import (
     _get_probed_info,
@@ -299,6 +300,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 TimelineEntry.crossfade_duration,
                 TimelineEntry.brightness,
                 TimelineEntry.contrast,
+                # B-769: locked wird fuer die in-memory Gap-Heilung gebraucht
+                # (gelockte Segmente duerfen NIE verschoben werden).
+                TimelineEntry.locked,
             )
             .where(TimelineEntry.project_id == project_id)
             .order_by(TimelineEntry.start_time)
@@ -355,6 +359,16 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     "crossfade": ve.crossfade_duration or 0.0,
                     "brightness": ve.brightness or 0.0,
                     "contrast": ve.contrast or 1.0,
+                    # B-769: Zusatzfelder fuer die in-memory Gap-Heilung
+                    # (heal_video_timeline_gaps). "source_end" wird bei einer
+                    # Verlaengerung zusammen mit "source_duration" fortge-
+                    # schrieben; der Renderer liest weiterhin source_start +
+                    # source_duration.
+                    # getattr: aeltere Tests faken Entries als
+                    # SimpleNamespace ohne locked-Feld.
+                    "locked": bool(getattr(ve, "locked", False)),
+                    "source_end": source_start + source_duration,
+                    "clip_duration": clip.duration or 0.0,
                 })
 
         if _missing_clip_count:
@@ -411,6 +425,30 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 "statt abzubrechen.",
                 _missing_clip_count, _total_shift,
             )
+
+    # B-769: Manuelle Timeline-Operationen (Trim/Remove/Move in ui/) schreiben
+    # roh in die DB — repair_timeline_integrity hat KEINEN Callsite in ui/.
+    # Ohne Heilung braeche der Export Minuten spaeter am Gap-Validator ab.
+    # Heilung passiert NUR in-memory auf der geladenen Segmentliste — die DB
+    # bleibt byte-identisch (Export darf das Projekt nicht mutieren; ein
+    # stiller DB-Write wuerde den QUndoStack umgehen). Gelockte Segmente
+    # werden NIE verschoben; Luecken davor werden durch Verlaengern der
+    # ungelockten Vorgaenger (Restmaterial) geschlossen.
+    _heal_result = heal_video_timeline_gaps(video_segments)
+    if _heal_result["unclosable"]:
+        _gap_from, _gap_to = _heal_result["unclosable"][0]
+        raise ValueError(
+            f"B-769: Timeline-Luecke {_gap_from:.3f}s bis {_gap_to:.3f}s "
+            "grenzt an gelockte Segmente und kann ohne Verschieben "
+            "gelockter Clips nicht geschlossen werden. Bitte die Luecke in "
+            "der Timeline manuell schliessen (Clip entsperren, verschieben "
+            "oder Material einfuegen)."
+        )
+    if _heal_result["gaps_closed"]:
+        logger.info(
+            "B-769: %d Luecken fuer Export in-memory geschlossen "
+            "(DB unveraendert)", _heal_result["gaps_closed"],
+        )
 
     _validate_video_timeline_gaps(video_segments)
 

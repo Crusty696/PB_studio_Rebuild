@@ -423,6 +423,12 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
     """
     from database import AudioTrack, VideoClip, nullpool_session
 
+    # B-769: geteilte Kernlogik + Toleranz aus derselben Quelle wie der
+    # Export-Validator (_validate_video_timeline_gaps) — Repair darf nichts
+    # durchlassen, was der Validator ablehnt. Lazy-Import: vermeidet jede
+    # Chance auf einen Import-Zyklus ueber services.export beim Modul-Load.
+    from services.export._common import heal_video_timeline_gaps
+
     result = {
         "video_duration_clamped": 0,
         "video_overlaps_shifted": 0,
@@ -496,6 +502,57 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
                 row.end_time = end
                 result["video_gaps_closed"] += 1
             cursor = max(cursor, float(row.end_time or end))
+
+        # B-769: Locked Rows sind Positions-Anker — der Gap-Close-Pass oben
+        # verschiebt NUR unlocked Rows und ueberspringt locked Rows komplett
+        # (``and not bool(row.locked)``). Das Links-Kompaktieren OEFFNET vor
+        # einem locked Anker erst die Luecke (bzw. laesst eine bestehende
+        # stehen), die der Export-Validator _validate_video_timeline_gaps
+        # spaeter mit ValueError ablehnt (belegt: new_test_august, Entry 990,
+        # 2.668s Luecke trotz video_gaps_closed=571). Kernlogik ist die von
+        # Repair und Export geteilte pure function heal_video_timeline_gaps:
+        # sie fuellt Luecken vor locked Ankern aus ungenutztem Quellmaterial
+        # (clip.duration - source_end) der Vorgaenger — locked Rows werden
+        # NIE angefasst. Hier (legitimer DB-Schreibpfad nach Apply) wird das
+        # Ergebnis zurueck in die ORM-Rows geschrieben.
+        heal_items = [
+            {
+                "start": float(row.start_time or 0.0),
+                "end": float(row.end_time or 0.0),
+                "locked": bool(row.locked),
+                "source_end": (
+                    float(row.source_end)
+                    if row.source_end is not None else None
+                ),
+                "clip_duration": (
+                    float(video_durations.get(row.media_id) or 0.0)
+                    if row.media_id is not None else 0.0
+                ),
+            }
+            for row in video_rows
+        ]
+        heal_result = heal_video_timeline_gaps(heal_items)
+        for row, item in zip(video_rows, heal_items):
+            if bool(row.locked):
+                continue
+            row.start_time = item["start"]
+            row.end_time = item["end"]
+            if item["source_end"] is not None:
+                row.source_end = item["source_end"]
+        # Kein eigener Result-Key: bestehende Tests (test_e6_repair_
+        # column_queries) vergleichen das Dict exakt. Backfilled Luecken
+        # zaehlen als geschlossene Gaps. Pass 1 der pure function ist nach
+        # dem Loop oben ein No-Op (Gaps bereits geschlossen), gezaehlt
+        # werden also nur die Locked-Anker-Backfills.
+        result["video_gaps_closed"] += heal_result["gaps_closed"]
+        for gap_start, gap_end in heal_result["unclosable"]:
+            logger.warning(
+                "B-769: Luecke %.3fs–%.3fs vor gelocktem Segment ist ohne "
+                "Verschieben gelockter Clips nicht schliessbar (kein "
+                "Restmaterial / beidseitig locked) — Export-Validator wird "
+                "das ablehnen.",
+                gap_start, gap_end,
+            )
 
         audio_rows = (
             session.query(TimelineEntry)

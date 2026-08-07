@@ -120,10 +120,137 @@ def _source_duration_from_entry(
     return source_duration
 
 
+# B-769: EINE gemeinsame Quelle fuer die Gap-Toleranzen von Export-Validator
+# (hier) und Timeline-Repair (services/timeline_service.py). Vorher hatte der
+# Repair eigene Schwellen (1e-3) und uebersprang locked Rows — er liess damit
+# Luecken durch, die der Validator ablehnt, und der Export brach Minuten
+# spaeter mit ValueError ab.
+TIMELINE_GAP_EPSILON_SEC = 0.01
+TIMELINE_GAP_CLOSE_THRESHOLD_SEC = 0.05
+
+
+def heal_video_timeline_gaps(
+    items: list[dict],
+    epsilon: float = TIMELINE_GAP_EPSILON_SEC,
+) -> dict:
+    """B-769 Kernlogik: schliesst Video-Timeline-Luecken IN-MEMORY (pure,
+    kein DB-Zugriff). Wird von ZWEI Pfaden genutzt:
+
+    - ``repair_timeline_integrity`` (services/timeline_service.py): legitimer
+      DB-Schreibpfad nach Auto-Edit-Apply — mappt ORM-Rows auf dicts, ruft
+      diese Funktion, schreibt Ergebnis zurueck.
+    - ``export_timeline`` (services/export_service.py): heilt NUR die geladene
+      Segmentliste fuer das Rendering — die DB bleibt byte-identisch (Export
+      darf das Projekt nicht mutieren; Consulting-Review 2026-08-07).
+
+    ``items``: dicts mit ``start``/``end`` (Pflicht) sowie optional
+    ``locked``, ``source_end``, ``source_duration``, ``clip_duration``.
+    Reihenfolge = Timeline-Reihenfolge (nach start sortiert).
+
+    Vertrag: LOCKED Eintraege werden NIE verschoben oder veraendert.
+    Pass 1 kompaktiert unlocked Eintraege nach links (locked = Anker).
+    Pass 2 fuellt verbleibende Luecken VOR locked Ankern, indem vorangehende
+    unlocked Eintraege um ungenutztes Quellmaterial
+    (``clip_duration - source_end``) verlaengert und dazwischenliegende
+    Eintraege nach rechts geschoben werden.
+
+    Rueckgabe: ``{"gaps_closed": int, "unclosable": [(prev_end, start), ...]}``
+    — ``unclosable`` sind Luecken, die ohne Lock-Bruch nicht schliessbar sind
+    (z.B. Luecke direkt zwischen zwei gelockten Segmenten oder kein
+    Restmaterial in allen Vorgaenger-Clips).
+    """
+    gaps_closed = 0
+    unclosable: list[tuple[float, float]] = []
+
+    # Pass 1: unlocked nach links kompaktieren, locked bleibt Anker.
+    cursor = 0.0
+    for it in items:
+        start = float(it["start"])
+        end = float(it["end"])
+        if not it.get("locked") and start > cursor + epsilon:
+            duration = max(0.0, end - start)
+            it["start"] = round(cursor, 4)
+            it["end"] = round(it["start"] + duration, 4)
+            gaps_closed += 1
+        cursor = max(cursor, float(it["end"]))
+
+    # Pass 2: Luecken vor locked Ankern mit Restmaterial fuellen.
+    #
+    # F-1 (adversarialer Review 2026-08-07): Der fruehere Backfill setzte
+    # POSITIONELL bei idx-1 an. Bei einer Overlap-Insel (z.B. [0..10],
+    # [2..4], locked [12..14]) verlaengerte er die Insel (4->6), obwohl das
+    # reale prev_end 10.0 vom ERSTEN Segment kommt — die Luecke 10->12 blieb
+    # offen, wurde aber als gaps_closed gemeldet und der Validator warf
+    # spaeter den rohen ValueError. Fix: Kandidaten in END-Reihenfolge
+    # (zuerst das Segment mit dem MAXIMALEN end, das prev_end definiert),
+    # und der Erfolg wird IMMER gegen das REALE prev_end verifiziert —
+    # nie "geschlossen aber offen" melden.
+    prev_end = 0.0
+    for idx, it in enumerate(items):
+        start = float(it["start"])
+        gap = start - prev_end
+        if it.get("locked") and gap > epsilon:
+            # Fenster: unlocked Items zwischen vorherigem Anker und idx.
+            window: list[int] = []
+            j = idx - 1
+            while j >= 0 and not items[j].get("locked"):
+                window.append(j)
+                j -= 1
+            # Kandidaten nach end absteigend: zuerst das Segment, dessen
+            # Verlaengerung das reale prev_end tatsaechlich anhebt.
+            order = sorted(
+                window, key=lambda k: float(items[k]["end"]), reverse=True
+            )
+            remaining = gap
+            for c in order:
+                if remaining <= epsilon:
+                    break
+                prev = items[c]
+                spare = 0.0
+                clip_duration = prev.get("clip_duration")
+                source_end = prev.get("source_end")
+                if clip_duration and source_end is not None:
+                    spare = float(clip_duration) - float(source_end)
+                take = min(spare, remaining)
+                if take <= 1e-9:
+                    continue
+                c_end_pre = float(prev["end"])
+                prev["end"] = round(c_end_pre + take, 4)
+                prev["source_end"] = round(float(source_end) + take, 4)
+                if prev.get("source_duration") is not None:
+                    prev["source_duration"] = round(
+                        float(prev["source_duration"]) + take, 4
+                    )
+                # Fenster-Items mit GROESSEREM end nach rechts schieben,
+                # damit die Kette bis zum Anker geschlossen bleibt (bei
+                # kontiguierlichen Timelines identisch zum alten Verhalten;
+                # Overlap-Inseln mit kleinerem end bleiben unangetastet).
+                for k in window:
+                    other = items[k]
+                    if k != c and float(other["end"]) > c_end_pre:
+                        other["start"] = round(float(other["start"]) + take, 4)
+                        other["end"] = round(float(other["end"]) + take, 4)
+                remaining -= take
+            # F-1: Erfolg gegen das REALE prev_end (max end aller Items vor
+            # dem Anker) verifizieren — ehrliches Reporting: entweder
+            # wirklich geschlossen ODER unclosable, nie beides falsch.
+            real_prev_end = max(
+                (float(x["end"]) for x in items[:idx]), default=0.0
+            )
+            if start - real_prev_end <= epsilon:
+                gaps_closed += 1
+            else:
+                unclosable.append((round(real_prev_end, 4), round(start, 4)))
+            prev_end = max(prev_end, real_prev_end)
+        prev_end = max(prev_end, float(it["end"]))
+
+    return {"gaps_closed": gaps_closed, "unclosable": unclosable}
+
+
 def _validate_video_timeline_gaps(
     video_segments: list[dict],
-    epsilon: float = 0.01,
-    close_threshold: float = 0.05,
+    epsilon: float = TIMELINE_GAP_EPSILON_SEC,
+    close_threshold: float = TIMELINE_GAP_CLOSE_THRESHOLD_SEC,
 ) -> None:
     """Prueft die Video-Timeline auf Luecken und SCHLIESST kleine automatisch.
 
