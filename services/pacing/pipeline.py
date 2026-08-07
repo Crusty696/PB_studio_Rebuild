@@ -50,6 +50,16 @@ STEER_BOOST_BONUS = 0.5
 # gemessene Groesse.
 DEFAULT_BRAIN_V3_WEIGHT = 0.3
 
+# B-768: Mindestanzahl nutzbarer Stage-1-Ueberlebender, bevor die
+# Rollenmenge gesoftet wird (filler/unknown zulassen). Livebefund
+# 2026-08-07: Section-x-Rollen-Matrix kollabierte 364 Kandidaten auf
+# 1-22 (B-729: fast alle Clips role=unknown/filler) — Cap (B-763) und
+# Nachbarschaftsregel (B-759) mussten dann aussetzen -> 334x-Spitzenreiter,
+# 104 direkte Wiederholungen. Soften erst bei 0 Ueberlebenden war zu spaet.
+# Bewusst Konstante statt Config-Feld (Minimal-Fix); Wert = genug Auswahl
+# fuer Recency-Fenster (3) + Nachbarschaft + Cap-Rotation.
+STAGE1_MIN_SURVIVORS = 8
+
 
 @dataclass
 class StageResult:
@@ -287,18 +297,44 @@ class PacingPipeline:
             c for c, r in zip(candidates, stage_results) if r.passed_stage1
         ]
         stage1_softened = False
-        if not stage1_survivors:
-            if self._rules.get("stage1_fallback", "soften") == "soften":
-                # Widen: accept filler/unknown roles too
-                for c, r in zip(candidates, stage_results):
-                    if c.role in {"filler", "unknown"}:
-                        r.passed_stage1 = True
-                        r.rejected_reason = None
+        # B-768: Soften-Trigger von ==0 auf < STAGE1_MIN_SURVIVORS erweitert.
+        # "Nutzbar" beruecksichtigt das B-763-Cap: Ueberlebende, die max_uses
+        # bereits erreicht haben, zaehlen nicht als Auswahl — sonst muesste
+        # Stage 3.5 das Cap aussetzen, obwohl weitere Kandidaten existieren.
+        if usage_counts is not None and max_uses is not None and max_uses > 0:
+            stage1_viable = [
+                c for c in stage1_survivors
+                if usage_counts.get(c.clip_id, 0) < max_uses
+            ]
+        else:
+            stage1_viable = stage1_survivors
+        if (
+            len(stage1_viable) < STAGE1_MIN_SURVIVORS
+            and self._rules.get("stage1_fallback", "soften") == "soften"
+        ):
+            # Widen: accept filler/unknown roles too
+            softenable = [
+                (c, r) for c, r in zip(candidates, stage_results)
+                if not r.passed_stage1 and c.role in {"filler", "unknown"}
+            ]
+            if softenable or not stage1_survivors:
+                for c, r in softenable:
+                    r.passed_stage1 = True
+                    r.rejected_reason = None
                 stage1_survivors = [
                     c for c, r in zip(candidates, stage_results) if r.passed_stage1
                 ]
                 stage1_softened = True
-            if not stage1_survivors:
+                if softenable:
+                    logger.info(
+                        "B-768: Stage-1-Rollenmatrix liess nur %d nutzbare "
+                        "Kandidaten (< %d) fuer section=%s — Rollenmenge "
+                        "gesoftet, +%d filler/unknown (gesamt %d).",
+                        len(stage1_viable), STAGE1_MIN_SURVIVORS,
+                        ctx.at_section_type, len(softenable),
+                        len(stage1_survivors),
+                    )
+        if not stage1_survivors:
                 return PipelineResult(
                     chosen=None,
                     rationale={
@@ -406,6 +442,39 @@ class PacingPipeline:
                     len(survivors), max_uses,
                 )
 
+        # === Stage 3.6 — Harte Nachbarschaftsregel (B-759) ===
+        # E2E-Abnahme 2026-08-07: die harte B-759-Regel existierte NUR im
+        # Legacy-Matcher (_drop_direct_predecessor, pacing_edit_helpers.py) —
+        # select_best hatte nur den weichen w_freshness-Term, ein Topscorer
+        # gewann Segmente direkt hintereinander. Gleiche Semantik wie die
+        # Referenz: direkter Vorgaenger ist kein Kandidat, solange eine
+        # Alternative ueberlebt; sonst Regel aussetzen (nie leerer Cut) —
+        # hoerbar via WARNING + rationale-Flag. Bewusst recent_clip_ids[-1]
+        # statt predecessor-Parameter: der kann vom Fallback-Zweig stammen,
+        # recent_clip_ids ist die Wahrheit des Aufrufer-Loops.
+        adjacency_forced = False
+        if recent_clip_ids:
+            previous_vid = recent_clip_ids[-1]
+            survivors = [
+                (c, r) for c, r in zip(candidates, stage_results) if r.passed_stage2
+            ]
+            others = [(c, r) for c, r in survivors if c.clip_id != previous_vid]
+            if others and len(others) < len(survivors):
+                for c, r in survivors:
+                    if c.clip_id == previous_vid:
+                        r.passed_stage2 = False
+                        r.rejected_reason = "adjacency"
+            elif not others and survivors:
+                adjacency_forced = True
+                logger.warning(
+                    "B-759: Nachbarschaftsregel (select_best) ausgesetzt — "
+                    "clip_id=%s ist der einzige verbleibende Kandidat und "
+                    "wiederholt sich dadurch direkt. Ursache pruefen: zu "
+                    "wenig Material, zu langes Segment oder zu enge "
+                    "Rollen-/Section-Regeln.",
+                    previous_vid,
+                )
+
         # === Stage 4 — Soft Scoring ===
         scored: list[tuple[ClipFeatures, float, dict[str, float]]] = []
         for c, r in zip(candidates, stage_results):
@@ -509,6 +578,8 @@ class PacingPipeline:
             "stage2_forced": stage2_forced,
             # B-763: Cap-Aussetzung sichtbar machen (alle Kandidaten am Limit)
             "usage_cap_forced": usage_cap_forced,
+            # B-759: Aussetzung der harten Nachbarschaftsregel sichtbar machen
+            "adjacency_forced": adjacency_forced,
             "forced_negative": forced_negative,
             "brain_v3_scores": brain_v3_scores_by_clip.get(best_clip.clip_id, {}),
             "brain_v3_final_score": brain_v3_final_score_by_clip.get(best_clip.clip_id),
