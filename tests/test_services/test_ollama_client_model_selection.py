@@ -81,7 +81,8 @@ def test_chat_falls_back_to_generate_for_completion_only_model(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     assert client.chat("gemma4:e4b", "Antworte OK", max_tokens=8) == "OK"
+    # B-760: Client normalisiert localhost deterministisch auf 127.0.0.1
     assert calls == [
-        "http://localhost:11434/api/chat",
-        "http://localhost:11434/api/generate",
+        "http://127.0.0.1:11434/api/chat",
+        "http://127.0.0.1:11434/api/generate",
     ]
