@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6fd02498d8774a629b18a2b8842be000",
+  "recorded_at": "2026-07-28T01:00:51+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Default-Deep-Tests kontaktierten laufendes Host-Ollama und machten Ergebnis/Prozesszustand hostabhängig.",
+  "cause": "Testpfade nutzten reale Singleton-, localhost-, Socket-, HTTP- und Inference-Grenzen ohne Isolation.",
+  "rule": "Default-Tests müssen externe AI-Dienste an Client-/Service-Grenze blockieren; echte Ollama/GPU-Pfade ausschließlich in explizitem Schluss-Livegate.",
+  "applies_to": "tests/test_deep_functional.py und alle Default-Tests lokaler AI-Dienste"
+}

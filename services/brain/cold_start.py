@@ -5,7 +5,7 @@ diese Default-Werte.
 """
 from __future__ import annotations
 
-# 17 Achsen — Reihenfolge ist verbindlich für context_keys + Bucket-Iteration
+# 18 Achsen — Reihenfolge ist verbindlich für context_keys + Bucket-Iteration
 BRIDGE_AXES: tuple[str, ...] = (
     # 10 Audio-Achsen aus TriggerSettings-Dataclass
     "beat_weight",
@@ -26,9 +26,12 @@ BRIDGE_AXES: tuple[str, ...] = (
     "pace_match_weight",
     "semantic_match_weight",
     "mood_match_weight",
+    # D-080 / B-735: explizite Clip-Rolle gegen Audio-Section
+    "role_match_weight",
 )
+BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)
 
-assert len(BRIDGE_AXES) == 17, "BRIDGE_AXES muss exakt 17 Achsen haben (Plan-Doc 05)"
+assert BRIDGE_AXIS_COUNT == 18, "BRIDGE_AXES muss exakt 18 Achsen haben (D-080)"
 
 COLD_START_DEFAULTS: dict[str, float] = {
     # Audio aus TriggerSettings-Defaults
@@ -50,10 +53,11 @@ COLD_START_DEFAULTS: dict[str, float] = {
     "pace_match_weight": 0.5,
     "semantic_match_weight": 0.5,
     "mood_match_weight": 0.5,
+    "role_match_weight": 0.5,
 }
 
 assert set(COLD_START_DEFAULTS.keys()) == set(BRIDGE_AXES), \
-    "COLD_START_DEFAULTS muss exakt die 17 BRIDGE_AXES enthalten"
+    "COLD_START_DEFAULTS muss exakt die 18 BRIDGE_AXES enthalten"
 
 
 def get_default(axis: str) -> float:

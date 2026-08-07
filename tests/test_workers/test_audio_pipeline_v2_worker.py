@@ -69,6 +69,38 @@ def test_worker_emits_error_on_stage_failure(qapp, tmp_path, monkeypatch):
     assert "demucs kaputt" in got["err"]
 
 
+def test_worker_marks_user_cancel_as_cancelled_not_error(qapp, tmp_path, monkeypatch):
+    from services.audio_pipeline import stages as stages_mod, stem_cache, checkpoint
+    import services.analysis_status_service as status_service
+
+    monkeypatch.setattr(stem_cache, "_STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(checkpoint, "_STATE_ROOT", tmp_path, raising=False)
+
+    class _CancelledStage:
+        name = "av_pacing"
+
+        def run(self, _ctx):
+            raise RuntimeError("AV-Pacing abgebrochen (User-Cancel)")
+
+    monkeypatch.setattr(stages_mod, "build_default_stages", lambda: [_CancelledStage()])
+    cancelled = []
+    errors = []
+    monkeypatch.setattr(status_service, "mark_started", lambda *args: None)
+    monkeypatch.setattr(status_service, "mark_cancelled", lambda *args: cancelled.append(args))
+    monkeypatch.setattr(status_service, "mark_error", lambda *args: errors.append(args))
+
+    from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+
+    worker = AudioPipelineV2Worker(audio_track_id=8, file_path="/x.wav")
+    emitted = []
+    worker.error.connect(lambda tid, err: emitted.append((tid, err)))
+    worker.run()
+
+    assert cancelled == [("audio", 8, "av_pacing_curves")]
+    assert errors == []
+    assert emitted == [(8, "AV-Pacing abgebrochen (User-Cancel)")]
+
+
 def test_worker_cancellation(qapp, tmp_path, monkeypatch):
     from services.audio_pipeline import checkpoint, stages as stages_mod, stem_cache
 
@@ -97,4 +129,7 @@ def test_worker_cancellation(qapp, tmp_path, monkeypatch):
     worker.run()
 
     assert "fin" not in got
-    assert "err" not in got
+    assert got == {
+        "tid": 7,
+        "err": "Audio-V2 Pipeline abgebrochen (User-Cancel vor Start)",
+    }

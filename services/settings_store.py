@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,12 @@ def _get_settings_path() -> Path:
     import platform
 
     if platform.system() == "Windows":
-        base = Path.home() / "AppData" / "Roaming" / "PBStudio"
+        appdata = os.environ.get("APPDATA")
+        base = (
+            Path(appdata) / "PBStudio"
+            if appdata
+            else Path.home() / "AppData" / "Roaming" / "PBStudio"
+        )
     else:
         base = Path.home() / ".config" / "PBStudio"
 
@@ -252,4 +258,3 @@ def get_settings_store() -> SettingsStore:
 def get_ollama_settings() -> dict[str, Any]:
     """Get Ollama configuration (convenience module-level wrapper)."""
     return get_settings_store().get_ollama_settings()
-

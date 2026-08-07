@@ -142,8 +142,13 @@ class FeedbackResult:
 
 
 class FeedbackService:
-    def __init__(self, session_factory: Callable[[], Any]) -> None:
+    def __init__(
+        self,
+        session_factory: Callable[[], Any],
+        pattern_notifier: Callable[[], object] | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._pattern_notifier = pattern_notifier
 
     def record_verdict(
         self, run_id: int, scene_id: int, verdict: str
@@ -431,3 +436,45 @@ class FeedbackService:
                         close()
             except Exception:
                 pass
+
+    def record_brain_rating(
+        self,
+        run_id: int,
+        scene_id: int,
+        brain_rating: str,
+    ) -> FeedbackResult:
+        """Persist one Brain-V3 4-click rating as decision-level feedback.
+
+        Brain labels map onto the existing 1..5 decision scale so
+        ``PatternAggregator`` receives the same semantic signal as Ctrl+1..5:
+        perfect/fits are positive; not_quite/no_match are negative.
+        """
+        mapped_rating = {
+            "perfect": 5,
+            "fits": 4,
+            "not_quite": 2,
+            "no_match": 1,
+        }.get(brain_rating)
+        if mapped_rating is None:
+            return FeedbackResult(
+                False,
+                None,
+                None,
+                f"invalid brain rating {brain_rating!r}",
+            )
+        result = self.record_rating(run_id, scene_id, mapped_rating)
+        if result.success:
+            self._notify_pattern_learning()
+        return result
+
+    def _notify_pattern_learning(self) -> None:
+        """Schedule aggregation only after semantic decision feedback exists."""
+        notifier = self._pattern_notifier
+        try:
+            if notifier is None:
+                from workers.memory_updater import get_memory_updater
+
+                notifier = get_memory_updater().notify_feedback
+            notifier()
+        except Exception as exc:  # feedback write already committed; retry at lifecycle flush
+            logger.debug("Brain pattern notification failed: %s", exc)

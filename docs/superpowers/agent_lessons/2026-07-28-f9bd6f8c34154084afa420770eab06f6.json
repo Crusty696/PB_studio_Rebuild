@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f9bd6f8c34154084afa420770eab06f6",
+  "recorded_at": "2026-07-28T10:05:12+00:00",
+  "session_id": "67455b90064146568ad558439874f642",
+  "head_at_start": "90b13e17082a8ac550604a51969429fad505f2fd",
+  "problem": "B-278-Pure-Test belegte Helper und Source-Wiring, aber nicht sichtbaren Qt-Callback.",
+  "cause": "Test rief SystemStatus direkt auf und prüfte main.py nur als Quelltext; echte Signal-/Statusbar-Ausführung fehlte.",
+  "rule": "Bei UI-Statusfixes fokussierten Pure-Test mit beobachtetem UIA-Livewert auf demselben Commit ergänzen; Source-String-Assertion nie als Livebeweis verkaufen.",
+  "applies_to": "Qt-Callbacks, Statusleisten und asynchrone Startup-Anzeigen"
+}

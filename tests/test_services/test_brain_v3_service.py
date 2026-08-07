@@ -27,15 +27,17 @@ def isolated_appdata(tmp_path: Path, monkeypatch):
     yield tmp_path
 
 
-def test_suggest_returns_top_n_with_brain_scores(isolated_appdata):
+def test_suggest_fails_closed_without_real_ranking_inputs(isolated_appdata):
     svc = BrainV3Service()
     resp = svc.suggest(SuggestRequest(audio_clip_id=1, video_clip_ids=[1, 2, 3], n_top=2))
-    assert len(resp.cuts) == 2
-    assert resp.used_brain_v3 is True
-    assert resp.explanation["phase4_status"] == "reranker"
-    assert all(c.audio_clip_id == 1 for c in resp.cuts)
-    assert all("brain_v3_scores" in c.metadata for c in resp.cuts)
-    assert all(len(c.metadata["brain_v3_scores"]) == 17 for c in resp.cuts)
+    assert resp.cuts == []
+    assert resp.used_brain_v3 is False
+    assert resp.explanation == {
+        "phase4_status": "unavailable",
+        "reason": "missing_real_ranking_inputs",
+        "candidate_count": 0,
+        "requested_video_clip_count": 3,
+    }
 
 
 def test_feedback_perfect_updates_buckets(isolated_appdata):
@@ -465,7 +467,7 @@ def test_stats_after_init_shows_cold_start(isolated_appdata):
     s = svc.stats()
     assert s.total_clicks >= 0
     # Initial = no learned axes
-    assert s.cold_start_axes == 17
+    assert s.cold_start_axes == 18
     assert s.learned_axes == 0
 
 
@@ -475,8 +477,8 @@ def test_stats_after_feedback_shows_some_learning(isolated_appdata):
     for _ in range(10):
         svc.feedback(FeedbackRequest(cut_id=1, rating="perfect"))
     s = svc.stats()
-    # 17 Achsen sollten alle gelernt sein (10 x 2.0 alpha = 20 Samples >= 10)
-    assert s.learned_axes == 17
+    # 18 Achsen sollten alle gelernt sein (10 x 2.0 alpha = 20 Samples >= 10)
+    assert s.learned_axes == 18
     assert s.cold_start_axes == 0
     assert len(s.top_positive_buckets) > 0
 

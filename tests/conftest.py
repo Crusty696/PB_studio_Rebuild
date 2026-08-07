@@ -20,6 +20,26 @@ from sqlalchemy.pool import StaticPool
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+# B-727: Guard VOR Produktimport installieren. Kindprozesse laden denselben
+# Guard ueber tests/support/sitecustomize.py aus dem geerbten PYTHONPATH.
+from tools.stability_manifest import discover_protected_databases
+from tests.support.pb_real_db_guard import (
+    configure_child_environment,
+    install_guard,
+)
+
+_TEST_SUPPORT_ROOT = _REPO_ROOT / "tests" / "support"
+_PROTECTED_REAL_DATABASES = discover_protected_databases(
+    repo_root=_REPO_ROOT,
+    appdata=Path(os.environ["APPDATA"]),
+    include_missing=True,
+)
+configure_child_environment(
+    _PROTECTED_REAL_DATABASES,
+    support_root=_TEST_SUPPORT_ROOT,
+)
+install_guard(_PROTECTED_REAL_DATABASES)
+
 import database
 
 
@@ -251,67 +271,10 @@ def _install_real_db_connect_guard():
     ``sqlite3.connect``. Wer die Datei im Repo-Root oeffnen will, bekommt
     einen Fehler MIT Stacktrace statt still zu schreiben.
 
-    Lesende URI-Verbindungen (``mode=ro``) bleiben erlaubt — Diagnose-
-    Skripte duerfen die echte DB inspizieren.
+    Auch lesende URI-Verbindungen (``mode=ro``) werden blockiert: Diagnose-
+    Skripte muessen eine externe RAW-Kopie inspizieren, nie das Original.
     """
-    import sqlite3
-
-    real_db = (_REPO_ROOT / "pb_studio.db").resolve()
-    # Idempotent: nie den eigenen Guard erneut einwickeln. Sonst haelt der
-    # zweite Guard den ersten als `original_connect`, und Tests, die
-    # `sqlite3.connect` zwischendurch ersetzen, hinterlassen eine kaputte
-    # Kette. Immer die ECHTE connect-Funktion als Basis nehmen.
-    original_connect = getattr(sqlite3.connect, "_pb_original", sqlite3.connect)
-
-    def _guarded_connect(db_target, *args, **kwargs):
-        # Der Parameter hiess frueher ``database`` und ueberdeckte damit das
-        # oben importierte Projektmodul gleichen Namens. Der Fehlertext las
-        # ``database.engine`` — also ein Attribut auf dem Pfad-String statt
-        # auf dem Modul. Das warf AttributeError, den der breite except-Zweig
-        # schluckte, und danach lief original_connect ganz normal weiter:
-        # der Guard meldete Schutz, ohne zu schuetzen.
-        #
-        # Deshalb jetzt strikt zweigeteilt: ERKENNEN darf scheitern (eine
-        # kaputte Pfadaufloesung soll keinen legitimen Zugriff kippen),
-        # BLOCKIEREN nicht. Das raise steht ausserhalb jedes try.
-        blocked_target: str | None = None
-        try:
-            target = str(db_target)
-            if not target.startswith("file:") or "mode=ro" not in target:
-                candidate = Path(target.replace("file:", "").split("?")[0])
-                if candidate.name == "pb_studio.db" and candidate.resolve() == real_db:
-                    blocked_target = target
-        except Exception:  # pragma: no cover - Pfadaufloesung nie fatal machen
-            pass
-
-        if blocked_target is not None:
-            # Die Engine-URL ist reine Diagnose. Faellt sie aus, wird trotzdem
-            # blockiert — vorher riss genau das die ganze Blockade mit.
-            try:
-                engine_url = str(getattr(database.engine, "url", "?"))
-            except Exception:  # pragma: no cover
-                engine_url = "<nicht lesbar>"
-            raise RuntimeError(
-                "TESTSCHUTZ (B-727): Zugriff auf die REALE Projekt-DB "
-                f"{real_db} wurde blockiert.\n"
-                f"  angefragt: {blocked_target!r}\n"
-                f"  engine.url: {engine_url}\n"
-                "Tests muessen gegen die Temp-DB aus pytest_configure "
-                "oder eine eigene tmp_path-DB laufen."
-            )
-        return original_connect(db_target, *args, **kwargs)
-
-    # BEIDE Namen patchen. SQLAlchemys pysqlite-Dialekt holt sein DBAPI per
-    # `from sqlite3 import dbapi2 as sqlite` und ruft `dbapi.connect(...)`.
-    # Beide Namen zeigen initial auf dasselbe Objekt, aber ein Rebinding im
-    # `sqlite3`-Namespace laesst `sqlite3.dbapi2.connect` unberuehrt — der
-    # Guard war dadurch fuer JEDE SQLAlchemy-Engine wirkungslos. Genau so
-    # kam der Import von tests/test_core_services_deep.py an ihm vorbei.
-    import sqlite3.dbapi2 as _dbapi2
-
-    _guarded_connect._pb_original = original_connect
-    sqlite3.connect = _guarded_connect
-    _dbapi2.connect = _guarded_connect
+    install_guard(_PROTECTED_REAL_DATABASES)
 
 
 def pytest_unconfigure(config):

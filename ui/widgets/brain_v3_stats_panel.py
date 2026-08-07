@@ -2,7 +2,7 @@
 
 Neuer Tab/Widget mit:
 - Total Klicks
-- Cold-Start vs Learned Achsen-Status (x/17 cold, y/17 learned)
+- Cold-Start vs Learned Achsen-Status (dynamisch aus BRIDGE_AXES)
 - Top-5 staerkste positive Buckets
 - Top-5 staerkste negative Buckets
 - Reset-Button mit two-step Confirmation
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.brain.brain_v3_service import BrainV3Service
+from services.brain.cold_start import BRIDGE_AXIS_COUNT
 from services.brain.schemas.brain_v3_schemas import ResetRequest
 from ui.widgets.brain_v3_learning_dialog import BrainV3LearningSessionDialog
 
@@ -77,10 +78,10 @@ class BrainV3StatsPanel(QWidget):
 
         # Cold/Learned
         learned_row = QHBoxLayout()
-        self._lbl_learned = QLabel("Gelernte Achsen: —/17")
+        self._lbl_learned = QLabel(f"Gelernte Achsen: —/{BRIDGE_AXIS_COUNT}")
         self._bar_learned = QProgressBar()
-        self._bar_learned.setRange(0, 17)
-        self._bar_learned.setFormat("%v / 17")
+        self._bar_learned.setRange(0, BRIDGE_AXIS_COUNT)
+        self._bar_learned.setFormat(f"%v / {BRIDGE_AXIS_COUNT}")
         self._bar_learned.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         learned_row.addWidget(self._lbl_learned, 1)
         learned_row.addWidget(self._bar_learned, 2)
@@ -151,7 +152,7 @@ class BrainV3StatsPanel(QWidget):
             return
         self._lbl_total_clicks.setText(f"Total Klicks: {stats.total_clicks}")
         self._lbl_learned.setText(
-            f"Gelernte Achsen: {stats.learned_axes}/17 "
+            f"Gelernte Achsen: {stats.learned_axes}/{BRIDGE_AXIS_COUNT} "
             f"(Cold-Start: {stats.cold_start_axes})"
         )
         self._bar_learned.setValue(stats.learned_axes)

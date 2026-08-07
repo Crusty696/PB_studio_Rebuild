@@ -21,7 +21,7 @@ Datenquellen (alles bereits vorhanden, nichts neu erfunden):
   - ``brain_note`` (Alembic-Revision c3d4e5f6a7b8) als Ablage fuer
     frei formulierte Erkenntnisse — KEINE neue Migration noetig.
   - ``services.brain.weight_store.WeightStore`` (Beta-Bernoulli-Gewichte
-    ueber die 17 Bridge-Achsen) — nur lesend.
+    ueber die Brain-Bridge-Achsen) — nur lesend.
   - ``services.vector_db_service.VectorDBService`` (SigLIP-Clip-Embeddings,
     1152d, Cosine) — nur Vektor-zu-Vektor, es wird KEIN Modell geladen.
 
@@ -590,7 +590,7 @@ def _render_recall_item(item: dict[str, Any]) -> str:
     description=(
         "Zeigt, was PB Studio bisher gelernt hat: Anzahl Pacing-Runs und "
         "Schnitt-Entscheidungen, Verteilung des User-Feedbacks, konfidente "
-        "gelernte Muster, Zustand der 17 Bridge-Achsen-Gewichte und "
+        "gelernte Muster, Zustand der Brain-Bridge-Achsen-Gewichte und "
         "abgelegte Notizen. Meldet ausdruecklich die LUECKEN "
         "(no_signal_kinds / no_signal_axes), also wo noch kein Signal "
         "vorliegt. Nutze diese Aktion bei 'Was hast du gelernt?', "
@@ -812,7 +812,7 @@ def brain_stats() -> dict:
 
 
 def _weights_summary() -> dict[str, Any]:
-    """Liest weights.db read-only aus (Beta-Bernoulli-Gewichte, 17 Achsen)."""
+    """Liest weights.db read-only aus (Beta-Bernoulli-Gewichte, Brain-Achsen)."""
     from services.brain.cold_start import BRIDGE_AXES
 
     out: dict[str, Any] = {

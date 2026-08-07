@@ -20,9 +20,13 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from services.ollama_client import _normalize_ollama_host
+
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE = "http://localhost:11434"
+# B-760: localhost -> 127.0.0.1 (IPv6-::1-Falle unter Windows; fremde
+# Ollama-Instanz auf ::1 zog Vision am 2026-08-04 auf CPU).
+OLLAMA_BASE = _normalize_ollama_host("http://localhost:11434")
 
 # B-239: Default-Modell wird live ueber /api/tags resolved.
 # Reihenfolge: installiertes PB_OLLAMA_MODEL env-var > Gemma-4-Family-Match >
@@ -167,6 +171,8 @@ class OllamaService:
         self._model_cached = False
         self._start_lock = threading.Lock()
         self._start_thread: threading.Thread | None = None
+        self._stop_requested = threading.Event()
+        self._stop_generation = 0
         # B-239: Aufgeloester Default-Modellname (Cache nach erstem Lookup).
         self._default_model: str | None = None
         self._default_model_lock = threading.Lock()
@@ -253,8 +259,22 @@ class OllamaService:
         """
         with self._start_lock:
             if self._start_thread is not None and self._start_thread.is_alive():
-                return self._start_thread
+                if not self._stop_requested.is_set():
+                    return self._start_thread
 
+                cancelled_thread = self._start_thread
+                stop_generation = self._stop_generation
+                restart_thread = threading.Thread(
+                    target=self._restart_after_cancelled_start,
+                    args=(cancelled_thread, stop_generation),
+                    name="PB-Ollama-HeadlessRestart",
+                    daemon=True,
+                )
+                self._start_thread = restart_thread
+                restart_thread.start()
+                return restart_thread
+
+            self._stop_requested.clear()
             self._start_thread = threading.Thread(
                 target=self.start,
                 name="PB-Ollama-HeadlessStart",
@@ -263,13 +283,43 @@ class OllamaService:
             self._start_thread.start()
             return self._start_thread
 
+    def _restart_after_cancelled_start(
+        self,
+        cancelled_thread: threading.Thread,
+        stop_generation: int,
+    ) -> None:
+        """Startet erst neu, nachdem der stornierte Startthread beendet ist."""
+        cancelled_thread.join()
+        with self._start_lock:
+            if (
+                self._start_thread is not threading.current_thread()
+                or self._stop_generation != stop_generation
+            ):
+                return
+            self._stop_requested.clear()
+        self.start()
+
     def ready_cached(self) -> bool:
         """Liefert den bekannten Ready-Status ohne Netzwerkprobe."""
         return self._is_ready
 
     def start(self) -> None:
         """Ollama als versteckter Subprocess starten (no-op falls schon läuft)."""
+        with self._start_lock:
+            if self._stop_requested.is_set():
+                start_thread = self._start_thread
+                if (
+                    start_thread is threading.current_thread()
+                    or (start_thread is not None and start_thread.is_alive())
+                ):
+                    return
+                # Direkter synchroner Restart nach vollständig beendetem Stop.
+                self._stop_requested.clear()
+        if self._stop_requested.is_set():
+            return
         if self._is_api_ready():
+            if self._stop_requested.is_set():
+                return
             logger.info("Ollama: API bereits aktiv auf Port 11434")
             self._is_ready = True
             return
@@ -308,14 +358,20 @@ class OllamaService:
         creation_flags = 0x08000000 if os.name == 'nt' else 0
 
         try:
-            self._process = subprocess.Popen(
-                [str(ollama_bin), "serve"],
-                env=env,
-                creationflags=creation_flags,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            logger.info("Ollama-Prozess gestartet (PID: %d)", self._process.pid)
+            # B-740: Stop-Request und Popen muessen unter demselben Lock
+            # liegen. Sonst kann stop() zwischen Check und Popen fertig werden
+            # und der Startthread danach einen unbeaufsichtigten Serve starten.
+            with self._start_lock:
+                if self._stop_requested.is_set():
+                    return
+                self._process = subprocess.Popen(
+                    [str(ollama_bin), "serve"],
+                    env=env,
+                    creationflags=creation_flags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                logger.info("Ollama-Prozess gestartet (PID: %d)", self._process.pid)
 
             # B-113 / BUG-A10 / B-240: poll for HTTP-API-readiness so
             # callers that do ``service.start(); service.ensure_model(...)``
@@ -330,24 +386,64 @@ class OllamaService:
 
     def stop(self) -> None:
         """Beendet den Ollama-Prozess sauber."""
-        start_thread = self._start_thread
-        if start_thread is not None and start_thread.is_alive():
-            start_thread.join(timeout=1.0)
-        if self._process:
-            logger.info("Stoppe Ollama-Prozess...")
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-            self._process = None
-            self._is_ready = False
+        with self._start_lock:
+            self._stop_generation += 1
+            self._stop_requested.set()
+            # B-740: Lock bis nach Ownership-Cleanup halten. Ein paralleler
+            # Restart darf keinen neuen Popen in self._process eintragen,
+            # den dieser Stop anschliessend als vermeintlich alten Handle
+            # loescht und dadurch unbeaufsichtigt laesst.
+            start_thread = self._start_thread
+            if (
+                start_thread is not None
+                and start_thread is not threading.current_thread()
+                and start_thread.is_alive()
+            ):
+                start_thread.join(timeout=1.0)
+            process = self._process
+            if process:
+                logger.info("Stoppe Ollama-Prozess...")
+                if os.name == "nt" and process.poll() is None:
+                    # B-740: Ollama `serve` erzeugt einen engine-runner. Parent
+                    # zuerst einzeln zu terminieren orphaned den Runner. `/T`
+                    # beendet ausschliesslich den von PB gestarteten Prozessbaum.
+                    tree_killed = False
+                    try:
+                        result = subprocess.run(
+                            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=False,
+                            timeout=5,
+                        )
+                        tree_killed = result.returncode == 0
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        logger.warning(
+                            "Ollama-Prozessbaum konnte nicht beendet werden; "
+                            "falle auf Parent-Cleanup zurück: %s",
+                            exc,
+                        )
+                    if not tree_killed and process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                elif process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                self._process = None
+                self._is_ready = False
 
     def _is_port_open(self, port: int = 11434) -> bool:
         """Prüft ob der Ollama-Port bereits belegt ist."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
-            return s.connect_ex(('localhost', port)) == 0
+            # B-760: 127.0.0.1 statt localhost — konsistent zu OLLAMA_BASE.
+            return s.connect_ex(('127.0.0.1', port)) == 0
 
     def _is_api_ready(self) -> bool:
         """B-240: Vollstaendiger API-Ready-Check (TCP-Port + HTTP /api/version).
@@ -369,7 +465,13 @@ class OllamaService:
 
         deadline = _time.monotonic() + timeout_s
         while _time.monotonic() < deadline:
+            if self._stop_requested.is_set():
+                self._is_ready = False
+                return False
             if self._is_api_ready():
+                if self._stop_requested.is_set():
+                    self._is_ready = False
+                    return False
                 self._is_ready = True
                 logger.info(
                     "Ollama: API ready nach %.2fs",

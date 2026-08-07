@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1b783dc1cf054d60a55aaa4f5bd84ecb",
+  "recorded_at": "2026-08-02T15:39:27+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "AnalysisStatus Done-Row behielt nach Cancel alten completed_at-Zeitpunkt.",
+  "cause": "SQLite ON CONFLICT DO UPDATE aendert nur explizit genannte Spalten; mark_cancelled setzte Status und Fehlermeldung, nicht completed_at.",
+  "rule": "Bei Zustands-Upserts alle semantisch ungueltigen Felder explizit auf NULL setzen und Transitionstests vom vorherigen Terminalzustand ueber echten Retrypfad schreiben.",
+  "applies_to": "SQLAlchemy SQLite Upsert Statusmaschinen AnalysisStatus Zeitfelder"
+}

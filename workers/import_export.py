@@ -396,14 +396,14 @@ class BatchConvertWorker(QObject, CancellableMixin):
         self.ext = ext
 
     def run(self):
-        # B-057: GPU_EXECUTION_LOCK serialisiert NVENC mit anderen GPU-
-        # Workloads (BeatThis, Demucs, SigLIP, RAFT). Vorher konnten
-        # h264_nvenc / hevc_nvenc parallel zu Audio-Analyse laufen und
-        # auf 6 GB GTX 1060 Mobile NVENC-Session-Limit (max 2) sprengen
-        # → "Cannot load NVENC session"-Fehler oder VRAM-OOM.
-        from services.model_manager import GPU_EXECUTION_LOCK
-        with GPU_EXECUTION_LOCK:
-            return self._run_locked()
+        # B-057: NVENC muss gegen andere GPU-Workloads serialisiert bleiben.
+        # B-725: CPU-/Copy-Codecs benötigen keine GPU und dürfen Audio-/Video-
+        # Analyse nicht unnötig am globalen Execution-Lock blockieren.
+        if self.vcodec in {"h264_nvenc", "hevc_nvenc"}:
+            from services.model_manager import gpu_execution_lease
+            with gpu_execution_lease("batch_convert_nvenc"):
+                return self._run_locked()
+        return self._run_locked()
 
     def _run_locked(self):
         _ok = False

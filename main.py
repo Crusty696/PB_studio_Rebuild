@@ -1258,6 +1258,38 @@ class PBWindow(QMainWindow):
         # koennen Worker-lokale Tensor-Referenzen noch VRAM halten.
         self._final_cuda_cleanup(scheduler_stopped)
 
+        # B-737: explicit final pattern flush before DB pool disposal.
+        # atexit remains fallback but is skipped by the hard-exit watchdog.
+        from workers.memory_updater import flush_default_memory_updater
+
+        for flush_attempt in range(1, 3):
+            try:
+                n_patterns = flush_default_memory_updater(
+                    timeout_sec=30.0,
+                    raise_on_error=True,
+                )
+                logger.info(
+                    "closeEvent: MemoryUpdater-Flush abgeschlossen "
+                    "(%d Pattern, Versuch %d).",
+                    n_patterns,
+                    flush_attempt,
+                )
+                break
+            except Exception as exc:
+                logger.warning(
+                    "closeEvent: MemoryUpdater-Flush Versuch %d fehlgeschlagen: %s",
+                    flush_attempt,
+                    exc,
+                )
+        else:
+            # Ratings/events are committed before notification. A persistent
+            # aggregator failure delays learned-pattern refresh but does not
+            # erase the user's semantic feedback from the project DB.
+            logger.critical(
+                "closeEvent: MemoryUpdater-Flush nach 2 Versuchen offen; "
+                "persistiertes Feedback bleibt fuer spaeteren Retry erhalten."
+            )
+
         # 10. Close DB connection pool (FIX C-2: BEFORE event.accept())
         try:
             from database import engine
@@ -2263,7 +2295,10 @@ def main():
 
             def on_done(status):
                 app.system_status = status
-                _ai_status = '● AI ready' if OllamaService.get().ready_cached() else '● AI loading...'
+                _ollama_ready = status.sync_ollama_readiness(
+                    OllamaService.get().ready_cached()
+                )
+                _ai_status = '● AI ready' if _ollama_ready else '● AI loading...'
                 window.status_bar.showMessage(f"System bereit | {status.status_bar_text()} | {_ai_status}")
                 window.console_text.append(f"[System] {status.status_bar_text()}")
                 logger.info("Startup checks completed: %s", status.status_bar_text())

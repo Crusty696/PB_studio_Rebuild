@@ -34,6 +34,16 @@ _STAGE_TO_STEP = {
     "av_pacing": "av_pacing_curves",
 }
 
+_RETRY_STEP_TO_STAGE = {
+    "onset_detection": "onset",
+    "av_pacing_curves": "av_pacing",
+}
+
+_RETRY_PREREQUISITES = {
+    "onset": ("stem_gen",),
+    "av_pacing": (),
+}
+
 
 class AudioPipelineV2Worker(QObject, CancellableMixin):
     """Faehrt die Audio-V2-Pipeline (8 Stages, strict-sequential) auf einem Track.
@@ -47,24 +57,70 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
     error = Signal(int, str)       # audio_track_id, error_msg
     progress = Signal(int, str)    # percent, message
 
-    def __init__(self, audio_track_id: int, file_path: str):
+    def __init__(
+        self,
+        audio_track_id: int,
+        file_path: str,
+        *,
+        retry_step_keys: tuple[str, ...] = (),
+    ):
         super().__init__()
         CancellableMixin.__init__(self)
         self.audio_track_id = audio_track_id
         self.file_path = file_path
+        self.retry_step_keys = tuple(retry_step_keys)
         self._current_stage = None
 
     def run(self) -> None:
         self._errored = False
         try:
             if self.should_stop():
+                self._errored = True
+                message = "Audio-V2 Pipeline abgebrochen (User-Cancel vor Start)"
+                logger.info(
+                    "AudioPipelineV2Worker vor Start abgebrochen (track=%s)",
+                    self.audio_track_id,
+                )
+                self.error.emit(self.audio_track_id, message)
                 return
             from services.audio_pipeline.orchestrator import AudioAnalysisPipeline
             from services.audio_pipeline.context import PipelineContext
             from services.audio_pipeline.stages import build_default_stages
+            from services.audio_pipeline import checkpoint
             from services.analysis_status_service import mark_started, mark_done
 
             stages = build_default_stages()
+            if self.retry_step_keys:
+                unknown = [
+                    key for key in self.retry_step_keys
+                    if key not in _RETRY_STEP_TO_STAGE
+                ]
+                if unknown:
+                    raise ValueError(f"Unbekannte Audio-V2-Retry-Steps: {unknown}")
+                retry_stages = tuple(
+                    _RETRY_STEP_TO_STAGE[key] for key in self.retry_step_keys
+                )
+                selected = set(retry_stages)
+                for stage_name in retry_stages:
+                    selected.update(_RETRY_PREREQUISITES[stage_name])
+                selected_stages = tuple(
+                    getattr(stage, "name", "") for stage in stages
+                    if getattr(stage, "name", None) in selected
+                )
+                missing = selected - set(selected_stages)
+                if missing:
+                    raise RuntimeError(
+                        f"Audio-V2-Retry-Stages fehlen: {sorted(missing)}"
+                    )
+                # Prerequisites mit resetten und ausfuehren: deren Stage darf
+                # gueltige Artefakte schnell wiederverwenden, muss fehlende
+                # Artefakte trotz altem Done-Marker aber selbst reparieren.
+                checkpoint.invalidate_if_stale(self.audio_track_id, self.file_path)
+                checkpoint.reset_stages(self.audio_track_id, selected_stages)
+                stages = [
+                    stage for stage in stages
+                    if getattr(stage, "name", None) in selected
+                ]
             total = max(1, len(stages))
             pipeline = AudioAnalysisPipeline(stages)
 
@@ -144,6 +200,21 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
             self.finished.emit(self.audio_track_id, dict(ctx.results))
         except Exception as e:  # noqa: BLE001
             self._errored = True
+            is_cancelled = self.should_stop() or "User-Cancel" in str(e)
+            if is_cancelled:
+                logger.info(
+                    "AudioPipelineV2Worker abgebrochen (track=%s, stage=%s): %s",
+                    self.audio_track_id,
+                    self._current_stage,
+                    e,
+                )
+                if self._current_stage:
+                    step_key = _STAGE_TO_STEP.get(self._current_stage)
+                    if step_key:
+                        from services.analysis_status_service import mark_cancelled
+                        mark_cancelled("audio", self.audio_track_id, step_key)
+                self.error.emit(self.audio_track_id, str(e))
+                return
             logger.error("AudioPipelineV2Worker fehlgeschlagen (track=%s): %s",
                          self.audio_track_id, e, exc_info=True)
             if self._current_stage:

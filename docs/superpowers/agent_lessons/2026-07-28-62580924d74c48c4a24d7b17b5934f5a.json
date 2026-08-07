@@ -1,0 +1,10 @@
+{
+  "lesson_id": "62580924d74c48c4a24d7b17b5934f5a",
+  "recorded_at": "2026-07-28T02:36:37+00:00",
+  "session_id": "fa5ce066a5704b1da766ee10481f61c9",
+  "head_at_start": "df617fa9d379de1a77c2f6fb0bfd3426c885e85a",
+  "problem": "B-735-D-080 setzt fachliche Rolle-Bridge-Entscheidung, waehrend die aktive Registry weiterhin B-726 exklusiv als next_allowed_task fuehrt.",
+  "cause": "Eine akzeptierte Decision enthaelt kein explizites Aktivierungs- oder Reihenfolgen-Update im Active Plan/Registry.",
+  "rule": "Vor Implementierung einer Decision immer deren Planreihenfolge gegen PLAN_REGISTRY.md und ACTIVE_PLAN.md pruefen; fachliche Akzeptanz ersetzt keinen expliziten next_allowed_task.",
+  "applies_to": "PB-Studio Decisions, Masterplan-Governance, parallele Agent-Tasks"
+}

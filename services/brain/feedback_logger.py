@@ -1,6 +1,6 @@
 """Brain V3 — FeedbackLogger (Plan-Doc 05) mit Credit-Assignment.
 
-Ein Klick aktualisiert 6 Backoff-Levels (0..5) x bis zu 17 Achsen in EINER
+Ein Klick aktualisiert 6 Backoff-Levels (0..5) x bis zu 18 Achsen in EINER
 Transaktion.
 
 CREDIT-ASSIGNMENT (2026-07-27)
@@ -14,7 +14,7 @@ Klick verpuffte.
 
 Jetzt gilt: der Aufrufer liefert ``axis_contributions`` — den Beitrag jeder
 Achse an genau DIESER Entscheidung (Quelle: ``mem_decision.agent_rationale``,
-Feld ``brain_v3_scores`` = die 17 Sub-Scores des Scorers, ersatzweise das
+Feld ``brain_v3_scores`` = die Sub-Scores des Scorers, ersatzweise das
 Pacing-``contribs``-Dict ueber ``PACING_TERM_TO_AXES``). Daraus werden
 relative Credits gebildet und alpha/beta pro Achse skaliert:
 
@@ -90,7 +90,7 @@ PACING_TERM_TO_AXES: dict[str, tuple[str, ...]] = {
     "key":        ("mood_match_weight",),
     "tension":    ("mood_match_weight", "color_temp_match_weight"),
     "style":      ("semantic_match_weight",),
-    "role":       ("semantic_match_weight",),
+    "role":       ("role_match_weight",),
     "genre":      ("semantic_match_weight",),
     "stem_class": ("semantic_match_weight",),
     # collision = Nachbarschafts-Vertraeglichkeit zweier Shots == Schnittguete
@@ -105,7 +105,7 @@ def axis_contributions_from_rationale(
     """Zieht die Achsen-Beitraege einer Entscheidung aus dem Rationale.
 
     Prioritaet:
-      1. ``brain_v3_scores`` — die 17 Sub-Scores (bridge_value * weight) des
+      1. ``brain_v3_scores`` — die Sub-Scores (bridge_value * weight) des
          Brain-V3-Scorers. Exakt, kein Raten. Wird von
          services/pacing/pipeline.py in jedes Rationale geschrieben, sobald
          der Reranker lief (Produktpfad: services/pacing_service.py

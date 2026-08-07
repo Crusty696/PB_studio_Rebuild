@@ -1,0 +1,10 @@
+{
+  "lesson_id": "88284051c9e24bb98aa4ef1285921944",
+  "recorded_at": "2026-07-28T10:10:08+00:00",
+  "session_id": "836800b5dd93463bbc200d7d3147b544",
+  "head_at_start": "90b13e17082a8ac550604a51969429fad505f2fd",
+  "problem": "Live-W1 meldete 13/13 geschützte DBs unverändert, veränderte aber Host-Settings und RecentProjects.",
+  "cause": "DB-Isolationsmanifest erfasste keine Benutzer-Settings-Dateien; SettingsStore schrieb außerhalb des isolierten Launcher-Roots.",
+  "rule": "Live-Isolationsgate muss neben DBs auch Host-Settings vor/nachher hashen und isolierten Settings-Zielpfad belegen.",
+  "applies_to": "Live-Launcher, GUI-E2E, Projektanlage, SettingsStore"
+}

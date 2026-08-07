@@ -87,8 +87,8 @@ def test_guard_message_survives_broken_engine(monkeypatch):
         sqlite3.connect(str(REAL_DB))
 
 
-def test_readonly_uri_to_real_database_stays_allowed(monkeypatch):
-    """Diagnose-Skripte duerfen die echte DB weiterhin lesen."""
+def test_readonly_uri_to_real_database_is_blocked(monkeypatch):
+    """Auch Diagnose-Reads muessen gegen RAW-Kopien statt Originale laufen."""
     seen: list[str] = []
     monkeypatch.setattr(
         sqlite3, "connect",
@@ -96,8 +96,9 @@ def test_readonly_uri_to_real_database_stays_allowed(monkeypatch):
     )
     conftest_mod._install_real_db_connect_guard()
 
-    sqlite3.connect(f"file:{REAL_DB}?mode=ro", uri=True)
-    assert len(seen) == 1
+    with pytest.raises(RuntimeError, match="TESTSCHUTZ"):
+        sqlite3.connect(f"file:{REAL_DB}?mode=ro", uri=True)
+    assert seen == []
 
 
 def test_temp_database_stays_allowed(monkeypatch, tmp_path):

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5f42cb74b69c4699bd1a9e2ebcd7d88b",
+  "recorded_at": "2026-08-02T17:37:16+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "Brain-Stats validierte und zeigte feste 17 Achsen, waehrend kanonische BRIDGE_AXES 18 enthielt.",
+  "cause": "Schema- und UI-Grenzen duplizierten abgeleitete Sammlungsgroesse als numerisches Literal.",
+  "rule": "Groessen kanonischer Collections einmal als len-basierte Konstante exportieren; Schema, UI und Grenztests muessen exakt diese Konstante verwenden und Maximum sowie Maximum+1 pruefen.",
+  "applies_to": "Pydantic-Schemas, Qt-Anzeigen und jede aus Registry-/Achsenlisten abgeleitete Grenze"
+}

@@ -1070,22 +1070,13 @@ class TimelineClipItem(QGraphicsRectItem):
     ) -> int:
         """Sendet einen Brain-V3-Klick.
 
-        Mit ``axis_contributions`` (Beitrag pro Bridge-Achse an genau dieser
-        Entscheidung) geht der Schreibpfad direkt ueber den FeedbackLogger,
-        damit alpha/beta GEWICHTET statt uniform verteilt werden —
-        ``BrainV3Service.feedback`` reicht die Beitraege nicht durch. Ohne
-        Beitraege bleibt der bisherige Service-Pfad unveraendert.
+        Bei aktivem Pacing-Run wird das 4-Klick-Rating zuerst semantisch in
+        ``mem_decision.user_rating`` persistiert und der MemoryUpdater genau
+        einmal benachrichtigt. Danach schreibt ``BrainV3Service`` die
+        Achsengewichte. So sieht jeder Flush bereits das neue Pattern-Signal.
         """
         ctx = context if context is not None else self._brain_v3_feedback_context
-        if axis_contributions:
-            from services.brain.feedback_logger import submit_feedback
-
-            diag = submit_feedback(
-                rating=rating,
-                context=ctx,
-                axis_contributions=axis_contributions,
-            )
-            return int(diag.get("n_buckets_updated", 0))
+        self._record_brain_pattern_feedback(rating)
 
         from services.brain.schemas.brain_v3_schemas import FeedbackRequest
 
@@ -1093,8 +1084,27 @@ class TimelineClipItem(QGraphicsRectItem):
         resp = svc.feedback(
             FeedbackRequest(cut_id=self._brain_v3_feedback_cut_id(), rating=rating),
             context=ctx,
+            axis_contributions=axis_contributions or None,
         )
         return int(getattr(resp, "n_buckets_updated", 0))
+
+    def _brain_v3_pattern_feedback_target(self):
+        """Return ``(FeedbackService, run_id, scene_id)`` if resolvable."""
+        resolver = getattr(self._owning_timeline(), "_brain_v3_feedback_target", None)
+        if not callable(resolver):
+            return None
+        return resolver(self)
+
+    def _record_brain_pattern_feedback(self, rating: str) -> int | None:
+        """Write Brain rating to mem_decision before MemoryUpdater notify."""
+        target = self._brain_v3_pattern_feedback_target()
+        if target is None:
+            return None
+        feedback_service, run_id, scene_id = target
+        result = feedback_service.record_brain_rating(run_id, scene_id, rating)
+        if not result.success:
+            raise RuntimeError(result.error or "Brain-Pattern-Feedback fehlgeschlagen")
+        return result.event_id
 
     def _owning_timeline(self):
         """Die InteractiveTimeline-View, in der dieses Item liegt (oder None)."""
@@ -1127,6 +1137,7 @@ class TimelineClipItem(QGraphicsRectItem):
             context=learn_ctx if learn_ctx is not None else self._brain_v3_feedback_context,
             cut_label=f"{self.title} | Timeline #{self.entry_id}",
             axis_contributions=contribs or None,
+            pattern_feedback_target=self._brain_v3_pattern_feedback_target(),
         )
         self._brain_v3_feedback_popup = popup
         popup.finished.connect(lambda _code: setattr(self, "_brain_v3_feedback_popup", None))
@@ -3643,6 +3654,18 @@ class InteractiveTimeline(QGraphicsView):
             )
             return None, {}
 
+    def _brain_v3_feedback_target(self, clip_item):
+        """Resolve the existing pacing feedback target for a Brain click."""
+        if self._active_pacing_run_id is None:
+            return None
+        try:
+            scene_id = self._resolve_scene_id(clip_item)
+        except Exception:
+            return None
+        if scene_id is None:
+            return None
+        return self._feedback_service, int(self._active_pacing_run_id), int(scene_id)
+
     def set_brain_v3_feedback_service(self, service, context=None) -> None:
         """Inject Brain-V3 feedback service and propagate to loaded clips."""
         self._brain_v3_feedback_service = service
@@ -3807,17 +3830,20 @@ class InteractiveTimeline(QGraphicsView):
             )
             return
         run_id = int(runs[0]["id"])
-        from ui.story_map_dialog import StoryMapDialog
+        from ui.story_map_dialog import open_story_map_async
 
-        dialog = StoryMapDialog(svc, run_id, parent=self)
-        # Hold a reference so the non-modal dialog is not GC'd.
-        if not hasattr(self, "_story_map_dialogs"):
-            self._story_map_dialogs = []
-        self._story_map_dialogs.append(dialog)
-        dialog.finished.connect(
-            lambda _result, d=dialog: self._drop_story_map_dialog(d)
-        )
-        dialog.show()
+        # B-765: Daten im Worker laden statt synchron im GUI-Thread
+        # (AppHangB1-Incident 2026-08-06 unter Auto-Edit-DB-Last).
+        def _on_ready(dialog):
+            # Hold a reference so the non-modal dialog is not GC'd.
+            if not hasattr(self, "_story_map_dialogs"):
+                self._story_map_dialogs = []
+            self._story_map_dialogs.append(dialog)
+            dialog.finished.connect(
+                lambda _result, d=dialog: self._drop_story_map_dialog(d)
+            )
+
+        open_story_map_async(svc, run_id, parent=self, on_ready=_on_ready)
 
     def _drop_story_map_dialog(self, dialog) -> None:
         try:

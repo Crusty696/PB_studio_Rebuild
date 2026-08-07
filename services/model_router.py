@@ -71,6 +71,21 @@ def _is_vision_first(name: str) -> bool:
     return any(p in n for p in _VISION_FIRST_PATTERNS)
 
 
+def _user_selected_model() -> str | None:
+    """B-770: explizit in den Einstellungen gewaehltes Ollama-Modell.
+
+    Liest ``ollama.model`` aus dem SettingsStore (SettingsDialog ->
+    ``save_ollama_settings``). Leer/None/Fehler -> ``None`` (Auto-Wahl).
+    """
+    try:
+        from services.settings_store import get_ollama_settings
+        model = (get_ollama_settings() or {}).get("model") or ""
+    except Exception:
+        return None
+    model = str(model).strip()
+    return model or None
+
+
 def resolve_model_for_task(client, task: str) -> str | None:
     """Bestes installiertes Modell fuer ``task``. ``None`` wenn keins passt.
 
@@ -98,6 +113,40 @@ def resolve_model_for_task(client, task: str) -> str | None:
                 pass
             logger.warning("[MODEL-ROUTER] task=%s: %s='%s' nicht installiert -> Auto-Wahl.",
                            task, env_var, forced)
+
+    # B-770: Explizite User-Wahl aus den Einstellungen (SettingsDialog ->
+    # ollama.model) schlaegt die Auto-Wahl. Text-Pfade (chat/pacing/action)
+    # IMMER — die explizite Wahl ist staerker als der Vision-First-Ausschluss
+    # (genau der Bug: User waehlte qwen3-vl:4b, Router lieferte phi3/gemma3).
+    # Vision-Pfade nur, wenn das Modell vision-faehig ist. Nicht installiert
+    # -> Auto-Wahl + sichtbares WARNING (unten an den Return-Stellen).
+    user_model = _user_selected_model()
+    user_model_missing: str | None = None
+    if user_model:
+        try:
+            user_installed = bool(client.model_exists(user_model))
+        except Exception:
+            user_installed = False
+        if user_installed:
+            vision_ok = True
+            if cap == "vision":
+                vision_ok = _is_vision_first(user_model)
+                if not vision_ok:
+                    try:
+                        user_caps = client._capabilities(user_model)
+                    except Exception:
+                        user_caps = None
+                    vision_ok = bool(user_caps and "vision" in user_caps)
+            if vision_ok:
+                logger.info(
+                    "[MODEL-ROUTER] B-770 task=%s: User-Modell '%s' aus den "
+                    "Einstellungen erzwungen.", task, user_model)
+                return user_model
+            logger.info(
+                "[MODEL-ROUTER] B-770 task=%s: User-Modell '%s' ist nicht "
+                "vision-faehig -> Auto-Wahl.", task, user_model)
+        else:
+            user_model_missing = user_model
 
     need = "vision" if cap == "vision" else "completion"
     pref = _TASK_PREF.get(task, [])
@@ -134,6 +183,9 @@ def resolve_model_for_task(client, task: str) -> str | None:
         # (pref_idx asc, dann Groesse: quality=gross zuerst / speed=klein zuerst)
         candidates.sort(key=lambda t: (t[0], -t[1] if prefer != "speed" else t[1]))
         best = candidates[0][2]
+        if user_model_missing:
+            logger.warning("B-770: gewaehltes Modell %s nicht verfuegbar, nutze %s",
+                           user_model_missing, best)
         logger.info("[MODEL-ROUTER] task=%s -> '%s' (cap=%s prefer=%s, %d Kandidaten)",
                     task, best, cap, prefer, len(candidates))
         return best
@@ -151,6 +203,9 @@ def resolve_model_for_task(client, task: str) -> str | None:
             "[MODEL-ROUTER] task=%s: Fallback lieferte Vision-First '%s' -> verworfen "
             "(kein Vision-Modell fuer Text).", task, best)
         best = None
+    if user_model_missing:
+        logger.warning("B-770: gewaehltes Modell %s nicht verfuegbar, nutze %s",
+                       user_model_missing, best)
     if best:
         logger.info("[MODEL-ROUTER] task=%s -> '%s' (Fallback select_best_model)", task, best)
     else:

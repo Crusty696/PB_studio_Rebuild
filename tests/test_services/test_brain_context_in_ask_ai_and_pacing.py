@@ -319,33 +319,17 @@ def test_edl_prompt_unchanged_when_nothing_learned(brain, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. Vision-Pfad — bewusst NICHT angeschlossen
+# 4. Vision-Pfade — D-083 read-only Brain-Context
 # ---------------------------------------------------------------------------
 
-def test_vision_path_stays_without_brain_context():
-    """Der Vision-/Caption-Pfad bekommt bewusst KEINEN Brain-Kontext.
-
-    Begruendung (nicht "vergessen", sondern Entscheidung):
-    1. Der Prompt ist eine reine Bild-Frage pro Keyframe ("Describe this
-       video frame"). Das Brain-Gedaechtnis enthaelt Schnitt-Entscheidungen
-       und Pacing-Muster — es beschreibt nichts, was auf dem Bild ist.
-       Query-Relevanz waere null.
-    2. Der Caption-Pfad in ``services/video_analysis_service.py`` erzwingt
-       ein striktes JSON-Schema und verwirft Antworten aktiv als
-       "Metadaten-Echo" (``_validate_caption_dict``). Ein Prosa-Block mit
-       frueheren Schnitt-Urteilen im Prompt ist genau das Material, das
-       Modelle in das ``description``-Feld zurueckspiegeln.
-    3. moondream/qwen3-vl laufen auf der GTX 1060 am Token-Limit — der
-       Caption-Pfad musste bereits von 256 auf 1024/3072 Tokens hoch, weil
-       sonst leere Antworten kamen. Zusatzkontext kostet dort direkt
-       Caption-Qualitaet.
-
-    Der Test haelt diese Entscheidung fest: taucht der Brain-Block dort
-    doch auf, war es kein bewusster Schritt.
-    """
+def test_vision_paths_use_read_only_brain_prompt():
+    """D-083: beide Vision-Einstiege nutzen Gateway; Learn bleibt verboten."""
     from pathlib import Path
 
-    src = Path(
-        "services/vision_analysis_service_moondream.py"
-    ).read_text(encoding="utf-8")
-    assert "build_brain_context" not in src
+    for path in (
+        "services/vision_analysis_service_moondream.py",
+        "services/video_analysis_service.py",
+    ):
+        src = Path(path).read_text(encoding="utf-8")
+        assert "build_vision_prompt" in src
+        assert "brain_learn_note" not in src

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b721ef541a6f4527970ec861dfef78b0",
+  "recorded_at": "2026-07-28T10:18:58+00:00",
+  "session_id": "5c675e686d5743b8a2d6f729e99cc77e",
+  "head_at_start": "12a0b6c744b63c3866919f5f7d84ff2248092e9d",
+  "problem": "Isolierter Live-Launcher setzte APPDATA korrekt, Projektanlage schrieb dennoch Host-settings.json.",
+  "cause": "SettingsStore dokumentierte APPDATA, leitete Windows-Pfad aber fest aus Path.home()/AppData/Roaming ab.",
+  "rule": "Windows-Appdatenpfade immer aus APPDATA/LOCALAPPDATA ableiten; Launcher-Isolation mit exakter Produkt-Write-Kette und Host-Sentinel testen.",
+  "applies_to": "SettingsStore, RecentProjectsManager, GUI-E2E-Isolation"
+}

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4a6bcef3e4344e49b163cc3ba13c644e",
+  "recorded_at": "2026-07-28T01:38:55+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "CPU-/Copy-FFmpeg-Batches hielten GPU-Execution-Lock und blockierten unabhängige GPU-Aufgaben.",
+  "cause": "BatchConvertWorker nahm Lock pauschal vor Codec-Entscheidung.",
+  "rule": "GPU-Leases nur um Codepfade legen, die tatsächlich CUDA/NVENC nutzen; CPU-/Copy-Arbeit darf GPU-Workloads nicht serialisieren.",
+  "applies_to": "FFmpeg-Worker und gemischte CPU/GPU-Codecpfade"
+}

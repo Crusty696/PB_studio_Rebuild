@@ -198,12 +198,8 @@ def test_batch_threshold_still_wins_over_debounce():
     assert agg.calls == 1
 
 
-def test_brain_feedback_notifies_pattern_learning(tmp_path: Path):
-    """Brain-Feedback muss beim Muster-Lernen ankommen.
-
-    Vorher schrieb der 4-Klick-Pfad nur weights.db; der PatternAggregator
-    wurde ausschliesslich vom Verdict-Pfad in ui/timeline.py angestossen.
-    """
+def test_unlinked_brain_weight_feedback_does_not_notify_patterns(tmp_path: Path):
+    """Weight-only feedback without mem_decision linkage must not aggregate."""
     store = BrainStore(
         weights_path=tmp_path / "w.db", patterns_path=tmp_path / "p.db",
     )
@@ -219,27 +215,271 @@ def test_brain_feedback_notifies_pattern_learning(tmp_path: Path):
         svc.feedback(FeedbackRequest(cut_id=10, rating="no_match"))
     finally:
         weights.close()
-    assert seen == [1, 1], "Muster-Lernen wurde nicht benachrichtigt."
+    assert seen == []
 
 
-def test_pattern_notify_failure_does_not_break_feedback(tmp_path: Path):
-    """Der Lernkreis darf das Feedback nie mit runterreissen."""
-    store = BrainStore(
-        weights_path=tmp_path / "w.db", patterns_path=tmp_path / "p.db",
-    )
-    weights = WeightStore(store.weights_path)
+def test_pattern_notify_failure_does_not_break_committed_brain_rating(monkeypatch):
+    """A committed semantic rating stays successful if scheduling fails."""
+    from services.feedback_service import FeedbackResult, FeedbackService
 
     def _boom():
         raise RuntimeError("DB weg")
 
-    svc = BrainV3Service(
-        brain_store=store, weight_store=weights, pattern_notifier=_boom,
+    svc = FeedbackService(
+        lambda: None,
+        pattern_notifier=_boom,
     )
-    try:
-        resp = svc.feedback(FeedbackRequest(cut_id=11, rating="fits"))
-    finally:
-        weights.close()
-    assert resp.n_buckets_updated > 0
+    monkeypatch.setattr(
+        svc,
+        "record_rating",
+        lambda *_args: FeedbackResult(True, 1, 2),
+    )
+
+    result = svc.record_brain_rating(3, 4, "fits")
+
+    assert result.success is True
+
+
+def test_timeline_weighted_feedback_uses_service_after_pattern_write(monkeypatch):
+    """Weighted timeline clicks must not bypass BrainV3Service/B-737 notifier."""
+    from ui.timeline import TimelineClipItem
+
+    calls: list[object] = []
+
+    class _Response:
+        n_buckets_updated = 3
+
+    class _Service:
+        def feedback(self, request, context=None, axis_contributions=None):
+            calls.append(("brain", request.rating, axis_contributions))
+            return _Response()
+
+    class _Item:
+        _brain_v3_feedback_context = CutContext()
+
+        def _record_brain_pattern_feedback(self, rating):
+            calls.append(("pattern", rating))
+
+        def _get_brain_v3_feedback_service(self):
+            return _Service()
+
+        def _brain_v3_feedback_cut_id(self):
+            return 77
+
+    monkeypatch.setattr(
+        "services.brain.feedback_logger.submit_feedback",
+        lambda **kwargs: calls.append(("bypass", kwargs)) or {},
+    )
+
+    n = TimelineClipItem._submit_brain_v3_feedback(
+        _Item(),
+        "perfect",
+        axis_contributions={"motion_match_weight": 0.9},
+    )
+
+    assert n == 3
+    assert calls == [
+        ("pattern", "perfect"),
+        ("brain", "perfect", {"motion_match_weight": 0.9}),
+    ]
+
+
+def test_timeline_learning_signal_keeps_query_body_reachable(monkeypatch):
+    """Active timeline run must return context/contributions, never None."""
+    from ui.timeline import InteractiveTimeline
+
+    expected = (CutContext(audio_section_type="drop"), {"motion": 0.8})
+    seen: list[object] = []
+
+    class _Result:
+        @staticmethod
+        def fetchone():
+            return (88,)
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query, params):
+            seen.append(params)
+            return _Result()
+
+    class _FeedbackService:
+        _session_factory = _Session
+
+    class _Timeline:
+        _active_pacing_run_id = 12
+        _feedback_service = _FeedbackService()
+
+        @staticmethod
+        def _resolve_scene_id(_clip_item):
+            return 34
+
+    monkeypatch.setattr(
+        "services.feedback_service.load_decision_learning_signal",
+        lambda session, decision_id: seen.append((session, decision_id)) or expected,
+    )
+
+    result = InteractiveTimeline._brain_v3_learning_signal(_Timeline(), object())
+
+    assert result == expected
+    assert seen[0] == {"rid": 12, "sid": 34}
+    assert seen[1][1] == 88
+
+
+def test_popup_weighted_feedback_persists_pattern_before_notifier(monkeypatch):
+    """Popup worker must persist mem_decision signal before service notifies."""
+    from ui.widgets import brain_v3_feedback_popup as popup_mod
+
+    calls: list[object] = []
+
+    class _PatternFeedback:
+        def record_brain_rating(self, run_id, scene_id, brain_rating):
+            calls.append(("pattern", run_id, scene_id, brain_rating))
+
+            class _Result:
+                success = True
+                error = None
+
+            return _Result()
+
+    class _Response:
+        n_buckets_updated = 4
+
+    class _Service:
+        def feedback(self, request, context=None, axis_contributions=None):
+            calls.append(("brain", request.rating, axis_contributions))
+            return _Response()
+
+    monkeypatch.setattr(
+        popup_mod,
+        "build_thread_local_brain_service",
+        lambda _src, **_kwargs: _Service(),
+    )
+    worker = popup_mod._FeedbackSubmitWorker(
+        service=None,
+        cut_id=9,
+        rating="no_match",
+        context=CutContext(),
+        axis_contributions={"semantic_match_weight": 1.0},
+        pattern_feedback_target=(_PatternFeedback(), 12, 34),
+    )
+
+    payload = worker._do_work()
+
+    assert payload["n_buckets"] == 4
+    assert calls == [
+        ("pattern", 12, 34, "no_match"),
+        ("brain", "no_match", {"semantic_match_weight": 1.0}),
+    ]
+
+
+def test_unlinked_learning_popup_does_not_notify_pattern_aggregator(service):
+    """state.db samples may train weights but have no mem_decision target."""
+    from ui.widgets.brain_v3_feedback_popup import _FeedbackSubmitWorker
+
+    notified: list[int] = []
+    service._pattern_notifier = lambda: notified.append(1)
+    worker = _FeedbackSubmitWorker(
+        service=service,
+        cut_id=9,
+        rating="fits",
+        context=CutContext(),
+        pattern_feedback_target=None,
+    )
+
+    payload = worker._do_work()
+
+    assert payload["n_buckets"] > 0
+    assert notified == []
+
+
+def test_learning_dialog_explicitly_keeps_unlinked_cut_out_of_patterns(monkeypatch):
+    """Learning dialog must not reinterpret state.db cut_id as scene_id."""
+    from ui.widgets import brain_v3_learning_dialog as dialog_mod
+
+    captured: list[dict] = []
+
+    class _Signal:
+        @staticmethod
+        def connect(_callback):
+            return None
+
+    class _Popup:
+        feedback_submitted = _Signal()
+
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        @staticmethod
+        def exec():
+            return 0
+
+    class _Item:
+        @staticmethod
+        def data(_role):
+            return 7
+
+    class _Dialog:
+        _contexts = {}
+        _service = object()
+
+        @staticmethod
+        def _context_label(_cut_id):
+            return "[ohne Kontext]"
+
+        @staticmethod
+        def _on_feedback_done(*_args):
+            return None
+
+    monkeypatch.setattr(dialog_mod, "BrainV3FeedbackPopup", _Popup)
+
+    dialog_mod.BrainV3LearningSessionDialog._open_feedback_for(_Dialog(), _Item())
+
+    assert captured[0]["pattern_feedback_target"] is None
+
+
+def test_b737_lifecycle_flush_callsites_precede_db_switch_and_dispose():
+    """Run/project/app lifecycle must explicitly drain pattern learning."""
+    repo_root = Path(__file__).resolve().parents[2]
+    phase3_src = (repo_root / "services" / "pacing_service.py").read_text(
+        encoding="utf-8"
+    )
+    assert "notify_run_end" in phase3_src
+    completion_call = phase3_src.index("_complete_mem_pacing_run(_studio_brain_run_id")
+    assert completion_call < phase3_src.index(
+        "notify_run_end"
+    )
+
+    project_src = (repo_root / "services" / "project_manager.py").read_text(
+        encoding="utf-8"
+    )
+    create_src = project_src[
+        project_src.index("    def create_project"):
+        project_src.index("    def open_project")
+    ]
+    open_src = project_src[
+        project_src.index("    def open_project"):
+        project_src.index("    def save_project_as")
+    ]
+    for src in (create_src, open_src):
+        assert "flush_default_memory_updater" in src
+        assert src.index("flush_default_memory_updater") < src.index(
+            "database.set_project(path"
+        )
+
+    main_src = (repo_root / "main.py").read_text(encoding="utf-8")
+    close_src = main_src[
+        main_src.index("    def closeEvent"):
+        main_src.index("def setup_logging")
+    ]
+    assert "flush_default_memory_updater" in close_src
+    assert close_src.index("flush_default_memory_updater") < close_src.index(
+        "engine.dispose()"
+    )
 
 
 # ---------------------------------------------------------------------------

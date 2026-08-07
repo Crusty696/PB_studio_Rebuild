@@ -24,6 +24,12 @@ class _Ctrl:
 class _Notes:
     def __init__(self):
         self.pid = "unset"
+        self._autosave_timer = SimpleNamespace(stop=lambda: None)
+        self.notes_edit = SimpleNamespace(
+            blockSignals=lambda _value: None,
+            setPlainText=lambda _value: None,
+        )
+        self.saved_label = SimpleNamespace(setText=lambda _value: None)
 
     def set_active_project(self, pid):
         self.pid = pid
@@ -37,6 +43,12 @@ class _CutList:
     def set_project(self, pid):
         self.pid = pid
         self.calls.append(pid)
+
+    def _render_empty(self, _message):
+        self.pid = None
+
+    def _render_cuts(self, _cuts):
+        pass
 
 
 class _Stack:
@@ -55,6 +67,7 @@ class _Stack:
 class _SchnittWs:
     def __init__(self, notes, cut_list):
         self.refreshes = 0
+        self.applied = []
         self.editor_view = SimpleNamespace(
             tab_rl_notes=notes,
             tab_schnitt=SimpleNamespace(cut_list_panel=cut_list),
@@ -62,6 +75,9 @@ class _SchnittWs:
 
     def refresh_state_from_db(self):
         self.refreshes += 1
+
+    def apply_project_snapshot(self, project_id, timeline_entry_count):
+        self.applied.append((project_id, timeline_entry_count))
 
 
 class _MediaTableController:
@@ -108,9 +124,7 @@ def test_b309_schnitt_push_uses_no_project_state_before_db_fallback(monkeypatch)
     notes = _Notes()
     cut_list = _CutList()
     tab_schnitt = SimpleNamespace(cut_list_panel=cut_list)
-    ws = SimpleNamespace(
-        editor_view=SimpleNamespace(tab_rl_notes=notes, tab_schnitt=tab_schnitt)
-    )
+    ws = _SchnittWs(notes, cut_list)
     window = SimpleNamespace(
         logger=_Logger(),
         _project_manager=SimpleNamespace(current_project_path=None),
@@ -120,24 +134,21 @@ def test_b309_schnitt_push_uses_no_project_state_before_db_fallback(monkeypatch)
 
     WorkspaceSetupController(window)._push_active_project_to_schnitt()
 
-    assert ctrl.pid is None
-    assert notes.pid is None
-    assert cut_list.pid is None
+    assert ws.applied == [(None, 0)]
+    assert notes._project_id is None
+    assert cut_list._project_id is None
 
 
 def test_b310_schnitt_push_updates_cut_list_panel(monkeypatch):
-    import database
-    from ui.controllers.workspace_setup import WorkspaceSetupController
-
-    monkeypatch.setattr(database, "get_active_project_id", lambda: 23)
+    import ui.controllers.workspace_setup as setup_mod
+    import workers.base as worker_base
+    from ui.controllers.workspace_setup import WorkspaceSetupController, _SchnittProjectSnapshot
 
     ctrl = _Ctrl()
     notes = _Notes()
     cut_list = _CutList()
     tab_schnitt = SimpleNamespace(cut_list_panel=cut_list)
-    ws = SimpleNamespace(
-        editor_view=SimpleNamespace(tab_rl_notes=notes, tab_schnitt=tab_schnitt)
-    )
+    ws = _SchnittWs(notes, cut_list)
     window = SimpleNamespace(
         logger=_Logger(),
         _project_manager=SimpleNamespace(current_project_path=object()),
@@ -145,18 +156,29 @@ def test_b310_schnitt_push_updates_cut_list_panel(monkeypatch):
         _schnitt_ctrl=ctrl,
     )
 
+    monkeypatch.setattr(
+        setup_mod, "_build_schnitt_project_snapshot",
+        lambda _engine: _SchnittProjectSnapshot(23, 0, "", None, None, ()),
+    )
+    monkeypatch.setattr(
+        worker_base, "run_worker",
+        lambda _owner, worker, on_finish, on_error: (
+            on_finish(worker._do_work()) or SimpleNamespace(isRunning=lambda: False)
+        ),
+    )
+
     WorkspaceSetupController(window)._push_active_project_to_schnitt()
 
-    assert ctrl.pid == 23
-    assert notes.pid == 23
-    assert cut_list.pid == 23
+    assert ws.applied == [(23, 0)]
+    assert notes._project_id == 23
+    assert cut_list._project_id == 23
 
 
 def test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh(monkeypatch):
     import database
-    from ui.controllers.workspace_setup import WorkspaceSetupController
-
-    monkeypatch.setattr(database, "get_active_project_id", lambda: 23)
+    import ui.controllers.workspace_setup as setup_mod
+    import workers.base as worker_base
+    from ui.controllers.workspace_setup import WorkspaceSetupController, _SchnittProjectSnapshot
 
     ctrl = _Ctrl()
     notes = _Notes()
@@ -173,13 +195,24 @@ def test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh(monkey
     )
     controller = WorkspaceSetupController(window)
     controller._update_workflow_gates = lambda: None
+    monkeypatch.setattr(database, "get_active_project_id", lambda: 23)
+    monkeypatch.setattr(
+        setup_mod, "_build_schnitt_project_snapshot",
+        lambda _engine: _SchnittProjectSnapshot(23, 0, "", None, None, ()),
+    )
+    monkeypatch.setattr(
+        worker_base, "run_worker",
+        lambda _owner, worker, on_finish, on_error: (
+            on_finish(worker._do_work()) or SimpleNamespace(isRunning=lambda: False)
+        ),
+    )
 
     controller._on_workspace_changed(2)
 
     assert window.workspace_stack.indices == [2]
-    assert ctrl.pid == 23
-    assert notes.pid == 23
-    assert cut_list.calls == [23]
+    assert ws.applied == [(23, 0)]
+    assert notes._project_id == 23
+    assert cut_list._project_id == 23
     assert ws.refreshes == 0
     assert media_ctrl.combo_refreshes == [
         ((23,), {"allow_active_fallback": False})

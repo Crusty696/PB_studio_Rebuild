@@ -1,0 +1,10 @@
+{
+  "lesson_id": "52d69630b3174747a356e84a1efa0c9d",
+  "recorded_at": "2026-08-02T10:44:13+00:00",
+  "session_id": "a886dfa78e1e46fea141f455b1648ee5",
+  "head_at_start": "26889d269247b2d82efec9fa936ea7e900a57102",
+  "problem": "Audio-V2 User-Cancel wurde als Produktfehler geloggt und als Batch-Erfolg weitergezaehlt.",
+  "cause": "Worker behandelte User-Cancel im generischen Exception-Zweig; Legacy-Dispatcher umging B-724; Controller verband error direkt mit Erfolgszaehler.",
+  "rule": "Kooperative Cancelpfade muessen an Worker, TaskManager und Batch-Controller getrennt von Produktfehler und Erfolg terminiert werden; spaete Fehlersignale pruefen cancelled vor ERROR-Logging.",
+  "applies_to": "AudioPipelineV2Worker, WorkerDispatcherController, GlobalTaskManager, sequentielle Batch-Controller"
+}

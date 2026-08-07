@@ -34,6 +34,8 @@ class ClipCandidate:
     embedding: Optional[np.ndarray] = None  # 768-dim SigLIP-2
     mood_tags: list[str] = field(default_factory=list)
     style_tags: list[str] = field(default_factory=list)
+    role: Optional[str] = None
+    role_confidence: Optional[float] = None
 
 
 def _clip01(x: float) -> float:
@@ -162,3 +164,17 @@ class BridgeDimensions:
     def _compute_mood_match_weight(self, c: ClipCandidate, ctx: CutContext) -> float:
         # Tag-Overlap: video.mood_tags ∩ {ctx.audio_mood}
         return 1.0 if ctx.audio_mood in c.mood_tags else 0.0
+
+    def _compute_role_match_weight(self, c: ClipCandidate, ctx: CutContext) -> float:
+        """D-080: sichtbare Bridge zwischen Audio-Section und Clip-Rolle."""
+        role = (c.role or "").strip().lower()
+        if role in ("", "unknown"):
+            return 0.5
+        # Eine Rolle wird mit derselben Matrix wie Pacing bewertet, aber über
+        # eigene, lernbare Brain-Gewichte. Damit bleibt der Beitrag im
+        # `brain_v3_scores`-Payload und im WeightStore nachvollziehbar.
+        from services.pacing.scorer import apply_role_confidence, role_fit
+
+        return apply_role_confidence(
+            role_fit(ctx.audio_section_type, role), c.role_confidence
+        )

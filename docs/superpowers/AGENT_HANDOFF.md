@@ -2,6 +2,376 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-758 blockiert W3 2026-08-02 (newest)
+
+- Current HEAD `e85a2c2`, isolierte APPDATA/LOCALAPPDATA und exakter
+  `--stability-project`-Scope.
+- Systemcheck modal: `CUDA GPU FAIL`, `NVENC Encode FAIL`, GPU `0/0 GB`.
+- Degradierter Start bewusst nicht gewählt; W3 muss GTX-1060-CUDA beweisen.
+- Screenshot `w3-missing-stem-project-nav_20260802_213113.png`.
+- Pre-Manifest `20260802T2126-w3-final-pre`; Post `20260802T2134-w3-b758-post`.
+- W3-/Hostprojekt-DBs unverändert. Neu erzeugte Repo-Root-WAL/SHM extern
+  gesichert und nach Prozessfreiheit recoverable entfernt.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
+## B-738 Fokus-PASS / W3 Liveverify aktiv 2026-08-02 (newest)
+
+- Echter Orchestrator-Tool-/Non-Tool-Pfad erhaelt projektisolierten Recall.
+- Non-Tool-Gateway akzeptiert nur `pb_brain_gateway=v1`; persistentes Learn
+  zusaetzlich nur mit reserviertem User-Prefix wie `Merke dir:`/`Save:`.
+- B-411 bleibt fuer alle anderen unerreichbaren Action-Kommandos aktiv.
+- Vision-Caption und Moondream erhalten read-only Recall-Fallback plus neueste
+  Cut-Erklaerung; urspruenglicher Fachprompt bleibt letzte Anweisung.
+- Fokus 44 Tests plus Learn-Recall-Kreis, Ruff, Compileall und Diffcheck gruen;
+  unabhaengiger Abschlussreview ohne Critical/High/Medium.
+- Kein echter ChatDock-/Ollama-/Neustart-Livebeweis; B-738
+  `code-fix-pending-live-verification`.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
+## B-757 Fokus-PASS / B-738 aktiv 2026-08-02 (newest)
+
+- `BRIDGE_AXIS_COUNT = len(BRIDGE_AXES)` ist kanonische Stats-Grenze 18.
+- `StatsResponse`, Stats-Label und Progressbar nutzen dieselbe Grenze.
+- Sechs Kernbelege plus verschaerfter 18/19-Grenztest, Ruff, Compileall und
+  Diffcheck gruen. Abschlussreview ohne Critical/High/Medium.
+- Kein echter App-/Stats-Panel-Livebeweis; B-757
+  `code-fix-pending-live-verification`.
+- Nächste einzige Task: `ROOT-CAUSE / B-738 Brain/Memory fuer alle LLM-Pfade`.
+
+## B-737 Fokus-PASS / B-757 aktiv 2026-08-02 (newest)
+
+- Brain-Timeline-Rating persistiert semantisch vor Pattern-Notifier; ein
+  Feedback erzeugt nach Flush und DB-Neustart ein `mem_learned_pattern`.
+- MemoryUpdater nutzt Debounce, Run-/Projekt-/App-End-Drain und
+  Condition-Generationen; Sync-Shutdown drainiert Nachfolgefeedback.
+- Fehler bleiben retrybar; atexit-Best-Effort hat keine Endlosschleife.
+- Learning-Session trainiert mangels sicherer Run-/Scene-Verknuepfung ehrlich
+  nur Brain-Achsengewichte. Keine ID geraten.
+- Fokus 27 + 9 + 9 Tests; Ruff/Compileall/Diffcheck gruen; Abschlussreview
+  ohne Critical/High/Medium. Kein App-Livebeweis; B-737 live-pending.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-757 Brain-Stats-Achszahl aus kanonischen Achsen ableiten`;
+  danach B-738.
+
+## B-756 Fokus-PASS / B-737 aktiv 2026-08-02 (newest)
+
+- Sieben explizite Video-Cancelzweige nutzen `mark_cancelled()`; echte
+  Exception-/Storage-Fehler bleiben `mark_error()`.
+- RED 7/7; Routing plus zentraler Timestamp-Vertrag `2 passed`; Syntax, Ruff,
+  Diffcheck grün. Kein Video-Live-Cancel; B-756 live-pending.
+- Breite/live Tests bleiben gemäß Uservorgabe bis nach Codeaufgaben gebündelt.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-737 Memory-Updater Run-End-Flush und Feedback-Wiring`.
+
+## B-755 Fokus-PASS / B-756 aktiv 2026-08-02
+
+- Root Cause: `mark_started()` behielt bei Done→Running altes `completed_at`.
+- Fix: Conflict-Update setzt `completed_at=None`.
+- Drei direkte Transitionstests, Syntax, Ruff und Diffcheck grün.
+- Kein UI-/Worker-Livebeweis; B-755 `code-fix-pending-live-verification`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-756 Video-Cancel muss stale completed_at löschen`.
+
+## B-754 Fokus-PASS / B-755 aktiv 2026-08-02
+
+- Root Cause: `mark_cancelled()`-Conflict-Update behielt `completed_at` einer
+  früheren Done-Row.
+- Fix: `completed_at=None`; echter Done→Started→Cancel-RED/GREEN-Vertrag.
+- Minimalbeweis: drei direkte Cancel-/Idempotenztests, Syntax, Ruff, Diffcheck
+  grün. Kein App-/DB-Live-Retry; B-754 `code-fix-pending-live-verification`.
+- Separat entdeckt: B-755 stale Altzeit während `running`; B-756 Video-Cancel
+  via `mark_error("cancelled")`. Keine Mitfixes.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-755 Analysis-Retry running muss stale completed_at löschen`.
+
+## B-750 Stand-6 Abschlussreview PASS 2026-08-02
+
+- Re-Review-Lücken geschlossen: ehrliche Cancel-/Konfliktklassifizierung;
+  Claim-Release bei Setupfehler, Shutdown, terminal/no-thread und Fast-Finish.
+- Deterministische Race-Verträge decken BG-`str`, TaskInfo-Thread-Snapshot,
+  Teilstart und terminal-before-return ab.
+- Final: 65 direkte B-750/Lifecycle-Regressionen, `py_compile`, Ruff und
+  `git diff --check` grün.
+- Unabhängiger Read-only-Abschlussreview: PASS, keine verbleibende
+  Critical-/High-/Medium-Lücke. LOW Setup-QObject nur theoretisch.
+- Kein App-GUI-/Medien-Livebeweis; B-750 bleibt
+  `code-fix-pending-live-verification`.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+## B-750 Re-Review 8a4fef7 NOT PASS 2026-08-02
+
+- 22/22 Reviewer-Fokus grün; Claims/Stem-Heal/Retry-all-Grundmechanik korrekt.
+- Medium: Einzel-/Batch-V2 und Stem melden `User-Cancel`/`Bereits aktiv`
+  weiterhin als Fehler/Fehlgeschlagen.
+- Low/Medium: Claim kann bei QThread-/Signal-Setup-Exception vor Start,
+  BG-`str` oder Task ohne Thread-Cleanup leaken.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Re-Review-Follow-up: UI-Klassifizierung und Claim-Leaks`.
+- B-754 wartet.
+
+## B-750 Review-Follow-up Fokus-PASS 2026-08-02
+
+- Review-RED: Cancel-Ehrlichkeit, Stem-Selbstheilung, Retry-all und
+  Single-Flight reproduziert.
+- Fix: Audio-Retry-all genau ein Full-Resume-Worker; Onset läuft `stem_gen`
+  selbstheilend vor Onset; Cancel/Startkonflikt ehrlich sichtbar.
+- Zentraler WorkerDispatcher-Claim: pro Projekt/Track V2↔V2 sowie
+  Full/Onset↔Stem blockiert; Release erst im echten QThread-Cleanup.
+- Review-RED 5/5 plus Cross-Path-RED 3/3; final 27 fokussierte Tests,
+  `py_compile` und Ruff grün.
+- Kein App-GUI-/Medien-Livebeweis; kein `fixed`.
+- Nächste einzige Task:
+  `REVIEW / B-750 Follow-up-Commit unabhängig auf Cross-Path-Single-Flight prüfen`.
+- B-754 wartet.
+
+## B-750 Review-Fund 2026-08-02
+
+- Unabhängiger Review auf `07161bb`: 13/13 Fokus grün, aber kein PASS.
+- Medium 1: Cancel wird im neuen MediaWorkspace-Handler als `Error` gemeldet.
+- Medium 2: done `stem_gen` mit fehlendem Artefakt wird nur rehydriert;
+  Onset-Retry baut Stem nicht selbstheilend neu.
+- Medium 3: Doppelklick/Retry-all startet konkurrierende gleiche oder abhängige
+  Trackworker; Checkpoint-Lock schützt nicht Stage-/DB-/Artefaktraces.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Review-Follow-up: Cancel, Stem-Selbstheilung, Single-Flight`.
+- B-754 wartet.
+
+## B-750 Fokus-PASS / B-754 geplant 2026-08-02
+
+- Root Cause: Statuspanel emittierte `onset_detection`/`av_pacing_curves`,
+  MediaWorkspace besaß keine Dispatch-Branches. Vollpipeline-Retry hätte bei
+  bereits done/degraded Stage wegen Checkpoint erneut übersprungen.
+- Fix: gezielter V2-Retryworker, atomarer Zielstage-Reset, Onset mit
+  rehydrierbarer Stem-Prerequisite, AV-Pacing allein.
+- RED 5/5; final 13/13 fokussierte B-750/B-753/B-722-Tests, Syntax/Ruff grün.
+- Kein App-GUI-/Medien-Livebeweis; Status
+  `code-fix-pending-live-verification`, Usermarker offen.
+- Damals geplante nächste Task:
+  `ROOT-CAUSE / B-754 Analysis-Cancel muss stale completed_at löschen`.
+
+## B-753 QThread-PASS / B-750 Next 2026-08-02
+
+- Root Cause: `AudioPipelineV2Worker.run()` kehrte bei vor Start gesetztem
+  Cancel ohne `finished`/`error` zurück; Dispatcher/QThread/UI-Batch konnten
+  offen bleiben.
+- Fix: genau ein terminaler `User-Cancel vor Start`-Transport; keine Stage,
+  kein AnalysisStatus-Write.
+- RED 2/2 exakt reproduziert; final 15/15 fokussierte B-753/B-751/B-724-
+  Tests sowie Syntax/Ruff grün.
+- Erzwungenes echtes QThread-Interleaving: Thread endet binnen 2 s, exakt ein
+  Terminalsignal. Kein App-GUI-Liveklick; `fixed`-Usermarker offen.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-750 Audio-V2-Retry onset/AV-Pacing verdrahten`.
+
+## B-751 Live-PASS / B-753 Next 2026-08-02
+
+- Audio-V2 AV-Pacing wurde im isolierten STAB-W3 bei Chunk 1 sichtbar
+  abgebrochen.
+- Worker markiert Cancel retry-faehig; Task bleibt `cancelled`; B-724 loggt
+  INFO statt `Worker-Fehler`.
+- Batch stoppt ohne `_v2_done`-Erhoehung und ohne falsches `Fertig`.
+- 13/13 Fokus + angrenzende B-713/B-724, Syntax/Ruff gruen.
+- Current-live: kein Worker-/Analysis-Error, kein Batch-Erfolg, keine neue
+  UI-Exception; App responsive und graceful beendet.
+- Host-DB/WAL/SHM: 15/15 Pre/Post-Signaturen unveraendert. Isolierte W3-DB:
+  quick_check ok, Alembic Head, WAL/SHM absent.
+- B-751 Code+Live abgeschlossen; `fixed`-Usermarker offen.
+- Neue getrennte Befunde: B-753 Pre-Start-Cancel ohne Terminalsignal; B-754
+  stale `completed_at` nach Cancel.
+- Damalige nächste Task:
+  `ROOT-CAUSE / B-753 Audio-V2 Pre-Start-Cancel terminalisieren`.
+
+## B-752 Live-PASS / B-751 Next 2026-08-02 (newest)
+
+- Audio-V2 Resume mit neun geskippten Stages erzeugte neun Crashdialoge:
+  `bpm=None` wurde als Float formatiert.
+- B-752 Fix filtert None/nichtnumerische Werte; RED/GREEN 4/4, Syntax/Ruff.
+- Echter Resume-Pfad: null neue Exceptions/Crashdialoge, App responsive,
+  Screenshot und graceful Shutdown gruen; Host-DB unveraendert.
+- Cancel stoppte AV-Pacing bei Chunk 1 nach 29.8 s kooperativ.
+- B-751 bleibt: Cancel wird als Analysis `error` und Task `Worker-Fehler`
+  behandelt; Controller-Erfolgstextpfad ist ebenfalls offen.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-751 Audio-V2 User-Cancel als cancelled statt error/Erfolg`.
+
+## B-748 Stability-Projektsperre Current-live 2026-08-02 (newest)
+
+- W3-Start oeffnete versehentlich Host-Projekt `abnahme-block-c2`; App sofort
+  graceful beendet, keine Audioanalyse gestartet.
+- Host-DB aus bewiesener Vor-Incident-Kopie logisch/schema-identisch
+  wiederhergestellt. Rohbyte-Restore von altem WAL/SHM wegen B-749 unbeweisbar.
+- Root Cause: Live-Harness besass keine Fail-Closed-Projektsperre.
+- Fix: `PB_STABILITY_PROJECT`/`PB_STABILITY_PROJECT_ROOT` blockieren
+  Create/Open/Save-As vor Task-Wait, SQLite, Backup oder Migration;
+  GUI-Harness bietet explizite Startflags.
+- Fokus: 4/4 Tests, Syntax, Ruff gruen. Current-live Host-Pfad sichtbar
+  blockiert; 6/6 geschuetzte Pre-Pfade unveraendert.
+- B-748 Code+Live abgeschlossen, `fixed`-Usermarker offen.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+
+## W2 Final-Pass / W3 Start 2026-08-02 (newest)
+
+- B-740 Current-live: App PID 4172 → Serve 11796 → Runner 10484; nativer
+  Shutdown beendete alle, Port 11434 frei.
+- Finalmanifest `20260802T0818-w2-final`: 15/15 geschützte Pre-Pfade
+  unverändert, 18/18 Quickcheck, Host-Settings-SHA unverändert,
+  PB-/Ollama-Prozesse 0.
+- W2 `live-pass-user-marker-pending`; STAB-2 25 %.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+- Bereits belegt: kompletter Audio-V2-Lauf mit vier Stems; nicht wiederholen.
+
+## W2 B-747 pass / B-740 Prozessblocker 2026-08-02 (newest)
+
+- Branch `codex/B-727-stability-gate`, Basis `b97dec4`.
+- W2 Import/Duplikat/Papierkorb/Bulk-Restore/Reimport/Reuse Current-live grün.
+- B-747 projektpfadgebundener Reuse-Mute-Key: RED/GREEN, Ruff, sichtbarer
+  Dialog und nativer Shutdown grün; Usermarker offen.
+- 15/15 geschützte Pre-DB/WAL/SHM-Snapshots byte-identisch; 18/18 Quickcheck;
+  Host-Settings-SHA unverändert.
+- W2 blockiert: `ollama.exe` PID 5944 lebt mit Parent PID 4620 (alter W2-App-
+  Prozess). Nicht beenden.
+- Nächste einzige Task:
+  `ROOT-CAUSE / B-740 Current-Live Ollama-Ownership/Cleanup`.
+- Bericht:
+  `docs/superpowers/synthesis/functional-test-w2-import-restore-2026-08-02.md`.
+
+## W2 D-086 Fortsetzung 2026-07-28 (newest)
+
+- Userauftrag „arbeite weiter am Plan“ hebt Fixture-Blocker auf.
+- D-086: 20 deterministisch ausgewählte MP4-Proxies + zwei WAV-Stems nur als
+  isolierte Kopien; Quellen read-only.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+
+## W2 Fixture-Blocker 2026-07-28 (newest)
+
+- `tests/fixtures/clips_20` enthält nur Report/Provenienz, keine MP4-Dateien.
+- Alle 20 Provenienzpfade zeigen auf fehlendes Altprofil
+  `C:\Users\David Lochmann`; korrigiertes aktuelles Profil ebenfalls fehlend.
+- 46 MP4-Proxies und 8 WAV-Stems unter kanonischem read-only
+  `outputs/test-tabelle/storage` vorhanden.
+- Nächste einzige Task:
+  `USER-DECISION / W2 fehlende 20 Clip-Fixtures`.
+- Keine Substitution ohne Freigabe.
+
+## W2 Import/Papierkorb/Restore 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / Current nach W1-Bericht.
+- W1 live-pass; Usermarker offen. Bericht:
+  `docs/superpowers/synthesis/functional-test-w1-boot-projects-2026-07-28.md`.
+- B-745 `wontfix`: programmatisches UI-Automations-Schließartefakt, kein
+  Produktdefekt; zwei native Shutdowns grün.
+- Nächste einzige Task:
+  `LIVE-VERIFY / W2 Import, Papierkorb, Restore, Reimport`.
+- Nur isolierte Medienkopien/Projekt-DBs; Originale bleiben read-only.
+
+## B-745 W1-Shutdown-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `6e3bc98`.
+- Drei Projektwechsel, Neustart, Screenshot und DB-/Prozessbelege bestanden.
+- Vier frühere Logs enden mit `Windows fatal exception: code 0x80010108`;
+  Stack zeigt laufenden `services/perf_watchdog.py:159`-Thread.
+- Neuester Run `clicklog_2026-07-28_125017.log` nach normalem
+  `CloseMainWindow()` ohne Meldung.
+- W1 bleibt blockiert. Nächste einzige Task:
+  `LIVE-VERIFY / B-745 W1-Shutdown 0x80010108`.
+
+## W1 Projektwechsel/Neustart 2026-07-28
+
+- Integration: `codex/B-727-stability-gate` / `2d619a5`.
+- B-743/B-744 live bewiesen; beide ohne Usermarker live-pending.
+- Session `2026-07-28_123634`: JSON vor Projekt `{}`, null QSettings-Migration;
+  `STAB-W1-C` sichtbar erstellt; JSON danach nur isolierter Recent-Pfad.
+- Host-Settings SHA unverändert; 15 geschützte DBs unverändert; neue Projekt-DB
+  quick_check ok; Shutdown/Prozesscleanup grün.
+- Nächste einzige Task: `LIVE-VERIFY / W1 Projektwechsel und Neustart`.
+- Vorhandene isolierte Projekte: `STAB-W1-B` in Session `..._122204`,
+  `STAB-W1-C` in Session `..._123634`. Öffnen/Wechseln ausschließlich per UI.
+
+## B-744 Current-Live-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `5607b0c`.
+- B-743 live bewiesen: sichtbare Projektanlage `STAB-W1-B`; Settings und
+  RecentProjects ausschließlich Session-APPDATA; Host-JSON SHA unverändert;
+  15 geschützte Pre-DBs unverändert, neue Projekt-DB quick_check ok.
+- Neuer Fund: fehlende Session-JSON löst Windows-QSettings-Registrymigration
+  aus; isolierte JSON übernimmt Host-Ollama-/Shortcut-Werte.
+- B-744 `open`; kein Host-Write, aber Host-State-Read.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-744 isolierte Session-Settings ohne Host-QSettings`.
+- Kleinster Fix nur im Live-Launcher: `{}` vor Appstart seeden. Produktmigration
+  für normale Starts unverändert. Fokusvertrag + beobachteter W1-Retry.
+
+## B-743 Current-Live-Blocker 2026-07-28 (newest)
+
+- Integration: `codex/B-727-stability-gate` / `6fb4131`.
+- B-278-Fix als `1b2f161` integriert; Fokus 3/3. Sichtbarer Status kohärent,
+  exakter Timeout-Race im Retry nicht erzwungen; kein `fixed`.
+- W1-Projektanlage `STAB-W1-A` unter isoliertem Projektroot gelang.
+- Current-Regression: SettingsStore schrieb trotz isoliertem Launcher in
+  echte `%APPDATA%\PBStudio\settings.json`; Host-RecentProjects verändert.
+- Host-Datei nicht geraten zurückgesetzt. Post-Incident-Baseline:
+  SHA256 `690EE75CD9FB2D36B053563C61B482F72EBCB7C06094CC134ABA3ECA3A2D6DFC`,
+  1411 Bytes.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-743 Settings-/Recent-Project-AppData-Isolation`.
+- Nur Root Cause, fokussierter Test, beobachteter W1-Retry. Keine breite Suite.
+
+## B-278 Current-Live-Blocker 2026-07-28 (newest)
+
+- Branch/HEAD vor Governance-Commit:
+  `codex/B-727-stability-gate` / `3026ded`.
+- W1 Retry 1 endete sauber Exit 0; 13/13 reale DB-Quellen blieben byte-/
+  logisch unverändert.
+- W1 Retry 2 zeigte sichtbar gleichzeitig `KI: Fallback` und `AI ready`,
+  obwohl Ollama API-ready war. Kein Traceback, kein Crash.
+- B-278 auf `partial-fix`; Projektanlage wurde planmäßig nicht fortgesetzt.
+- Nächste einzige Task:
+  `LIVE-VERIFY / B-278 widerspruechlichen Ollama-/AI-Startupstatus beheben`.
+- Danach nur Fokusbeweis + beobachteter W1-Retry. Keine breite Suite.
+
+## D-085 beobachtete Live-Test-Session 2026-07-28 (newest)
+
+- Current Integrationsbranch: `codex/B-727-stability-gate`.
+- B-735 `ddcb027`, B-736 `dc253d4`; beide code-complete/live-pending.
+- B-737 wurde auf Userbefehl vor erstem Codeedit sauber gestoppt. Worktree
+  `.worktrees/b737-pattern-learning-v2` blieb clean; keine Tests/Commits.
+- Nächste einzige Task: `LIVE-VERIFY / Preflight + W1 Boot und Projekte`.
+- User schaut zu, während Codex App bedient.
+- Start: `start_pb_studio_clicklog.bat`.
+- Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.
+- Testprojekt nur unter `%LOCALAPPDATA%\PBStudioStability\<run_id>\project`;
+  Originalprojekte/-DBs bleiben unangetastet.
+- B-742: Clicklog-Launcher-Exitcode-Maskierung code-seitig geschlossen;
+  Livebeweis in kommender Session.
+- B-737/B-738 bleiben offen; kein `fixed`, Release oder Installerfreigabe.
+
+## B-723 GPU-Cleanup-Lockscope 2026-07-28 (newest)
+
+- Commit folgt: Stem-Cache-Cleanup und Video-Exception-RAFT/SigLIP-Cleanup
+  unter GPU-Execution-Lease. Keine Architekturänderung.
+- Belegt: zwei fokussierte Lock-Verträge grün (`1 passed` jeweils), Syntax grün.
+- Status `code-fix-pending-live-verification`; echter GPU-/Cancel-/Stresspfad
+  gemäß D-078 offen.
+- Genau nächste Task: `STAB-4 / B-725 CPU-/Copy-Konvertierung außerhalb GPU-Lease`.
+
+## B-741 Default-Suite-Ollama-Isolation 2026-07-28 (newest)
+
+- Commit folgt diesem Handoff-Update: Test-only Isolation in
+  `tests/test_deep_functional.py`; keine Produktdatei geändert.
+- Vier zuvor echte Hostpfade: Vision, OllamaService, OllamaClient,
+  Orchestrator-Generalantwort. Isolation: Fake/Mocks + `urlopen`-Block.
+- Minimalbeweis: kanonische `pb-studio`-Env, exakt vier Tests,
+  `4 passed in 8.70s`; Syntaxcheck grün. Keine Suite/GPU/E2E-Wiederholung.
+- Status: B-741 `code-fix-pending-live-verification`; Current-Suite- und
+  echter GPU-/Ollama-Livebeweis gemäß D-078 bewusst offen.
+- Genau nächste Task: `STAB-4 / B-723 GPU-Cleanup-Lockscope`.
+
 ## D-076 STAB-0 Governance-Reconciliation 2026-07-27 (newest)
 
 - Baseline/Current HEAD vor Governance-Commit: `02cddee`.

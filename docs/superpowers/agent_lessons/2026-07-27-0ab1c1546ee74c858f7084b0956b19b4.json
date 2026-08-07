@@ -1,0 +1,10 @@
+{
+  "lesson_id": "0ab1c1546ee74c858f7084b0956b19b4",
+  "recorded_at": "2026-07-27T22:04:25+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Committed Real-DB-Guard war trotz Fokusgruen in Fresh-Clone-, file-URI- und bestehendem Read-only-Testpfad offen",
+  "cause": "Tests verwendeten nur existierende lokale DBs und file:C:/-Form; Discovery filterte Missing-Pfade; bestehende Referenztests öffneten Originaldaten",
+  "rule": "DB-Schutztests müssen Fresh-Clone-Missing-Pfade, Path.as_uri(), unregistrierte Projekte und bestehende Suite-Referenzzugriffe abdecken; Referenzdaten immer als WAL-konsolidierte Temp-Kopie öffnen",
+  "applies_to": "Adversarial Review und Regressionstests für SQLite-Isolation in CI und Worktrees"
+}

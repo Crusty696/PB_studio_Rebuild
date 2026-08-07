@@ -55,6 +55,20 @@ def test_import_reuse_notice_has_project_scoped_mute_setting() -> None:
     assert "Nicht mehr fragen" in widget
 
 
+def test_import_reuse_mute_key_does_not_collide_for_local_project_id() -> None:
+    from ui.controllers.import_media import _reuse_notification_mute_key
+
+    project_a = Path("C:/PBStudioStability/run-a/project")
+    project_b = Path("C:/PBStudioStability/run-b/project")
+
+    key_a = _reuse_notification_mute_key(project_a)
+    key_b = _reuse_notification_mute_key(project_b)
+
+    assert key_a != key_b
+    assert key_a == _reuse_notification_mute_key(project_a / ".")
+    assert key_a.startswith("reuse_notifications/muted_project_")
+
+
 def test_import_reuse_notice_stores_project_scoped_mute(monkeypatch) -> None:
     _qapp()
     from PySide6.QtCore import QSettings, Qt

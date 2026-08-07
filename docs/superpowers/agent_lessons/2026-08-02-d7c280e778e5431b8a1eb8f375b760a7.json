@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d7c280e778e5431b8a1eb8f375b760a7",
+  "recorded_at": "2026-08-02T15:49:37+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "Running-AnalysisStatus trug Abschlusszeit eines frueheren Done-Laufs.",
+  "cause": "mark_started-Conflict-Update setzte neuen Startzustand, invalidierte das terminale completed_at-Feld aber nicht.",
+  "rule": "Nichtterminale Zustandsuebergaenge muessen alle terminalen Marker explizit loeschen; Done-zu-Running als eigenen DB-Transitionstest sichern.",
+  "applies_to": "Statusmaschinen Retry Running completed_at SQLAlchemy Upsert"
+}

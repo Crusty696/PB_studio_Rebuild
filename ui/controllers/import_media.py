@@ -1,5 +1,6 @@
 """ImportMediaController — Refactored from ImportMediaMixin."""
 
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -12,6 +13,13 @@ from workers import FolderImportWorker, BrainV3HashingWorker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
+
+
+def _reuse_notification_mute_key(project_path: str | Path) -> str:
+    """Return a stable mute key unique to one project directory."""
+    canonical_path = os.path.normcase(str(Path(project_path).resolve()))
+    project_digest = hashlib.sha256(canonical_path.encode("utf-8")).hexdigest()[:16]
+    return f"reuse_notifications/muted_project_{project_digest}"
 
 
 def _last_import_dir(kind: str) -> str:
@@ -301,8 +309,13 @@ class ImportMediaController(PBComponent):
     ) -> str | None:
         if not paths or project_id is None:
             return None
+        project_manager = getattr(self.window, "_project_manager", None)
+        project_path = getattr(project_manager, "current_project_path", None)
+        if project_path is None:
+            logger.warning("OTK-021 reuse notification skipped: current project path missing")
+            return None
         settings = QSettings("PB Studio", "Rebuild")
-        mute_key = f"reuse_notifications/muted_project_{int(project_id)}"
+        mute_key = _reuse_notification_mute_key(project_path)
         if settings.value(mute_key, False, type=bool):
             return None
         try:

@@ -127,7 +127,12 @@ def mark_started(media_type: str, media_id: int, step_key: str) -> None:
             started_at=now,
         ).on_conflict_do_update(
             index_elements=_UQ_COLS,
-            set_=dict(status="running", started_at=now, error_message=None),
+            set_=dict(
+                status="running",
+                started_at=now,
+                completed_at=None,
+                error_message=None,
+            ),
         )
         session.execute(stmt)
         session.commit()
@@ -280,7 +285,11 @@ def mark_cancelled(media_type: str, media_id: int, step_key: str) -> None:
             error_message="cancelled",
         ).on_conflict_do_update(
             index_elements=_UQ_COLS,
-            set_=dict(status="error", error_message="cancelled"),
+            set_=dict(
+                status="error",
+                completed_at=None,
+                error_message="cancelled",
+            ),
         )
         session.execute(stmt)
         session.commit()

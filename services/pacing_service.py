@@ -829,6 +829,14 @@ def _auto_edit_phase3_inner(
         except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("LLM Pacing-Strategist uebersprungen: %s", e)
 
+    # B-766: Der Strategist-Block kann minutenlang blockieren (LLM-Ladezeit,
+    # 300s-Wall-Clock B-669). Ein waehrenddessen eingegangener Cancel
+    # (z. B. stiller Supersede durch neuen Auto-Edit-Klick) wurde bisher
+    # erst im Segment-Loop erkannt — nach dem naechsten LLM-Block.
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request nach LLM-Strategist erkannt")
+        return [], []
+
     # F-009: Vocal-Activity fuer Vocal-Aware Pacing
     vocal_activity = compute_vocal_activity(audio_id, beats)
 
@@ -1121,6 +1129,11 @@ def _auto_edit_phase3_inner(
         cross_modal_matcher = None
 
     # ── Ollama Direct EDL Reasoning (Stufe 3) ──────────────────────
+    # B-766: Cancel-Check VOR dem bis zu 300s blockierenden EDL-Call —
+    # sonst wartet ein laengst abgebrochener Lauf die volle Wall-Clock ab.
+    if should_stop_cb is not None and should_stop_cb():
+        logger.info("auto_edit_phase3: cancel-request vor LLM-EDL erkannt")
+        return [], []
     if getattr(settings, "use_llm_pacing", False):
         try:
             from services.pacing.ollama_pacing import OllamaPacingService
@@ -1403,7 +1416,13 @@ def _auto_edit_phase3_inner(
         if should_stop_cb is not None and should_stop_cb():
             logger.info("auto_edit_phase3: cancel-request bei Segment %d/%d",
                         i, len(cut_beats) - 1)
-            return segments, cut_points
+            # B-767: Ein abgebrochener Lauf darf NIE seinen Teilstand
+            # zurueckgeben — der Aufrufer wendet ihn sonst an und
+            # ueberschreibt die bestehende Timeline mit einem Fragment
+            # (real passiert 2026-08-07 00:07: Cancel bei 572/1410
+            # ersetzte die vollstaendige 1410er-Timeline durch 572
+            # Segmente mit 1437s-Loch). Cancel = nichts anwenden.
+            return [], []
         seg_start = cut_beats[i]
         seg_end = cut_beats[i + 1]
         seg_duration = seg_end - seg_start
@@ -1545,6 +1564,11 @@ def _auto_edit_phase3_inner(
                             predecessor=_sb_predecessor,
                             recent_clip_ids=used_recently[-3:] if used_recently else None,
                             boost_scene_ids=_steer_boost or None,
+                            # B-763: Nutzungs-Cap galt bisher nur im
+                            # Legacy-Matcher — der Studio-Brain-Pfad liess
+                            # 5 von 251 Clips ~95 % der Timeline gewinnen.
+                            usage_counts=usage_counts,
+                            max_uses=max_uses_per_video,
                         )
                         if _sb_result.chosen is not None:
                             _sb_chosen_vid = _sb_result.chosen.clip_id
@@ -1731,9 +1755,12 @@ def _auto_edit_phase3_inner(
     if _studio_brain_run_id is not None:
         try:
             _complete_mem_pacing_run(_studio_brain_run_id, len(cut_points))
+            from workers.memory_updater import get_memory_updater
+
+            get_memory_updater().notify_run_end(raise_on_error=True)
         except Exception as exc:  # broad: timeline output must not be lost
             logger.warning(
-                "mem_pacing_run completion failed for run_id=%s: %s",
+                "mem_pacing_run completion/learning flush failed for run_id=%s: %s",
                 _studio_brain_run_id,
                 exc,
             )

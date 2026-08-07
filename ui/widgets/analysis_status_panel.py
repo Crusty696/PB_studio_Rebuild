@@ -591,18 +591,26 @@ class AnalysisStatusPanel(QWidget):
 
         # Pick most relevant fields
         parts = []
-        if "bpm" in summary:
-            parts.append(f"{summary['bpm']:.1f} BPM")
-        if "beats" in summary:
+        bpm = summary.get("bpm")
+        if bpm is not None:
+            try:
+                parts.append(f"{float(bpm):.1f} BPM")
+            except (TypeError, ValueError):
+                pass
+        if summary.get("beats") is not None:
             parts.append(f"{summary['beats']} Beats")
-        if "scenes" in summary:
+        if summary.get("scenes") is not None:
             parts.append(f"{summary['scenes']} Szenen")
-        if "resolution" in summary:
+        if summary.get("resolution") is not None:
             parts.append(str(summary["resolution"]))
-        if "key" in summary:
+        if summary.get("key") is not None:
             parts.append(f"Key: {summary['key']}")
-        if "lufs" in summary:
-            parts.append(f"{summary['lufs']:.1f} LUFS")
+        lufs = summary.get("lufs")
+        if lufs is not None:
+            try:
+                parts.append(f"{float(lufs):.1f} LUFS")
+            except (TypeError, ValueError):
+                pass
         if "mood" in summary or "genre" in summary:
             mood_genre = "/".join(filter(None, [summary.get("mood"), summary.get("genre")]))
             if mood_genre:
@@ -612,7 +620,9 @@ class AnalysisStatusPanel(QWidget):
             return ", ".join(parts)
 
         # Fallback: first 2-3 key-value pairs
-        items = list(summary.items())[:3]
+        items = [(key, value) for key, value in summary.items() if value is not None][:3]
+        if not items:
+            return "—"
         return ", ".join(f"{k}: {v}" for k, v in items)
 
     def _on_action_clicked(self):
@@ -689,6 +699,13 @@ class AnalysisStatusPanel(QWidget):
             or expected_id != self._media_id
         ):
             return  # superseded — anderes Media inzwischen aktiv
+        if expected_type == "audio":
+            # Audio-V2 muss strict-sequential bleiben. Ein resumierbarer
+            # Vollworker ueberspringt Done-Checkpoints und arbeitet alle
+            # fehlerhaften/ausstehenden Stages in Pipeline-Reihenfolge ab.
+            logger.info("Retrying %d audio error steps sequentially", len(error_steps))
+            self.analysis_requested.emit("audio_v2_retry_errors")
+            return
         for step_key in error_steps:
             logger.info("Retrying error step: %s", step_key)
             self.analysis_requested.emit(step_key)

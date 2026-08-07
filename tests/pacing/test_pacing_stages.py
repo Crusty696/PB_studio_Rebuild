@@ -187,7 +187,7 @@ def test_brain_v3_flag_builds_default_reranker(tmp_path, monkeypatch) -> None:
 
     assert res.chosen is hero
     assert res.rationale["used_brain_v3"] is True
-    assert len(res.rationale["brain_v3_scores"]) == 17
+    assert len(res.rationale["brain_v3_scores"]) == 18
 
 
 def test_brain_v3_min_confidence_filters_pipeline_rerank(tmp_path, monkeypatch) -> None:

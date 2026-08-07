@@ -11,6 +11,7 @@ startete.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from services import startup_checks
 
@@ -51,3 +52,26 @@ def test_slow_ollama_check_does_not_escape_check_system(monkeypatch, tmp_path):
     assert status.ollama_ok is False
     # Andere Checks wurden normal befuellt.
     assert status.ffmpeg_ok is True
+
+
+def test_current_service_snapshot_controls_both_visible_ollama_statuses():
+    """Future-Status und Ready-Dot dürfen nach langsamem Start nicht
+    widersprechen: beide werden aus demselben aktuellen Service-Snapshot
+    abgeleitet."""
+
+    stale_fallback = startup_checks.SystemStatus(ollama_ok=False)
+    effective_ready = stale_fallback.sync_ollama_readiness(True)
+    assert effective_ready is True
+    assert "Ollama" in stale_fallback.status_bar_text()
+    assert "Fallback" not in stale_fallback.status_bar_text()
+
+    stale_ready = startup_checks.SystemStatus(ollama_ok=True)
+    effective_loading = stale_ready.sync_ollama_readiness(False)
+    assert effective_loading is False
+    assert "KI: Fallback" in stale_ready.status_bar_text()
+
+    main_source = (
+        Path(__file__).resolve().parents[2] / "main.py"
+    ).read_text(encoding="utf-8")
+    assert "_ollama_ready = status.sync_ollama_readiness(" in main_source
+    assert "if _ollama_ready else '● AI loading...'" in main_source

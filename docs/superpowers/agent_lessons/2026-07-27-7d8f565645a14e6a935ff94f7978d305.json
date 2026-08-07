@@ -1,0 +1,10 @@
+{
+  "lesson_id": "7d8f565645a14e6a935ff94f7978d305",
+  "recorded_at": "2026-07-27T22:14:46+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Gate-Befehle hatten Exitcodes, aber keinen einheitlichen Beweis fuer unveraenderte geschuetzte DBs.",
+  "cause": "Vorher existierte nur statische Baseline-Erfassung, keine atomare Vorher-Befehl-Nachher-Orchestrierung.",
+  "rule": "Jedes Stabilitaetsgate ueber gemeinsamen Runner ausfuehren, der Rohkopien vor/nachher, stdout/stderr, Exitcode sowie Byte- und Logikvergleich in einem Manifest bindet.",
+  "applies_to": "STAB-1 bis STAB-7 Test-, Live-, Stress- und Release-Gates"
+}

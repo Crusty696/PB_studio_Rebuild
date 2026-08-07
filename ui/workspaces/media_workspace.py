@@ -1523,15 +1523,101 @@ class MediaWorkspace(QWidget):
                 Qt.ConnectionType.QueuedConnection,
             )
 
-        if worker:
-            worker.error.connect(
-                lambda tid, err: (
-                    pb_window._console_append(f"[{step_key}] Error: {err}"),
-                    self.audio_analysis_panel.refresh(),
-                ),
+        elif step_key in (
+            "onset_detection",
+            "av_pacing_curves",
+            "audio_v2_retry_errors",
+        ):
+            from workers.audio_pipeline_v2_worker import AudioPipelineV2Worker
+
+            retry_inflight = getattr(self, "_audio_v2_retry_inflight", None)
+            if retry_inflight is None:
+                retry_inflight = set()
+                self._audio_v2_retry_inflight = retry_inflight
+            if audio_id in retry_inflight:
+                pb_window._console_append(
+                    f"[Audio-V2 Retry] Bereits aktiv für '{title}'; "
+                    "erneuter Start ignoriert."
+                )
+                return
+
+            labels = {
+                "onset_detection": "Onset-Erkennung",
+                "av_pacing_curves": "AV-Pacing-Kurven",
+                "audio_v2_retry_errors": "Alle Fehler",
+            }
+            label = labels[step_key]
+            retry_step_keys = (
+                () if step_key == "audio_v2_retry_errors" else (step_key,)
+            )
+            task_name = f"{label}: {title}"
+            task = task_manager.create_task(task_name, f"Audio-V2 {label} Retry")
+            worker = AudioPipelineV2Worker(
+                audio_id,
+                file_path,
+                retry_step_keys=retry_step_keys,
+            )
+            worker.task_id = task.task_id
+            retry_inflight.add(audio_id)
+            worker.progress.connect(
+                lambda pct, msg: pb_window._console_append(f"[Audio-V2 Retry] {msg}"),
                 Qt.ConnectionType.QueuedConnection,
             )
-            pb_window.worker_dispatcher._start_worker_thread(worker)
+
+            def _retry_finished(_track_id, _results):
+                retry_inflight.discard(audio_id)
+                pb_window._console_append(f"[Audio-V2 Retry] {label} fertig")
+                pb_window.media_table_controller._refresh_media_table_debounced()
+                self.audio_analysis_panel.refresh()
+
+            def _retry_error(_track_id, error_message):
+                retry_inflight.discard(audio_id)
+                if "User-Cancel" in str(error_message):
+                    pb_window._console_append(
+                        f"[Audio-V2 Retry] Abgebrochen: {error_message}"
+                    )
+                elif "Bereits aktiv" in str(error_message):
+                    pb_window._console_append(f"[Audio-V2 Retry] {error_message}")
+                else:
+                    pb_window._console_append(
+                        f"[Audio-V2 Retry] Fehler: {error_message}"
+                    )
+                self.audio_analysis_panel.refresh()
+
+            worker.finished.connect(_retry_finished, Qt.ConnectionType.QueuedConnection)
+            worker.error.connect(_retry_error, Qt.ConnectionType.QueuedConnection)
+
+        if worker:
+            if step_key not in (
+                "onset_detection",
+                "av_pacing_curves",
+                "audio_v2_retry_errors",
+            ):
+                worker.error.connect(
+                    lambda tid, err: (
+                        pb_window._console_append(f"[{step_key}] Error: {err}"),
+                        self.audio_analysis_panel.refresh(),
+                    ),
+                    Qt.ConnectionType.QueuedConnection,
+                )
+            try:
+                pb_window.worker_dispatcher._start_worker_thread(worker)
+            except Exception:
+                if step_key in (
+                    "onset_detection",
+                    "av_pacing_curves",
+                    "audio_v2_retry_errors",
+                ):
+                    self._audio_v2_retry_inflight.discard(audio_id)
+                raise
+            if getattr(worker, "_start_conflict", None):
+                if step_key in (
+                    "onset_detection",
+                    "av_pacing_curves",
+                    "audio_v2_retry_errors",
+                ):
+                    self._audio_v2_retry_inflight.discard(audio_id)
+                return
             pb_window.console_text.append(f"[{step_key}] Starting analysis for '{title}'...")
 
     def _dispatch_video_analysis(self, pb_window, video_id: int, title: str, step_key: str):

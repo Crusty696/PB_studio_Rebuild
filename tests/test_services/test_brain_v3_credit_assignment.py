@@ -98,9 +98,9 @@ def test_uniform_feedback_leaves_all_axes_identical(store: WeightStore, weights_
     assert diag["credit_mode"] == "uniform"
 
     values = _level0_values(weights_db)
-    assert len(values) == 17
+    assert len(values) == 18
     assert len(set(values.values())) == 1, (
-        f"Uniform-Pfad muss alle 17 Achsen identisch lassen: {values}"
+        f"Uniform-Pfad muss alle 18 Achsen identisch lassen: {values}"
     )
 
 

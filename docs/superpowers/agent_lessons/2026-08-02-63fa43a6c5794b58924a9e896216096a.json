@@ -1,0 +1,10 @@
+{
+  "lesson_id": "63fa43a6c5794b58924a9e896216096a",
+  "recorded_at": "2026-08-02T17:22:40+00:00",
+  "session_id": "0fac02aea80244d6b11418cdb3605c1f",
+  "head_at_start": "07161bb33a25a426f17987c707504450e3ba83c2",
+  "problem": "MemoryUpdater-Flush verlor Nachfolgefeedback und best-effort konnte endlos loopen",
+  "cause": "Pending wurde nicht generationenweise bis stabil leer drainiert; nicht-strikte Fehler wurden als erfolgreicher Null-Return behandelt",
+  "rule": "Lifecycle-Flushes mit Condition generationensicher bis stabil leer drainieren; Fehlerstatus getrennt behandeln; best-effort strikt auf gebundene Versuche begrenzen",
+  "applies_to": "Worker mit Debounce, Projektwechsel, App-Shutdown und atexit"
+}

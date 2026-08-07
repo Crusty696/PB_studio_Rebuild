@@ -1,0 +1,10 @@
+{
+  "lesson_id": "77fa8ad9fe1b407b9ed974ee9df379a0",
+  "recorded_at": "2026-07-28T03:07:44+00:00",
+  "session_id": "6fd9c9570fa547ec98450fcd292d3061",
+  "head_at_start": "34e4b678ddf0ad7bb794cc13d940c767bb7af0d3",
+  "problem": "Clip-Rollen erreichten den Brain-Reranker nur als style_tags und beeinflussten keine lernbare Brain-Achse.",
+  "cause": "ClipCandidate und BRIDGE_AXES enthielten keinen expliziten Rollenwert; style_tags hatte keinen Konsumenten in BridgeDimensions.",
+  "rule": "Neue Ranking-Signale nur als explizite Bridge-Achse mit Candidate-Adapter, no-signal-Markierung, WeightStore-Default und Varianztest einführen.",
+  "applies_to": "Brain-V3 Reranker, BridgeDimensions und Feedback-Credit-Assignment"
+}

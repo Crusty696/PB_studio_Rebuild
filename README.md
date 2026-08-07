@@ -195,7 +195,6 @@ pb-studio-rebuild/
 
 ```bat
 run_pytest_schnitt.bat
-run_pytest_brain_v3.bat
 ```
 
 Manual:
@@ -206,9 +205,19 @@ Manual:
 
 ### Database
 
-The SQLite database is stored at `pb_studio.db` in the project root. It is auto-created on first launch via `init_db()`.
+Project databases are project-local, normally `outputs/<project>/pb_studio.db`.
+The app may also maintain Brain/Memory state below AppData.
 
-To reset the database, delete `pb_studio.db` and restart the application.
+Do not delete real project databases for tests. Stability/live tests use an
+isolated project below `%LOCALAPPDATA%\PBStudioStability\<run_id>\project`.
+
+### Observed live test
+
+```bat
+start_pb_studio_clicklog.bat
+```
+
+Runbook: `docs/superpowers/LIVE_TEST_SESSION.md`.
 
 ### Studio Brain Pipeline (D-023)
 

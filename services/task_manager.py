@@ -36,6 +36,38 @@ def extract_worker_error_message(args) -> str:
     return str(args[-1])
 
 
+def _release_worker_resource_claim(worker: QObject | None) -> None:
+    """Ruft optionalen Dispatcher-Release-Hook ohne Audio-Importzyklus auf."""
+    if worker is None:
+        return
+    release = getattr(worker, "_pb_resource_release", None)
+    if not callable(release):
+        return
+    try:
+        release(worker)
+    except Exception:
+        logger.exception("Worker-Resource-Release fehlgeschlagen")
+
+
+def _finalize_worker_lifecycle(worker: QObject | None) -> None:
+    """Releast Resource-Claim und informiert optionalen UI-Besitzer."""
+    if worker is None:
+        return
+    _release_worker_resource_claim(worker)
+    cleanup = getattr(worker, "_pb_terminal_cleanup", None)
+    try:
+        if callable(cleanup):
+            cleanup(worker)
+    except Exception:
+        logger.exception("Worker-Terminal-Cleanup fehlgeschlagen")
+    finally:
+        try:
+            worker._pb_terminal_cleanup_done = True
+            worker._pb_terminal_cleanup = None
+        except (AttributeError, RuntimeError):
+            pass
+
+
 class TaskInfo:
     """Beschreibt einen laufenden Hintergrund-Task."""
     def __init__(self, task_id: str, name: str, description: str = ""):
@@ -280,7 +312,11 @@ class GlobalTaskManager(QObject):
                 "[TaskEngine] Cross-Thread-Request: %s (task_id=%s) — "
                 "routing to main thread", name, task_id
             )
-            worker.moveToThread(app.thread())
+            try:
+                worker.moveToThread(app.thread())
+            except Exception:
+                _finalize_worker_lifecycle(worker)
+                raise
             # Verify moveToThread succeeded — if it failed (e.g. worker has
             # parent in another thread), proceeding would cause the main thread
             # to call moveToThread on a worker it doesn't own -> ACCESS_VIOLATION.
@@ -290,6 +326,7 @@ class GlobalTaskManager(QObject):
                     "worker still in thread %s, expected %s. Skipping.",
                     name, task_id, worker.thread(), app.thread(),
                 )
+                _finalize_worker_lifecycle(worker)
                 try:
                     worker.deleteLater()
                 except RuntimeError:
@@ -300,9 +337,13 @@ class GlobalTaskManager(QObject):
                     "Thread-Uebergabe fehlgeschlagen — Task nicht gestartet",
                 )
                 return task_id
-            self._cross_thread_request.emit(
-                task_id, name, description, worker, on_finish, on_error
-            )
+            try:
+                self._cross_thread_request.emit(
+                    task_id, name, description, worker, on_finish, on_error
+                )
+            except Exception:
+                _finalize_worker_lifecycle(worker)
+                raise
             return task_id
         else:
             # Main-Thread: direkt ausfuehren
@@ -326,18 +367,18 @@ class GlobalTaskManager(QObject):
         Controller-Code bleibt unveraendert wirksam.
         """
         err_msg = extract_worker_error_message(args)
-        logging.error(
-            "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
-            name, task_id, err_msg,
-        )
         existing = self.get_task(task_id)
         if existing is not None and existing.status == "cancelled":
             logging.info(
                 "[TaskEngine] B-724: Task %s ist bereits 'cancelled' — "
-                "spaeter Worker-Fehler wird nicht als Status uebernommen (%s)",
+                "spaeter Worker-Abbruch wird nicht als Fehler uebernommen (%s)",
                 task_id, err_msg,
             )
             return
+        logging.error(
+            "[TaskEngine] Worker-Fehler '%s' (task_id=%s): %s",
+            name, task_id, err_msg,
+        )
         self.finish_task(task_id, status="error", message=err_msg)
 
     def _start_in_main_thread(
@@ -360,6 +401,7 @@ class GlobalTaskManager(QObject):
             logging.warning(
                 "[TaskEngine] _start_in_main_thread nach Shutdown ignoriert: %s", name
             )
+            _finalize_worker_lifecycle(worker)
             try:
                 worker.deleteLater()
             except RuntimeError as exc:
@@ -373,110 +415,116 @@ class GlobalTaskManager(QObject):
             )
 
         task = TaskInfo(task_id, name, description)
+        thread = None
+        task_registered = False
+        try:
+            thread = QThread()
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
 
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
+            worker.task_id = task_id
 
-        # Task-ID am Worker speichern fuer Cancel-Lookup
-        worker.task_id = task_id
-
-        # Progress-Signal → update_task (falls Worker eins hat)
-        if hasattr(worker, "progress"):
-            worker.progress.connect(
-                lambda pct, msg, _tid=task_id: self.update_task(_tid, pct, message=msg),
-                Qt.ConnectionType.QueuedConnection,
-            )
-
-        # Finish-Guard: skip on_finish wenn Worker im Error-Pfad ist
-        if on_finish:
-            def _guarded_finish(*args, _w=worker, _cb=on_finish):
-                if not getattr(_w, '_errored', False):
-                    _cb(*args)
-            worker.finished.connect(
-                _guarded_finish,
-                Qt.ConnectionType.QueuedConnection,
-            )
-
-        # Error-Signal: IMMER Task als Error markieren + optional custom callback.
-        if hasattr(worker, "error"):
-            def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
-                _tm._handle_worker_error(_tid, _name, args)
-            worker.error.connect(
-                _task_error_handler,
-                Qt.ConnectionType.QueuedConnection,
-            )
-
-            if on_error:
-                worker.error.connect(
-                    on_error,
+            if hasattr(worker, "progress"):
+                worker.progress.connect(
+                    lambda pct, msg, _tid=task_id: self.update_task(
+                        _tid, pct, message=msg
+                    ),
                     Qt.ConnectionType.QueuedConnection,
                 )
 
-        # Thread-Lifecycle: finished → quit → cleanup (deleteLater nur einmal!)
-        worker.finished.connect(thread.quit)
-        # KRITISCH: Error muss Thread ebenfalls beenden — sonst bleibt der Thread
-        # am Leben, haelt DB-Connections und verursacht "database is locked" Fehler.
-        if hasattr(worker, "error"):
-            worker.error.connect(thread.quit)
-        def _safe_cleanup(_tid=task_id):
-            """Guard: Sicherer Cleanup von Worker und Thread (Fix A-02).
+            if on_finish:
+                def _guarded_finish(*args, _w=worker, _cb=on_finish):
+                    if not getattr(_w, '_errored', False):
+                        _cb(*args)
+                worker.finished.connect(
+                    _guarded_finish,
+                    Qt.ConnectionType.QueuedConnection,
+                )
 
-            shiboken6.isValid() prueft ob das C++ Qt-Objekt noch existiert,
-            BEVOR wir deleteLater aufrufen. Ohne diesen Check fuehrt Zugriff
-            auf ein bereits geloeschtes C++ Objekt zum Access Violation (0xC0000005).
+            if hasattr(worker, "error"):
+                def _task_error_handler(*args, _tid=task_id, _name=name, _tm=self):
+                    _tm._handle_worker_error(_tid, _name, args)
+                worker.error.connect(
+                    _task_error_handler,
+                    Qt.ConnectionType.QueuedConnection,
+                )
 
-            KEIN moveToThread() mehr: Der Worker lebt im Worker-Thread. Wenn
-            thread.finished den Cleanup triggert, ist der Thread beendet und der
-            Worker hat keinen aktiven Event-Loop mehr. deleteLater() wird vom
-            Main-Thread Event-Loop verarbeitet, da der Worker-Thread-Event-Loop
-            nicht mehr laeuft. moveToThread() von einem Nicht-Owner-Thread loeste
-            die persistente Qt-Warnung 'Cannot move to target thread' aus.
-            """
+                if on_error:
+                    worker.error.connect(
+                        on_error,
+                        Qt.ConnectionType.QueuedConnection,
+                    )
+
+            worker.finished.connect(thread.quit)
+            if hasattr(worker, "error"):
+                worker.error.connect(thread.quit)
+
+            def _safe_cleanup(_tid=task_id, _worker=worker):
+                """Bereinigt Qt-Refs und Resource-Claim nach echtem Threadende."""
+                with self._tasks_lock:
+                    current_task = self._tasks.get(_tid)
+
+                if current_task:
+                    if current_task.worker:
+                        try:
+                            if shiboken6.isValid(current_task.worker):
+                                current_task.worker.deleteLater()
+                        except (RuntimeError, AttributeError):
+                            pass
+                        current_task.worker = None
+
+                    if current_task.thread:
+                        try:
+                            if shiboken6.isValid(current_task.thread):
+                                current_task.thread.deleteLater()
+                        except (RuntimeError, AttributeError):
+                            pass
+                        current_task.thread = None
+
+                try:
+                    self._on_thread_done(_tid)
+                finally:
+                    _finalize_worker_lifecycle(_worker)
+
+            thread.finished.connect(_safe_cleanup)
+
+            task.thread = thread
+            task.worker = worker
             with self._tasks_lock:
-                task = self._tasks.get(_tid)
+                self._tasks[task_id] = task
+            task_registered = True
 
-            if task:
-                if task.worker:
-                    try:
-                        if shiboken6.isValid(task.worker):
-                            task.worker.deleteLater()
-                    except (RuntimeError, AttributeError):
-                        pass
-                    task.worker = None
+            self.task_added.emit(task_id)
+            self.show_dock_requested.emit()
 
-                if task.thread:
-                    try:
-                        if shiboken6.isValid(task.thread):
-                            task.thread.deleteLater()
-                    except (RuntimeError, AttributeError):
-                        pass
-                    task.thread = None
+            thread.start()
+            logging.info("[TaskEngine] Gestartet: %s (task_id=%s)", name, task_id)
+            return task
+        except Exception as exc:
+            try:
+                thread_running = thread is not None and thread.isRunning()
+            except RuntimeError:
+                thread_running = False
+            if thread_running:
+                raise
 
-            # P8-G1-FIX: Doppeltes gc.collect() im Main-Thread entfernt.
-            # Vorher: nach JEDEM Worker-Ende 2x aggressiver Full-GC in der
-            # Qt Event-Loop — 200-1000 ms Main-Thread-Pause pro Task, bei
-            # 10 parallelen Analysen = mehrere Sekunden Freeze. Python
-            # macht eigenen Gen-GC automatisch; zusaetzliches Forcen ist
-            # nur bei bekanntem Reference-Cycle noetig.
-            self._on_thread_done(_tid)
-        thread.finished.connect(_safe_cleanup)
-
-        # Referenzen halten (GC-Schutz)
-        task.thread = thread
-        task.worker = worker
-        # FIX B-011: Schütze dict-Modifikation mit Lock gegen concurrent clear_finished()
-        with self._tasks_lock:
-            self._tasks[task_id] = task
-
-        self.task_added.emit(task_id)
-
-        # TaskManagerDock sichtbar machen (via Signal)
-        self.show_dock_requested.emit()
-
-        thread.start()
-        logging.info("[TaskEngine] Gestartet: %s (task_id=%s)", name, task_id)
-        return task
+            task.thread = None
+            task.worker = None
+            task.status = "error"
+            task.message = f"Thread-Setup fehlgeschlagen: {exc}"
+            try:
+                if not task_registered:
+                    with self._tasks_lock:
+                        self._tasks[task_id] = task
+                    self.task_added.emit(task_id)
+                self.task_finished.emit(task_id)
+            except Exception:
+                logger.exception(
+                    "Terminale Task-Signalisierung nach Setupfehler fehlgeschlagen"
+                )
+            finally:
+                _finalize_worker_lifecycle(worker)
+            raise
 
     # ------------------------------------------------------------------
     # Legacy-kompatibles API (fuer register_actions.py etc.)

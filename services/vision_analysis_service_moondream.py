@@ -82,6 +82,12 @@ class VisionAnalysisService:
 
         client = get_ollama_client()
         model = _resolve_vision_model()
+        from services.brain_gateway import build_vision_prompt
+
+        vision_question = build_vision_prompt(
+            _VISION_QUESTION,
+            query=f"vision video {path.name}",
+        )
 
         if progress_cb:
             progress_cb(10, "Extrahiere Frames...")
@@ -130,7 +136,7 @@ class VisionAnalysisService:
             try:
                 answer = client.chat_vision(
                     model=model,
-                    user_message=_VISION_QUESTION,
+                    user_message=vision_question,
                     images_base64=[b64],
                 )
             except (OllamaNotAvailableError, OllamaModelNotFoundError, OllamaPausedError) as e:

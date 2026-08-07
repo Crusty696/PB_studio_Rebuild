@@ -1072,6 +1072,14 @@ def _match_video_by_motion(
 
     candidates = [v for v in available_ids if v not in used_recently[-3:]]
     if not candidates:
+        # B-759: Dieser Rueckfall war bisher still. Er hebt den Recency-Schutz
+        # komplett auf und ist damit eine der Quellen direkter Wiederholungen.
+        logger.warning(
+            "B-759: Recency-Fenster ausgesetzt (_match_video_by_motion) — "
+            "alle %d verfuegbaren Videos liegen in den letzten 3 Selektionen. "
+            "Direkte Wiederholung moeglich.",
+            len(available_ids),
+        )
         candidates = available_ids
 
     if usage_counts is not None and max_uses is not None and max_uses > 0:
@@ -1121,6 +1129,43 @@ def _match_video_by_motion(
         logger.debug("_match_video_by_motion: Keine Szenen-Daten, Round-Robin Fallback → vid=%d", best_vid)
 
     return best_vid, best_source_start
+
+
+def _drop_direct_predecessor(
+    candidates: list,
+    used_recently: list[int],
+    vid_of,
+    context: str,
+) -> list:
+    """B-759: Harte Nachbarschaftsregel — der direkt vorangegangene Clip ist
+    kein Kandidat, solange eine Alternative existiert.
+
+    Vorher war der Wiederholungsschutz ausschliesslich der weiche
+    ``freshness``-Term (Gewicht 0.15). Ein Clip mit besserem Mood-Match
+    (Gewicht 0.25) gewann trotz ``freshness = 0.0`` erneut — das erzeugte die
+    vom Nutzer gemeldeten Mehrfach-Wiederholungen.
+
+    Bewusst nur der **direkte** Vorgaenger: die Abstufung ueber die letzten
+    3/5 Selektionen bleibt weich, damit Mood- und Beat-Sync-Qualitaet nicht
+    durch ein starres Fenster zerstoert wird.
+
+    Bleibt nach dem Ausschluss kein Kandidat uebrig, wird die Regel ausgesetzt
+    (nie ein leerer Schnitt) — dann aber **hoerbar** als WARNING, nicht still.
+    """
+    if not candidates or not used_recently:
+        return candidates
+    previous_vid = used_recently[-1]
+    filtered = [c for c in candidates if vid_of(c) != previous_vid]
+    if filtered:
+        return filtered
+    logger.warning(
+        "B-759: Nachbarschaftsregel ausgesetzt (%s) — vid=%s ist der einzige "
+        "verbleibende Kandidat und wiederholt sich dadurch direkt. "
+        "Ursache pruefen: zu wenig Material, zu langes Segment oder zu enge "
+        "Rollen-/Section-Regeln.",
+        context, previous_vid,
+    )
+    return candidates
 
 
 def _match_video_for_segment(
@@ -1235,6 +1280,14 @@ def _match_video_for_segment(
                     "_match_video_for_segment: alle %d Kandidaten am "
                     "Nutzungs-Limit (%d) — Cap ausgesetzt",
                     len(candidates), max_uses)
+
+        # B-759: Harte Nachbarschaftsregel. Bewusst NACH Duration-Filter und
+        # Nutzungs-Cap — so bleibt die Beat-Sync-Invariante von 2026-07-07
+        # (Clip muss das Segment fuellen) unangetastet und der Ausschluss
+        # wirkt nur auf ohnehin verwendbare Kandidaten.
+        candidates = _drop_direct_predecessor(
+            candidates, used_recently, lambda c: c[1],
+            "_match_video_for_segment")
 
         scored: list[tuple[float, int, int, dict]] = []  # (score, clip_idx, vid, meta)
         for clip_idx, vid, meta in candidates:

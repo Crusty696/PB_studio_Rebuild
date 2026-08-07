@@ -1,0 +1,10 @@
+{
+  "lesson_id": "367e5b3a9c6a47848c1333fec45689f3",
+  "recorded_at": "2026-07-28T03:44:19+00:00",
+  "session_id": "8979144485d9418981b1e5109153cb58",
+  "head_at_start": "d60c3e15885d91e6aa01ae3e425f87e07f31df91",
+  "problem": "Live-Test-Vorbereitung fand widerspruechliche Start-/Setup-Dokumentation und einen Clicklog-Pipelinepfad ohne verlaessliche Commit-/Exitcode-Bindung.",
+  "cause": "Historische Plan-/Poetry-/CUDA-Angaben und Launcher-Evidenz wurden bei spaeteren Stabilitaetswechseln nicht gemeinsam synchronisiert.",
+  "rule": "Vor beobachteter Live-Verifikation Governance, Start/Setup, Benutzeranleitung und Diagnose-Launcher gemeinsam gegen Current HEAD pruefen; Session immer an Branch, Commit, Python und echten App-Exitcode binden.",
+  "applies_to": "PB-Studio Live-Verifikation und Release-Evidenz"
+}

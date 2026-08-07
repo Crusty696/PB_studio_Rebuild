@@ -1,0 +1,10 @@
+{
+  "lesson_id": "307a1639b4c148389aba7e96603df5da",
+  "recorded_at": "2026-08-02T09:45:16+00:00",
+  "session_id": "a44235af301c469789af9998722d4a6b",
+  "head_at_start": "b97dec4003475b8823f609938009f7ae08f5df01",
+  "problem": "Live-Stabilitaetslauf konnte ein echtes Host-Projekt oeffnen und migrieren.",
+  "cause": "GUI-Harness markierte isolierte Pfade nur organisatorisch; ProjectManager hatte vor Create/Open/Save-As keine maschinelle Scope-Sperre.",
+  "rule": "Jeder Live-QA-Launcher muss erlaubten Projektpfad per geerbter Env setzen; ProjectManager prueft diesen Scope fail-closed vor Task-Wait, Dateisystem- und DB-Arbeit.",
+  "applies_to": "tests/gui_harness.py, services/project_manager.py, STAB-2 Live-Workflows"
+}
