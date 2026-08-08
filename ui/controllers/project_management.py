@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 APP_VERSION_PLACEHOLDER = "0.5.0"
 
+def _running_under_pytest() -> bool:
+    """B-773: Auto-Resume darf in Testlaeufen nie echte Projekte oeffnen."""
+    import os
+    return "PYTEST_CURRENT_TEST" in os.environ
+
+
 class ProjectManagementController(PBComponent):
     """Controller for Project Management and Dialogs in PBWindow."""
 
@@ -145,6 +151,50 @@ class ProjectManagementController(PBComponent):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self.open_project_async(dlg.get_path())
+
+    def auto_resume_last_project(self) -> None:
+        """B-773: Beim App-Start das zuletzt geoeffnete Projekt laden.
+
+        Ein "Autoload" existierte nie — die App bootet auf
+        ``APP_ROOT/pb_studio.db``; wechselte der Titel frueher automatisch,
+        lag dort zufaellig eine Projekt-Row (Livetest/User-Session
+        2026-08-07: Boot-DB leer -> "Kein aktives Projekt", manuelles
+        Oeffnen noetig). Hat die Boot-DB bereits ein Projekt, passiert
+        nichts. Sonst wird der juengste gueltige Recent-Eintrag ueber
+        denselben async OpenWorker-Pfad geoeffnet wie das Menue
+        "Letzte Projekte".
+        """
+        # Testschutz (Muster: graph_cockpit_tab): PBWindow-Tests pumpen den
+        # Event-Loop — ohne Guard oeffnete der Timer hier die ECHTEN
+        # Recent-Projekte der Maschine mitten im Testlauf (nativer Crash im
+        # tests/ui-Bulk-Lauf, beobachtet 2026-08-08). B-773-Tests patchen
+        # diese Funktion gezielt auf False.
+        if _running_under_pytest():
+            return
+        try:
+            from database import get_active_project_id
+            if get_active_project_id() is not None:
+                return
+        except Exception as exc:
+            logger.warning("B-773: Auto-Resume-Check fehlgeschlagen: %s", exc)
+            return
+        try:
+            from services.recent_projects import RecentProjectsManager
+            recent = RecentProjectsManager.get_all()
+        except Exception as exc:
+            logger.warning("B-773: Recent-Liste nicht lesbar: %s", exc)
+            return
+        from pathlib import Path
+        for path_str in recent:
+            p = Path(path_str)
+            if (p / "pb_studio.db").exists():
+                logger.info("B-773: Auto-Resume letztes Projekt: %s", p)
+                self.open_project_async(p)
+                return
+        logger.info(
+            "B-773: kein Auto-Resume — Recent-Liste leer oder keine "
+            "gueltigen Projektpfade (%d Eintraege).", len(recent),
+        )
 
     def open_project_async(self, path, on_error_extra=None):
         """Oeffnet ein Projekt asynchron via OpenWorker (gemeinsamer Pfad).

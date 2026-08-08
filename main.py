@@ -454,6 +454,13 @@ class PBWindow(QMainWindow):
         # P-016: Media-Tabelle NACH dem Window-Show laden (nicht im __init__)
         QTimer.singleShot(0, self.media_table_controller._refresh_media_table)
 
+        # B-773: Auto-Resume des letzten Projekts. Ein "Autoload" existierte
+        # nie — die App bootet auf APP_ROOT/pb_studio.db; wechselte der Titel
+        # frueher "automatisch", lag dort zufaellig eine Projekt-Row. Ist die
+        # Boot-DB projektlos, wird jetzt das juengste Recent-Projekt async
+        # geoeffnet (derselbe OpenWorker-Pfad wie Menue "Letzte Projekte").
+        QTimer.singleShot(0, self.project_management.auto_resume_last_project)
+
         # AUD-103: Version check — P1-FIX: gesteuert durch Feature-Flag
         if ENABLE_VERSION_CHECK:
             QTimer.singleShot(3000, self._start_version_check)
