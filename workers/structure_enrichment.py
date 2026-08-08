@@ -411,6 +411,18 @@ class StructureEnrichmentWorker(QObject):
             role_classifier = RoleEmbeddingClassifier(
                 prototypes_path=_ROLE_PROTOTYPES_PATH
             )
+            # B-729: Prompt-Bias-Korrektur aus dem Library-Korpus. Ohne sie
+            # degeneriert argmax zu establishing/hero (317/120 von 440, vier
+            # Rollen praktisch nie). Fehler hier lassen den Klassifikator
+            # unkalibriert weiterlaufen (Bestandsverhalten).
+            try:
+                role_classifier.set_corpus_calibration(all_embeddings_matrix)
+            except Exception as cal_exc:
+                logger.warning(
+                    "StructureEnrichment: Rollen-Kalibrierung fehlgeschlagen "
+                    "(%s) — klassifiziere unkalibriert.",
+                    cal_exc,
+                )
         except Exception as exc:  # broad: darf den Lauf nicht kippen
             role_classifier_error = str(exc)
             logger.warning(

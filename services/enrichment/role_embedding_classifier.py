@@ -47,6 +47,16 @@ EXPECTED_SIGLIP_MODEL: str = "google/siglip-so400m-patch14-384"
 
 ROLE_PROTOTYPE_VERSION: str = "rp1"
 
+# B-729 Kalibrierung (2026-08-08): SigLIP-Text-Prototypen haben pro Rolle
+# systematisch verschiedene Basis-Naehe zu ALLEN Bildern (gemessen ueber
+# 440 Szenen: establishing mean-Cosine 0.047, action 0.004). Roher argmax
+# degeneriert dadurch zu establishing/hero (317/120 von 440, vier Rollen
+# praktisch nie). Teil-Zentrierung score - alpha * korpus_mean korrigiert
+# den Prompt-Bias; alpha=1.0 ueberkorrigiert (filler/transition werden
+# Auffangbecken — Sichtpruefung 2026-08-08), alpha=0.5 ist der per
+# Frame-Sichtpruefung validierte Kompromiss.
+DEFAULT_CALIBRATION_ALPHA: float = 0.5
+
 # Softmax-Temperatur ueber den Cosine-Scores. Analog MoodAnchorMatcher
 # (dort 0.1). SigLIP-Text/Bild-Cosines liegen eng beieinander (~0.0–0.15),
 # eine kleinere Temperatur macht die Verteilung entscheidungsfaehig.
@@ -111,6 +121,58 @@ class RoleEmbeddingClassifier:
                 f"Rollen-Prototypen {path} enthalten einen Null-Vektor."
             )
         self._protos_normalized: np.ndarray = protos / norms  # (R, D)
+        # B-729: per-Rolle-Bias (Korpus-Mean-Cosine), None = unkalibriert.
+        self._corpus_bias: np.ndarray | None = None
+        self._calibration_alpha: float = 0.0
+
+    # ------------------------------------------------------------------
+    def set_corpus_calibration(
+        self,
+        corpus_embeddings: np.ndarray,
+        alpha: float = DEFAULT_CALIBRATION_ALPHA,
+    ) -> None:
+        """B-729: Prompt-Bias-Korrektur aus dem Szenen-Korpus ableiten.
+
+        Misst pro Rolle den mittleren Cosine ueber *corpus_embeddings*
+        und zieht davon ``alpha``-anteilig bei jeder Klassifikation ab
+        (``score - alpha * korpus_mean``). ``alpha=0`` deaktiviert die
+        Kalibrierung (Bestandsverhalten).
+
+        Raises
+        ------
+        ValueError
+            Bei leerem Korpus, Dim-Mismatch oder alpha ausserhalb [0, 1].
+        """
+        if not 0.0 <= float(alpha) <= 1.0:
+            raise ValueError(f"calibration alpha must be in [0, 1], got {alpha}")
+        embs = np.asarray(corpus_embeddings, dtype=np.float32)
+        if embs.ndim != 2 or embs.shape[0] == 0:
+            raise ValueError(
+                f"corpus must be non-empty 2-D (N, D), got shape {embs.shape}"
+            )
+        if embs.shape[1] != self.dim:
+            raise ValueError(
+                f"corpus embedding dim {embs.shape[1]} != prototype dim {self.dim}"
+            )
+        norms = np.linalg.norm(embs, axis=1, keepdims=True)
+        valid = norms[:, 0] > _EPS
+        if not np.any(valid):
+            raise ValueError("corpus contains no embeddings with non-zero norm")
+        scores = (embs[valid] / norms[valid]) @ self._protos_normalized.T
+        self._corpus_bias = scores.mean(axis=0).astype(np.float32)  # (R,)
+        self._calibration_alpha = float(alpha)
+        logger.info(
+            "B-729: Rollen-Kalibrierung gesetzt (alpha=%.2f, N=%d): %s",
+            self._calibration_alpha,
+            int(valid.sum()),
+            {n: round(float(b), 4) for n, b in zip(self._names, self._corpus_bias)},
+        )
+
+    def _adjust(self, scores: np.ndarray) -> np.ndarray:
+        """Kalibrierte Scores; unkalibriert = unveraendert."""
+        if self._corpus_bias is None or self._calibration_alpha <= 0.0:
+            return scores
+        return scores - self._calibration_alpha * self._corpus_bias
 
     # ------------------------------------------------------------------
     @property
@@ -146,7 +208,7 @@ class RoleEmbeddingClassifier:
                 f"Prototypen und Video-Embedder muessen dasselbe SigLIP-Modell "
                 f"({EXPECTED_SIGLIP_MODEL}) nutzen"
             )
-        scores = self._protos_normalized @ (emb / norm)  # (R,)
+        scores = self._adjust(self._protos_normalized @ (emb / norm))  # (R,)
         probs = _softmax(scores / self._temperature)
         idx = int(np.argmax(probs))
         return self._names[idx], float(probs[idx])
@@ -163,7 +225,7 @@ class RoleEmbeddingClassifier:
         norms = np.linalg.norm(embs, axis=1, keepdims=True)
         if np.any(norms < _EPS):
             raise ValueError("one or more embeddings have zero L2 norm")
-        scores = (embs / norms) @ self._protos_normalized.T  # (N, R)
+        scores = self._adjust((embs / norms) @ self._protos_normalized.T)  # (N, R)
         probs = _softmax(scores / self._temperature)
         idxs = np.argmax(probs, axis=1)
         return [
