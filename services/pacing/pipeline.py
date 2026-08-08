@@ -419,6 +419,7 @@ class PacingPipeline:
         # Alternative unter dem Cap existiert; sonst Regel aussetzen
         # (nie leerer Cut) — hoerbar via WARNING + rationale-Flag.
         usage_cap_forced = False
+        usage_cap_role_widened = False
         if usage_counts is not None and max_uses is not None and max_uses > 0:
             survivors = [
                 (c, r) for c, r in zip(candidates, stage_results) if r.passed_stage2
@@ -433,14 +434,52 @@ class PacingPipeline:
                         r.passed_stage2 = False
                         r.rejected_reason = "usage_cap"
             elif not uncapped and survivors:
-                usage_cap_forced = True
-                logger.warning(
-                    "B-763: Nutzungs-Cap ausgesetzt — alle %d Kandidaten "
-                    "haben max_uses=%d erreicht. Wiederholungs-Konzentration "
-                    "moeglich; Ursache pruefen: zu wenig Material fuer die "
-                    "Segmentanzahl.",
-                    len(survivors), max_uses,
-                )
+                # B-776: Livebefund 2026-08-08 (run_id=5): Sections
+                # drop/verse/buildup liessen via Rollenmatrix fast nur die
+                # hero-Teilmenge (119 von 440 Szenen) zu. Deren Kapazitaet
+                # (119 x max_uses=5 = 595) war kleiner als die 1264
+                # hero-Segmente — dieser Zweig setzte das Cap dann 789x
+                # komplett aus und 4 Topscorer gewannen 49 % der Timeline
+                # (177/177/172/168x). Der B-768-Soften half nicht, weil er
+                # nur filler/unknown-Rollen nachlaedt (0x getriggert).
+                # Fix: bevor das Cap ausgesetzt wird, den Pool ueber die
+                # Rollenmatrix hinaus weiten — Stage-1/2-Verlierer, die
+                # noch UNTER dem Cap liegen, wieder zulassen. Rollen-Fit
+                # bleibt Score-Sache (Stage 4/Brain), aber eine Rollen-
+                # Teilmenge darf das globale Nutzungs-Cap nicht aushebeln.
+                # Cap-Aussetzung (usage_cap_forced) nur noch, wenn wirklich
+                # ALLE Kandidaten am Limit sind.
+                widened = [
+                    (c, r) for c, r in zip(candidates, stage_results)
+                    if not r.passed_stage2
+                    and r.rejected_reason != "collision_strict"
+                    and usage_counts.get(c.clip_id, 0) < max_uses
+                ]
+                if widened:
+                    usage_cap_role_widened = True
+                    for c, r in survivors:
+                        r.passed_stage2 = False
+                        r.rejected_reason = "usage_cap"
+                    for c, r in widened:
+                        r.passed_stage2 = True
+                        r.rejected_reason = None
+                    logger.info(
+                        "B-776: Nutzungs-Cap haelt — alle %d rollen-konformen "
+                        "Kandidaten fuer section=%s am max_uses=%d, Pool auf "
+                        "%d ungecappte Kandidaten jenseits der Rollenmatrix "
+                        "geweitet (Rollen-Fit bleibt Score).",
+                        len(survivors), ctx.at_section_type, max_uses,
+                        len(widened),
+                    )
+                else:
+                    usage_cap_forced = True
+                    logger.warning(
+                        "B-763: Nutzungs-Cap ausgesetzt — alle %d Kandidaten "
+                        "haben max_uses=%d erreicht. Wiederholungs-Konzentration "
+                        "moeglich; Ursache pruefen: zu wenig Material fuer die "
+                        "Segmentanzahl.",
+                        len(survivors), max_uses,
+                    )
 
         # === Stage 3.6 — Harte Nachbarschaftsregel (B-759) ===
         # E2E-Abnahme 2026-08-07: die harte B-759-Regel existierte NUR im
@@ -578,6 +617,9 @@ class PacingPipeline:
             "stage2_forced": stage2_forced,
             # B-763: Cap-Aussetzung sichtbar machen (alle Kandidaten am Limit)
             "usage_cap_forced": usage_cap_forced,
+            # B-776: Pool wurde ueber die Rollenmatrix hinaus geweitet, damit
+            # das Nutzungs-Cap haelt (rollen-konforme Teilmenge erschoepft)
+            "usage_cap_role_widened": usage_cap_role_widened,
             # B-759: Aussetzung der harten Nachbarschaftsregel sichtbar machen
             "adjacency_forced": adjacency_forced,
             "forced_negative": forced_negative,
