@@ -269,11 +269,29 @@ class SchnittController(QObject):
         self._worker_project_token = None
 
     def _on_cancel(self):
-        if self._current_worker is not None and hasattr(self._current_worker, "cancel"):
+        # B-772: Der Overlay-Button "Auto-Edit abbrechen" cancelte nur
+        # self._current_worker. Der konnte durch den zweiten Worker-Pfad
+        # (attach_worker(self._cuts_worker)) ersetzt oder bereits None sein
+        # — der Klick schloss dann nur das Overlay, der Auto-Edit-TASK lief
+        # weiter (Livetest 2026-08-07, Playbook 2.7). Fix: zusaetzlich den
+        # TaskEngine-Task kooperativ abbrechen — derselbe Pfad wie der
+        # TASKS-Panel-Abbrechen, der live nachweislich wirkt.
+        worker = self._current_worker
+        if worker is not None and hasattr(worker, "cancel"):
             try:
-                self._current_worker.cancel()
+                worker.cancel()
             except Exception:
                 pass
+        task_id = getattr(worker, "task_id", None)
+        if task_id:
+            try:
+                from services.task_manager import GlobalTaskManager
+                GlobalTaskManager.instance().cancel_task(task_id)
+            except Exception as exc:
+                logger.warning(
+                    "B-772: TaskEngine-Cancel fuer %s fehlgeschlagen: %s",
+                    task_id, exc,
+                )
         self.workspace.refresh_state_from_db()
         self._current_worker = None
 
