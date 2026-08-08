@@ -12,6 +12,7 @@ relevanten Bereich.
 from __future__ import annotations
 
 import inspect
+import re
 
 
 def _count_queued_connections(module_or_func) -> int:
@@ -49,13 +50,16 @@ def test_b222_task_manager_callbacks_use_queued_connection() -> None:
     from services.task_manager import GlobalTaskManager
 
     src = inspect.getsource(GlobalTaskManager._start_in_main_thread)
+    # B-750 hat den Setup-Block in ein try/except gewrappt (Einrueckung +4).
+    # Marker deshalb einrueckungstolerant als Regex, Intent unveraendert:
+    # dieselben Connects muessen existieren (Queued-Check unten).
     for marker in (
-        "worker.progress.connect(",
-        "worker.finished.connect(\n                _guarded_finish",
-        "worker.error.connect(\n                _task_error_handler",
-        "worker.error.connect(\n                    on_error",
+        r"worker\.progress\.connect\(",
+        r"worker\.finished\.connect\(\s*_guarded_finish",
+        r"worker\.error\.connect\(\s*_task_error_handler",
+        r"worker\.error\.connect\(\s*on_error",
     ):
-        assert marker in src
+        assert re.search(marker, src), f"Marker fehlt: {marker}"
     assert src.count("Qt.ConnectionType.QueuedConnection") >= 4
 
 

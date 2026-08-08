@@ -235,7 +235,7 @@ class WorkerDispatcherController(PBComponent):
                 return None
             try:
                 self.window._active_threads.append(thread_ref)
-                thread_ref.finished.connect(
+                task.thread.finished.connect(
                     lambda _t=thread_ref, _w=worker: self._cleanup_worker(_t, _w),
                     Qt.ConnectionType.QueuedConnection,
                 )

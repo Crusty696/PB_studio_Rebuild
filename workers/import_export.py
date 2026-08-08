@@ -396,7 +396,10 @@ class BatchConvertWorker(QObject, CancellableMixin):
         self.ext = ext
 
     def run(self):
-        # B-057: NVENC muss gegen andere GPU-Workloads serialisiert bleiben.
+        # B-057: NVENC muss ueber GPU_EXECUTION_LOCK gegen andere GPU-
+        # Workloads (BeatThis, Demucs, SigLIP, RAFT) serialisiert bleiben —
+        # gpu_execution_lease acquired intern genau diesen GPU_EXECUTION_LOCK
+        # (plus B-599-Instrumentierung: wait/holder/held-Timing).
         # B-725: CPU-/Copy-Codecs benötigen keine GPU und dürfen Audio-/Video-
         # Analyse nicht unnötig am globalen Execution-Lock blockieren.
         if self.vcodec in {"h264_nvenc", "hevc_nvenc"}:

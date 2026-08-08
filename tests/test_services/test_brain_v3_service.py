@@ -48,8 +48,8 @@ def test_feedback_perfect_updates_buckets(isolated_appdata):
     assert resp.rating == "perfect"
     assert resp.alpha_delta == 2.0
     assert resp.beta_delta == 0.0
-    # 17 axes x 6 levels = 102 buckets
-    assert resp.n_buckets_updated == 102
+    # B-735/D-080: 18 axes (inkl. role_match_weight) x 6 levels = 108 buckets
+    assert resp.n_buckets_updated == 108
 
 
 def test_feedback_no_match_updates_beta_only(isolated_appdata):
@@ -57,7 +57,7 @@ def test_feedback_no_match_updates_beta_only(isolated_appdata):
     resp = svc.feedback(FeedbackRequest(cut_id=1, rating="no_match"))
     assert resp.alpha_delta == 0.0
     assert resp.beta_delta == 2.0
-    assert resp.n_buckets_updated == 102
+    assert resp.n_buckets_updated == 108
 
 
 def test_learning_session_empty_initially(isolated_appdata):
