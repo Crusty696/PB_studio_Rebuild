@@ -492,6 +492,7 @@ class PacingPipeline:
         # statt predecessor-Parameter: der kann vom Fallback-Zweig stammen,
         # recent_clip_ids ist die Wahrheit des Aufrufer-Loops.
         adjacency_forced = False
+        adjacency_pool_widened = False
         if recent_clip_ids:
             previous_vid = recent_clip_ids[-1]
             survivors = [
@@ -504,15 +505,60 @@ class PacingPipeline:
                         r.passed_stage2 = False
                         r.rejected_reason = "adjacency"
             elif not others and survivors:
-                adjacency_forced = True
-                logger.warning(
-                    "B-759: Nachbarschaftsregel (select_best) ausgesetzt — "
-                    "clip_id=%s ist der einzige verbleibende Kandidat und "
-                    "wiederholt sich dadurch direkt. Ursache pruefen: zu "
-                    "wenig Material, zu langes Segment oder zu enge "
-                    "Rollen-/Section-Regeln.",
-                    previous_vid,
+                # B-777: Livebefund run_id=6 (2026-08-08): 10 direkte
+                # Wiederholungen, alle nach demselben Muster — ein B-776-
+                # Weitungs-Pick (establishing-Szene, unter Cap) rueckte den
+                # Clip-Offset auf seine hero-Szene, beim naechsten Cut war
+                # derselbe Clip der EINZIGE rollen-konforme Kandidat unter
+                # dem Cap. Der Cap-Zweig warf dann alle gecappten
+                # Alternativen raus und Stage 3.6 stand mit survivors ==
+                # {previous} da, obwohl ~96 ungecappte Weitungs-Kandidaten
+                # existierten. Die B-759-Regel gilt fuer den GESAMTEN
+                # Kandidatensatz: bevor sie ausgesetzt wird, den Pool um
+                # Nicht-Survivor weiten, die (a) nicht der Vorgaenger sind,
+                # (b) nicht collision_strict-verworfen und (c) unter dem
+                # Nutzungs-Cap liegen. Erst wenn auch das leer ist, ist die
+                # Wiederholung wirklich alternativlos -> adjacency_forced.
+                cap_active = (
+                    usage_counts is not None
+                    and max_uses is not None
+                    and max_uses > 0
                 )
+                adjacency_widened = [
+                    (c, r) for c, r in zip(candidates, stage_results)
+                    if not r.passed_stage2
+                    and r.rejected_reason != "collision_strict"
+                    and c.clip_id != previous_vid
+                    and (
+                        not cap_active
+                        or usage_counts.get(c.clip_id, 0) < max_uses
+                    )
+                ]
+                if adjacency_widened:
+                    adjacency_pool_widened = True
+                    for c, r in survivors:
+                        r.passed_stage2 = False
+                        r.rejected_reason = "adjacency"
+                    for c, r in adjacency_widened:
+                        r.passed_stage2 = True
+                        r.rejected_reason = None
+                    logger.info(
+                        "B-777: Nachbarschaftsregel haelt — clip_id=%s war "
+                        "der einzige Pool-Survivor, Pool auf %d ungecappte "
+                        "Alternativen jenseits von Rollenmatrix/Cap geweitet "
+                        "(Rollen-Fit bleibt Score).",
+                        previous_vid, len(adjacency_widened),
+                    )
+                else:
+                    adjacency_forced = True
+                    logger.warning(
+                        "B-759: Nachbarschaftsregel (select_best) ausgesetzt — "
+                        "clip_id=%s ist der einzige verbleibende Kandidat und "
+                        "wiederholt sich dadurch direkt. Ursache pruefen: zu "
+                        "wenig Material, zu langes Segment oder zu enge "
+                        "Rollen-/Section-Regeln.",
+                        previous_vid,
+                    )
 
         # === Stage 4 — Soft Scoring ===
         scored: list[tuple[ClipFeatures, float, dict[str, float]]] = []
@@ -622,6 +668,9 @@ class PacingPipeline:
             "usage_cap_role_widened": usage_cap_role_widened,
             # B-759: Aussetzung der harten Nachbarschaftsregel sichtbar machen
             "adjacency_forced": adjacency_forced,
+            # B-777: Pool wurde geweitet, damit die Nachbarschaftsregel haelt
+            # (einziger Survivor war der direkte Vorgaenger)
+            "adjacency_pool_widened": adjacency_pool_widened,
             "forced_negative": forced_negative,
             "brain_v3_scores": brain_v3_scores_by_clip.get(best_clip.clip_id, {}),
             "brain_v3_final_score": brain_v3_final_score_by_clip.get(best_clip.clip_id),
