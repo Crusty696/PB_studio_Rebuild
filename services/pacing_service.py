@@ -452,6 +452,44 @@ def _compute_snr_stem_weights(stem_snr):
     return _w_drums, _w_bass, _w_vocals, _w_other
 
 
+def _seed_usage_counts_from_locked(_bind, available_ids: list[int]) -> dict[int, int]:
+    """B-778: Nutzungs-Zaehlung mit gelockten Bestands-Segmenten vorbelegen.
+
+    Gelockte Timeline-Eintraege (User-Anker) ueberleben Auto-Edit-Apply by
+    design (B-769). Ohne Seed zaehlt das B-763-Cap nur die neu gewaehlten
+    Slots — ein Clip mit N gelockten Ankern konnte dadurch max_uses+N mal
+    in der finalen Timeline stehen. Der Seed gilt fuer beide Auswahl-Pfade
+    (Legacy + Studio-Brain), weil beide dasselbe usage_counts-Dict teilen.
+    Cap-Formel bleibt unveraendert.
+    """
+    from sqlalchemy import func
+
+    from database import TimelineEntry
+
+    try:
+        with Session(_bind) as session:
+            rows = session.query(
+                TimelineEntry.media_id, func.count(TimelineEntry.id),
+            ).filter(
+                TimelineEntry.track == "video",
+                TimelineEntry.locked.is_(True),
+                TimelineEntry.media_id.in_(available_ids),
+            ).group_by(TimelineEntry.media_id).all()
+    except Exception as exc:
+        # Defensiv: ein Seed-Fehler darf Auto-Edit nie stoppen — dann gilt
+        # das bisherige Verhalten (Cap zaehlt nur Neu-Nutzungen).
+        logger.warning(
+            "B-778: usage-Seed aus gelockten Segmenten fehlgeschlagen: %s", exc,
+        )
+        return {}
+    seed = {int(media_id): int(count) for media_id, count in rows}
+    if seed:
+        logger.info(
+            "B-778: usage-Seed aus gelockten Segmenten: %s", dict(sorted(seed.items())),
+        )
+    return seed
+
+
 def _sections_from_structure_db(_bind, audio_id: int, total_duration: float):
     """Laedt die echte Song-Struktur (structure_detection) als Sections.
 
@@ -1220,7 +1258,11 @@ def _auto_edit_phase3_inner(
     # Fixplan 2026-07-07 Schritt 3: globale Nutzungs-Zaehlung + Cap + Sampling.
     # Cap = ceil(Segmente/Videos)+1 → bei 58 Segmenten und 39 Videos max. 3
     # Verwendungen pro Video (vorher real: 1 Video 58x, dann Top-Videos 8x).
-    usage_counts: dict[int, int] = {}
+    # B-778: gelockte Bestands-Segmente (User-Anker) belegen bereits Slots
+    # desselben Clips — sie zaehlen ab Start ins Cap.
+    usage_counts: dict[int, int] = _seed_usage_counts_from_locked(
+        _ae_eng, available_ids,
+    )
     _n_slots = max(1, len(cut_beats) - 1)
     max_uses_per_video = int(np.ceil(_n_slots / max(1, len(available_ids)))) + 1
     # Seed: PB_PACING_SEED (Tests/Repro) oder zufaellig pro Run (geloggt).
