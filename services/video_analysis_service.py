@@ -62,6 +62,9 @@ class PipelineResult:
     scenes: list[SceneInfo] = field(default_factory=list)
     total_duration: float = 0.0
     embeddings_stored: int = 0
+    # B-775: True wenn ai_scene_caption per Resume uebersprungen wurde.
+    # Der Batch-Worker darf dann KEINEN deferred-Captioning-Job anlegen.
+    captions_skipped: bool = False
 
 
 # ======================================================================
@@ -1622,6 +1625,50 @@ def run_deferred_captioning(
     return scenes
 
 
+def _load_scenes_from_db(video_clip_id: int) -> list[SceneInfo]:
+    """B-775: Rehydriert SceneInfo-Objekte aus bereits gespeicherten Scene-Rows.
+
+    Wird beim Resume genutzt, wenn ``scene_detection`` bereits 'done' ist:
+    Folgeschritte (Motion, Keyframes, SigLIP, Captioning, Storage) erwarten
+    eine ``list[SceneInfo]`` mit index/start_time/end_time — die bauen wir
+    aus den DB-Szenen nach. ``energy`` traegt den Motion-Score (siehe
+    ``store_scenes_in_db``), Captions/Mood/Tags kommen ebenfalls mit, damit
+    ein uebersprungenes ``ai_scene_caption`` seine Daten behaelt.
+
+    Returns:
+        Liste in Zeit-Reihenfolge; leer wenn keine Szenen gespeichert sind
+        (dann luegt der Status und der Caller muss scene_detection ausfuehren).
+    """
+    from database import nullpool_session, Scene
+
+    try:
+        with nullpool_session() as session:
+            rows = (
+                session.query(Scene)
+                .filter_by(video_clip_id=video_clip_id)
+                .order_by(Scene.start_time, Scene.id)
+                .all()
+            )
+            scenes: list[SceneInfo] = []
+            for idx, row in enumerate(rows):
+                scenes.append(SceneInfo(
+                    index=idx,
+                    start_time=float(row.start_time or 0.0),
+                    end_time=float(row.end_time or 0.0),
+                    motion_score=float(row.energy or 0.0),
+                    ai_caption=row.ai_caption,
+                    ai_mood=row.ai_mood,
+                    ai_tags=row.ai_tags,
+                ))
+            return scenes
+    except Exception as e:  # broad: Rehydrierung darf Resume nicht crashen -> Fallback: Schritt laeuft
+        logger.warning(
+            "[PIPELINE] B-775: Szenen-Rehydrierung fuer Clip %d fehlgeschlagen (%s) "
+            "— scene_detection laeuft erneut.", video_clip_id, e,
+        )
+        return []
+
+
 def run_full_pipeline(
     video_path: str,
     video_clip_id: int,
@@ -1631,12 +1678,20 @@ def run_full_pipeline(
     siglip_model_processor: tuple | None = None,
     raft_model_device: tuple | None = None,
     defer_captioning: bool = False,
+    force_full: bool = False,
 ) -> PipelineResult:
     """Führt die komplette 3-Schritt Video-Analyse-Pipeline aus.
 
     B-150: APP_ROOT-Snapshot am Pipeline-Start. Wenn der User waehrend
     des Runs Project switched, liefert _keyframe_dir() spaeter andere
     Pfade. Wir snapshotten einmal und reichen es durch.
+
+    B-775 Resume: ``force_full=False`` (Default) ueberspringt Schritte, die
+    laut ``analysis_status_service`` bereits 'done' sind UND deren Artefakt
+    real existiert (Szenen in DB, Keyframe-Dateien auf Disk). Fehlt das
+    Artefakt trotz 'done'-Status, laeuft der Schritt erneut. ``force_full=
+    True`` (explizit angehakte Clips, Einzel-Re-Analyse) erzwingt den
+    kompletten Lauf wie bisher.
     """
     if not video_path or not Path(video_path).exists():
         logger.error("Video-Pipeline abgebrochen: Datei fehlt -> %s", video_path)
@@ -1668,114 +1723,212 @@ def run_full_pipeline(
 
     result = PipelineResult(video_path=original_video_path)
 
+    # B-775: Resume — Status aller Schritte einmalig lesen. Bei force_full
+    # (explizit angehakte Clips / Einzel-Re-Analyse) bleibt der Status leer
+    # -> kein Schritt wird uebersprungen.
+    resume_status: dict = {}
+    if not force_full:
+        try:
+            resume_status = analysis_status_service.get_status("video", video_clip_id)
+        except Exception as status_exc:  # broad: Status-Read darf Pipeline nicht killen
+            logger.warning(
+                "[PIPELINE] B-775: Status-Read fuer Clip %d fehlgeschlagen (%s) "
+                "— Resume deaktiviert, alle Schritte laufen.",
+                video_clip_id, status_exc,
+            )
+            resume_status = {}
+
+    def _step_done(step_key: str) -> bool:
+        entry = resume_status.get(step_key)
+        return entry is not None and getattr(entry, "status", None) == "done"
+
     # Schritt 1: Scene Detection
-    analysis_status_service.mark_started("video", video_clip_id, "scene_detection")
-    try:
-        logger.info("[PIPELINE] Schritt 1/7: Szenen erkennen für %s (Analyse-Pfad: %s)...",
-                    Path(original_video_path).name, Path(video_path).name)
-        if progress_cb:
-            progress_cb(5, "Szenen erkennen...")
-        if should_stop and should_stop():
-            # B-147/B-756: kanonischer Cancel-Vertrag statt Fehler-Logging.
-            analysis_status_service.mark_cancelled(
-                "video", video_clip_id, "scene_detection"
-            )
-            return result
-
-        scenes = detect_scenes(video_path, threshold=threshold)
-        result.scenes = scenes
-        result.total_duration = scenes[-1].end_time if scenes else 0.0
-        logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
-        analysis_status_service.mark_done("video", video_clip_id, "scene_detection", {
-            "scenes": len(scenes),
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "scene_detection", str(e))
-        raise
-
-    # Schritt 1b: Motion Scores
-    analysis_status_service.mark_started("video", video_clip_id, "motion_scores")
-    try:
-        logger.info("[PIPELINE] Schritt 2/7: RAFT Motion-Analyse für %d Szenen...", len(scenes))
-        if progress_cb:
-            progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_cancelled(  # B-147/B-756
-                "video", video_clip_id, "motion_scores"
-            )
-            return result
-
-        scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
-        logger.info("[PIPELINE] Motion-Analyse FERTIG")
-        avg_motion = sum(s.motion_score for s in scenes if s.motion_score) / len(scenes) if scenes else 0.0
-        analysis_status_service.mark_done("video", video_clip_id, "motion_scores", {
-            "avg_motion": round(avg_motion, 3),
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "motion_scores", str(e))
-        raise
-
-    # Schritt 2: Keyframes
-    analysis_status_service.mark_started("video", video_clip_id, "keyframe_extraction")
-    try:
-        logger.info("[PIPELINE] Schritt 3/7: Keyframes extrahieren...")
-        if progress_cb:
-            progress_cb(40, "Keyframes extrahieren...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_cancelled(  # B-147/B-756
-                "video", video_clip_id, "keyframe_extraction"
-            )
-            return result
-
-        # B-150: Snapshot-Pfad nutzen statt _keyframe_dir() neu aufzurufen.
-        scenes = extract_keyframes(video_path, scenes, output_dir=pipeline_keyframe_dir)
-        logger.info("[PIPELINE] Keyframes FERTIG")
-        keyframe_count = sum(1 for s in scenes if s.keyframe_path)
-        analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
-            "keyframes": keyframe_count,
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "keyframe_extraction", str(e))
-        raise
-
-    # Schritt 3: SigLIP Embeddings
-    analysis_status_service.mark_started("video", video_clip_id, "siglip_embeddings")
-    try:
-        logger.info("[PIPELINE] Schritt 4/7: Lade SigLIP Modell + Embeddings generieren...")
-        if progress_cb:
-            progress_cb(55, "SigLIP Embeddings generieren...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_cancelled(  # B-147/B-756
-                "video", video_clip_id, "siglip_embeddings"
-            )
-            return result
-
-        scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
-        logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
-        embedding_count = sum(1 for s in scenes if s.embedding is not None)
-        if scenes and embedding_count == 0:
-            # ``generate_embeddings`` kehrt bei fehlenden Keyframes und bei
-            # SigLIP-Ladefehlern OHNE Exception zurueck. mark_done haette
-            # den Schritt gruen gemeldet und ``get_completion_percent`` haette
-            # den Clip als fertig analysiert gezaehlt, obwohl kein einziger
-            # Vektor existiert. ``degraded`` zaehlt nicht als done.
-            analysis_status_service.mark_degraded(
-                "video", video_clip_id, "siglip_embeddings",
-                "Keine SigLIP-Embeddings erzeugt (keine Keyframes oder "
-                "SigLIP konnte nicht geladen werden).",
-                {"dimension": 1152, "embeddings": 0},
+    scene_skip = False
+    scenes: list[SceneInfo] = []
+    if _step_done("scene_detection"):
+        # Artefakt-Check: Szenen muessen real in der DB liegen, sonst luegt
+        # der Status und der Schritt laeuft doch.
+        scenes = _load_scenes_from_db(video_clip_id)
+        if scenes:
+            scene_skip = True
+            result.scenes = scenes
+            result.total_duration = scenes[-1].end_time if scenes else 0.0
+            logger.info(
+                "[PIPELINE] Schritt 1/7 uebersprungen (bereits done): scene_detection "
+                "(%d Szenen aus DB rehydriert)", len(scenes),
             )
         else:
-            analysis_status_service.mark_done("video", video_clip_id, "siglip_embeddings", {
-                "dimension": 1152,
-                "embeddings": embedding_count,
+            logger.warning(
+                "[PIPELINE] B-775: scene_detection ist 'done', aber keine Szenen "
+                "in der DB fuer Clip %d — Schritt laeuft erneut.", video_clip_id,
+            )
+    if not scene_skip:
+        analysis_status_service.mark_started("video", video_clip_id, "scene_detection")
+        try:
+            logger.info("[PIPELINE] Schritt 1/7: Szenen erkennen für %s (Analyse-Pfad: %s)...",
+                        Path(original_video_path).name, Path(video_path).name)
+            if progress_cb:
+                progress_cb(5, "Szenen erkennen...")
+            if should_stop and should_stop():
+                # B-147/B-756: kanonischer Cancel-Vertrag statt Fehler-Logging.
+                analysis_status_service.mark_cancelled(
+                    "video", video_clip_id, "scene_detection"
+                )
+                return result
+
+            scenes = detect_scenes(video_path, threshold=threshold)
+            result.scenes = scenes
+            result.total_duration = scenes[-1].end_time if scenes else 0.0
+            logger.info("[PIPELINE] Szenen-Erkennung FERTIG: %d Szenen gefunden", len(scenes))
+            analysis_status_service.mark_done("video", video_clip_id, "scene_detection", {
+                "scenes": len(scenes),
             })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
-        raise
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "scene_detection", str(e))
+            raise
+
+    # Schritt 1b: Motion Scores
+    # B-775: Skip nur wenn der Score-Stand zu den rehydrierten Szenen gehoert
+    # (scene_skip). Lief scene_detection frisch, sind alte Motion-Werte stale.
+    motion_skip = scene_skip and _step_done("motion_scores")
+    if motion_skip:
+        logger.info(
+            "[PIPELINE] Schritt 2/7 uebersprungen (bereits done): motion_scores"
+        )
+    else:
+        analysis_status_service.mark_started("video", video_clip_id, "motion_scores")
+        try:
+            logger.info("[PIPELINE] Schritt 2/7: RAFT Motion-Analyse für %d Szenen...", len(scenes))
+            if progress_cb:
+                progress_cb(20, f"Motion-Analyse ({len(scenes)} Szenen)...")
+            if should_stop and should_stop():
+                analysis_status_service.mark_cancelled(  # B-147/B-756
+                    "video", video_clip_id, "motion_scores"
+                )
+                return result
+
+            scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
+            logger.info("[PIPELINE] Motion-Analyse FERTIG")
+            avg_motion = sum(s.motion_score for s in scenes if s.motion_score) / len(scenes) if scenes else 0.0
+            analysis_status_service.mark_done("video", video_clip_id, "motion_scores", {
+                "avg_motion": round(avg_motion, 3),
+            })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "motion_scores", str(e))
+            raise
+
+    # Schritt 2: Keyframes
+    # B-775: Skip nur wenn (a) Szenen rehydriert wurden (Indices passen zu den
+    # damals erzeugten Dateien), (b) Status 'done' UND (c) ALLE erwarteten
+    # Keyframe-Dateien real auf Disk liegen. Fehlt eine Datei, laeuft der
+    # Schritt erneut (extract_keyframes ueberspringt vorhandene Dateien selbst).
+    keyframe_skip = False
+    if scene_skip and _step_done("keyframe_extraction"):
+        _video_stem = Path(video_path).stem
+        _expected_kf = [
+            pipeline_keyframe_dir / f"{_video_stem}_scene{s.index:04d}.jpg"
+            for s in scenes
+        ]
+        if _expected_kf and all(p.exists() for p in _expected_kf):
+            for _s, _p in zip(scenes, _expected_kf):
+                _s.keyframe_path = str(_p)
+            keyframe_skip = True
+            logger.info(
+                "[PIPELINE] Schritt 3/7 uebersprungen (bereits done): keyframe_extraction "
+                "(%d Keyframes auf Disk verifiziert)", len(_expected_kf),
+            )
+        else:
+            logger.warning(
+                "[PIPELINE] B-775: keyframe_extraction ist 'done', aber Keyframe-"
+                "Dateien fehlen auf Disk fuer Clip %d — Schritt laeuft erneut.",
+                video_clip_id,
+            )
+    if not keyframe_skip:
+        analysis_status_service.mark_started("video", video_clip_id, "keyframe_extraction")
+        try:
+            logger.info("[PIPELINE] Schritt 3/7: Keyframes extrahieren...")
+            if progress_cb:
+                progress_cb(40, "Keyframes extrahieren...")
+            if should_stop and should_stop():
+                analysis_status_service.mark_cancelled(  # B-147/B-756
+                    "video", video_clip_id, "keyframe_extraction"
+                )
+                return result
+
+            # B-150: Snapshot-Pfad nutzen statt _keyframe_dir() neu aufzurufen.
+            scenes = extract_keyframes(video_path, scenes, output_dir=pipeline_keyframe_dir)
+            logger.info("[PIPELINE] Keyframes FERTIG")
+            keyframe_count = sum(1 for s in scenes if s.keyframe_path)
+            analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
+                "keyframes": keyframe_count,
+            })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "keyframe_extraction", str(e))
+            raise
+
+    # Schritt 3: SigLIP Embeddings
+    # B-775: Embeddings werden NICHT in SQLite persistiert — sie leben nur in
+    # LanceDB. Skip ist deshalb nur sicher, wenn auch vector_db_storage bereits
+    # 'done' ist (dann braucht kein Folgeschritt die In-Memory-Embeddings).
+    # Ist vector_db_storage NICHT done, laeuft SigLIP erneut, selbst wenn der
+    # eigene Status 'done' sagt — robusteste einfache Variante (kein LanceDB-
+    # Introspection-Sonderpfad).
+    siglip_skip = (
+        scene_skip
+        and _step_done("siglip_embeddings")
+        and _step_done("vector_db_storage")
+    )
+    if siglip_skip:
+        logger.info(
+            "[PIPELINE] Schritt 4/7 uebersprungen (bereits done): siglip_embeddings"
+        )
+    else:
+        analysis_status_service.mark_started("video", video_clip_id, "siglip_embeddings")
+        try:
+            logger.info("[PIPELINE] Schritt 4/7: Lade SigLIP Modell + Embeddings generieren...")
+            if progress_cb:
+                progress_cb(55, "SigLIP Embeddings generieren...")
+            if should_stop and should_stop():
+                analysis_status_service.mark_cancelled(  # B-147/B-756
+                    "video", video_clip_id, "siglip_embeddings"
+                )
+                return result
+
+            scenes = generate_embeddings(scenes, siglip_model_processor=siglip_model_processor)
+            logger.info("[PIPELINE] SigLIP Embeddings FERTIG")
+            embedding_count = sum(1 for s in scenes if s.embedding is not None)
+            if scenes and embedding_count == 0:
+                # ``generate_embeddings`` kehrt bei fehlenden Keyframes und bei
+                # SigLIP-Ladefehlern OHNE Exception zurueck. mark_done haette
+                # den Schritt gruen gemeldet und ``get_completion_percent`` haette
+                # den Clip als fertig analysiert gezaehlt, obwohl kein einziger
+                # Vektor existiert. ``degraded`` zaehlt nicht als done.
+                analysis_status_service.mark_degraded(
+                    "video", video_clip_id, "siglip_embeddings",
+                    "Keine SigLIP-Embeddings erzeugt (keine Keyframes oder "
+                    "SigLIP konnte nicht geladen werden).",
+                    {"dimension": 1152, "embeddings": 0},
+                )
+            else:
+                analysis_status_service.mark_done("video", video_clip_id, "siglip_embeddings", {
+                    "dimension": 1152,
+                    "embeddings": embedding_count,
+                })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "siglip_embeddings", str(e))
+            raise
 
     # Schritt 4: Gemma Vision Captioning
-    if defer_captioning:
+    # B-775: Captions liegen in den Scene-Rows und wurden bei scene_skip
+    # bereits mitrehydriert (_load_scenes_from_db). Skip nur bei scene_skip —
+    # frische Szenen brauchen frische Captions.
+    caption_skip = scene_skip and _step_done("ai_scene_caption")
+    if caption_skip:
+        result.captions_skipped = True
+        logger.info(
+            "[PIPELINE] Schritt 6/7 uebersprungen (bereits done): ai_scene_caption"
+        )
+    elif defer_captioning:
         logger.info(
             "[PIPELINE] Schritt 6/7: Gemma Vision Captioning deferred bis nach GPU-Batch-Cleanup"
         )
@@ -1802,74 +1955,110 @@ def run_full_pipeline(
             raise
 
     # Szenen in SQLite speichern
-    analysis_status_service.mark_started("video", video_clip_id, "scene_db_storage")
-    try:
-        logger.info("[PIPELINE] Schritt 7/7: Szenen in SQLite speichern...")
-        if progress_cb:
-            progress_cb(93, "Szenen in DB speichern...")
-
-        stored = store_scenes_in_db(
-            video_clip_id, scenes, expected_db_url=pipeline_db_url,
+    # B-775: Skip nur wenn NICHTS an den Szenen-Daten neu berechnet wurde
+    # (Szenen, Motion, Captions alle rehydriert) und der Store bereits 'done'
+    # war. Lief irgendein Schritt frisch, muss neu gespeichert werden.
+    scene_db_skip = (
+        scene_skip and motion_skip and caption_skip
+        and _step_done("scene_db_storage")
+    )
+    if scene_db_skip:
+        logger.info(
+            "[PIPELINE] Schritt 7/7 uebersprungen (bereits done): scene_db_storage"
         )
-        if not stored:
-            # B-490 Followup (CRF-005): Skip ist KEIN Erfolg. Vorher wurde hier
-            # mark_done({"scenes": N}) gesetzt obwohl die DB leer blieb.
-            reason = (
-                f"Szenen nicht gespeichert: VideoClip {video_clip_id} fehlt in "
-                "der aktiven DB oder das Projekt wurde waehrend des Laufs "
-                "gewechselt (Projekt-Token-Mismatch)."
+    else:
+        analysis_status_service.mark_started("video", video_clip_id, "scene_db_storage")
+        try:
+            logger.info("[PIPELINE] Schritt 7/7: Szenen in SQLite speichern...")
+            if progress_cb:
+                progress_cb(93, "Szenen in DB speichern...")
+
+            stored = store_scenes_in_db(
+                video_clip_id, scenes, expected_db_url=pipeline_db_url,
             )
-            analysis_status_service.mark_error(
-                "video", video_clip_id, "scene_db_storage", reason,
-            )
-            logger.error("[PIPELINE] %s", reason)
-            # B-368-Konsistenz: ohne SQLite-Szenen keine VectorDB-Writes
-            # (sonst entstehen Embedding-Orphans) und kein Enrichment.
-            return result
-        logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
-        analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
-            "scenes": len(scenes),
-        })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
-        raise
+            if not stored:
+                # B-490 Followup (CRF-005): Skip ist KEIN Erfolg. Vorher wurde hier
+                # mark_done({"scenes": N}) gesetzt obwohl die DB leer blieb.
+                reason = (
+                    f"Szenen nicht gespeichert: VideoClip {video_clip_id} fehlt in "
+                    "der aktiven DB oder das Projekt wurde waehrend des Laufs "
+                    "gewechselt (Projekt-Token-Mismatch)."
+                )
+                analysis_status_service.mark_error(
+                    "video", video_clip_id, "scene_db_storage", reason,
+                )
+                logger.error("[PIPELINE] %s", reason)
+                # B-368-Konsistenz: ohne SQLite-Szenen keine VectorDB-Writes
+                # (sonst entstehen Embedding-Orphans) und kein Enrichment.
+                return result
+            logger.info("[PIPELINE] Pipeline KOMPLETT für %s", Path(original_video_path).name)
+            analysis_status_service.mark_done("video", video_clip_id, "scene_db_storage", {
+                "scenes": len(scenes),
+            })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "scene_db_storage", str(e))
+            raise
 
     # Schritt 7b: In LanceDB speichern, nachdem SQLite-Szenen committed sind.
-    analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
-    try:
-        logger.info("[PIPELINE] Schritt 7b/7: In LanceDB speichern...")
-        if progress_cb:
-            progress_cb(96, "In LanceDB speichern...")
-        if should_stop and should_stop():
-            analysis_status_service.mark_cancelled(  # B-147/B-756
-                "video", video_clip_id, "vector_db_storage"
-            )
-            return result
+    # B-775: siglip_skip impliziert vector_db_storage == 'done' (siehe oben) —
+    # die Vektoren liegen bereits in LanceDB, erneutes delete+insert entfaellt.
+    if siglip_skip:
+        try:
+            _prev_summary = getattr(
+                resume_status.get("vector_db_storage"), "value_summary", None
+            ) or {}
+            result.embeddings_stored = int(_prev_summary.get("vectors", 0))
+        except (TypeError, ValueError):
+            result.embeddings_stored = 0
+        logger.info(
+            "[PIPELINE] Schritt 7b/7 uebersprungen (bereits done): vector_db_storage"
+        )
+    else:
+        analysis_status_service.mark_started("video", video_clip_id, "vector_db_storage")
+        try:
+            logger.info("[PIPELINE] Schritt 7b/7: In LanceDB speichern...")
+            if progress_cb:
+                progress_cb(96, "In LanceDB speichern...")
+            if should_stop and should_stop():
+                analysis_status_service.mark_cancelled(  # B-147/B-756
+                    "video", video_clip_id, "vector_db_storage"
+                )
+                return result
 
-        # Original-Pfad fuer LanceDB-Storage verwenden (nicht Proxy-Pfad).
-        # B-368: erst nach erfolgreichem SQLite-Commit schreiben, damit bei
-        # DB-Fehlern keine VectorDB-Orphans entstehen.
-        result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
-        logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
-        if scenes and result.embeddings_stored == 0:
-            # 0 geschriebene Vektoren ist kein Erfolg: der Clip ist ueber die
-            # semantische Suche nicht auffindbar und structure_enrichment
-            # ueberspringt ihn. Vorher stand hier mark_done({"vectors": 0}).
-            analysis_status_service.mark_degraded(
-                "video", video_clip_id, "vector_db_storage",
-                "Keine Vektoren geschrieben (keine SigLIP-Embeddings vorhanden); "
-                "bestehende Vektoren des Clips wurden nicht geloescht.",
-                {"vectors": 0},
-            )
-        else:
-            analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
-                "vectors": result.embeddings_stored,
-            })
-    except Exception as e:
-        analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
-        raise
+            # Original-Pfad fuer LanceDB-Storage verwenden (nicht Proxy-Pfad).
+            # B-368: erst nach erfolgreichem SQLite-Commit schreiben, damit bei
+            # DB-Fehlern keine VectorDB-Orphans entstehen.
+            result.embeddings_stored = store_embeddings(original_video_path, scenes, video_clip_id)
+            logger.info("[PIPELINE] LanceDB FERTIG: %d Embeddings", result.embeddings_stored)
+            if scenes and result.embeddings_stored == 0:
+                # 0 geschriebene Vektoren ist kein Erfolg: der Clip ist ueber die
+                # semantische Suche nicht auffindbar und structure_enrichment
+                # ueberspringt ihn. Vorher stand hier mark_done({"vectors": 0}).
+                analysis_status_service.mark_degraded(
+                    "video", video_clip_id, "vector_db_storage",
+                    "Keine Vektoren geschrieben (keine SigLIP-Embeddings vorhanden); "
+                    "bestehende Vektoren des Clips wurden nicht geloescht.",
+                    {"vectors": 0},
+                )
+            else:
+                analysis_status_service.mark_done("video", video_clip_id, "vector_db_storage", {
+                    "vectors": result.embeddings_stored,
+                })
+        except Exception as e:
+            analysis_status_service.mark_error("video", video_clip_id, "vector_db_storage", str(e))
+            raise
 
-    if not defer_captioning:
+    # B-775: Enrichment-Regeln beim Resume:
+    # - Komplett-Skip (Szenen/Vektoren/Captions unveraendert): kein Enrichment
+    #   noetig — es gibt keine neuen Daten.
+    # - caption_skip bei defer_captioning=True: der deferred Job (der sonst
+    #   das Enrichment uebernimmt) entfaellt im Worker -> Enrichment hier.
+    all_storage_skipped = scene_db_skip and siglip_skip and caption_skip
+    if all_storage_skipped:
+        logger.info(
+            "[PIPELINE] Structure-Enrichment uebersprungen: keine neuen Daten (Resume)"
+        )
+    elif not defer_captioning or caption_skip:
         _run_structure_enrichment(video_clip_id)
 
     # VRAM-Schutz: GPU-Speicher nach Pipeline freigeben

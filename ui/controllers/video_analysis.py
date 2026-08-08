@@ -159,6 +159,11 @@ class VideoAnalysisController(PBComponent):
                 if cid:
                     batch.append((int(cid), str(title)))
 
+        # B-775: Explizit angehakte/selektierte Clips = Force-Semantik —
+        # IMMER komplette Analyse. Nur der Kein-Auswahl-Fallback laeuft im
+        # Resume-Modus (force_full=False) und filtert fertige Videos raus.
+        force_full = bool(batch)
+
         if not batch:
             # B-472: Kein Auswahl-Zwang mehr. Ohne angehakte/selektierte Videos
             # laeuft die Pipeline ueber ALLE Videos des Projekts — genau das
@@ -181,6 +186,43 @@ class VideoAnalysisController(PBComponent):
                 self.window.console_text.append(
                     f"[Pipeline] Keine Auswahl — starte fuer alle {len(batch)} Videos des Projekts."
                 )
+                # B-775: Resume — bereits vollstaendig analysierte Videos
+                # (alle Schritte 'done' -> 100.0 %) aus dem Fallback filtern.
+                total_all = len(batch)
+                try:
+                    from services import analysis_status_service
+                    pct_map = analysis_status_service.get_completion_percent_map(
+                        "video", [cid for cid, _ in batch]
+                    )
+                except Exception as e:  # noqa: BLE001 — Status-Read darf UI nicht crashen
+                    logger.error("[Pipeline] B-775: Completion-Map fehlgeschlagen: %s "
+                                 "— Resume-Filter uebersprungen.", e)
+                    pct_map = {}
+                unfinished = [
+                    item for item in batch
+                    if pct_map.get(item[0], 0.0) < 100.0
+                ]
+                done_count = total_all - len(unfinished)
+                if done_count > 0:
+                    msg = (
+                        f"{done_count} von {total_all} Videos bereits vollstaendig "
+                        f"analysiert — starte {len(unfinished)} unfertige."
+                    )
+                    logger.info("[Pipeline] %s", msg)
+                    self.window.console_text.append(f"[Pipeline] {msg}")
+                batch = unfinished
+                if not batch:
+                    msg = (
+                        f"Alle {total_all} Videos bereits vollstaendig analysiert "
+                        "— nichts zu tun."
+                    )
+                    logger.info("[Pipeline] %s", msg)
+                    self.window.console_text.append(f"[Pipeline] {msg}")
+                    try:
+                        self.window.status_bar.showMessage(msg, 5000)
+                    except (AttributeError, RuntimeError):
+                        pass
+                    return
 
         if not batch:
             msg = "Keine Videos im Projekt — bitte zuerst Videos importieren."
@@ -211,7 +253,9 @@ class VideoAnalysisController(PBComponent):
             f"(SceneDetect → Keyframes → SigLIP)..."
         )
 
-        worker = VideoAnalysisPipelineWorker(batch=batch)
+        # B-775: force_full=True nur bei expliziter Auswahl (angehakt/selektiert),
+        # der Kein-Auswahl-Fallback laeuft im Resume-Modus.
+        worker = VideoAnalysisPipelineWorker(batch=batch, force_full=force_full)
         worker.task_id = task.task_id
         worker.progress.connect(
             lambda pct, msg: self._on_pipeline_progress(pct, msg, task.task_id),

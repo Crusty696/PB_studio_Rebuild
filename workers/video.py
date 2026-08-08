@@ -255,13 +255,19 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
     progress = Signal(int, str)    # percent, message
 
     def __init__(self, clip_id: int = 0, video_path: str = "",
-                 batch: list | None = None):
+                 batch: list | None = None, force_full: bool = True):
         """Args:
             clip_id / video_path: Einzelnes Video (Rückwärtskompatibel).
             batch: Liste von (clip_id, title) Tupeln für Batch-Modus.
                    file_path wird in run() aus der DB geladen (Worker-Thread).
+            force_full: B-775 — True (Default) = alle Pipeline-Schritte laufen
+                   komplett (Bestandsverhalten fuer explizite Re-Analyse,
+                   angehakte Clips, media_workspace-Einzel-Analyse). False =
+                   Resume: run_full_pipeline ueberspringt Schritte mit Status
+                   'done' + real vorhandenem Artefakt (Kein-Auswahl-Fallback).
         """
         super().__init__()
+        self._force_full = force_full
         if batch:
             self._batch = batch
         else:
@@ -520,11 +526,14 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             siglip_model_processor=siglip_model_processor,
                             raft_model_device=raft_model_device,
                             defer_captioning=defer_captioning,
+                            force_full=self._force_full,  # B-775
                         )
                         total_scenes += len(result.scenes)
                         total_embeddings += result.embeddings_stored
                         videos_processed += 1  # B-149: nach erfolgreichem Pipeline-Call
-                        if defer_captioning:
+                        # B-775: Captions bereits vorhanden (Resume-Skip) ->
+                        # kein deferred Ollama-Job fuer diesen Clip.
+                        if defer_captioning and not getattr(result, "captions_skipped", False):
                             deferred_caption_jobs.append((clip_id, result.scenes, idx, total_videos))
 
                     except FileNotFoundError as e:
@@ -558,11 +567,13 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                         siglip_model_processor=siglip_model_processor,
                                         raft_model_device=raft_model_device,
                                         defer_captioning=defer_captioning,
+                                        force_full=self._force_full,  # B-775
                                     )
                                     total_scenes += len(result.scenes)
                                     total_embeddings += result.embeddings_stored
                                     videos_processed += 1  # B-149
-                                    if defer_captioning:
+                                    # B-775: siehe Haupt-Pfad oben.
+                                    if defer_captioning and not getattr(result, "captions_skipped", False):
                                         deferred_caption_jobs.append((clip_id, result.scenes, idx, total_videos))
                                 else:
                                     raise RuntimeError(f"VideoClip {clip_id}: Original-Pfad nicht verfuegbar")
