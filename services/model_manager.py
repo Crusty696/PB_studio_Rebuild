@@ -440,6 +440,18 @@ class ModelManager:
                 "naechsten Modell-Load probed."
             )
 
+    def mark_cuda_context_lost(self) -> None:
+        """B-774: CUDA-Kontext unter Dauerlast gestorben (Batch-Analyse).
+
+        Gleiche Mechanik wie :meth:`notify_power_resume` — markiert den
+        Kontext als verdaechtig, so dass der naechste ``load_*``-Call via
+        ``cuda_health_check()`` probed und bei totem Kontext app-weit auf
+        CPU zurueckfaellt. Eigener Name, weil der Ausloeser hier kein
+        Power-Event ist, sondern z.B. ``CUDA error: unknown error`` nach
+        ~45 min Batch-Last. Idempotent.
+        """
+        self.notify_power_resume()
+
     def _ensure_cuda_or_fallback(self, operation: str) -> None:
         """B-218: Vor jedem GPU-allocating Load aufrufen.
 

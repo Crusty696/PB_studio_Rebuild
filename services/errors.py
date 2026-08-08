@@ -84,6 +84,16 @@ class CUDAOutOfMemoryError(GPUError):
         )
 
 
+class CudaContextLostError(GPUError):
+    """B-774: torch-CUDA-Kontext unter Dauerlast gestorben.
+
+    Beispiel: ``RuntimeError: CUDA error: unknown error`` nach ~45 min
+    Batch-Analyse. In-Prozess nicht rettbar (torch 1.12.1+cu113, siehe
+    B-218) — App-Neustart erzeugt einen frischen Kontext. Batch-Worker
+    brechen mit dieser Exception sauber ab, statt jeden Folge-Clip
+    erneut gegen den toten Kontext laufen zu lassen."""
+
+
 # ── ML Model availability ──────────────────────────────────────
 
 class MLError(PBStudioError):

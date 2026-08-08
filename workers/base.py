@@ -11,6 +11,7 @@ def format_user_error(exc: Exception) -> str:
     from services.errors import (
         CUDAOutOfMemoryError, VRAMInsufficientError, AudioLoadError,
         StemSeparationError, FFmpegError, DatabaseLockedError,
+        CudaContextLostError,
     )
 
     if isinstance(exc, CUDAOutOfMemoryError):
@@ -31,6 +32,11 @@ def format_user_error(exc: Exception) -> str:
         return f"Zugriff verweigert: {exc}"
     if isinstance(exc, FileNotFoundError):
         return f"Datei nicht gefunden: {exc}"
+    if isinstance(exc, CudaContextLostError):
+        # B-774: Kontexttod ist in-Prozess nicht rettbar (cu113) —
+        # klare Handlungsanweisung statt technischem Traceback-Text.
+        return ("GPU-Fehler (CUDA-Kontext verloren) — bitte App neu starten. "
+                "Die Analyse setzt danach automatisch bei den fehlenden Clips fort.")
 
     # Generischer Fallback
     return str(exc)

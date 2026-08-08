@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
-from services.errors import FFmpegError
+from services.errors import CudaContextLostError, FFmpegError
 from services.ffmpeg_utils import subprocess_kwargs
 from services.startup_checks import get_ffmpeg_bin
 from services.timeout_constants import FFMPEG_THUMBNAIL_TIMEOUT_SEC
@@ -100,6 +100,35 @@ def _release_batch_raft(raft_model_device) -> None:
         if raft_m is not None:
             raft_m.cpu()
     gc.collect()
+
+
+# B-774: String-Marker fuer "riecht nach totem CUDA-Kontext". Bewusst
+# lowercase-Substrings; 'out of memory' ist EXPLIZIT ausgenommen (OOM ist
+# per-Clip rettbar ueber den bestehenden C-04-Skip-Pfad, Kontexttod nicht).
+_CUDA_CONTEXT_ERROR_MARKERS = (
+    "cuda error",
+    "cuda driver",
+    "illegal memory access",
+    "device-side assert",
+    "invalid resource handle",
+    "cublas_status_",
+    "launch failure",
+)
+
+
+def _is_cuda_context_error(exc: BaseException) -> bool:
+    """B-774: Heuristik — RuntimeError deutet auf gestorbenen CUDA-Kontext.
+
+    Nur Verdacht: die Autoritaet ueber Leben/Tod des Kontexts hat danach
+    ``ModelManager().cuda_health_check()`` (Live-Probe), nicht der String.
+    ``CUDA out of memory`` liefert bewusst False.
+    """
+    if not isinstance(exc, RuntimeError):
+        return False
+    msg = str(exc).lower()
+    if "out of memory" in msg:
+        return False
+    return any(marker in msg for marker in _CUDA_CONTEXT_ERROR_MARKERS)
 
 
 def _existing_path(value: str | None) -> bool:
@@ -349,6 +378,10 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             # erster Iteration ``idx=0`` ergab obwohl die Loop nie startete.
             # Downstream-Math ``progress / videos_processed`` div-zero crashte.
             videos_processed = 0
+            # B-774: CUDA-verdaechtige Clip-Fehler in Folge. 2 in Folge =
+            # Kontext gilt als tot, auch wenn die Health-Probe (noch) True
+            # liefert. Reset bei jedem erfolgreichen Clip.
+            consecutive_cuda_failures = 0
 
             # B-222: Pre-Flight — wenn SigLIP-Weights nicht im HF-Cache
             # liegen, laden wir sie HIER (vor GPU_LOAD_LOCK). Sonst startet
@@ -531,6 +564,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         total_scenes += len(result.scenes)
                         total_embeddings += result.embeddings_stored
                         videos_processed += 1  # B-149: nach erfolgreichem Pipeline-Call
+                        consecutive_cuda_failures = 0  # B-774: Erfolg resettet CUDA-Zaehler
                         # B-775: Captions bereits vorhanden (Resume-Skip) ->
                         # kein deferred Ollama-Job fuer diesen Clip.
                         if defer_captioning and not getattr(result, "captions_skipped", False):
@@ -572,6 +606,7 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                                     total_scenes += len(result.scenes)
                                     total_embeddings += result.embeddings_stored
                                     videos_processed += 1  # B-149
+                                    consecutive_cuda_failures = 0  # B-774
                                     # B-775: siehe Haupt-Pfad oben.
                                     if defer_captioning and not getattr(result, "captions_skipped", False):
                                         deferred_caption_jobs.append((clip_id, result.scenes, idx, total_videos))
@@ -581,6 +616,45 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                             raise RuntimeError(f"Clip {clip_id}: Proxy + Original fehlgeschlagen — {fallback_err}") from fallback_err
                     except (ValueError, RuntimeError, OSError, FFmpegError,
                             subprocess.TimeoutExpired, SQLAlchemyError) as e:
+                        # B-774: CUDA-Kontexttod erkennen -> Batch STOPPEN statt
+                        # jeden Folge-Clip gegen den toten Kontext laufen zu
+                        # lassen (65x-Kaskade, fullstack_usersession_20260808).
+                        # String-Match ist nur Verdacht; Autoritaet ist die
+                        # Live-Probe cuda_health_check(). Zusaetzlich: 2
+                        # CUDA-verdaechtige Fehler in Folge = Abbruch auch
+                        # wenn die Probe (noch) True liefert.
+                        if _is_cuda_context_error(e):
+                            consecutive_cuda_failures += 1
+                            from services.model_manager import ModelManager
+                            _mm = ModelManager()
+                            try:
+                                _cuda_alive = _mm.cuda_health_check()
+                            except Exception as _probe_exc:  # broad: Probe darf Handler nicht killen
+                                logger.warning(
+                                    "B-774: cuda_health_check crashte (%s) — werte Kontext als tot.",
+                                    _probe_exc,
+                                )
+                                _cuda_alive = False
+                            if (not _cuda_alive) or consecutive_cuda_failures >= 2:
+                                logging.error(
+                                    "B-774: CUDA-Kontext verloren bei Clip %d (%d/%d, "
+                                    "probe_alive=%s, consecutive=%d) — Batch wird gestoppt: %s",
+                                    clip_id, idx, total_videos, _cuda_alive,
+                                    consecutive_cuda_failures, e,
+                                )
+                                # App-weiter CPU-Fallback der naechsten Loads —
+                                # gleiche Mechanik wie B-218 Power-Resume.
+                                _mm.mark_cuda_context_lost()
+                                # Tote Batch-Referenzen droppen: sie zeigen auf
+                                # den gestorbenen Kontext; der finally-Unload
+                                # wuerde sonst erneut CUDA-Calls auf Leichen
+                                # ausfuehren.
+                                siglip_model_processor = None
+                                raft_model_device = None
+                                raise CudaContextLostError(
+                                    f"CUDA-Kontext verloren bei Clip {clip_id} "
+                                    f"({idx}/{total_videos}): {e}"
+                                ) from e
                         # B-674-Muster (siehe VideoBatchAnalysisWorker oben):
                         # FFmpegError erbt von PBStudioError -> Exception, NICHT
                         # von RuntimeError/OSError; ebenso subprocess.TimeoutExpired
@@ -606,6 +680,21 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
                         if idx % 25 == 0:
                             from services.task_manager import GlobalTaskManager
                             GlobalTaskManager.instance().request_gc_signal.emit()
+                            # B-774 Diagnose: VRAM-Verlauf unter Dauerlast
+                            # loggen (Kontexttod nach ~45min — Referenzpunkt
+                            # fuer die Fragmentierungs-/Akkumulations-These).
+                            try:
+                                import torch
+                                if torch.cuda.is_available():
+                                    logger.info(
+                                        "B-774: VRAM nach %d Clips — "
+                                        "allocated=%.1f MB, reserved=%.1f MB",
+                                        idx,
+                                        torch.cuda.memory_allocated() / (1024 * 1024),
+                                        torch.cuda.memory_reserved() / (1024 * 1024),
+                                    )
+                            except Exception as _vram_exc:  # broad: Diagnose darf Batch nie brechen
+                                logger.debug("B-774: VRAM-Diagnose fehlgeschlagen: %s", _vram_exc)
 
                 # ── BATCH-CLEANUP: SigLIP + RAFT am Ende der gesamten Batch entladen ──
                 if raft_model_device is not None:
@@ -670,6 +759,27 @@ class VideoAnalysisPipelineWorker(QObject, CancellableMixin):
             })
             _emitted_terminal = True
             _ok = True
+        except CudaContextLostError as e:
+            # B-774: Kontexttod ist batch-fatal, aber sauber signalisiert —
+            # genau EIN error (Neustart-Meldung via format_user_error) plus
+            # genau EIN finished mit den Partial-Zahlen (wie der DB-Resolve-
+            # Fehlerpfad oben), damit thread.quit()/Task-Ende normal greifen.
+            # _guarded_finish im WorkerDispatcher skippt den on_finish-Callback,
+            # weil _errored=True gesetzt ist.
+            logging.error(
+                "VideoAnalysisPipelineWorker abgebrochen (B-774 CUDA-Kontextverlust): %s\n%s",
+                e, traceback.format_exc(),
+            )
+            self._errored = True
+            _error_msg = format_user_error(e)
+            _emit_shielded(lambda: self.error.emit(last_clip_id, _error_msg), "error")
+            _partial = {
+                "scenes": total_scenes,
+                "embeddings": total_embeddings,
+                "videos_processed": videos_processed,
+            }
+            _emit_shielded(lambda: self.finished.emit(last_clip_id, _partial), "finished")
+            _emitted_terminal = True
         except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("VideoAnalysisPipelineWorker crashed (outer): %s\n%s",
                           e, traceback.format_exc())
