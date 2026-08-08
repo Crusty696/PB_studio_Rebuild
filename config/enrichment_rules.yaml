@@ -2,11 +2,14 @@
 # Rules evaluated top-to-bottom; first match wins.
 
 role_rules:
+  # B-729: Schwellen realistisch gesetzt. Alt: duration_lt 1.0 / motion_gte 0.6
+  # — feuerte bei realen 4.3-10s-Szenen nie (0 Treffer in 27/27 bzw. 440
+  # Szenen). Neu konservativ: kurze (<2s), bewegte (>=0.5) Szenen = transition.
   - role: transition
     confidence: 0.85
     require:
-      duration_lt: 1.0
-      motion_gte: 0.6
+      duration_lt: 2.0
+      motion_gte: 0.5
 
   - role: action
     confidence: 0.80
