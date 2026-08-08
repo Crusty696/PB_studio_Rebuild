@@ -567,13 +567,24 @@ def test_audit_tab_story_map_button_opens_dialog_when_run_selected(
     captured: list[tuple] = []
     real_init = StoryMapDialog.__init__
 
-    def _spy_init(self, brain_service, rid, parent=None):
+    # B-765: open_story_map_async laedt die Daten im Worker und konstruiert
+    # den Dialog erst bei Zustellung — mit ``data=``-Kwarg. Spy-Signatur
+    # entsprechend; Intent unveraendert: Button oeffnet Dialog fuer den
+    # selektierten Run.
+    def _spy_init(self, brain_service, rid, parent=None, data=None):
         captured.append((rid,))
-        real_init(self, brain_service, rid, parent=parent)
+        real_init(self, brain_service, rid, parent=parent, data=data)
 
     monkeypatch.setattr(StoryMapDialog, "__init__", _spy_init)
     try:
         tab._story_map_btn.click()
+        # Zustellung erfolgt asynchron (QThreadPool + QueuedConnection):
+        # Event-Loop pumpen, bis der Dialog konstruiert wurde (max. 5 s).
+        import time as _time
+        deadline = _time.monotonic() + 5.0
+        while not captured and _time.monotonic() < deadline:
+            QApplication.processEvents()
+            _time.sleep(0.01)
         QApplication.processEvents()
         assert len(captured) == 1
         assert captured[0][0] == run_id

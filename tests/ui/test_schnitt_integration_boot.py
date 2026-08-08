@@ -124,11 +124,21 @@ def test_b285_triple_hook_calls_helper() -> None:
 
 
 def test_b285_helper_pushes_to_tab_rl_notes_too() -> None:
-    """B-285-Regression: ProjectNotesService braucht ebenfalls den Pid."""
+    """B-285-Regression: ProjectNotesService braucht ebenfalls den Pid.
+
+    Seit B-715 (async SCHNITT-Snapshot) laeuft der Push nicht mehr ueber
+    ``tab_rl_notes.set_active_project(pid)``, sondern der Snapshot-Apply-
+    Callback setzt die Projekt-ID direkt auf dem Notes-Tab. Der Intent
+    bleibt identisch: ohne Pid-Push lassen sich Notes nicht persistieren.
+    """
     src = _read(WORKSPACE_SETUP)
-    assert "tab_rl_notes.set_active_project" in src, (
-        "B-285: _push_active_project_to_schnitt informiert "
-        "tab_rl_notes nicht. Notes lassen sich dann nicht persistieren."
+    assert "ws.editor_view.tab_rl_notes" in src, (
+        "B-285/B-715: _apply_schnitt_project_snapshot greift nicht mehr "
+        "auf tab_rl_notes zu. Notes bekommen dann keinen Projekt-Kontext."
+    )
+    assert "notes._project_id = snapshot.project_id" in src, (
+        "B-285/B-715: Snapshot-Apply setzt notes._project_id nicht. "
+        "Notes lassen sich dann nicht persistieren."
     )
 
 

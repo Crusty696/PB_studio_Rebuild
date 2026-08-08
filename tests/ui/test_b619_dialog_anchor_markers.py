@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+import database.session as db_session_module
 import ui.timeline as timeline_module
 from database import AudioTrack, AudioVideoAnchor, Project, VideoClip
 from ui.timeline import InteractiveTimeline, PIXELS_PER_SECOND
@@ -23,6 +24,12 @@ def test_load_dialog_anchors_reads_only_dialog_rows_and_builds_markers(
     # ui.timeline bindet `engine` beim Import — Test-Engine dort patchen,
     # damit _load_dialog_anchors die In-Memory-DB nutzt.
     monkeypatch.setattr(timeline_module, "engine", test_engine)
+    # B-634 laeuft ueber get_active_project_id(), das database.session.engine
+    # konsultiert (seit dem B-727-Testschutz eine leere Session-Temp-DB, nicht
+    # die Test-Engine). Damit der projekt-weite Pfad greift wie in Produktion,
+    # muss auch dieser Engine auf die In-Memory-DB zeigen; Cache invalidieren.
+    monkeypatch.setattr(db_session_module, "engine", test_engine)
+    monkeypatch.setattr(db_session_module, "_active_project_id_cache", None)
 
     with Session(test_engine) as session:
         project = Project(name="B619", path="/tmp/b619")
