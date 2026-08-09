@@ -98,10 +98,24 @@ def _context(query: str, max_chars: int) -> str:
         return ""
 
 
+def _context_with_recent_fallback(query: str, max_chars: int) -> str:
+    """Recall mit Leer-Query-Fallback (B-787), analog zum Vision-Pfad.
+
+    Tokenbasierter Recall trifft bei generischen Gedaechtnisfragen
+    ("Was hast du dir bisher gemerkt?") nichts, weil solche Fragen keine
+    inhaltlichen Tokens enthalten. Leere Query liefert dann den neuesten
+    Projektsnapshot. Ist nichts gespeichert, bleibt das Ergebnis leer.
+    """
+    context = _context(query, max_chars=max_chars)
+    if context:
+        return context
+    return _context("", max_chars=max_chars)
+
+
 def build_nontool_prompt(base_prompt: str, query: str) -> str:
     """Chat-Prompt mit projektisoliertem Recall und validiertem Protokoll."""
     parts = [base_prompt.rstrip()]
-    context = _context(query, max_chars=1200)
+    context = _context_with_recent_fallback(query, max_chars=1200)
     if context:
         parts.append(context)
     parts.append(_NONTOOL_PROTOCOL.rstrip())
@@ -110,7 +124,7 @@ def build_nontool_prompt(base_prompt: str, query: str) -> str:
 
 def build_tool_prompt(base_prompt: str, query: str) -> str:
     """Tool-Chat erhaelt Recall-Fallback; native Tools bleiben unveraendert."""
-    context = _context(query, max_chars=1200)
+    context = _context_with_recent_fallback(query, max_chars=1200)
     if not context:
         return base_prompt
     return f"{base_prompt.rstrip()}\n\n{context}"
@@ -155,17 +169,42 @@ def build_vision_prompt(base_prompt: str, query: str) -> str:
     return "\n\n".join(parts)
 
 
-def _extract_payload(raw: str) -> dict[str, Any] | None:
-    text = (raw or "").strip()
-    if not text:
-        return None
-    if text.startswith("```"):
-        first_newline = text.find("\n")
-        last_fence = text.rfind("```")
-        if first_newline >= 0 and last_fence > first_newline:
-            text = text[first_newline + 1:last_fence].strip()
+def _iter_json_object_candidates(text: str):
+    """Liefert jedes balancierte Top-Level-``{...}``-Fragment des Textes.
+
+    B-785: Non-Tool-Modelle betten das Envelope in Fliesstext ein. Die
+    Klammerzaehlung ignoriert Klammern innerhalb von JSON-Strings.
+    """
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                yield text[start:index + 1]
+                start = -1
+
+
+def _as_envelope(candidate: str) -> dict[str, Any] | None:
+    """Nur ein vollstaendiges, versioniertes Gateway-Envelope passiert."""
     try:
-        payload = json.loads(text)
+        payload = json.loads(candidate)
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
@@ -177,6 +216,28 @@ def _extract_payload(raw: str) -> dict[str, Any] | None:
     return payload
 
 
+def _extract_payload(raw: str) -> dict[str, Any] | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        last_fence = text.rfind("```")
+        if first_newline >= 0 and last_fence > first_newline:
+            text = text[first_newline + 1:last_fence].strip()
+    payload = _as_envelope(text)
+    if payload is not None:
+        return payload
+    # B-785: eingebettetes Envelope suchen. Die Sicherheit bleibt gleich —
+    # Envelope-Key, Version, Action-Allowlist und Parameterpruefung gelten
+    # unveraendert; nur die Fundstelle wird toleranter bestimmt.
+    for candidate in _iter_json_object_candidates(text):
+        payload = _as_envelope(candidate)
+        if payload is not None:
+            return payload
+    return None
+
+
 def _reject(message: str) -> dict[str, Any]:
     return {
         "action": "brain_gateway_rejected",
@@ -185,6 +246,61 @@ def _reject(message: str) -> dict[str, Any]:
         "message": f"Brain-Gateway abgelehnt: {message}",
         "error": message,
     }
+
+
+def _derive_title(body: Any) -> str:
+    """Kurzen Titel aus dem Notiz-Body ableiten (erste Zeile / erster Satz)."""
+    if not isinstance(body, str):
+        return ""
+    first_line = " ".join(body.strip().splitlines()[:1]).strip()
+    if not first_line:
+        return ""
+    for stop in (". ", "! ", "? "):
+        cut = first_line.find(stop)
+        if cut > 0:
+            first_line = first_line[:cut]
+            break
+    first_line = first_line.rstrip(" .!?")
+    return first_line[:80].strip()
+
+
+def _not_written(reason: str) -> dict[str, Any]:
+    """Deterministische Negativmeldung fuer einen nicht ausgefuehrten Merk-Auftrag."""
+    return {
+        "action": "brain_learn_note_not_written",
+        "params": {},
+        "result": None,
+        "message": (
+            "Ich habe NICHTS gespeichert — es wurde keine Notiz in die "
+            f"Datenbank geschrieben ({reason}). Bitte formuliere den "
+            "Merk-Auftrag erneut."
+        ),
+        "error": reason,
+    }
+
+
+def _learn_message(result: Any) -> tuple[str, str | None]:
+    """Bestaetigung strikt aus dem DB-Ergebnis ableiten (B-786)."""
+    ok = isinstance(result, dict) and result.get("status") == "ok"
+    if ok:
+        db_message = str(result.get("message") or "").strip()
+        if db_message:
+            return db_message, None
+        note_id = result.get("note_id")
+        title = str(result.get("title") or "").strip()
+        verb = "gespeichert" if result.get("created") else "aktualisiert"
+        suffix = f" (brain_note #{note_id})" if note_id is not None else ""
+        return (
+            f"Notiz {verb}{suffix}: {title}. "
+            "Wiederfindbar ueber brain_recall.",
+            None,
+        )
+    reason = "Schreibvorgang fehlgeschlagen"
+    if isinstance(result, dict):
+        reason = str(
+            result.get("message") or result.get("error") or reason
+        ).strip() or reason
+    return _not_written(reason)["message"], reason
 
 
 def _validate_params(action: str, params: Any, mode: GatewayMode) -> dict[str, Any]:
@@ -217,6 +333,13 @@ def _validate_params(action: str, params: Any, mode: GatewayMode) -> dict[str, A
             raise ValueError(f"{key} muss Text sein")
     if action == "brain_learn_note":
         if not str(clean.get("title") or "").strip():
+            # B-785: Non-Tool-Modelle liefern haeufig nur body. Der Titel ist
+            # reine Anzeige-/Upsert-Kennung und wird defensiv aus dem bereits
+            # validierten body abgeleitet, statt den Merk-Auftrag zu verwerfen.
+            derived = _derive_title(clean.get("body"))
+            if derived:
+                clean["title"] = derived
+        if not str(clean.get("title") or "").strip():
             raise ValueError("brain_learn_note braucht title")
         if not str(clean.get("body") or "").strip():
             raise ValueError("brain_learn_note braucht body")
@@ -242,6 +365,15 @@ def execute_gateway_response(
     """
     payload = _extract_payload(raw)
     if payload is None:
+        if allow_learn:
+            # B-786: Der User hat ausdruecklich einen Merk-Auftrag gegeben,
+            # das Modell hat aber keine Gateway-Aktion angefordert. Freitext
+            # ("Ich habe mir gemerkt ...") darf hier nicht als Antwort
+            # durchgereicht werden — sonst behauptet das Modell einen
+            # Schreibvorgang, den es nie gab.
+            return _not_written(
+                "Modell hat keine Gateway-Aktion angefordert",
+            )
         return None
     action = str(payload.get("action") or "")
     if action == "brain_learn_note" and not allow_learn:
@@ -262,6 +394,17 @@ def execute_gateway_response(
             "result": None,
             "message": f"Brain-Gateway-Fehler bei {action}: {exc}",
             "error": str(exc),
+        }
+
+    if action == "brain_learn_note":
+        # B-786: Erfolg/Misserfolg kommt aus dem DB-Ergebnis, nie vom Modell.
+        message, error = _learn_message(result)
+        return {
+            "action": action,
+            "params": params,
+            "result": result,
+            "message": message,
+            "error": error,
         }
 
     message = result.get("message") if isinstance(result, dict) else str(result)
