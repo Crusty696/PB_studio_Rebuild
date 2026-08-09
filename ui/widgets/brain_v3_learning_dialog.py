@@ -77,7 +77,11 @@ class _LearningLoadWorker(BaseWorker):
             service = src
         resp = service.learning_session(n=self._n)
         samples = list(resp.samples)
-        return samples, self._load_contexts(service, samples)
+        return (
+            samples,
+            self._load_contexts(service, samples),
+            self._load_contributions(service, samples),
+        )
 
     @staticmethod
     def _load_contexts(service, samples) -> dict:
@@ -102,6 +106,33 @@ class _LearningLoadWorker(BaseWorker):
             logger.warning(
                 "BrainV3LearningSessionDialog: Cut-Kontext nicht aufloesbar: %s",
                 exc, exc_info=True,
+            )
+            return {}
+
+    @staticmethod
+    def _load_contributions(service, samples) -> dict:
+        """B-781: Achsen-Beitraege je Stichprobe aufloesen (off-thread).
+
+        Ohne sie landet jeder Klick im Uniform-Pfad (108 Buckets, alle 18
+        Achsen gleich) — uniformer Credit kann die relative Gewichtung
+        zwischen Achsen mathematisch nicht veraendern, das Lernen aus
+        User-Feedback bleibt also wirkungslos.
+        """
+        if not samples:
+            return {}
+        try:
+            from services.brain.timeline_state import (
+                load_learning_axis_contributions,
+            )
+
+            return load_learning_axis_contributions(
+                project_root=getattr(service, "_project_root", None),
+                cut_ids=[int(s.cut_id) for s in samples],
+            )
+        except Exception as exc:  # broad: ohne Credit bleibt der Dialog nutzbar
+            logger.warning(
+                "BrainV3LearningSessionDialog: Achsen-Beitraege nicht "
+                "aufloesbar: %s", exc, exc_info=True,
             )
             return {}
 
@@ -139,6 +170,8 @@ class BrainV3LearningSessionDialog(QDialog):
         self._samples: list[LearningSampleCut] = []
         # B-733: cut_id -> CutContext (nur fuer aufloesbare Cuts befuellt).
         self._contexts: dict[int, CutContext] = {}
+        # B-781: cut_id -> {achse: score} (nur fuer Cuts mit echten Scores).
+        self._contributions: dict[int, dict[str, float]] = {}
         self._processed = 0
         self._current_preview: LearningSampleCut | None = None
         self._audio_preview_source: Path | None = None
@@ -258,14 +291,19 @@ class BrainV3LearningSessionDialog(QDialog):
 
     def _on_samples_loaded(self, payload) -> None:
         try:
-            # B-733: der Worker liefert jetzt (samples, contexts). Aeltere
-            # Fakes/Tests, die nur eine Liste liefern, bleiben lauffaehig.
-            if isinstance(payload, tuple) and len(payload) == 2:
+            # B-733/B-781: der Worker liefert jetzt
+            # (samples, contexts, contributions). Aeltere Fakes/Tests, die nur
+            # eine Liste oder ein 2er-Tupel liefern, bleiben lauffaehig.
+            if isinstance(payload, tuple) and len(payload) == 3:
+                samples, contexts, contributions = payload
+            elif isinstance(payload, tuple) and len(payload) == 2:
                 samples, contexts = payload
+                contributions = {}
             else:
-                samples, contexts = payload, {}
+                samples, contexts, contributions = payload, {}, {}
             self._samples = list(samples)
             self._contexts = dict(contexts or {})
+            self._contributions = dict(contributions or {})
             n_ctx = sum(
                 1 for s in self._samples if int(s.cut_id) in self._contexts
             )
@@ -483,10 +521,15 @@ class BrainV3LearningSessionDialog(QDialog):
         # erfunden — context=None laesst den Service bewusst in den
         # neutralen Cold-Start-Bucket laufen und das Label sagt es an.
         ctx = self._contexts.get(cut_id)
+        # B-781: Achsen-Beitraege der Entscheidung hinter diesem Cut. Fehlen
+        # sie (Bestandszeile ohne brain_v3_scores), bleibt es beim ehrlichen
+        # Uniform-Fallback statt erfundener Gewichte.
+        contribs = self._contributions.get(cut_id)
         popup = BrainV3FeedbackPopup(
             cut_id=cut_id,
             service=self._service,
             context=ctx,
+            axis_contributions=contribs or None,
             cut_label=(
                 f"Stichprobe Cut #{cut_id} — {self._context_label(cut_id)}"
             ),

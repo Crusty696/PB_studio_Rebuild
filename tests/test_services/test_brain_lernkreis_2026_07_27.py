@@ -425,6 +425,8 @@ def test_learning_dialog_explicitly_keeps_unlinked_cut_out_of_patterns(monkeypat
 
     class _Dialog:
         _contexts = {}
+        # B-781: der Dialog reicht jetzt auch Achsen-Beitraege durch.
+        _contributions = {}
         _service = object()
 
         @staticmethod

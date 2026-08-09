@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, ContextManager
 
-from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
+from sqlalchemy import select, text  # B-090: column-select statt Blob-Voll-Load
 
 import database
 import database.session as db_session_module
@@ -83,15 +83,96 @@ def load_current_timeline_metadata(
     return out
 
 
+# B-781: Achsen-Scores der Entscheidungen des juengsten Pacing-Runs zu genau
+# diesem Audio-Track. ``agent_rationale -> brain_v3_scores`` ist die EINZIGE
+# Stelle im System, an der echte Sub-Scores pro Bridge-Achse liegen
+# (services/pacing/pipeline.py:675, geschrieben vom DecisionRecorder).
+# Join ueber ``scenes`` liefert den video_clip, damit ein Treffer nicht nur
+# ueber die Zeit, sondern auch ueber den tatsaechlich geschnittenen Clip
+# verifiziert ist.
+_DECISION_AXIS_SCORES_SQL = text(
+    "SELECT d.at_timestamp_sec AS ts, "
+    "       s.video_clip_id    AS video_clip_id, "
+    "       d.agent_rationale  AS agent_rationale "
+    "FROM mem_decision d "
+    "LEFT JOIN scenes s ON s.id = d.scene_id "
+    "WHERE d.run_id = ("
+    "    SELECT id FROM mem_pacing_run WHERE audio_track_id = :aid "
+    "    ORDER BY started_at DESC, id DESC LIMIT 1"
+    ")"
+)
+
+
+def _load_decision_axis_scores(
+    audio_clip_id: int,
+    session_factory: SessionFactory | None,
+) -> dict[tuple[int, int], dict[str, float]]:
+    """B-781: ``{(video_clip_id, start_ms): {achse: score}}`` des juengsten Runs.
+
+    Best-effort: fehlende ``mem_*``-Tabellen (abgespeckte Test-Fixtures),
+    DB-Fehler oder ein Projekt ohne Pacing-Run liefern ``{}``. Der Sync faellt
+    dann auf den alten Platzhalter zurueck, statt Zahlen zu erfinden.
+    """
+    from services.brain.feedback_logger import axis_contributions_from_rationale
+
+    sf = session_factory or database.nullpool_session
+    try:
+        with sf() as session:
+            rows = session.execute(
+                _DECISION_AXIS_SCORES_SQL, {"aid": int(audio_clip_id)}
+            ).mappings().all()
+    except Exception as exc:  # broad: Sync darf daran nie scheitern
+        logger.info(
+            "Brain V3 sync: Achsen-Scores nicht lesbar (%s) — "
+            "timeline_cuts behalten den Confidence-Platzhalter.", exc,
+        )
+        return {}
+
+    out: dict[tuple[int, int], dict[str, float]] = {}
+    for row in rows:
+        clip_id = row.get("video_clip_id")
+        if clip_id is None:
+            continue
+        rationale = row.get("agent_rationale")
+        if isinstance(rationale, str):
+            try:
+                rationale = json.loads(rationale)
+            except (TypeError, ValueError):
+                continue
+        if not isinstance(rationale, dict):
+            continue
+        scores = axis_contributions_from_rationale(rationale)
+        if not scores:
+            continue
+        try:
+            key = (int(clip_id), _round_ms(float(row.get("ts") or 0.0)))
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(key, scores)
+    return out
+
+
 def sync_current_timeline_from_entries(
     project_root: Path | None,
     entries: list[object],
+    session_factory: SessionFactory | None = None,
 ) -> bool:
     """Create/update Brain-V3 current timeline from main TimelineEntry rows.
 
     Matching current Brain-V3 timelines are preserved. Stale current timelines
     are kept in the DB but lose ``is_current`` so the UI can map the live
     main timeline to confidence metadata.
+
+    B-781: ``brain_v3_scores_json`` bekommt die ECHTEN Achsen-Sub-Scores der
+    Entscheidung hinter dem jeweiligen Cut, sofern eine ``mem_decision``-Zeile
+    des juengsten Runs auf (video_clip_id, Timeline-Startzeit) passt. Nur so
+    hat der Lern-Dialog ueberhaupt eine Quelle fuer ``axis_contributions``;
+    ohne sie verteilt jeder Klick uniformen Credit ueber alle 18 Achsen und
+    kann die relative Gewichtung mathematisch nicht veraendern.
+
+    Ohne Treffer (kein Pacing-Run, Reranker lief nicht, Segment wurde nach der
+    Entscheidung verschoben/geklemmt) bleibt der alte Platzhalter stehen —
+    bewusst, statt Achsenwerte zu erfinden.
     """
     db_path = ensure_state_db(project_root)
     entries = list(entries or [])
@@ -142,6 +223,10 @@ def sync_current_timeline_from_entries(
             return False
 
         audio_clip_id = int(audio_entries[0].media_id)
+        # B-781: echte Achsen-Scores der Entscheidungen nachladen (best-effort).
+        axis_scores_by_cut = _load_decision_axis_scores(
+            audio_clip_id, session_factory,
+        )
         conn.execute("UPDATE timelines SET is_current = 0 WHERE is_current = 1")
         cur = conn.execute(
             "INSERT INTO timelines(name, audio_clip_id, created_at, config_json, is_current) "
@@ -159,6 +244,16 @@ def sync_current_timeline_from_entries(
             end_raw = getattr(entry, "end_time", None)
             end = float(end_raw) if end_raw is not None else start + 1.0
             clip_start = float(getattr(entry, "source_start", 0.0) or 0.0)
+            # B-781: Achsen-Scores dieser konkreten Entscheidung, falls
+            # (Clip, Startzeit) exakt auf eine mem_decision-Zeile passt.
+            scores = axis_scores_by_cut.get(
+                (int(entry.media_id), _round_ms(start))
+            )
+            scores_json = (
+                json.dumps({"confidence": 0.5, "brain_v3_scores": scores})
+                if scores
+                else '{"confidence": 0.5}'
+            )
             conn.execute(
                 """
                 INSERT INTO timeline_cuts(
@@ -174,7 +269,7 @@ def sync_current_timeline_from_entries(
                     start,
                     max(end, start),
                     clip_start,
-                    '{"confidence": 0.5}',
+                    scores_json,
                     '{"brain_v3_confidence": 0.5, "source": "main_timeline_sync"}',
                 ),
             )
@@ -285,6 +380,56 @@ def load_learning_preview_samples(
             )
         )
     return samples
+
+
+def load_learning_axis_contributions(
+    project_root: Path | None = None,
+    cut_ids: list[int] | None = None,
+) -> dict[int, dict[str, float]]:
+    """B-781: Achsen-Beitraege je Lern-Session-Cut aus ``state.db``.
+
+    Quelle ist ``timeline_cuts.brain_v3_scores_json`` — dort schreibt
+    ``sync_current_timeline_from_entries`` seit B-781 die echten Sub-Scores
+    der Entscheidung (Key ``brain_v3_scores``, identisches Vokabular wie
+    ``mem_decision.agent_rationale``). Die Auswertung laeuft deshalb ueber
+    denselben ``axis_contributions_from_rationale``-Parser wie der
+    Timeline-Pfad — kein zweites Format.
+
+    Bestandszeilen enthalten nur ``{"confidence": 0.5}``. Dafuer gibt es
+    keinen Eintrag im Ergebnis; der Aufrufer bleibt dann korrekt im
+    Uniform-Fallback statt Achsenwerte zu erfinden.
+
+    Returns:
+        ``{cut_id: {achse: score}}`` — nur fuer Cuts mit echten Scores.
+    """
+    from services.brain.feedback_logger import axis_contributions_from_rationale
+
+    wanted = {int(c) for c in cut_ids} if cut_ids else None
+
+    db_path = ensure_state_db(project_root)
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, c.brain_v3_scores_json
+            FROM timeline_cuts c
+            JOIN timelines t ON t.id = c.timeline_id
+            WHERE t.is_current = 1
+            ORDER BY c.position_idx ASC, c.id ASC
+            """
+        ).fetchall()
+
+    out: dict[int, dict[str, float]] = {}
+    for row in rows:
+        try:
+            cut_id = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        if wanted is not None and cut_id not in wanted:
+            continue
+        contribs = axis_contributions_from_rationale(_json_dict(row[1]))
+        if contribs:
+            out[cut_id] = contribs
+    return out
 
 
 def load_learning_cut_contexts(
