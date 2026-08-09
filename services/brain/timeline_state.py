@@ -201,7 +201,8 @@ def sync_current_timeline_from_entries(
     with sqlite3.connect(db_path) as conn:
         existing_rows = conn.execute(
             """
-            SELECT c.clip_id, c.start_time, c.end_time, c.clip_start
+            SELECT c.id, c.clip_id, c.start_time, c.end_time, c.clip_start,
+                   c.brain_v3_scores_json
             FROM timeline_cuts c
             JOIN timelines t ON t.id = c.timeline_id
             WHERE t.is_current = 1
@@ -209,20 +210,36 @@ def sync_current_timeline_from_entries(
             """
         ).fetchall()
         existing_video_keys = []
-        for clip_id, start_time, end_time, clip_start in existing_rows:
+        # B-784: Parallel-Liste (Row-ID, Cut-Schluessel, gespeicherte Scores),
+        # damit der Score-Refresh unten die Zeile wiederfindet, ohne sich auf
+        # die Index-Gleichheit mit ``existing_video_keys`` zu verlassen
+        # (unparsbare Zeilen werden dort uebersprungen).
+        existing_score_rows: list[tuple[int, tuple[int, int], str | None]] = []
+        for row_id, clip_id, start_time, end_time, clip_start, scores_json in existing_rows:
             try:
-                existing_video_keys.append((
+                key = (
                     int(clip_id),
                     _round_ms(float(start_time or 0.0)),
                     _round_ms(float(end_time or 0.0)),
                     _round_ms(float(clip_start or 0.0)),
-                ))
+                )
+                cut_row_id = int(row_id)
             except (TypeError, ValueError):
                 continue
-        if existing_video_keys == expected_video_keys:
-            return False
+            existing_video_keys.append(key)
+            existing_score_rows.append((cut_row_id, (key[0], key[1]), scores_json))
 
         audio_clip_id = int(audio_entries[0].media_id)
+        if existing_video_keys == expected_video_keys:
+            # B-784 Teil 2: Geometrie unveraendert heisst NICHT "nichts zu tun".
+            # Ein erneuter Pacing-Run mit identischem Schnittbild erzeugt neue
+            # ``mem_decision``-Zeilen; ohne Nachtrag blieben die Achsen-Scores
+            # der Cuts veraltet bzw. leer und der Lern-Dialog im
+            # Uniform-Fallback (siehe B-781).
+            return _refresh_axis_scores_in_place(
+                conn, existing_score_rows, audio_clip_id, session_factory,
+            )
+
         # B-781: echte Achsen-Scores der Entscheidungen nachladen (best-effort).
         axis_scores_by_cut = _load_decision_axis_scores(
             audio_clip_id, session_factory,
@@ -275,6 +292,112 @@ def sync_current_timeline_from_entries(
             )
         conn.commit()
     return True
+
+
+def _refresh_axis_scores_in_place(
+    conn: sqlite3.Connection,
+    rows: list[tuple[int, tuple[int, int], str | None]],
+    audio_clip_id: int,
+    session_factory: SessionFactory | None,
+) -> bool:
+    """B-784 Teil 2: Achsen-Scores nachtragen, ohne die Timeline neu zu bauen.
+
+    Die Change-Detection von ``sync_current_timeline_from_entries`` verglich bis
+    B-784 ausschliesslich die Geometrie. Lief ein zweiter Pacing-Run mit
+    identischem Schnittbild, kehrte der Sync mit ``False`` zurueck und die
+    frischen ``mem_decision``-Achsenwerte erreichten ``timeline_cuts`` nie.
+
+    Geschrieben wird nur, was sich tatsaechlich unterscheidet — ist alles
+    identisch (oder gibt es gar keine Entscheidungen), bleibt die DB
+    unangetastet und der Sync meldet weiterhin ``False``.
+
+    Args:
+        rows: ``(timeline_cuts.id, (clip_id, start_ms), brain_v3_scores_json)``.
+    """
+    if not rows:
+        return False
+    axis_scores_by_cut = _load_decision_axis_scores(audio_clip_id, session_factory)
+    if not axis_scores_by_cut:
+        return False
+
+    updated = 0
+    for row_id, cut_key, scores_json in rows:
+        scores = axis_scores_by_cut.get(cut_key)
+        if not scores:
+            continue
+        data = _json_dict(scores_json)
+        if data.get("brain_v3_scores") == scores:
+            continue
+        data["brain_v3_scores"] = scores
+        conn.execute(
+            "UPDATE timeline_cuts SET brain_v3_scores_json = ? WHERE id = ?",
+            (json.dumps(data), row_id),
+        )
+        updated += 1
+    if updated:
+        conn.commit()
+        logger.info(
+            "B-784: %d timeline_cuts mit frischen Achsen-Scores aktualisiert "
+            "(Geometrie unveraendert).", updated,
+        )
+    return bool(updated)
+
+
+def sync_current_timeline_after_apply(
+    project_id: int | None = None,
+    project_root: Path | None = None,
+    session_factory: SessionFactory | None = None,
+) -> bool:
+    """B-784: Brain-V3-Lernzustand aus den echten ``TimelineEntry``-Zeilen ziehen.
+
+    Produktions-Einstieg fuer ``sync_current_timeline_from_entries``. Vorher gab
+    es ausser Tests keinen Aufrufer — ``timeline_cuts`` blieb in beiden echten
+    ``brain_v3/state.db`` leer und ``BrainV3Service.learning_session`` fiel
+    immer auf den Weight-Bucket-Sampler ohne Medienpfade zurueck.
+
+    Aufgerufen wird das nach dem Auto-Edit-Apply: dort steht die Timeline
+    genau so in der Haupt-DB, wie der Pacing-Run sie erzeugt hat, und die
+    passenden ``mem_decision``-Zeilen des juengsten Runs liegen vor.
+
+    Faellt NIE mit einer Exception aus — der Apply darf daran nicht scheitern.
+
+    Returns:
+        ``True``, wenn ``state.db`` veraendert wurde.
+    """
+    try:
+        if project_id is None:
+            from database import get_active_project_id
+
+            project_id = get_active_project_id()
+        if project_id is None:
+            logger.info(
+                "B-784: kein aktives Projekt — Brain-V3-Timeline-Sync uebersprungen.")
+            return False
+
+        sf = session_factory or database.nullpool_session
+        with sf() as session:
+            # column-select statt ORM-Voll-Load: der Sync liest nur diese
+            # fuenf Skalare (Muster B-090).
+            entries = list(
+                session.execute(
+                    select(
+                        database.TimelineEntry.track,
+                        database.TimelineEntry.media_id,
+                        database.TimelineEntry.start_time,
+                        database.TimelineEntry.end_time,
+                        database.TimelineEntry.source_start,
+                    ).where(database.TimelineEntry.project_id == int(project_id))
+                ).all()
+            )
+        return sync_current_timeline_from_entries(
+            project_root, entries, session_factory,
+        )
+    except Exception as exc:  # broad: darf den Apply nie brechen
+        logger.warning(
+            "B-784: Brain-V3-Timeline-Sync nach Apply fehlgeschlagen: %s",
+            exc, exc_info=True,
+        )
+        return False
 
 
 def load_learning_preview_samples(

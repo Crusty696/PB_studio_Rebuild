@@ -1,6 +1,7 @@
 """EditWorkspaceController — Refactored from EditWorkspaceMixin."""
 
 import logging
+import threading
 from pathlib import Path
 from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QDoubleSpinBox,
@@ -539,12 +540,20 @@ class EditWorkspaceController(PBComponent):
             )
 
         from ui.undo_commands import ApplyAutoEditCommand
+        project_id = get_active_project_id()
         cmd = ApplyAutoEditCommand(
             timeline=self.window.timeline_view,
-            project_id=get_active_project_id(),
+            project_id=project_id,
             new_segments=segments,
         )
         self.window.timeline_view.undo_stack.push(cmd)
+
+        # B-784: Brain-V3-Lernzustand direkt nach dem Apply nachziehen. Ohne
+        # diesen Aufruf schreibt niemand ``timeline_cuts`` in
+        # ``brain_v3/state.db`` — ``BrainV3Service.learning_session`` faellt dann
+        # immer auf den Weight-Bucket-Sampler ohne Medienpfade zurueck und
+        # B-732/B-733/B-781 wirken live nicht.
+        self._start_brain_learning_sync(project_id)
 
         # Fixplan 2026-07-07 Schritt 7/7c: Verwendungs-Markierung im
         # MATERIAL-Pool (Tabelle gruen vs. ausgegraut, Grid-Badges,
@@ -629,6 +638,50 @@ class EditWorkspaceController(PBComponent):
 
         # BUG-A Fix: SchnittWorkspace nach Auto-Edit auf Editor-State umschalten
         self._defer_schnitt_workspace_refresh()
+
+    def _start_brain_learning_sync(self, project_id: int | None):
+        """B-784: ``timeline_cuts`` in ``brain_v3/state.db`` nachziehen.
+
+        Off-thread, weil dieser Pfad im GUI-Thread laeuft: ``AutoEditWorker``
+        liefert ueber ``worker_dispatcher._start_worker_thread`` mit
+        ``Qt.QueuedConnection`` ab, ``_on_auto_edit_finished`` ist also die
+        Event-Loop des GUI-Threads. Der Sync liest die ``mem_decision``-Zeilen
+        des juengsten Runs und schreibt pro Cut eine Zeile — bei einem
+        DJ-Mix sind das vierstellig viele.
+
+        Fehler bleiben folgenlos: der Apply ist zu diesem Zeitpunkt bereits
+        durch, der Lernzustand ist Zusatznutzen.
+
+        Returns:
+            Den gestarteten Thread, sonst ``None``.
+        """
+        try:
+            from services.brain import timeline_state as _timeline_state
+
+            # Zwei Auto-Edits kurz hintereinander wuerden sonst zwei Syncs
+            # gleichzeitig auf dieselbe state.db schreiben — SQLite quittiert
+            # das mit "database is locked", und der zweite Lauf ginge
+            # verloren. Laeuft noch einer, ueberspringen: er schreibt ohnehin
+            # den aktuellen Timeline-Stand.
+            _running = getattr(self, "_brain_learning_sync_thread", None)
+            if _running is not None and _running.is_alive():
+                logger.info(
+                    "B-784: Lern-Sync laeuft bereits — kein zweiter Start.")
+                return None
+
+            thread = threading.Thread(
+                target=_timeline_state.sync_current_timeline_after_apply,
+                kwargs={"project_id": project_id},
+                name="brain-v3-learning-sync",
+                daemon=True,
+            )
+            thread.start()
+            self._brain_learning_sync_thread = thread
+            return thread
+        except Exception as exc:  # broad: darf den Apply nie brechen
+            logger.warning(
+                "B-784: Brain-V3-Lern-Sync konnte nicht gestartet werden: %s", exc)
+            return None
 
     def _latest_mem_pacing_run_id(self, audio_id: int | None) -> int | None:
         if audio_id is None:
