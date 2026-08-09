@@ -63,6 +63,46 @@ from agents.orchestrator.routing_tables import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+# B-788: Reservierte Satz-Praefixe fuer eine ausdrueckliche Gedaechtnis-Frage.
+# Analog zu has_explicit_learn_intent (services/brain_gateway.py, B-782) wird
+# NUR der Satzanfang geprueft — und nur Formulierungen, die sich an das Wissen
+# des Assistenten selbst richten ("du"/"dir" + Wissens-/Erinnerungsverb).
+# Damit bleibt eine echte Video-Analyse-Anfrage ("Analysiere Clip 42",
+# "Was ist auf Clip 42 zu sehen?") unberuehrt: sie fragt nach Bildinhalt,
+# nicht nach dem Gedaechtnis, und beginnt mit keinem dieser Praefixe.
+# Hinweis: str.casefold() normalisiert "ß" zu "ss", "Was weißt du ..." trifft
+# daher denselben Praefix wie "Was weisst du ...".
+_RECALL_PREFIXES = (
+    "was weisst du",
+    "was weist du",
+    "weisst du noch",
+    "weist du noch",
+    "erinnerst du dich",
+    "woran erinnerst du dich",
+    "was hast du dir gemerkt",
+    "what do you know about",
+    "do you remember",
+)
+# Zweiteilige Form: "Was hast du dir ZU CLIP 42 gemerkt?" — Praefix allein waere
+# zu weit ("Was hast du dir ueberlegt"), deshalb zusaetzlich ein Gedaechtnis-Verb.
+_RECALL_SPLIT_PREFIX = "was hast du dir"
+_RECALL_SPLIT_VERBS = ("gemerkt", "notiert", "gespeichert")
+
+
+def _has_explicit_recall_intent(user_text: str) -> bool:
+    """B-788: True nur bei einer ausdruecklichen Frage nach dem Gedaechtnis.
+
+    Bewusst eng gehalten (Praefix-Matching wie has_explicit_learn_intent):
+    eine beilaeufige Erwaehnung von "weisst"/"gemerkt" mitten im Satz
+    veraendert das Routing nicht.
+    """
+    text = (user_text or "").strip().casefold()
+    if text.startswith(_RECALL_PREFIXES):
+        return True
+    if text.startswith(_RECALL_SPLIT_PREFIX):
+        return any(verb in text for verb in _RECALL_SPLIT_VERBS)
+    return False
+
 
 class OrchestratorAgent(BaseAgent):
     """Orchestrator: Verteilt Anfragen an spezialisierte Agenten oder das Action-Registry.
@@ -924,8 +964,18 @@ class OrchestratorAgent(BaseAgent):
 
             learn_intent = has_explicit_learn_intent(user_text)
 
+            # B-788: Dasselbe gilt fuer die Gegenrichtung — eine ausdrueckliche
+            # Frage nach dem Gedaechtnis ("Was weisst du ueber Clip X?") landete
+            # per Score-Routing (0.45 wegen "Clip") beim VisionAgent und endete
+            # in "Video-Analyse benoetigt eine clip_id", ohne je einen Recall
+            # auszuloesen. _has_explicit_recall_intent matcht nur reservierte
+            # Satz-Praefixe, echte Video-Fragen ("Was ist auf Clip 42 zu
+            # sehen?") routen unveraendert zum Vision-Agenten.
+            recall_intent = _has_explicit_recall_intent(user_text)
+
             # 3. Spezialisierter Agent
-            agent = None if learn_intent else self._route_to_agent(user_text)
+            skip_agent_routing = learn_intent or recall_intent
+            agent = None if skip_agent_routing else self._route_to_agent(user_text)
             if agent is not None:
                 # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
                 if self._model_manager and agent.model_id:
