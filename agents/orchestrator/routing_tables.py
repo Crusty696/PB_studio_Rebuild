@@ -108,6 +108,12 @@ WRITE_ACTIONS: frozenset[str] = frozenset({
 READ_INTENT_KEYWORDS = (
     "zeige", "zeig ", "zeig'", "show", "anzeige", "anzeigen",
     "wie ist", "wie steht", "gib mir", "was ist der",
+    # B-791: Abfragen nach Mengen sind ebenfalls reine Lese-Anfragen.
+    # "Wie viele Clips hat dieses Projekt?" fiel bis dahin durch dieses
+    # Raster, wurde per Score-Routing (0.45 wegen "Clips") vom
+    # VisionAgent gefangen und endete live in "Malformed action JSON".
+    # Die Zahl steht in summarize_project bereits bereit.
+    "wie viele", "wieviele", "wie viel ", "anzahl", "how many",
 )
 PROJECT_MENTION_KEYWORDS = (
     "projektstatus", "projekt", "project", "ueberblick", "überblick", "overview",

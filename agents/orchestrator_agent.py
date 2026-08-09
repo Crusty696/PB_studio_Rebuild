@@ -750,6 +750,23 @@ class OrchestratorAgent(BaseAgent):
         first = re.split(r"[^a-zäöüß]+", text, maxsplit=1)[0]
         return first in _ACTION_COMMAND_VERBS
 
+    @staticmethod
+    def _is_project_status_read(user_text: str) -> bool:
+        """B-791: Reine Erkennung, getrennt vom Ausfuehren.
+
+        Wird an zwei Stellen gebraucht: einmal als Bypass VOR dem
+        Score-Routing (sonst faengt der VisionAgent die Frage ab) und
+        einmal im Handler selbst. Bewusst eine UND-Bedingung — erst
+        Lese-Absicht UND Projekt-Bezug zusammen machen die Anfrage
+        eindeutig, "Wie viele Clips sind unscharf?" bleibt damit beim
+        Vision-Agenten.
+        """
+        text_lower = user_text.lower()
+        return (
+            any(kw in text_lower for kw in READ_INTENT_KEYWORDS)
+            and any(kw in text_lower for kw in PROJECT_MENTION_KEYWORDS)
+        )
+
     def _handle_project_status_read(self, user_text: str) -> dict[str, Any] | None:
         """B-468: Routet Read-Intent-Projektstatus-Anfragen zu summarize_project.
 
@@ -760,10 +777,7 @@ class OrchestratorAgent(BaseAgent):
         """
         from services.action_registry import action_registry
 
-        text_lower = user_text.lower()
-        has_read = any(kw in text_lower for kw in READ_INTENT_KEYWORDS)
-        mentions_project = any(kw in text_lower for kw in PROJECT_MENTION_KEYWORDS)
-        if not (has_read and mentions_project):
+        if not self._is_project_status_read(user_text):
             return None
 
         logger.info(
@@ -973,8 +987,16 @@ class OrchestratorAgent(BaseAgent):
             # sehen?") routen unveraendert zum Vision-Agenten.
             recall_intent = _has_explicit_recall_intent(user_text)
 
+            # B-791: Und dasselbe fuer Projekt-Statusfragen. Der Handler
+            # dafuer existiert seit B-468, lief aber ERST NACH dem
+            # Agent-Routing — "Wie viele Clips hat dieses Projekt?"
+            # erreichte ihn nie, sondern endete beim VisionAgent in
+            # "Malformed action JSON". Die UND-Bedingung (Lese-Absicht
+            # UND Projekt-Bezug) haelt echte Video-Fragen fern.
+            status_intent = self._is_project_status_read(user_text)
+
             # 3. Spezialisierter Agent
-            skip_agent_routing = learn_intent or recall_intent
+            skip_agent_routing = learn_intent or recall_intent or status_intent
             agent = None if skip_agent_routing else self._route_to_agent(user_text)
             if agent is not None:
                 # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
