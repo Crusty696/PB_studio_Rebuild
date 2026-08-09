@@ -353,6 +353,39 @@ Jeder Flow-Eintrag hat:
   `console_text`-Zeilen (`[StemPlayer] ...`), die NICHT in stdout/Logfile
   landen — fuer B-761-artige Verifikationen Panel-Screenshot noetig.
 
+### 2.22 B-643 Live-Verify — SCHNITT/Audio-Thumbnail-Sturm mit 1415-Segmente-Projekt — NEU 2026-08-09
+- **Ziel:** Live-Verify des Fix-Commits `ba12528` (Timeline-Thumbnails ueber
+  geteilten QThreadPool statt QThread-pro-Thumbnail) gegen Original-Repro
+  aus B-643 (32+ sichtbare Clips, AppHang > 6 Min, Windows-Kill AppHangB1).
+- **Vorbedingung:** Testprojekt `new_test_august` (1415 Timeline-Segmente
+  Video + 1 Audio) — deutlich mehr Last als das urspruengliche `test33`
+  (32 Clips).
+- **Falle:** `gui_harness start --stability-project <pfad>` laedt das
+  Projekt NICHT automatisch (anders als beim normalen App-Autoload-Verhalten
+  aus 2.21) — Cockpit zeigt "Kein Projekt aktiv". Projekt danach ganz normal
+  ueber PROJEKT-Tab -> "Projekt oeffnen" -> Pfad tippen -> "Oeffnen" laden
+  (Flow 2.2).
+- **Schritte:** SCHNITT-Tab (x=1470,y=154) -> Sub-Tab `Audio` (x=470,y=287,
+  3240x2160) -> optional Sub-Sub-Tab `ONSETS` (x=228,y=1756) -> zurueck zu
+  `Schnitt` (x=84,y=287) -> wieder `Audio`. 6x wiederholt, davon 3x ohne
+  Pause direkt hintereinander (aggressivste Provokation).
+- **Live-Befund 2026-08-09 (PASS):** Thumbnail-Sturm eindeutig ausgeloest
+  (32 `[T1] thumb worker start`-Zeilen in ~3s beim ersten Audio-Klick,
+  identisches Muster wie im Bugfile). App blieb in JEDEM der 6 Zyklen
+  durchgehend responsiv: kein `(Keine Rueckmeldung)` im Fenstertitel (per
+  `list-windows` gepollt), `logs/freeze_stacks.log`-mtime blieb unveraendert
+  seit App-Boot (kein einziger neuer Freeze-Stack-Dump), 0 Crash-Marker
+  (`CRITICAL`/`Traceback`/`AppHang`) im gesamten Testfenster (279 Log-Zeilen
+  geprueft). Max. Slow-Event 529ms (weit unter 3s-Watchdog-Schwelle,
+  frueher waren es bis 130ms Paint/MetaCall-Events beim urspruenglichen
+  Sturm). `request_visible`-Log zeigt am Ende `inflight=0` — kein
+  Thumbnail-Leak im `ThumbnailLoadManager`. Fix-Commit `ba12528` haelt der
+  Live-Probe stand — B-643 mit dieser Methodik NICHT reproduzierbar,
+  ABER: B-643 war laut Bugfile selbst intermittierend (Boot 1 hing, Boot 2
+  lief durch) — ein einzelner sauberer Testlauf mit 6 Zyklen beweist keine
+  vollstaendige Absenz des Restrisikos, macht es aber sehr unwahrscheinlich
+  angesichts des strukturellen Fixes (QThreadPool statt Thread-Churn).
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
