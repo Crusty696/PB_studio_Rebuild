@@ -253,14 +253,34 @@ def _prepare_normalized_audio(audio_path: str | None, temp_files: list,
     return audio_path, step
 
 
+def _emit_export_warning(warning_cb, message: str) -> None:
+    """B-580: Warnung an den Aufrufer, ohne den Export zu gefaehrden.
+
+    Ein defekter Callback des Aufrufers darf einen laufenden Export nie
+    abbrechen — der Fehler wird geloggt und verschluckt.
+    """
+    if warning_cb is None:
+        return
+    try:
+        warning_cb(message)
+    except Exception as exc:  # broad: UI-Callback darf Export nicht kippen
+        logger.warning("Export-warning_cb fehlgeschlagen: %s", exc)
+
+
 def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                     resolution: str = "1920x1080", fps: float = 30.0,
-                    progress_cb=None, cancel_check=None) -> str:
+                    progress_cb=None, cancel_check=None,
+                    warning_cb=None) -> str:
     """Exportiert alle Timeline-Eintraege als zusammengeschnittenes Video.
 
     B-116: ``cancel_check`` ist optional eine Callable[[], bool], die
     waehrend des laufenden ffmpeg-Calls regelmaessig abgefragt wird.
-    Bei True wird der Subprocess terminiert."""
+    Bei True wird der Subprocess terminiert.
+
+    B-580: ``warning_cb`` ist optional eine Callable[[str], None] fuer
+    Befunde, die den Export nicht abbrechen, den User aber trotzdem
+    erreichen muessen — allen voran uebersprungene Segmente. Ohne
+    ``warning_cb`` bleibt es beim reinen Logeintrag (Bestandsverhalten)."""
     # B-118: orphan tempfile cleanup beim Start — fruehere Exports
     # konnten unter Windows-File-Locks ihre Tempfiles nicht aufraeumen.
     _cleanup_orphan_tempfiles()
@@ -379,6 +399,18 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 "fehlende/soft-geloeschte VideoClips und wurden NICHT exportiert",
                 _missing_clip_count, len(video_entries),
             )
+            # B-580 Nachtrag 2026-08-09: der Logeintrag allein erreichte den
+            # User nie — der Export meldete Erfolg, das Ergebnis war still
+            # kuerzer (live gemessen: 4.0s statt 6.0s). Der Export bricht
+            # weiterhin bewusst NICHT ab (B-693), aber der Verlust wird
+            # jetzt nach oben gereicht.
+            _emit_export_warning(
+                warning_cb,
+                f"{_missing_clip_count} von {len(video_entries)} "
+                f"Video-Segmenten fehlen (geloeschte oder nicht mehr "
+                f"vorhandene Clips) und wurden NICHT exportiert. Das "
+                f"Video ist entsprechend kuerzer als die Timeline.",
+            )
 
         audio_source = None
         if audio_entries:
@@ -424,6 +456,12 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 "kuerzer als Audio (lokaler A/V-Versatz), Export laeuft aber durch "
                 "statt abzubrechen.",
                 _missing_clip_count, _total_shift,
+            )
+            _emit_export_warning(
+                warning_cb,
+                f"Timeline-Luecke von {_total_shift:.2f}s geschlossen — das "
+                f"Video ist um diese Dauer kuerzer als das Audio (A/V-Versatz "
+                f"ab der Luecke).",
             )
 
     # B-769: Manuelle Timeline-Operationen (Trim/Remove/Move in ui/) schreiben

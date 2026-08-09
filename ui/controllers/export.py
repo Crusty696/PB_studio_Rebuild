@@ -2,6 +2,7 @@
 
 import logging
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 from database import get_active_project_id
 from services.task_manager import TaskManagerProxy
 from services.export_service import get_timeline_summary, estimate_render_time
@@ -170,6 +171,8 @@ class ExportController(PBComponent):
             f"Preset: {preset_key})"
         )
 
+        # B-580: Warnungen dieses Laufs sammeln (pro Export zuruecksetzen).
+        self._export_warnings: list[str] = []
         worker = ExportWorker(project_id=get_active_project_id(), output_name=output_name,
                               resolution=resolution, fps=fps)
         worker.task_id = task.task_id
@@ -182,12 +185,27 @@ class ExportController(PBComponent):
             lambda err: self._on_export_error(err, task.task_id),
             Qt.ConnectionType.QueuedConnection,
         )
+        worker.warning.connect(
+            self._on_export_warning, Qt.ConnectionType.QueuedConnection,
+        )
         self.window.worker_dispatcher._start_worker_thread(worker)
 
     def _on_export_progress(self, pct: int, message: str):
         self.window.export_progress.setRange(0, 100)
         self.window.export_progress.setValue(pct)
         self.window.export_log.append(f"[Export] {message} ({pct}%)")
+
+    def _on_export_warning(self, message: str):
+        """B-580: Export laeuft weiter, der User erfaehrt es aber.
+
+        Bisher stand der Verlust nur im Logfile — der Export meldete
+        Erfolg und lieferte still ein kuerzeres Video.
+        """
+        if not hasattr(self, "_export_warnings"):
+            self._export_warnings = []
+        self._export_warnings.append(message)
+        self.window.export_log.append(f"[WARNUNG] {message}")
+        self.window.console_text.append(f"[Export-Warnung] {message}")
 
     def _on_export_finished(self, output_path: str, task_id: str = ""):
         self.window.btn_export.setEnabled(True)
@@ -199,7 +217,20 @@ class ExportController(PBComponent):
             return
         self.window.export_log.append(f"[Export] FERTIG: {output_path}")
         self.window.console_text.append(f"[Export] Video exportiert: {output_path}")
-        self.window.status_bar.showMessage(f"Export fertig: {output_path}")
+        # B-580: "fertig" darf einen Materialverlust nicht ueberdecken.
+        if getattr(self, "_export_warnings", None):
+            _warn_text = "\n".join(f"- {w}" for w in self._export_warnings)
+            self.window.status_bar.showMessage(
+                f"Export fertig MIT WARNUNGEN: {output_path}"
+            )
+            QMessageBox.warning(
+                self.window,
+                "Export mit Materialverlust abgeschlossen",
+                f"Der Export wurde erstellt, aber nicht vollstaendig:\n\n"
+                f"{_warn_text}\n\nDatei: {output_path}",
+            )
+        else:
+            self.window.status_bar.showMessage(f"Export fertig: {output_path}")
         if task_id:
             task_manager.finish_task(task_id, "finished", output_path)
 

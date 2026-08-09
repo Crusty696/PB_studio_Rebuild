@@ -148,6 +148,9 @@ class ExportWorker(QObject, CancellableMixin):
     finished = Signal(str)
     error = Signal(str)
     progress = Signal(int, str)
+    # B-580: Befunde, die den Export nicht abbrechen, den User aber
+    # erreichen muessen (uebersprungene Segmente, geschlossene Luecken).
+    warning = Signal(str)
 
     def __init__(self, project_id: int, output_name: str,
                  resolution: str = "1920x1080", fps: float = 30.0):
@@ -169,6 +172,7 @@ class ExportWorker(QObject, CancellableMixin):
                 # B-116 / B-121: ffmpeg subprocess kann jetzt mid-run via
                 # User-Cancel terminiert werden.
                 cancel_check=self.should_stop,
+                warning_cb=lambda msg: self.warning.emit(msg),
             )
             self.finished.emit(path)
             _ok = True
