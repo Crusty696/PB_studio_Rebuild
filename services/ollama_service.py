@@ -91,7 +91,7 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
 
 
 # B-780: Untergrenze fuer ein plausibles ollama-Binary. Reale Groessen
-# liegen bei ~35 MB (0.32.6) bzw. ~30 MB (0.21.2); 1 MB trennt sicher
+# liegen bei ~34 MB (0.32.6) bzw. ~39 MB (0.21.2); 1 MB trennt sicher
 # zwischen echtem Binary und Platzhalter/Textdatei, ohne kuenftige
 # schlankere Builds auszusperren.
 _MIN_OLLAMA_BIN_BYTES: int = 1_000_000
@@ -108,10 +108,12 @@ def _find_ollama_bin() -> Path:
     if env_bin:
         p = Path(env_bin)
         if p.exists():
-            # B-780: exists() allein reicht nicht. Real vorgefunden
-            # (2026-08-09): der gepinnte Pfad war eine 1-Byte-Datei —
-            # ein Platzhalter, der diesen Check passierte und als
-            # gueltiges Binary geloggt wurde. Der kaputte Pin maskierte
+            # B-780: exists() allein reicht nicht — ein Platzhalter oder
+            # abgebrochener Download passiert den Check und wird als
+            # gueltiges Binary geloggt. Praeventive Haertung; der
+            # urspruengliche Verdacht, der Pin HIER sei eine 1-Byte-Datei,
+            # war ein Messfehler (das Binary ist intakt, 41 MB, 0.21.2 —
+            # Korrektur 2026-08-09). Ein kaputter Pin maskierte
             # damit jede funktionierende Alternative, und der Start
             # scheiterte erst spaeter unverstaendlich.
             try:
