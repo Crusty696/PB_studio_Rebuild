@@ -413,6 +413,23 @@ Jeder Flow-Eintrag hat:
   Betroffene Zeitspannen keinem Ticket zurechnen, sondern den Schritt in
   einer sauberen Session wiederholen.
 
+### 2.24 `click-element --name-re` ohne Window-Scope trifft System-Fenster — NEU 2026-08-09
+- **Falle:** `click-element --name-re "Einstellungen"` traf die **Windows-
+  Settings-App** statt den PB-Studio-Button — beide Fenster hiessen zu
+  dem Zeitpunkt "Einstellungen".
+- **Regel:** Bei Namen, die mit System-Fenstern kollidieren koennen, nie
+  `click-element` mit blossem `--name-re` verwenden. Stattdessen
+  `find-element --window-title "PB_studio" --name-re "..."` und den
+  gefundenen Treffer per Koordinate klicken.
+- **Shutdown-Dialogkette (Klarstellung, kein Bug):** Bei dirty Projekt
+  fragt `main.py::closeEvent` zuerst "Es gibt ungespeicherte
+  Aenderungen. **Trotzdem beenden?**". "No" bedeutet hier *nicht
+  beenden* -> `event.ignore()`, die App bleibt offen und die
+  "Laufende Tasks"-Prompt erscheint bewusst nicht mehr. Wer die
+  Tasks-Prompt testen will, muss vorher speichern (oder mit "Yes"
+  antworten). Am 2026-08-09 wurde das einmal faelschlich als Bug
+  gemeldet.
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
