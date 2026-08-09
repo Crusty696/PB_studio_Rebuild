@@ -914,8 +914,18 @@ class OrchestratorAgent(BaseAgent):
             if destructive is not None:
                 return destructive
 
+            # B-782: Ein ausdruecklicher Merk-/Speicherauftrag ("Merke dir: ...")
+            # muss den Brain-Gateway erreichen und darf nicht vom Keyword-Score-
+            # Routing gekapert werden, nur weil er Vokabular wie "Drop" enthaelt.
+            # has_explicit_learn_intent matcht ausschliesslich reservierte
+            # Satz-Praefixe, eine beilaeufige Erwaehnung von "merken" mitten in
+            # einer Pacing-Frage laesst das Routing daher unveraendert.
+            from services.brain_gateway import has_explicit_learn_intent
+
+            learn_intent = has_explicit_learn_intent(user_text)
+
             # 3. Spezialisierter Agent
-            agent = self._route_to_agent(user_text)
+            agent = None if learn_intent else self._route_to_agent(user_text)
             if agent is not None:
                 # ModelManager: Agent-Modell laden falls nötig (mit korrektem model_type)
                 if self._model_manager and agent.model_id:
@@ -958,9 +968,7 @@ class OrchestratorAgent(BaseAgent):
             # B-411: Ein Aktions-Befehl, der bis hierher KEINEN Executor erreicht hat
             # (kein Agent/keine Action, Modell ohne Tool-Support), darf nicht in einer
             # halluzinierten LLM-Erfolgsmeldung enden. Transparent ablehnen statt chat().
-            from services.brain_gateway import has_explicit_learn_intent
-
-            learn_intent = has_explicit_learn_intent(user_text)
+            # learn_intent wurde oben (B-782) bereits einmal ermittelt.
             if self._looks_like_action_command(user_text) and not learn_intent:
                 return {
                     "agent": self.name,
