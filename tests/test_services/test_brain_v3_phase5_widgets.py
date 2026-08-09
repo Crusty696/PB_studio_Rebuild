@@ -54,6 +54,27 @@ def _assert_no_default_memory_updater() -> None:
     assert memory_updater._default_memory_updater is None
 
 
+@pytest.fixture(autouse=True)
+def _reset_default_memory_updater():
+    """``_default_memory_updater`` ist ein Modul-Singleton.
+
+    Legt es ein frueher gelaufener Test an (z.B. ueber den
+    App-Ende-Flush-Pfad) und raeumt nicht auf, sehen die drei
+    ``_assert_no_default_memory_updater``-Tests hier einen Fremd-Updater
+    und schlagen fehl — isoliert sind sie gruen, im Gesamtlauf rot.
+    Vorbestehend (gegen Commit 4bacfb5 im Baseline-Worktree
+    reproduziert, 3 failed), nicht durch die B-78x-Fixes verursacht.
+
+    Der Reset stellt den Vertrag wieder her: gemessen wird, ob DIESER
+    Testpfad einen Updater erzeugt — nicht, was Vorgaenger hinterliessen.
+    """
+    import workers.memory_updater as memory_updater
+
+    memory_updater._default_memory_updater = None
+    yield
+    memory_updater._default_memory_updater = None
+
+
 @pytest.fixture
 def isolated_appdata(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))

@@ -49,9 +49,25 @@ def _no_sleep(monkeypatch):
 
     Patcht ``time.sleep`` am Modul-Objekt — der Service importiert
     ``time as _time``, also dieselbe Referenz.
+
+    Der Patch ist damit aber prozessweit: Hintergrund-Threads aus
+    frueher gelaufenen Tests (Polling-Schleifen, Qt-Timer) schlagen
+    sonst mit auf und blaehen die Liste auf. Im Gesamtlauf standen so
+    1.519.712 statt 2 Eintraege — der Test war nur isoliert gruen.
+    Deshalb ausschliesslich Sleeps des Testthreads zaehlen; der
+    Retry-Loop von ``sync_dialog_anchors`` laeuft synchron in genau
+    diesem Thread.
     """
+    import threading
+
     waits: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: waits.append(s))
+    _test_thread_id = threading.get_ident()
+
+    def _fake_sleep(seconds):
+        if threading.get_ident() == _test_thread_id:
+            waits.append(seconds)
+
+    monkeypatch.setattr(time, "sleep", _fake_sleep)
     return waits
 
 
