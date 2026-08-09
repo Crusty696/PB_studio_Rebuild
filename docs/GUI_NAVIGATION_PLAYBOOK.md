@@ -386,6 +386,33 @@ Jeder Flow-Eintrag hat:
   vollstaendige Absenz des Restrisikos, macht es aber sehr unwahrscheinlich
   angesichts des strukturellen Fixes (QThreadPool statt Thread-Churn).
 
+### 2.23 Zwei parallele App-Instanzen + Tastatur-Eingabe — NEU 2026-08-09
+- **Falle (real passiert, zweimal):** Laufen zwei PB_studio-Fenster
+  gleichzeitig (identischer Titel `Director's Cockpit`, identische
+  Vollbild-Geometrie), liefert `pygetwindow` bzw.
+  `gui_harness list-windows` **non-deterministisch nur eines** der beiden.
+  Koordinaten-Klicks landen dann im falschen Prozess. Am 2026-08-09
+  loeste ein Isolations-Test dadurch im Fenster eines anderen Testlaufs
+  ein `Projekt geoeffnet: new_test_august` aus, und ein zweiter Vorfall
+  (04:57) erzeugte Fremd-Klicks samt `SettingsDialog` in einer fremden
+  Instanz.
+- **Regel:** **Nie zwei GUI-Testlaeufe parallel.** Wenn es unvermeidbar
+  ist, das fremde Fenster per `ShowWindow(SW_MINIMIZE)` minimieren und
+  das eigene per `pywinauto Application(process=<PID>).top_window()
+  .set_focus()` gezielt fokussieren — rohes `SetForegroundWindow` wird
+  von Windows blockiert. Immer gegen die **eigene PID** targeten, nie
+  blind auf Bildschirmkoordinaten.
+- **Tastatur-Falle:** `gui_harness type` / `pyautogui.typewrite` in ein
+  bereits befuelltes `QLineEdit` erzeugt verschachtelten, verstuemmelten
+  Text (Fokus-Race + Layout). Robust ist stattdessen `pywinauto` UIA
+  `edit.set_edit_text(...)` — setzt den Wert direkt, umgeht Tastatur-
+  Layout und Fokus komplett.
+- **Kontaminations-Check nach jedem Lauf:** Log-Offset vor dem Test
+  merken und hinterher pruefen, ob im Testfenster Events auftauchen, die
+  man nicht selbst gesendet hat (`MousePress`, `SLOW EVENT ... QMenu`).
+  Betroffene Zeitspannen keinem Ticket zurechnen, sondern den Schritt in
+  einer sauberen Session wiederholen.
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
