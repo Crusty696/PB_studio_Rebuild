@@ -90,6 +90,13 @@ def _resolve_default_model(base_url: str = OLLAMA_BASE) -> str | None:
     return None
 
 
+# B-780: Untergrenze fuer ein plausibles ollama-Binary. Reale Groessen
+# liegen bei ~35 MB (0.32.6) bzw. ~30 MB (0.21.2); 1 MB trennt sicher
+# zwischen echtem Binary und Platzhalter/Textdatei, ohne kuenftige
+# schlankere Builds auszusperren.
+_MIN_OLLAMA_BIN_BYTES: int = 1_000_000
+
+
 def _find_ollama_bin() -> Path:
     """Ollama-Binary suchen: PB_OLLAMA_BIN > PyInstaller-Bundle > System-PATH > Standard-Pfade."""
     import sys
@@ -101,9 +108,31 @@ def _find_ollama_bin() -> Path:
     if env_bin:
         p = Path(env_bin)
         if p.exists():
-            logger.info("Ollama-Binary via PB_OLLAMA_BIN: %s", p)
-            return p
-        logger.warning("PB_OLLAMA_BIN='%s' existiert nicht — normale Suche.", env_bin)
+            # B-780: exists() allein reicht nicht. Real vorgefunden
+            # (2026-08-09): der gepinnte Pfad war eine 1-Byte-Datei —
+            # ein Platzhalter, der diesen Check passierte und als
+            # gueltiges Binary geloggt wurde. Der kaputte Pin maskierte
+            # damit jede funktionierende Alternative, und der Start
+            # scheiterte erst spaeter unverstaendlich.
+            try:
+                size = p.stat().st_size
+            except OSError as exc:
+                logger.warning(
+                    "PB_OLLAMA_BIN='%s' nicht lesbar (%s) — normale Suche.",
+                    env_bin, exc,
+                )
+                size = -1
+            if size >= _MIN_OLLAMA_BIN_BYTES:
+                logger.info("Ollama-Binary via PB_OLLAMA_BIN: %s", p)
+                return p
+            if size >= 0:
+                logger.warning(
+                    "PB_OLLAMA_BIN='%s' ist nur %d Byte gross (erwartet >= %d) "
+                    "— unbrauchbarer Platzhalter, normale Suche.",
+                    env_bin, size, _MIN_OLLAMA_BIN_BYTES,
+                )
+        else:
+            logger.warning("PB_OLLAMA_BIN='%s' existiert nicht — normale Suche.", env_bin)
 
     if getattr(sys, 'frozen', False):  # PyInstaller-Bundle
         # PB Studio buendelt Ollama optional: pb_studio.spec packt redist/
