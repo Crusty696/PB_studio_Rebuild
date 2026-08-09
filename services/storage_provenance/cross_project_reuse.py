@@ -133,9 +133,14 @@ def apply_cross_project_reuse_status(
         if step.provenance_step_id == "audio.v2.stems":
             # B-579: prefer the real artifact paths from the manifest, fall back
             # to the by_sha layout. Guard: only reuse if all four stems exist now.
-            stem_paths = _resolve_stem_paths(storage_root, hit.source_sha256, step.artifacts)
-            if stem_paths is None:
+            # B-566: a candidate that resolves nothing must NOT overwrite a set
+            # that an earlier candidate already resolved (the manifest can hold
+            # several stems jobs, later ones pointing at deleted projects).
+            resolved = _resolve_stem_paths(storage_root, hit.source_sha256, step.artifacts)
+            if resolved is None:
                 continue
+            if stem_paths is None:
+                stem_paths = resolved
         elif step.provenance_step_id == "video.plan_a.outputs":
             # B-579 (ST-3): video had no existence guard — it marked done on a
             # dangling reference. Only reuse if the real outputs are reachable now,
@@ -143,6 +148,9 @@ def apply_cross_project_reuse_status(
             if not _video_outputs_reachable(storage_root, hit.source_sha256, step.artifacts):
                 continue
         applied_steps.append(step)
+    if stem_paths is None:
+        # B-566: never write done for stem_separation without real stem refs.
+        applied_steps = [s for s in applied_steps if s.provenance_step_id != "audio.v2.stems"]
     if not applied_steps:
         return None
 
@@ -310,17 +318,41 @@ def _source_root_has_artifacts(storage_root, source_sha: str) -> bool:
         return False
     # ensure_source_root() always creates empty audio/ + video/ subdirs, so check
     # for a real artifact FILE (recursively), not just the presence of a subdir.
-    for f in root.rglob("*"):
-        try:
-            if not f.is_file():
-                continue
-        except OSError:
-            continue
+    for f in _iter_files_resilient(root):
         nm = f.name
         if nm == MANIFEST_NAME or nm.startswith(MANIFEST_NAME) or nm.endswith(".corrupt"):
             continue
         return True
     return False
+
+
+def _iter_files_resilient(root: Path):
+    """B-783: recursive file walk that survives dead directory entries.
+
+    ``Path.rglob("*")`` descends into Windows junctions (they report
+    ``is_symlink() == False``) and raises ``FileNotFoundError`` from inside the
+    generator when the junction target is gone — killing the whole reuse check
+    instead of just skipping the broken candidate. This walk mirrors rglob's
+    traversal but swallows ``OSError`` per directory/entry.
+    """
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir():
+                    # rglob skips real symlinked dirs; keep that semantics.
+                    if not entry.is_symlink():
+                        stack.append(entry)
+                    continue
+                if entry.is_file():
+                    yield entry
+            except OSError:
+                continue
 
 
 def _first_existing_path(value) -> Path | None:
