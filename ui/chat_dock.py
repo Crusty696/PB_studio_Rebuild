@@ -298,6 +298,30 @@ class ChatDock(QDockWidget):
         if result is not None:
             self._append_colored(f"    → {result}", T2)
 
+    @staticmethod
+    def _readable_action_result(action_result) -> str | None:
+        """B-792: Die lesbare Zusammenfassung einer Action, falls vorhanden.
+
+        Actions liefern ihr Ergebnis als Dict und legen den fertigen
+        Satz fuer den User in ``message`` ab (z.B.
+        ``services/actions/ai_actions.py`` -> ``summarize_project``:
+        "Projekt #1: 1 Audio-Tracks, 486 Video-Clips, 451 Szenen ...").
+        Der Chat hat dieses Feld bisher ignoriert und stattdessen
+        ``str(<ganzes Dict>)`` ausgegeben — bei ``summarize_project``
+        waren das live alle 486 Video-Datensaetze ueber mehrere
+        Bildschirmseiten.
+
+        Ohne ``message`` bleibt es beim bisherigen Verhalten, damit
+        Actions ohne aufbereiteten Text nicht stumm werden.
+        """
+        if action_result is None:
+            return None
+        if isinstance(action_result, dict):
+            msg = action_result.get("message")
+            if isinstance(msg, str) and msg.strip():
+                return msg
+        return str(action_result)
+
     def append_error(self, text: str) -> None:
         """Zeigt eine Fehlermeldung im Chat an."""
         self._append_colored(f"✖ {text}", ERR)
@@ -767,7 +791,8 @@ class ChatDock(QDockWidget):
                 if act_error:
                     self.append_error(f"  [{i}] {act_name}: {act_error}")
                 elif act_name != "none":
-                    result_str = str(act_result) if act_result is not None else None
+                    # B-792: message bevorzugen statt das Roh-Dict zu dumpen.
+                    result_str = self._readable_action_result(act_result)
                     self.append_action(f"[{i}] {act_name}", result_str)
                 elif act_message:
                     self._append_colored(f"  [{i}] {act_message}", "#B0B0B0")
@@ -777,8 +802,8 @@ class ChatDock(QDockWidget):
                 self.append_error(error)
 
         elif action != "none":
-            # Single Action
-            self.append_action(action, str(action_result) if action_result is not None else None)
+            # Single Action — B-792: siehe _readable_action_result.
+            self.append_action(action, self._readable_action_result(action_result))
 
         elif message:
             self.append_ai(message)
