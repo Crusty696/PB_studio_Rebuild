@@ -418,18 +418,29 @@ class ModelLifecycleService:
         self,
         model_name: str,
         progress_cb: Callable[[DownloadProgress], None] | None = None,
+        wait: bool = True,
     ) -> bool:
-        """Lädt ein Ollama-Modell herunter (non-blocking).
+        """Lädt ein Ollama-Modell herunter.
 
         Streaming via Ollama-API /api/pull. Progress-Updates werden an
         ``progress_cb`` gemeldet (läuft in einem Thread).
 
+        B-789: Der Rückgabewert meldete früher nur "Thread gestartet" und war
+        deshalb immer ``True`` — die UI zeigte Erfolg, bevor der Pull überhaupt
+        lief, und ein späterer Fehlschlag erreichte den Aufrufer nie. Mit
+        ``wait=True`` (Default) wartet der Aufruf auf das Ende des Pulls und
+        gibt den echten Ausgang zurück. Aufrufer, die weiterhin sofort
+        zurückkehren wollen, setzen ``wait=False``.
+
         Args:
             model_name: Ollama-Modellname (z.B. "gemma3:4b")
             progress_cb: Callable mit (DownloadProgress) — wird aus Thread aufgerufen
+            wait: True = blockiert bis der Pull fertig ist und meldet den echten
+                Ausgang. False = alte Semantik (True = Download gestartet).
 
         Returns:
-            True wenn Download gestartet (nicht beendet!), False bei Fehler.
+            wait=True: True nur wenn der Pull erfolgreich abgeschlossen wurde.
+            wait=False: True wenn der Download gestartet wurde, False bei Fehler.
         """
         with self._lock:
             if model_name in self._active_downloads:
@@ -438,10 +449,12 @@ class ModelLifecycleService:
 
         prog = DownloadProgress(model_name)
         cancelled = False
+        succeeded = False
 
         def _do_pull():
-            nonlocal cancelled
+            nonlocal cancelled, succeeded
             import time
+            saw_success = False
             try:
                 # Status in DB: downloading
                 self._upsert_model(ModelEntry(
@@ -476,6 +489,13 @@ class ModelLifecycleService:
                         except json.JSONDecodeError:
                             continue
 
+                        # B-789: Ollama meldet Fehler im Stream mit HTTP 200.
+                        # Ohne diese Pruefung galt ein fehlgeschlagener Pull
+                        # als Erfolg.
+                        chunk_error = chunk.get("error")
+                        if chunk_error:
+                            raise ValueError(str(chunk_error))
+
                         status_msg = chunk.get("status", "")
                         prog.status = status_msg
 
@@ -500,6 +520,13 @@ class ModelLifecycleService:
                         if status_msg in ("success", "pull complete"):
                             prog.finished = True
                             prog.progress = 1.0
+                            saw_success = True
+
+                # B-789: Stream ohne Erfolgsmeldung ist kein Erfolg.
+                if not saw_success:
+                    raise ValueError(
+                        "Pull-Stream endete ohne Erfolgsmeldung"
+                    )
 
                 # Scan um Größe zu ermitteln
                 models = self.scan_ollama_models()
@@ -507,6 +534,7 @@ class ModelLifecycleService:
                     if m.model_id == model_name:
                         break
 
+                succeeded = True
                 logger.info("Ollama pull '%s' erfolgreich.", model_name)
 
             except (ConnectionError, TimeoutError, OSError, ValueError, RuntimeError) as e:
@@ -532,7 +560,22 @@ class ModelLifecycleService:
         with self._lock:
             self._active_downloads[model_name] = thread
         thread.start()
-        return True
+
+        if not wait:
+            return True
+
+        # B-789: auf das echte Ergebnis warten. Der einzige Produktiv-Aufrufer
+        # (_DownloadWorker) laeuft bereits in einem eigenen QThread — der
+        # UI-Thread blockiert dadurch nicht. Progress-Callbacks laufen
+        # unveraendert waehrend des Wartens weiter.
+        thread.join(timeout=MODEL_DOWNLOAD_TIMEOUT_SEC)
+        if thread.is_alive():
+            logger.error(
+                "Ollama pull '%s': Thread nach %ds noch aktiv — melde Fehlschlag.",
+                model_name, MODEL_DOWNLOAD_TIMEOUT_SEC,
+            )
+            return False
+        return succeeded
 
     def delete_ollama_model(self, model_name: str) -> bool:
         """Löscht ein Ollama-Modell via API.
