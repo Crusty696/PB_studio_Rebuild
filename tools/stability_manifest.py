@@ -192,7 +192,15 @@ def _analyze_consolidated_database(database: Path) -> dict[str, Any]:
                 for row in connection.execute(f"PRAGMA table_info({quoted_table})")
             ]
             row_hashes: list[str] = []
-            for row in connection.execute(f"SELECT * FROM {quoted_table}"):
+            # B608-Begruendung: ``table_name`` stammt nicht aus
+            # User-Input, sondern aus ``sqlite_schema`` der gerade geoeffneten
+            # DB (oben, Z. 179-185) — es kann also nur der Name einer real
+            # existierenden Tabelle sein, kein freier String. Zusaetzlich wird
+            # er mit _quote_identifier (Z. 150) als SQLite-Identifier gequotet
+            # (" -> ""), womit auch ein boesartig benannter Tabellenname im
+            # Identifier gefangen bleibt. Ein Wert-Platzhalter ist hier
+            # technisch nicht moeglich (Identifier, nicht Wert).
+            for row in connection.execute(f"SELECT * FROM {quoted_table}"):  # nosec B608
                 canonical_row = [
                     [column, _canonical_value(value)]
                     for column, value in zip(columns, row)

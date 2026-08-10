@@ -180,6 +180,14 @@ class EditWorkspaceController(PBComponent):
         # _gen_seq verworfen.
         self._gen_seq = getattr(self, "_gen_seq", 0) + 1
         my_seq = self._gen_seq
+        # B-714: _gen_seq unterscheidet nur Klicks INNERHALB desselben
+        # Projekts — ein Projektwechsel erhoeht die Sequenz nicht. Deshalb
+        # zusaetzlich die Projekt-Generation zum Start festhalten und im
+        # Ergebnis-Slot pruefen. Token-Ermittlung wie im SchnittController
+        # (B-714, ui/controllers/schnitt_controller.py): Engine-Identitaet +
+        # Engine-URL, weil project_id ueber Projekt-DBs hinweg kollidiert.
+        from ui.controllers.schnitt_controller import _current_project_token
+        self._gen_project_token = _current_project_token()
         # Alten Thread NICHT mehr blocking abwarten — Qt's parented-thread-
         # Cleanup (parent=self.window) macht das beim Window-Close.
 
@@ -256,11 +264,48 @@ class EditWorkspaceController(PBComponent):
 
         QTimer.singleShot(0, _refresh)
 
+    def _cuts_project_changed(self) -> bool:
+        """B-714: Laeuft das Cut-Ergebnis in ein anderes Projekt als beim Start?
+
+        ``None`` (Token nicht ermittelbar) schaltet fail-open — gleiche
+        Semantik wie ``SchnittController._worker_project_changed``.
+        """
+        started = getattr(self, "_gen_project_token", None)
+        if started is None:
+            return False
+        from ui.controllers.schnitt_controller import _current_project_token
+        now = _current_project_token()
+        if now is None:
+            return False
+        return now != started
+
+    def _discard_foreign_cuts_result(self, kind: str) -> None:
+        """B-714: Cut-Ergebnis eines fremden Projekts verwerfen.
+
+        Nur verwerfen, kein Workspace-Resync: derselbe Worker haengt ueber
+        ``ctrl.attach_worker`` auch am ``SchnittController``, dessen
+        B-714-Guard (``_discard_foreign_project_result``) den Workspace
+        bereits aus STATE_LOADING zurueckholt.
+        """
+        from ui.controllers.schnitt_controller import _current_project_token
+        logger.error(
+            "_on_cuts_%s: Projekt-Mismatch — Ergebnis gehoert zu Projekt %s, "
+            "aktiv ist %s. Ergebnis wird NICHT angewandt (B-714).",
+            kind, getattr(self, "_gen_project_token", None),
+            _current_project_token(),
+        )
+        self._gen_project_token = None
+
     def _on_cuts_done(self, cuts: list, total_dur: float, seq: int = 0):
         # B-172: stale-result Drop wenn neuerer Klick schon in Flight.
         if seq and seq != getattr(self, "_gen_seq", seq):
             logger.debug("_on_cuts_done: stale seq %d (current %d), ignored.",
                          seq, self._gen_seq)
+            return
+        # B-714: Projekt-Generations-Guard — die Sequenz allein faengt einen
+        # Projektwechsel waehrend der laufenden Berechnung nicht ab.
+        if self._cuts_project_changed():
+            self._discard_foreign_cuts_result("done")
             return
         beat_times = [cp.time for cp in cuts if cp.source == "beat"]
         self.window.timeline_view.set_beat_markers(beat_times)
@@ -291,6 +336,10 @@ class EditWorkspaceController(PBComponent):
     def _on_cuts_failed(self, err: str, seq: int = 0):
         # B-172: stale-Fail-Drop
         if seq and seq != getattr(self, "_gen_seq", seq):
+            return
+        # B-714: gleicher Projekt-Generations-Guard wie in _on_cuts_done.
+        if self._cuts_project_changed():
+            self._discard_foreign_cuts_result("failed")
             return
         logger.warning("calculate_cut_points failed: %s", err)
         self.window.console_text.append(f"[Pacing-Fehler] {err}")

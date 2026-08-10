@@ -34,6 +34,7 @@ from agents.audio_agent import AudioAgent
 from agents.editor_agent import EditorAgent
 from agents.pacing_agent import PacingAgent
 from services.ollama_service import OllamaService
+from services.timeout_constants import HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC
 
 # AUFRAEUM B2 — konservativer God-Object-Split. Zustandsarme Prompt- und
 # Dispatch-Tabellen wurden VERBATIM nach agents/orchestrator/ ausgelagert
@@ -609,8 +610,11 @@ class OrchestratorAgent(BaseAgent):
                     {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text}
                 ],
+                # B-669: Wall-Clock-Grenze binden — ohne read-Timeout haengt
+                # der Call an einem stillen Socket unbegrenzt (live gemessen).
+                read_timeout_s=HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC,
             )
-            
+
             category = result.strip().lower().split()[0] if result.strip() else ""
             valid_categories = {"pacing", "vision", "audio", "editor", "action", "general"}
             if category in valid_categories:
@@ -1074,6 +1078,9 @@ class OrchestratorAgent(BaseAgent):
                         },
                         {"role": "user", "content": user_text}
                     ],
+                    # B-669: Wall-Clock-Grenze binden — ohne read-Timeout haengt
+                    # der Call an einem stillen Socket unbegrenzt (live gemessen).
+                    read_timeout_s=HTTP_OLLAMA_WALL_CLOCK_TIMEOUT_SEC,
                 )
                 gateway_result = execute_gateway_response(
                     llm_response,

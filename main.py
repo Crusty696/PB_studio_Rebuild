@@ -102,8 +102,13 @@ def _detect_torch_dll_dir() -> str | None:
         cand_unix = Path(sys.prefix) / "lib" / "python3.10" / "site-packages" / "torch" / "lib"
         if cand_unix.exists():
             return str(cand_unix)
-    except Exception:
-        pass
+    except Exception as e:  # B-035 Fix: Log instead of silent pass
+        # Bootstrap-Schritt: ohne torch/lib-Pfad laedt Windows evtl. fremde
+        # torch-DLLs (B-215, Heap-Korruption). Logging steht hier noch nicht
+        # (setup_logging() laeuft erst in main()) -> lokaler Logger, WARNING,
+        # damit die Meldung ueber logging.lastResort auf stderr sichtbar wird.
+        import logging as _log
+        _log.getLogger(__name__).warning("torch DLL dir detection failed: %s", e)
     return None
 
 _VENV_DLLS = _detect_torch_dll_dir()
@@ -120,8 +125,14 @@ for _p in _DLL_DIRS:
     if hasattr(os, "add_dll_directory"):
         try:
             os.add_dll_directory(_p)
-        except Exception:
-            pass
+        except Exception as e:  # B-035 Fix: Log instead of silent pass
+            # Bootstrap-Schritt: DLL-Suchpfad nicht registriert -> CUDA/torch-
+            # DLLs koennen spaeter fehlschlagen. Logging noch nicht konfiguriert
+            # (setup_logging() erst in main()) -> lokaler Logger + WARNING.
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "add_dll_directory failed for %s: %s", _p, e
+            )
 
 # B-336: dGPU (GTX 1060 / Surface-Book-2-Base) muss VOR dem ersten torch.cuda-
 # Call verbunden/wach sein. torch cached den CUDA-Init prozessweit: ist die GPU
@@ -145,8 +156,12 @@ if os.name == "nt":
                     flush=True,
                 )
             _gpu_wait_time.sleep(1.5)
-    except Exception:
-        pass
+    except Exception as e:  # B-035 Fix: Log instead of silent pass
+        # Bootstrap-Schritt: dGPU-Wake-Check uebersprungen -> torch kann die
+        # GTX 1060 im Import-Moment verpassen (ganze Session auf CPU, B-336).
+        # Logging noch nicht konfiguriert -> lokaler Logger + WARNING.
+        import logging as _log
+        _log.getLogger(__name__).warning("dGPU PnP wake check failed: %s", e)
 
 # FORCE CUDA INIT BEFORE QT LOADS
 try:
@@ -154,8 +169,12 @@ try:
     if torch.cuda.is_available():
         # Trigger actual context creation
         torch.cuda.get_device_name(0)
-except Exception:
-    pass
+except Exception as e:  # B-035 Fix: Log instead of silent pass
+    # Bootstrap-Schritt: torch-Import bzw. CUDA-Context-Init fehlgeschlagen ->
+    # die gesamte Session laeuft auf CPU. Logging noch nicht konfiguriert
+    # (setup_logging() erst in main()) -> lokaler Logger + WARNING.
+    import logging as _log
+    _log.getLogger(__name__).warning("Early CUDA init failed: %s", e)
 # ---------------------------------------
 
 from PySide6.QtWidgets import (

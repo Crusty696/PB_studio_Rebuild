@@ -14,7 +14,10 @@ def test_chat_and_vision_do_not_use_bounded_read_timeout_for_inference() -> None
 
     assert "timeout=120.0" not in chat_src
     assert "timeout=60.0" not in vision_src
-    assert "timeout=self._inference_timeout()" in chat_src
+    # B-669: chat() reicht read_timeout_s durch (wie vision()); der DEFAULT
+    # bleibt offen (None) — B-242-Cold-Load-Schutz unveraendert.
+    assert "timeout=self._inference_timeout(read_timeout_s=read_timeout_s)" in chat_src
+    assert inspect.signature(OllamaService.chat).parameters["read_timeout_s"].default is None
     assert "timeout=self._inference_timeout(read_timeout_s=read_timeout_s)" in vision_src
 
 

@@ -436,6 +436,88 @@ class _AnchorDeleteRunnable(QRunnable):
             )
 
 
+# ======================================================================
+# B-077: Clip-Meta-Reads (has_waveform / thumbnail_file_path) off GUI-Thread
+# ======================================================================
+# ``InteractiveTimeline.add_clip`` las beide Werte synchron aus der DB,
+# BEVOR der Clip ueberhaupt sichtbar wurde -> zwei Session-Oeffnungen +
+# SELECT auf dem GUI-Thread pro Drop/Undo (spuerbar auf HDD/NAS).
+# Gleiches Muster wie die Anchor-Runnables oben: der Pool macht NUR den
+# SELECT (nullpool_session), ueber die Thread-Grenze gehen ausschliesslich
+# primitive Werte (dict aus int/float/str/bool), und die UI wird per
+# QueuedConnection im GUI-Thread nachgezogen (_apply_clip_meta).
+_CLIP_META_POOL: "QThreadPool | None" = None
+
+
+def _get_clip_meta_pool() -> QThreadPool:
+    """B-077: modulweiter, auf 1 Thread begrenzter Pool fuer Clip-Meta-Reads.
+
+    maxThreadCount=1 haelt die Reihenfolge mehrerer schnell aufeinander
+    folgender ``add_clip``-Aufrufe (Drop-Serie, Redo-Kette) stabil.
+    """
+    global _CLIP_META_POOL
+    if _CLIP_META_POOL is None:
+        pool = QThreadPool()
+        pool.setMaxThreadCount(1)
+        _CLIP_META_POOL = pool
+    return _CLIP_META_POOL
+
+
+class _ClipMetaSignals(QObject):
+    """B-077: Signal-Holder (QRunnable ist kein QObject). Im GUI-Thread
+    erzeugt -> emit aus dem Pool-Thread laeuft als QueuedConnection zurueck
+    in den GUI-Thread des Empfaengers."""
+
+    done = Signal(object)  # dict, nur primitive Werte
+
+
+class _ClipMetaRunnable(QRunnable):
+    """B-077: gepoolter Meta-SELECT fuer einen frisch hinzugefuegten Clip.
+
+    Audio -> Existenz-Check ``WaveformData``; Video -> ``VideoClip.file_path``.
+    Fachlich identische Queries wie vorher inline in ``add_clip``
+    (B-090/B-630 column-select), nur eben nicht mehr im GUI-Thread.
+    """
+
+    def __init__(self, payload: dict) -> None:
+        super().__init__()
+        self.setAutoDelete(True)
+        self._payload = dict(payload)
+        self.signals = _ClipMetaSignals()
+
+    @Slot()
+    def run(self) -> None:  # pool thread
+        result = dict(self._payload)
+        result["has_waveform"] = False
+        result["thumbnail_file_path"] = None
+        media_id = self._payload.get("media_id")
+        try:
+            if media_id is not None:
+                with nullpool_session() as session:
+                    if self._payload.get("track_type") == "audio":
+                        result["has_waveform"] = session.execute(
+                            select(WaveformData.id).where(
+                                WaveformData.audio_track_id == media_id
+                            )
+                        ).first() is not None
+                    elif self._payload.get("track_type") == "video":
+                        row = session.execute(
+                            select(VideoClip.file_path).where(
+                                VideoClip.id == media_id,
+                                VideoClip.deleted_at.is_(None),
+                            )
+                        ).first()
+                        result["thumbnail_file_path"] = (
+                            str(row.file_path) if row else None
+                        )
+        except Exception:  # noqa: BLE001 — DB-Read darf den Pool-Thread nie killen
+            logger.error(
+                "B-077: Clip-Meta-Read fehlgeschlagen (media=%s)",
+                media_id, exc_info=True,
+            )
+        self.signals.done.emit(result)
+
+
 class BeatGridItem(QGraphicsItem):
     """Adaptive Beatgrid-Zeichnung als einzelnes, optimiertes GraphicsItem.
 
@@ -2646,31 +2728,14 @@ class InteractiveTimeline(QGraphicsView):
         width = duration * PIXELS_PER_SECOND
         x = start_time * PIXELS_PER_SECOND
 
-        # Rekordbox Waveform für Audio-Clips laden
-        has_waveform = False
-        thumbnail_file_path = None
-        if track_type == "audio":
-            with DBSession(engine) as session:
-                # B-090/B-630: column-select statt ORM-Voll-Laden (waveform_data
-                # JSON-Blob band_low/mid/high). Reiner Existenz-Check ueber Child-PK
-                # ohne Blob-Load; nutzt nur WaveformData.id. Der async Waveform-Load
-                # bleibt unveraendert.
-                has_waveform = session.execute(
-                    select(WaveformData.id).where(
-                        WaveformData.audio_track_id == media_id
-                    )
-                ).first() is not None
-        elif track_type == "video":
-            with DBSession(engine) as session:
-                # B-090/B-630: column-select statt ORM-Voll-Laden (VideoClip.scenes
-                # eager-Relationships); nutzt nur file_path.
-                row = session.execute(
-                    select(VideoClip.file_path).where(
-                        VideoClip.id == media_id, VideoClip.deleted_at.is_(None)
-                    )
-                ).first()
-                thumbnail_file_path = str(row.file_path) if row else None
-
+        # B-077: Optimistic-UI. Die beiden Meta-Reads (has_waveform bzw.
+        # thumbnail_file_path) liefen hier synchron im GUI-Thread — zwei
+        # Session-Oeffnungen + SELECT pro Drop/Undo, bevor der Clip
+        # ueberhaupt sichtbar wurde. Jetzt: Record sofort mit neutralen
+        # Defaults anlegen und materialisieren, Meta kommt aus dem
+        # Pool-Thread nach (_ClipMetaRunnable -> _apply_clip_meta, dort
+        # auch der Waveform-Load und die Thumbnail-Registrierung).
+        #
         # M1 (D-066): Record anlegen + sofort materialisieren — ein Drop/Add
         # passiert immer im sichtbaren Bereich. Neue Clips haben keine Anker
         # (P8-A2-FIX: _anchor_map hat keinen Eintrag -> leere Liste, kein
@@ -2678,18 +2743,108 @@ class InteractiveTimeline(QGraphicsView):
         rec = ClipRecord(
             entry_id=entry_id, media_id=media_id, track_type=track_type,
             title=title, x=x, y=y, width=width, height=TRACK_HEIGHT,
-            has_waveform=has_waveform,
-            thumbnail_file_path=thumbnail_file_path,
+            has_waveform=False,
+            thumbnail_file_path=None,
         )
         self.clip_records.append(rec)
         self._records_by_entry[entry_id] = rec
-        item = self._materialize_record(rec)
+        self._materialize_record(rec)
 
-        if track_type == "audio" and has_waveform:
-            # Asynchrones Laden im Hintergrund, kein UI-Blocking beim Drop
-            self._load_waveform_async(media_id, start_time, duration, y, item)
+        # B-077: Meta-SELECT off GUI-Thread. Empfaenger ist dieses (im
+        # GUI-Thread lebende) QObject; explizite QueuedConnection stellt
+        # sicher, dass _apply_clip_meta NIE im Pool-Thread laeuft und dort
+        # QGraphicsItems anfasst (Crash-Klasse B-222).
+        runnable = _ClipMetaRunnable({
+            "entry_id": entry_id,
+            "media_id": media_id,
+            "track_type": track_type,
+            "start_time": float(start_time),
+            "duration": float(duration),
+            "y": float(y),
+        })
+        runnable.signals.done.connect(
+            self._apply_clip_meta, Qt.ConnectionType.QueuedConnection
+        )
+        _get_clip_meta_pool().start(runnable)
+
         self._update_scene_rect()
         self._schedule_thumb_request()
+
+    @Slot(object)
+    def _apply_clip_meta(self, payload) -> None:
+        """B-077: traegt die im Pool gelesene Clip-Meta im GUI-Thread nach.
+
+        Laeuft ausschliesslich per QueuedConnection im GUI-Thread — jeder
+        Item-/Scene-Zugriff bleibt damit Main-Thread-affin. Ist der Clip
+        zwischenzeitlich weg (Undo/Remove) oder entmaterialisiert, wird nur
+        der Record aktualisiert; die Re-Materialisierung baut das Item dann
+        von sich aus korrekt auf.
+        """
+        try:
+            entry_id = payload.get("entry_id")
+            rec = self._records_by_entry.get(entry_id)
+            if rec is None or rec.media_id != payload.get("media_id"):
+                return  # Clip inzwischen entfernt/ersetzt
+            has_waveform = bool(payload.get("has_waveform"))
+            thumb = payload.get("thumbnail_file_path")
+            rec.has_waveform = has_waveform
+            rec.thumbnail_file_path = thumb
+
+            item = rec.item
+            if item is not None:
+                try:
+                    import shiboken6
+                    if not shiboken6.isValid(item):
+                        item = None
+                except Exception:  # noqa: BLE001 — shiboken optional
+                    pass
+            if item is not None:
+                try:
+                    if rec.track_type == "video" and thumb:
+                        # Der Platzhalter wurde ohne Pfad gebaut ("Thumbnail
+                        # fehlt") -> Pfad + Status nachziehen und erst jetzt
+                        # in die Lazy-Thumbnail-Registry haengen.
+                        item.thumbnail_file_path = thumb
+                        item._content_status_text = "Thumbnail laedt"
+                        if item._thumbnail_status_label is not None:
+                            item._thumbnail_status_label.setPlainText(
+                                "Thumbnail laedt"
+                            )
+                        self._register_clip_thumbnail(item)
+                    elif rec.track_type == "audio" and has_waveform:
+                        # Item wurde als "ohne Waveform" gebaut (blasse Farbe
+                        # + "Waveform fehlt"-Label) -> zurueckdrehen.
+                        item._base_color = TimelineClipItem.AUDIO_COLOR
+                        item.setBrush(QBrush(TimelineClipItem.AUDIO_COLOR))
+                        item.setPen(
+                            QPen(TimelineClipItem.AUDIO_COLOR.darker(120), 1)
+                        )
+                        item._content_missing_waveform = False
+                        lbl = item._missing_waveform_label
+                        if lbl is not None:
+                            scene = lbl.scene()
+                            if scene is not None:
+                                scene.removeItem(lbl)
+                            item._missing_waveform_label = None
+                        if rec.locked:
+                            # set_locked zieht den Goldrand ueber _base_color
+                            # neu — sonst haette setPen ihn gerade geloescht.
+                            item.set_locked(True)
+                except RuntimeError:
+                    item = None  # Item zwischenzeitlich zerstoert
+
+            if rec.track_type == "audio" and has_waveform and item is not None:
+                # Asynchrones Laden im Hintergrund, kein UI-Blocking beim Drop
+                self._load_waveform_async(
+                    rec.media_id,
+                    payload.get("start_time"),
+                    payload.get("duration"),
+                    payload.get("y"),
+                    item,
+                )
+            self._schedule_thumb_request()
+        except Exception:  # noqa: BLE001 — Meta-Nachtrag darf die GUI nie killen
+            logger.error("B-077: Clip-Meta-Apply fehlgeschlagen", exc_info=True)
 
     def set_cut_points(self, cuts: list[CutPoint], total_duration: float):
         started_at = time.perf_counter()
@@ -3140,7 +3295,16 @@ class InteractiveTimeline(QGraphicsView):
     def _on_clip_trimmed(self, entry_id: int, edge: str,
                          old_pos_x: float, old_width: float,
                          new_pos_x: float, new_width: float):
-        """Callback nach Trim: DB-Update via UndoCommand."""
+        """Callback nach Trim: DB-Update via UndoCommand.
+
+        B-077 (bewusst NICHT async): der Read liefert die Undo-Basiswerte
+        (source_start/source_end existieren nirgends lokal im ClipRecord)
+        und direkt danach schreibt ``TrimClipCommand.redo`` ohnehin
+        synchron in die DB. Ein async Read wuerde den GUI-Thread also
+        nicht entlasten, aber ``undo_stack.push`` in einen spaeteren
+        Event-Loop-Turn verschieben -> Undo-Reihenfolge nicht mehr
+        deterministisch. Siehe Report B-077.
+        """
         from database import nullpool_session
         from ui.undo_commands import TrimClipCommand
 

@@ -108,18 +108,25 @@ def test_b285_helper_defined_in_workspace_setup() -> None:
 
 
 def test_b285_triple_hook_calls_helper() -> None:
-    """B-285-Regression: Helper muss aus drei Stellen gerufen werden
-    (Plan R-5: Tab-Wechsel, Cockpit-Action, ProjectManager.project_changed)."""
+    """B-285-Regression: Helper muss aus den verbliebenen Hook-Stellen
+    gerufen werden (Plan R-5: Tab-Wechsel, ProjectManager.project_changed).
+
+    B-717: Der dritte Hook (Cockpit-Action) ist entfallen. Er war kein
+    eigener Pfad, sondern eine Wiederholung: ``_handle_cockpit_action``
+    ruft ``nav_bar.set_workspace(2)``, das synchron ``workspace_changed``
+    emittiert und damit bereits ueber ``_on_workspace_changed(2)`` den
+    Tab-Wechsel-Hook ausloest. Erwartet werden deshalb >= 2 statt >= 3.
+    """
     setup_src = _read(WORKSPACE_SETUP)
     pm_src = _read(PROJECT_MANAGEMENT)
     workspace_calls = setup_src.count("self._push_active_project_to_schnitt()")
     pm_calls = pm_src.count("_push_active_project_to_schnitt()")
     total = workspace_calls + pm_calls
-    assert total >= 3, (
-        f"B-285: Triple-Hook (R-5) unvollstaendig. "
+    assert total >= 2, (
+        f"B-285/B-717: Hooks (R-5) unvollstaendig. "
         f"_push_active_project_to_schnitt wird {total}x gerufen "
         f"(workspace_setup={workspace_calls}, project_management={pm_calls}). "
-        f"Erwartet >= 3 (Tab-Wechsel + Cockpit-Action + project_changed)."
+        f"Erwartet >= 2 (Tab-Wechsel + project_changed)."
     )
 
 
@@ -173,12 +180,13 @@ def test_audit_reproduction_grep_all_three_bugs() -> None:
     # Grep 1: SchnittController-Instanziierung in Production
     assert setup_src.count("SchnittController(") >= 1
 
-    # Grep 2: Triple-Hook >= 3
+    # Grep 2: Hooks >= 2 (B-717: Cockpit-Hook entfallen, war Duplikat des
+    # Tab-Wechsel-Hooks ueber nav_bar.set_workspace(2))
     triple_hook = (
         setup_src.count("self._push_active_project_to_schnitt()")
         + pm_src.count("_push_active_project_to_schnitt()")
     )
-    assert triple_hook >= 3
+    assert triple_hook >= 2
 
     # Grep 3: keine btn_regenerate Doppel-Verdrahtung
     assert "btn_regenerate.clicked.connect" not in setup_src

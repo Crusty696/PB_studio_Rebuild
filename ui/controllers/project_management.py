@@ -373,6 +373,19 @@ class ProjectManagementController(PBComponent):
         except (OSError, RuntimeError, ValueError) as e:
             logging.warning("Timeline-Reload nach Projektwechsel fehlgeschlagen: %s", e)
             self.window.console_text.append(f"[Warnung] Timeline konnte nicht geladen werden: {e}")
+        # B-657: Die Verwendungs-Markierung im MATERIAL-Pool (Banner "Timeline
+        # nutzt X von Y Clips", gruene Zeilen, Grid-Badges) wurde beim
+        # Projektwechsel nie neu berechnet -> sie zeigte die Zahlen des ALTEN
+        # Projekts weiter, bis zufaellig ein Auto-Edit oder ein Timeline-Add
+        # lief. Aufruf-Konvention exakt wie die bestehenden Aufrufer in
+        # edit_workspace.py (Zeile 1474/1541): synchron im GUI-Thread mit
+        # usage=None, d.h. die Usage wird aus der Timeline-DB des jetzt
+        # aktiven Projekts gelesen. Bewusst NACH load_from_db, damit die
+        # Timeline-Tabelle bereits auf dem neuen Projekt steht.
+        try:
+            self.window.edit_workspace._refresh_timeline_usage_marking()
+        except Exception as e:
+            logging.debug("Timeline-Usage-Markierung nach Projektwechsel fehlgeschlagen: %s", e)
         # B-285 Phase B Hook-3: ProjectManager.project_changed -> SCHNITT informieren.
         try:
             self.window.workspace_setup._push_active_project_to_schnitt()

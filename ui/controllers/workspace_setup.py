@@ -808,9 +808,15 @@ class WorkspaceSetupController(PBComponent):
             return
         if action_key in ("open_schnitt", "open_auto_edit", "open_review"):
             # Phase 10: Auto-Edit and Review collapsed into SCHNITT.
+            # B-717: Hier stand frueher zusaetzlich ein direkter
+            # Push-Aufruf (B-285 Phase B Hook-2).
+            # Er war redundant: ``nav_bar.set_workspace(2)`` ruft
+            # unbedingt ``NavBar._on_click(2)`` und emittiert damit synchron
+            # ``workspace_changed(2)`` -> ``_on_workspace_changed(2)`` ->
+            # ``_push_active_project_to_schnitt()``. Der zweite Aufruf startete
+            # einen zweiten Snapshot-Worker (B-715), dessen Ergebnis der
+            # Sequence-Guard ohnehin verwarf — reine Doppelarbeit.
             self.window.nav_bar.set_workspace(2)
-            # B-285 Phase B Hook-2: Cockpit-Sprung zu SCHNITT.
-            self._push_active_project_to_schnitt()
             return
         if action_key == "open_export":
             self.window.nav_bar.set_workspace(3)

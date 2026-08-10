@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 # M-41 Fix: Updated to match actual initial migration revision
 _ALEMBIC_BASELINE_REV = "beb242bcd1fb"
 
+# B-691 (Defekt 2): Merker, ob im laufenden ``init_db()``-Durchlauf bereits ein
+# transaktionssicherer Pre-Migration-Snapshot gezogen wurde. Verhindert, dass
+# derselbe Start erst vor den Legacy-Migrationen und danach nochmal vor dem
+# Alembic-Upgrade sichert (doppeltes Backup / Disk-Leak). Wird zu Beginn von
+# ``init_db()`` zurueckgesetzt.
+_PRE_MIGRATION_BACKUP_DONE = False
+
 
 def _get_create_table_ddl(sa_table, eng) -> str:
     """Render the CREATE TABLE DDL for a SQLAlchemy Table object.
@@ -406,6 +413,16 @@ def _backup_before_alembic_upgrade(alembic_cfg) -> None:
     (``run_pre_migration_backup`` faengt intern, der Revision-Check hier
     ist zusaetzlich defensiv gekapselt).
     """
+    global _PRE_MIGRATION_BACKUP_DONE
+    if _PRE_MIGRATION_BACKUP_DONE:
+        # B-691: In diesem Lauf wurde bereits vor den Legacy-Migrationen
+        # gesichert. Jener Snapshot ist der *aeltere* und damit sicherere
+        # Stand — kein zweites Backup ziehen.
+        logger.info(
+            "B-691: Pre-Migration-Backup wurde bereits vor den Legacy-"
+            "Migrationen gezogen — Alembic-Backup uebersprungen."
+        )
+        return
     try:
         from alembic.script import ScriptDirectory
 
@@ -432,6 +449,7 @@ def _backup_before_alembic_upgrade(alembic_cfg) -> None:
             backup_dir=db_path.parent / "storage" / "backups",
         )
         if backup_path is not None:
+            _PRE_MIGRATION_BACKUP_DONE = True
             logger.info(
                 "B-498: Pre-Migration-Backup erstellt (current=%s, heads=%s): %s",
                 current, heads, backup_path,
@@ -440,6 +458,66 @@ def _backup_before_alembic_upgrade(alembic_cfg) -> None:
         logger.error(
             "B-498: Pre-Migration-Backup uebersprungen (Fehler) — Migration "
             "laeuft trotzdem weiter: %s",
+            exc, exc_info=True,
+        )
+
+
+def _backup_before_legacy_migrations() -> None:
+    """B-691 (Defekt 2): Transaktionssicherer Snapshot VOR den Legacy-Migrationen.
+
+    Der B-498-Snapshot (``_backup_before_alembic_upgrade``) laeuft erst
+    innerhalb von ``_run_alembic_migrations()`` — also NACH dem gefaehrlichsten
+    Schritt, dem destruktiven FK-Rebuild in ``_migrate_fk_cascade()``
+    (Rename/Recreate/Copy/Drop). Schlaegt der fehl, existierte bis dahin nur
+    das kurzlebige ``.db.backup_before_fk_migration``, das ``B-191`` nach
+    Erfolg wieder loescht.
+
+    Warum kein blosses Umsortieren des B-498-Aufrufs:
+    ``_backup_before_alembic_upgrade()`` setzt eine vorhandene
+    ``alembic_version``-Tabelle voraus und vergleicht die aktuelle Revision
+    gegen die Alembic-Heads. Genau die Bestands-DB, die den FK-Rebuild
+    ausloest, ist aber typischerweise eine Legacy-DB *ohne*
+    ``alembic_version`` — sie wird erst nach ``_run_legacy_migrations()``
+    gestempelt (``init_db()``). Vorgezogen wuerde die Funktion also
+    ausgerechnet im kritischen Fall wortlos per Early-Return aussteigen.
+    Daher hier ein eigener Trigger ohne Alembic-Vorbedingung.
+
+    Gezogen wird nur, wenn (a) Bestandsdaten existieren (``projects``-Tabelle)
+    und (b) der destruktive FK-Rebuild tatsaechlich ansteht — sonst wuerde
+    jeder App-Start mit Bestands-DB ein neues Backup erzeugen. Fehler werden
+    wie im B-498-Pfad geloggt und blockieren die Migration nicht.
+    """
+    global _PRE_MIGRATION_BACKUP_DONE
+    try:
+        _raw = get_raw_engine()
+        insp = inspect(_raw)
+        tables = set(insp.get_table_names())
+        if "projects" not in tables:
+            # Keine Bestandsdaten — nichts Sicherungswuerdiges.
+            return
+        if not _needs_fk_cascade_migration(insp):
+            # Legacy-Lauf ist rein additiv (ALTER TABLE ADD COLUMN /
+            # CREATE TABLE / CREATE INDEX) — kein destruktiver Rebuild.
+            return
+
+        from services.backup_service import run_pre_migration_backup
+
+        db_path = Path(_raw.url.database)
+        backup_path = run_pre_migration_backup(
+            db_path=db_path,
+            backup_dir=db_path.parent / "storage" / "backups",
+        )
+        if backup_path is not None:
+            _PRE_MIGRATION_BACKUP_DONE = True
+            logger.info(
+                "B-691: Pre-Legacy-Migration-Backup erstellt (FK-Rebuild "
+                "steht an): %s",
+                backup_path,
+            )
+    except Exception as exc:
+        logger.error(
+            "B-691: Pre-Legacy-Migration-Backup uebersprungen (Fehler) — "
+            "Migration laeuft trotzdem weiter: %s",
             exc, exc_info=True,
         )
 
@@ -842,6 +920,9 @@ def init_db():
     from sqlalchemy import inspect
     from alembic import command
 
+    global _PRE_MIGRATION_BACKUP_DONE
+    _PRE_MIGRATION_BACKUP_DONE = False  # B-691: pro init_db()-Lauf neu bewerten
+
     # B-215 fix: get_raw_engine() umgeht den EngineProxy — ``inspect()`` von
     # SQLAlchemy braucht den echten Engine (NoInspectionAvailable sonst).
     # Alle anderen inspect()-Calls in dieser Datei verwenden bereits
@@ -880,6 +961,11 @@ def init_db():
     else:
         # Existing-DB: Legacy-Migrations bringen aelteres Schema auf Baseline-Stand.
         # Danach Alembic-Migrations fuer alle nachfolgenden Schema-Aenderungen.
+        # B-691 (Defekt 2): Transaktionssicherer Snapshot VOR jedem Schema-
+        # Schreibzugriff — insbesondere vor dem destruktiven FK-Rebuild in
+        # _run_legacy_migrations(). Der B-498-Snapshot im Alembic-Pfad kaeme
+        # zu spaet und greift auf einer Legacy-DB ohne alembic_version gar nicht.
+        _backup_before_legacy_migrations()
         Base.metadata.create_all(engine)  # Safety-Net fuer fehlende Tabellen
         _run_legacy_migrations()
         try:

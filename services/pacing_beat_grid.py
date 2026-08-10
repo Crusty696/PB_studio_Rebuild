@@ -513,9 +513,18 @@ def _get_video_info_cached(
                 # SELECT scheitern und dabei AUCH role/mood_refined/
                 # style_bucket_id verlieren, also den B-728-Fix mitreissen.
                 cols = _struct_clip_tag_columns()
+                # B608-Begruendung: ``cols`` ist ausschliesslich ein
+                # Subset der im Code fest verdrahteten Whitelist
+                # _STRUCT_TAG_WANTED / _STRUCT_TAG_REQUIRED (oben, Z. 398-404).
+                # _struct_clip_tag_columns_cached filtert diese Konstanten nur
+                # gegen PRAGMA-Ergebnisse (``c in present``) — es wird nie ein
+                # Name aus der DB, aus User-Input oder aus einem Pfad
+                # uebernommen. Tabellenname ist ein Literal, der einzige
+                # variable Wert (scene_ids) laeuft parametrisiert ueber
+                # bindparam("ids", expanding=True).
                 tag_rows = session.execute(
                     text(
-                        f"SELECT scene_id, {', '.join(cols)} "
+                        f"SELECT scene_id, {', '.join(cols)} "  # nosec B608
                         "FROM struct_clip_tags WHERE scene_id IN :ids"
                     ).bindparams(bindparam("ids", expanding=True)),
                     {"ids": scene_ids},

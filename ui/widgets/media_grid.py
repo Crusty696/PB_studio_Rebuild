@@ -920,8 +920,11 @@ class MediaPoolGrid(QWidget):
         if usage:
             try:
                 card.set_timeline_usage(usage.get(data["id"], 0), marking_active=True)
-            except Exception:
-                pass
+            except Exception as e:  # B-035 Fix: Log instead of silent pass
+                logger.debug(
+                    "Timeline-Usage-Badge für Card %s nicht setzbar: %s",
+                    data.get("id"), e,
+                )
         return card
 
     def _ensure_card_at(self, idx: int) -> None:

@@ -613,6 +613,7 @@ class OllamaService:
         messages: list[dict],
         model: str | None = None,
         num_predict: int = 1024,
+        read_timeout_s: float | None = None,
         task: str = "chat",
     ) -> str:
         """Synchroner Wrapper fuer Chat-Inference (K7-Fix: kein async mehr).
@@ -624,6 +625,11 @@ class OllamaService:
         B-239: ``num_predict=1024`` Default — Reasoning-Modelle (Gemma 4)
         brauchen ~700 Tokens fuers Thinking + die eigentliche Antwort. Der
         Ollama-Default 128 schneidet die echte Antwort weg.
+
+        B-669: ``read_timeout_s`` (analog ``vision()``) erlaubt dem Aufrufer,
+        den Request zu binden. Default bleibt ``None`` = offener Read
+        (B-242, Cold-Load-Schutz) — nur explizit bindende Callsites laufen
+        nicht mehr unbegrenzt gegen einen haengenden Socket.
         """
         # K8-Fix: Pause-Check — VRAM-Schutz respektieren
         from services.ollama_client import get_ollama_client
@@ -648,7 +654,7 @@ class OllamaService:
                 _emit_model_status("error", model, task)
                 return f"Fehler: Modell '{model}' konnte nicht geladen werden"
 
-        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout()) as client:
+        with httpx.Client(base_url=OLLAMA_BASE, timeout=self._inference_timeout(read_timeout_s=read_timeout_s)) as client:
             try:
                 response = client.post("/api/chat", json={
                     "model": model,
