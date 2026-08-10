@@ -386,6 +386,15 @@ class ProjectManagementController(PBComponent):
             self.window.edit_workspace._refresh_timeline_usage_marking()
         except Exception as e:
             logging.debug("Timeline-Usage-Markierung nach Projektwechsel fehlgeschlagen: %s", e)
+        # B-800: keyframe_text ist ein einziges QTextEdit, das beim
+        # Projektwechsel nie zurueckgesetzt wurde. Die Keyframe-Strings des
+        # ALTEN Projekts blieben deshalb sichtbar und sahen aus, als
+        # gehoerten sie zum neuen — live belegt (Live-Verify 2026-08-11:
+        # LV-As Strings inkl. eines Clips, den LV-B gar nicht besitzt).
+        try:
+            self.window.keyframe_text.clear()
+        except Exception as e:
+            logging.debug("keyframe_text-Reset nach Projektwechsel fehlgeschlagen: %s", e)
         # B-285 Phase B Hook-3: ProjectManager.project_changed -> SCHNITT informieren.
         try:
             self.window.workspace_setup._push_active_project_to_schnitt()
