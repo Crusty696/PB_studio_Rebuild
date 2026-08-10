@@ -511,6 +511,13 @@ class EditWorkspaceController(PBComponent):
         task = tm.create_task(task_name, task_description)
         worker = AutoEditWorker(audio_id, video_ids, settings)
         worker.task_id = task.task_id
+        # B-795: Projekt-Token beim START festhalten. `_on_auto_edit_finished`
+        # hat die Projekt-ID bisher erst beim Eintreffen des Ergebnisses
+        # gelesen — ein Projektwechsel waehrend des Laufs schrieb das Ergebnis
+        # des alten Projekts in die Timeline des neuen. Gleiches Muster wie
+        # der B-714-Guard fuer den Cuts-Worker.
+        from ui.controllers.schnitt_controller import _current_project_token
+        self._auto_edit_project_token = _current_project_token()
         # B-284 Phase C — SchnittController-Worker-Bridge.
         # AutoEditWorker hat kein `done`/`failed`, nur `finished(list,list)`.
         # attach_worker bindet `progress` an `workspace.show_progress`;
@@ -587,6 +594,28 @@ class EditWorkspaceController(PBComponent):
                 "\n\n".join(_msgs)
                 + "\n\nDer Auto-Edit wurde im degradierten Modus erzeugt.",
             )
+
+        # B-795: Ergebnis nur anwenden, wenn es noch zum Projekt gehoert, fuer
+        # das der Lauf gestartet wurde. Sonst schreibt ein Auto-Edit des alten
+        # Projekts stillschweigend in die Timeline des neuen — das sieht wie
+        # ein normales Ergebnis aus und ist deshalb besonders tueckisch.
+        # Fail-open bei fehlendem Token, wie beim B-714-Guard.
+        _started_token = getattr(self, "_auto_edit_project_token", None)
+        if _started_token is not None:
+            from ui.controllers.schnitt_controller import _current_project_token
+            _now_token = _current_project_token()
+            if _now_token is not None and _now_token != _started_token:
+                logger.warning(
+                    "B-795: Auto-Edit-Ergebnis verworfen — Projekt gewechselt "
+                    "(Start=%s, jetzt=%s).", _started_token, _now_token,
+                )
+                self.window.console_text.append(
+                    "[Auto-Edit] Ergebnis verworfen: waehrend des Laufs wurde "
+                    "das Projekt gewechselt."
+                )
+                task_manager.finish_task(task_id, "error", "Projekt gewechselt")
+                self._auto_edit_project_token = None
+                return
 
         from ui.undo_commands import ApplyAutoEditCommand
         project_id = get_active_project_id()
@@ -1160,15 +1189,33 @@ class EditWorkspaceController(PBComponent):
         project_id = get_active_project_id()
         self.window.keyframe_text.setPlainText("Generiere Keyframe-Strings ...")
 
+        # B-794: Projekt-Token beim Start festhalten. Ohne den Abgleich unten
+        # landet das Ergebnis eines Laufs im Textfeld des inzwischen
+        # gewechselten Projekts. Gleiches Muster wie B-714/B-795.
+        from ui.controllers.schnitt_controller import _current_project_token
+        _started_token = _current_project_token()
+
+        def _project_changed() -> bool:
+            if _started_token is None:
+                return False  # fail-open, wie beim B-714-Guard
+            _now = _current_project_token()
+            return _now is not None and _now != _started_token
+
         class _KeyframeStringsWorker(BaseWorker):
             def _do_work(self):
                 return generate_keyframe_strings_for_project(project_id=project_id)
 
         def _on_finish(kf_string):
+            if _project_changed():
+                logger.warning("B-794: Keyframe-Strings verworfen — Projekt gewechselt.")
+                return
             self.window.keyframe_text.setPlainText(kf_string or "")
             self.window.console_text.append("[Pacing] Keyframe-Strings generiert.")
 
         def _on_error(err_msg):
+            if _project_changed():
+                logger.warning("B-794: Keyframe-Fehlermeldung verworfen — Projekt gewechselt.")
+                return
             self.window.keyframe_text.setPlainText(f"Fehler: {err_msg}")
             self.window.console_text.append(f"[Pacing-Fehler] Keyframe-Strings: {err_msg}")
 
