@@ -430,6 +430,93 @@ Jeder Flow-Eintrag hat:
   antworten). Am 2026-08-09 wurde das einmal faelschlich als Bug
   gemeldet.
 
+### 2.25 Task-Running-Guard blockiert JEDEN Projektwechsel — NEU 2026-08-10/11 (Live-Verify B-035/B-077/B-657/B-717/B-714/B-795/B-794)
+- **Beobachtung:** Solange irgendein Hintergrund-Task laeuft (TASKS-Panel zeigt "Running"),
+  egal ob Proxy-Generierung, Audio-V2-Analyse oder Auto-Edit selbst, blockieren SOWOHL
+  "Projekt oeffnen" ALS AUCH "+ Neues Projekt" mit dem Dialog "... ist nicht moeglich,
+  solange Hintergrund-Tasks laufen. Bitte warte, bis alle Tasks im TASKS-Panel beendet
+  sind, und versuche es erneut." Dieser generelle Guard greift VOR jeder
+  B-714/B-795/B-794-spezifischen Discard-Logik.
+- **Konsequenz fuer Tests:** Die klassischen "waehrend X laeuft Projekt wechseln"-Szenarien
+  (Cuts-Berechnung, Auto-Edit, Keyframe-Strings) sind ueber die normale GUI aktuell NICHT
+  reproduzierbar, solange dieser Guard aktiv ist — weder ueber den Dialog-Pfad noch ueber
+  Neues-Projekt. Falls ein Agent diese Szenarien live pruefen soll: zuerst klaeren, ob es
+  einen Bypass gibt (z. B. Recent-Projects-QMenu, siehe 2.17 — dort NICHT explizit gegen
+  diesen Guard getestet), sonst ehrlich NICHT-TESTBAR melden statt zu erfinden.
+- **Klick-Sequenz-Falle bei Checkbox-Reihen (Video/Audio-Grid):** Reihenabstand in der
+  Media-Tabelle betraegt bei 3240x2160 ca. 50px zwischen Checkbox-Mittelpunkten (nicht
+  31px wie beim ersten Versuch angenommen) — Reihe 1 y≈502, Reihe 2 y≈552, Reihe 3 y≈602.
+  Falscher Row-Spacing fuehrt zu Doppel-Klicks auf dieselbe Checkbox (Toggle aus).
+- **Grosses Audio (930 MB WAV) + BPM/Beatgrid-Analyse:** kann bei gleichzeitig hoher
+  Hintergrundlast (hier 486 parallele Proxy-Tasks) zu MEHRMINUeTIGEN "Keine Rueckmeldung"-
+  Phasen fuehren, die sich nach 30-90s von selbst aufloesen (kein echter Deadlock, siehe
+  freeze_stacks.log: generelle Thread-Auslastung statt eindeutig blockierender Single-Call).
+  "Timeline generieren"/"Auto-Edit" bleiben disabled ("Blockiert: Beatgrid fehlt") bis
+  mindestens der BPM/Beatgrid-Analyseschritt (nicht die komplette Audio-V2-Pipeline)
+  abgeschlossen ist.
+- **Reproduzierbarer ECHTER Hard-Hang (neuer Bug, nicht B-nummeriert):** zweiter
+  "Projekt oeffnen"-Klick WAEHREND ein TASKS-Abbruch (Abbrechen-Button) von hunderten
+  Proxy-Jobs noch laeuft, kann die App fuer mehrere Minuten OHNE jede Log-Aktivitaet
+  haengen lassen (main-thread stuck in
+  `ui/controllers/project_management.py::_tasks_running_block`). Kein Erholen beobachtet
+  (>4,5 Min gewartet) — Force-Kill noetig. Reproduktion: viele Proxy-Tasks laufen lassen,
+  "Projekt oeffnen" -> Block-Dialog -> OK -> TASKS "Abbrechen" -> SOFORT erneut
+  "Projekt oeffnen" klicken.
+- **PB_LOG_LEVEL=DEBUG noetig fuer bestimmte Marker:** Manche Bugfix-Log-Marker (z. B.
+  `[B-715] schedule SCHNITT snapshot sequence=...` fuer B-717-Verifikation) laufen nur auf
+  DEBUG-Level. Default-Start hat KEIN DEBUG-Logging aktiv — vor entsprechenden Tests
+  `PB_LOG_LEVEL=DEBUG` in der Shell setzen, bevor `gui_harness.py start` aufgerufen wird
+  (Env wird an den Kindprozess vererbt).
+
+### 2.26 B-794 Live-Race erfolgreich reproduziert — Keyframe-String-Guard greift nicht — NEU 2026-08-11
+- **Ziel:** Nachtrag zu 2.25 fuer S7 (B-794). `_show_keyframe_strings` in
+  `ui/controllers/edit_workspace.py` laeuft ueber `run_worker`/`BaseWorker`
+  (workers/base.py), registriert KEINEN Task im `GlobalTaskManager` — der
+  generelle B-465-Task-Running-Guard aus 2.25 sieht diesen Lauf nicht und
+  blockt den Projektwechsel waehrend der Generierung NICHT. Anders als
+  Auto-Edit/Cuts ist dieses Szenario ueber die normale GUI also grundsaetzlich
+  testbar.
+- **Button:** MATERIAL ANALYSE-Tab (nicht SCHNITT!) → rechtes Panel
+  "Video-Clips analysieren" → Button "Keyframe-String" (`btn_keyframe_string`,
+  media_workspace.py:708). Bei 3240x2160 ca. x=2339, y=667. Ergebnis-Textfeld
+  direkt darunter (`keyframe_text`, media_workspace.py:735).
+- **Timing-Falle:** `generate_keyframe_strings_for_project()` ist fuer
+  realistische Projektgroessen (hier 486 Clips) KEIN Slow-Call mehr — Service-
+  Level gemessen 0.0676s (M10-Fix: single Query statt N+1). Ein simpler
+  Klick-dann-Screenshot-Ablauf (mehrere `gui_harness.py`-Subprozess-Aufrufe
+  hintereinander) ist bereits SELBST langsamer als die 67ms Operation —
+  das Ergebnis ist regelmaessig VOR dem ersten Screenshot fertig. Fuer einen
+  echten Race-Versuch reicht der Harness in Mehrfach-Prozess-Form NICHT.
+  Notwendig: ein einzelner Python-Prozess mit `pyautogui.PAUSE = 0`, der
+  Klick-Keyframe-Button -> Tab-Wechsel -> "Projekt oeffnen"-Klick -> Pfad
+  per Zwischenablage einfuegen (`win32clipboard`, schneller als `typewrite`)
+  -> "Oeffnen"-Klick in **einem** Skript ohne Subprozess-Neustart abfeuert.
+  Klick-zu-Klick-Zeiten von 40-300ms sind damit erreichbar. ACHTUNG: unter
+  ~50ms ist der "Projekt oeffnen"-Dialog noch nicht input-bereit — Paste
+  landet ins Leere, Feld bleibt leer, Oeffnen-Klick verpufft (Dialog bleibt
+  offen). Sweet Spot war ~250-300ms Puffer nach dem Dialog-Oeffnen-Klick vor
+  Paste+Oeffnen.
+- **Methodik-Falle (wichtig fuer Wiederholung):** `keyframe_text` ist EIN
+  einziges QTextEdit fuer die ganze App-Session, OHNE Reset-Code beim
+  Projekt-Load/-Wechsel (grep bestaetigt: nur 3 Schreibstellen in
+  edit_workspace.py, keine an einen Projekt-Load-Pfad gebunden). Ein
+  Race-Versuch, der zweimal auf DASSELBE Quellprojekt mit identischem
+  Ergebnis-Text zielt, ist NICHT interpretierbar — der Boxinhalt sieht im
+  Zielprojekt gleich aus, egal ob der Guard gefeuert hat oder nicht. Vor
+  jedem Race-Versuch die Box durch App-Neustart in den Platzhalter-Zustand
+  zuruecksetzen (frischer Prozess = Widget nie beschrieben = Placeholder
+  sichtbar) und das VOR dem Versuch per Screenshot belegen.
+- **Live-Befund 2026-08-11 (FAIL — Bug reproduziert):** Sauberer Race (Box
+  vorher nachweislich Platzhalter, Klick-zu-Klick 294ms): Wechsel LV-A → LV-B
+  gelang ohne B-465-Dialog. Log zeigt `Projekt gewechselt`/`Projekt geoeffnet:
+  LV-B`, aber KEINE `B-794: Keyframe-Strings verworfen`-Zeile. `keyframe_text`
+  in LV-B zeigte danach LV-As Ergebnis (u. a. einen `_v3`-Clip-Eintrag, den
+  LV-B gar nicht besitzt — LV-B hat nachweislich nur 2 Clips). Der B-794-Guard
+  aus Commit `cc1db2c` (`_project_changed()` in `_on_finish`) hat NICHT
+  gegriffen. Kontrolllauf (gleicher Klick ohne Wechsel danach) lief normal
+  fehlerfrei. Kein Crash, kein Traceback — stiller Datenanzeige-Fehler.
+  Report/Log: `logs/live-verify-2026-08-11-gui.log` (Abschnitt "NACHTRAG S7").
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
