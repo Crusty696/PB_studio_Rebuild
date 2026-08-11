@@ -572,17 +572,23 @@ class ImportMediaController(PBComponent):
         # M1-Backup (B-706) gesichert ist und beim Wiederherstellen
         # zurueckkehrt. Ohne diesen Zusatz haelt der User seine Schnittarbeit
         # fuer verloren.
+        # B-803: Zahl zwischenspeichern statt sofort in die Statusleiste
+        # schreiben. Live-Verify Runde 5 hat gezeigt, dass `_on_done` direkt
+        # danach feuert und die Zeile ohne Timeout ueberschreibt — der User sah
+        # die Meldung dort real nie. Die Konsole behaelt ihren eigenen Eintrag
+        # (dort stapelt sich nichts), die Statusleiste bekommt eine einzige,
+        # zusammengefasste Meldung in `_on_done`.
+        self._b803_timeline_removed = 0
+
         def _on_timeline_removed(anzahl: int):
             if anzahl <= 0:
                 return
+            self._b803_timeline_removed = anzahl
             try:
                 self.window.console_text.append(
                     f"[System] {anzahl} Timeline-Segment(e) entfernt, weil die "
                     "zugehoerigen Clips geloescht wurden. Wiederherstellen "
                     "ueber den Papierkorb bringt sie samt Platzierung zurueck."
-                )
-                self.window.status_bar.showMessage(
-                    f"{anzahl} Timeline-Segment(e) mitentfernt", 10_000,
                 )
             except (AttributeError, RuntimeError) as exc:
                 logger.debug("B-803: Timeline-Hinweis nicht anzeigbar: %s", exc)
@@ -596,8 +602,21 @@ class ImportMediaController(PBComponent):
                 self.window.media_table_controller._refresh_media_table_debounced()
                 self.window._mark_dirty()
                 self.window.console_text.append(f"[System] {count} Medien-Eintraege geloescht.")
-                self.window.status_bar.showMessage(f"{count} Medien geloescht")
+                # B-803: eine einzige Statusmeldung statt zweier, die sich
+                # gegenseitig ueberschreiben. Die Timeline-Zahl ist die
+                # ueberraschende Information — sie gehoert in dieselbe Zeile,
+                # nicht in eine zweite, die sofort verdraengt wird.
+                _tl = getattr(self, "_b803_timeline_removed", 0)
+                if _tl > 0:
+                    self.window.status_bar.showMessage(
+                        f"{count} Medien geloescht — {_tl} Timeline-Segment(e) "
+                        "mitentfernt (Papierkorb stellt sie wieder her)",
+                        15_000,
+                    )
+                else:
+                    self.window.status_bar.showMessage(f"{count} Medien geloescht")
             finally:
+                self._b803_timeline_removed = 0
                 _release_lock()
 
         # B-060: on_error-Handler analog zu _clear_all_media.
