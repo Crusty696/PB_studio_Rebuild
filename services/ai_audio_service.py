@@ -252,6 +252,11 @@ def _load_audio_for_stem_separation(
 
 # Chunk-Dauer in Sekunden fuer VRAM-schonendes Processing
 CHUNK_SECONDS = 30
+# B-331: Schwelle, ab der ein einzelner Chunk als auffaellig langsam geloggt
+# wird. 180s fuer 30s Audio ist die 6-fache Echtzeit — gesunde Chunks liegen
+# auf der GTX 1060 weit darunter. Bewusst grosszuegig: die Meldung soll
+# auffallen, nicht bei jedem langsamen Lauf rauschen.
+_CHUNK_SLOW_WARN_SEC = 180.0
 # Overlap in Sekunden um Artefakte an Chunk-Grenzen zu vermeiden
 OVERLAP_SECONDS = 2
 STEM_MAX_CHUNKS_ENV = "PB_STEM_MAX_CHUNKS"
@@ -647,6 +652,28 @@ class StemSeparator:
                             f"{vram_before_gb:.2f}" if vram_before_gb is not None else "n/a",
                             f"{vram_after_gb:.2f}" if vram_after_gb is not None else "n/a",
                         )
+                        # B-331: Auffaellig langsame Chunks sichtbar machen.
+                        # Beim Vorfall (Hang nach Chunk 51/403) sah der User
+                        # NUR Stille — keine weiteren Logs, kein Fortschritt,
+                        # nichts das erklaert haette was passiert. Der Hang
+                        # selbst laesst sich hier nicht abbrechen: ein in CUDA
+                        # feststeckender ``apply_model``-Call ist von Python aus
+                        # nicht kuendbar. Was moeglich ist, ist ihn NICHT
+                        # lautlos passieren zu lassen — ein 30s-Chunk, der
+                        # mehrere Minuten braucht, ist ein Warnsignal und
+                        # gehoert ins Log, bevor der naechste Chunk startet.
+                        # Bewusst nur eine Meldung, kein Abbruch: lange Chunks
+                        # koennen auf dieser GPU legitim sein, und ein
+                        # Fehlalarm-Abbruch waere schlimmer als der Hinweis.
+                        if apply_elapsed > _CHUNK_SLOW_WARN_SEC:
+                            logger.warning(
+                                "[StemSeparator] B-331: Chunk %d/%d brauchte %.1fs "
+                                "(Schwelle %.0fs). Bleibt der naechste Chunk-Log aus, "
+                                "haengt der Lauf hier — VRAM frei: %s GB.",
+                                i + 1, num_chunks, apply_elapsed,
+                                _CHUNK_SLOW_WARN_SEC,
+                                f"{vram_after_gb:.2f}" if vram_after_gb is not None else "n/a",
+                            )
                     except RuntimeError as _oom_exc:
                         # B-356 Fix: Nur echte CUDA-OOM-Fehler triggern die
                         # Chunk-Halbierung. Shape-/Model-/I/O-RuntimeErrors
