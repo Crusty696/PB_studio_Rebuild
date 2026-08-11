@@ -121,6 +121,46 @@ def test_capture_raw_bundle_preserves_wal_and_analyzes_only_copy(tmp_path):
         source_connection.close()
 
 
+def test_b749_archived_wal_and_shm_survive_consolidation(tmp_path):
+    """B-749: listed -wal/-shm artifacts must still exist and match the source.
+
+    Before the fix, consolidation opened the archived copy directly; SQLite
+    recovered its WAL and deleted the archived -wal/-shm on close, so the
+    manifest listed sidecar artifacts that were gone from disk.
+    """
+    from tools.stability_manifest import capture_database
+
+    source = tmp_path / "project" / "pb_studio.db"
+    source_connection = _create_db(source, value="committed-in-wal")
+    try:
+        source_bytes = {
+            suffix: Path(f"{source}{suffix}").read_bytes()
+            for suffix in ("", "-wal", "-shm")
+            if Path(f"{source}{suffix}").is_file()
+        }
+        assert len(source_bytes["-wal"]) > 0
+
+        result = capture_database(
+            source,
+            backup_root=tmp_path / "external" / "backups",
+        )
+
+        backup = result["backup"]
+        assert Path(backup["consolidated_database"]).is_file()
+        for key, suffix in (("database", ""), ("wal", "-wal"), ("shm", "-shm")):
+            listed = backup[key]
+            assert listed is not None, f"{key} was not archived at all"
+            archived = Path(listed)
+            assert archived.is_file(), f"manifest lists {key} but file is missing"
+            assert archived.read_bytes() == source_bytes[suffix], (
+                f"archived {key} bytes drifted from the source"
+            )
+        assert not (Path(backup["database"]).parent / "consolidation_work").exists()
+        assert result["analysis"]["table_counts"]["sample"] == 1
+    finally:
+        source_connection.close()
+
+
 def test_write_baseline_manifest_uses_required_json_contract(tmp_path):
     from tools.stability_manifest import write_baseline_manifest
 

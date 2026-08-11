@@ -173,8 +173,10 @@ def _extract_thumb_qimage(file_path: str, w: int, h: int) -> QImage:
         except (subprocess.SubprocessError, OSError, FileNotFoundError):
             try:
                 dest.unlink(missing_ok=True)  # B-706/F1: Partial nach Timeout
-            except OSError:
-                pass
+            except OSError as e:  # B-798 Fix: Log instead of silent pass
+                # Best-Effort-Cleanup: Partial-Datei bleibt liegen, naechster
+                # Aufruf regeneriert bzw. zeigt Placeholder -> debug.
+                logger.debug("Partial-Thumbnail %s nicht loeschbar: %s", dest, e)
             return _placeholder_image(w, h, "▶")
     img = QImage(str(dest))
     if img.isNull():
@@ -182,8 +184,10 @@ def _extract_thumb_qimage(file_path: str, w: int, h: int) -> QImage:
         # Aufruf regenerieren kann, statt fuer immer Placeholder zu zeigen.
         try:
             dest.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as e:  # B-798 Fix: Log instead of silent pass
+            # Best-Effort-Cleanup: unlesbarer Cache-Eintrag bleibt bestehen,
+            # Card zeigt weiter Placeholder -> debug.
+            logger.debug("Unlesbares Thumbnail %s nicht loeschbar: %s", dest, e)
         return _placeholder_image(w, h, "▶")
     return img
 
@@ -410,8 +414,10 @@ class MediaCard(QFrame):
             try:
                 w.style().unpolish(w)
                 w.style().polish(w)
-            except RuntimeError:
-                pass  # widget wurde schon zerstoert
+            except RuntimeError as e:  # B-798 Fix: Log instead of silent pass
+                # widget wurde schon zerstoert — erwarteter Race beim
+                # Rebuild, kein Fehlerfall -> debug.
+                logger.debug("Repolish auf zerstoerter Card uebersprungen: %s", e)
         QTimer.singleShot(0, _repolish)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -500,8 +506,10 @@ class VideoCard(MediaCard):
     def apply_thumbnail_image(self, _path: str, img: QImage) -> None:
         try:
             self.set_thumbnail(QPixmap.fromImage(img))
-        except RuntimeError:
-            pass
+        except RuntimeError as e:  # B-798 Fix: Log instead of silent pass
+            # Card C++-seitig bereits weg (spaet eintreffendes Thumb-Signal)
+            # — erwarteter Race -> debug.
+            logger.debug("Thumbnail fuer zerstoerte Card verworfen: %s", e)
 
 
 class AudioCard(MediaCard):
@@ -851,8 +859,10 @@ class MediaPoolGrid(QWidget):
             for card in self._cards:
                 try:
                     card.deleteLater()
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:  # B-798 Fix: Log instead of silent pass
+                    # Card war C++-seitig schon geloescht — Ziel (weg) ist
+                    # bereits erreicht -> debug.
+                    logger.debug("deleteLater auf zerstoerter Card: %s", e)
             self._cards.clear()
             self._card_by_id.clear()
             self._filtered = []
@@ -900,8 +910,14 @@ class MediaPoolGrid(QWidget):
                 elif isinstance(ec, str):
                     try:
                         energy = json.loads(ec)
-                    except (json.JSONDecodeError, TypeError):  # B-035 Fix: Specific exception types
-                        pass  # Invalid JSON or wrong type — use empty list fallback
+                    except (json.JSONDecodeError, TypeError) as e:  # B-035/B-798 Fix
+                        # Invalid JSON or wrong type — use empty list fallback.
+                        # Datenqualitaets-Detail einer einzelnen Card, kein
+                        # Funktionsabbruch -> debug.
+                        logger.debug(
+                            "energy_curve fuer Media %s nicht parsebar: %s",
+                            data.get("id"), e,
+                        )
             card = AudioCard(
                 media_id=data["id"],
                 title=data.get("title", ""),
@@ -949,8 +965,10 @@ class MediaPoolGrid(QWidget):
                 card.setParent(self._container)
             card.setGeometry(x, y, _CW, _CH)
             card.show()
-        except RuntimeError:
-            pass  # Card C++-seitig bereits weg
+        except RuntimeError as e:  # B-798 Fix: Log instead of silent pass
+            # Card C++-seitig bereits weg — erwarteter Race waehrend
+            # Grid-Rebuild/Scroll -> debug.
+            logger.debug("Card-Platzierung uebersprungen (Card zerstoert): %s", e)
 
     def _build_next_chunk(self):
         """M3: baut gequeue-te Fenster-Cards in 20ms-Chunks (progressiv),

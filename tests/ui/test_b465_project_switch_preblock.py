@@ -27,7 +27,11 @@ def test_b465_block_true_when_tasks_running():
          patch("ui.controllers.project_management.QMessageBox") as mb:
         blocked = ctrl._tasks_running_block("Projekt oeffnen")
     assert blocked is True
-    mb.warning.assert_called_once()
+    # B-799: Hinweis wird als NICHT-modale Box gezeigt (show()), nicht mehr
+    # ueber die blockierende Statik QMessageBox.warning() (nested event loop).
+    mb.assert_called_once_with(ctrl.window)
+    mb.return_value.show.assert_called_once()
+    mb.warning.assert_not_called()
     ctrl.window.status_bar.showMessage.assert_called_once()
 
 

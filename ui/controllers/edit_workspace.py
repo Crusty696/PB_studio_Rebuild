@@ -1480,7 +1480,20 @@ class EditWorkspaceController(PBComponent):
         if project_id is None:
             self.window.console_text.append("[Warnung] Kein aktives Projekt.")
             return
-        
+
+        # B-796: Projekt-Token beim Start festhalten. Die project_id allein
+        # reicht nicht — sie kollidiert ueber Projekt-DBs hinweg. Ohne den
+        # Abgleich unten landen die vorbereiteten Clips in der Timeline des
+        # inzwischen gewechselten Projekts. Gleiches Muster wie B-714/B-795.
+        from ui.controllers.schnitt_controller import _current_project_token
+        _started_token = _current_project_token()
+
+        def _project_changed() -> bool:
+            if _started_token is None:
+                return False  # fail-open, wie beim B-714-Guard
+            _now = _current_project_token()
+            return _now is not None and _now != _started_token
+
         # 2. DB-Abfrage in Hintergrund-Thread auslagern
         from PySide6.QtCore import QObject, Signal
 
@@ -1556,6 +1569,14 @@ class EditWorkspaceController(PBComponent):
                 pass
 
         def _on_done(clips, plan=None):
+            # B-796: Ergebnis eines fremden Projekts nicht anwenden — weder
+            # Clips pushen noch Banner/Workspace umschalten.
+            if _project_changed():
+                logger.warning(
+                    "B-796: Timeline-Add verworfen — Projekt gewechselt "
+                    "(Start-Projekt %s).", project_id,
+                )
+                return
             plan = plan or {}
             if plan.get("blocked_reason"):
                 _notify(f"[Timeline] Nicht hinzugefuegt: {plan['blocked_reason']}")

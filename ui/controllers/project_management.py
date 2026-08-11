@@ -14,6 +14,7 @@ User dachte "nichts passiert ist".
 
 import logging
 from pathlib import Path
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
 from ui.base_component import PBComponent
 from workers.base import BaseWorker
@@ -82,11 +83,54 @@ class ProjectManagementController(PBComponent):
         except Exception:  # broad: Status-Bar darf den Dialog nicht blocken
             pass
         try:
-            QMessageBox.warning(self.window, action_label, msg)
+            self._show_tasks_running_notice(action_label, msg)
         except Exception as exc:  # broad: best-effort
             logger.warning("B-465: pre-block dialog failed: %s", exc)
         logger.info("B-465: Pre-Block '%s' — Hintergrund-Tasks laufen noch.", action_label)
         return True
+
+    def _show_tasks_running_notice(self, action_label: str, msg: str) -> None:
+        """B-799: Pre-Block-Hinweis OHNE verschachtelte Modal-Event-Loop.
+
+        Vorher rief ``_tasks_running_block`` ``QMessageBox.warning(...)`` — die
+        statische Variante ruft intern ``exec()`` auf und haengt damit eine
+        verschachtelte Qt-Event-Loop in den GUI-Thread. Beleg (live 2026-08-10,
+        ``logs/freeze_stacks.log:219668``): der Main-Thread stand >4,5 Minuten in
+        ``project_management.py:85 _tasks_running_block`` <- ``:147
+        _open_project``, waehrend 486 Proxy-Tasks liefen. Nicht in
+        ``_has_running_tasks`` (Zeile 68) — die Iteration laeuft ueber eine Kopie
+        (``task_manager.py:652-655``) und haelt kein Lock.
+
+        Unter dieser Last wurde die Box nie gezeichnet und nie bedienbar → der
+        Klick-Handler kam nie zurueck (Force-Kill noetig). Ein nicht-modaler
+        ``show()``-Dialog kehrt sofort zurueck; der GUI-Thread wird vom Guard
+        nicht mehr blockiert.
+
+        Re-Entranz: mehrfaches Klicken darf keine Box-Kette erzeugen — eine
+        bereits sichtbare Box wird nur aktualisiert und wieder nach vorn geholt.
+        """
+        existing = getattr(self, "_pb_pre_block_box", None)
+        if existing is not None:
+            try:
+                if existing.isVisible():
+                    existing.setWindowTitle(action_label)
+                    existing.setText(msg)
+                    existing.raise_()
+                    return
+            except RuntimeError:  # C++-Objekt bereits zerstoert
+                pass
+            self._pb_pre_block_box = None
+
+        box = QMessageBox(self.window)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(action_label)
+        box.setText(msg)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setModal(False)
+        box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        box.finished.connect(lambda _result: setattr(self, "_pb_pre_block_box", None))
+        self._pb_pre_block_box = box
+        box.show()  # NICHT exec(): kein nested event loop im GUI-Thread (B-799)
 
     def _new_project(self):
         """Show NewProjectDialog and create a new project (Fix F-045: Async)."""

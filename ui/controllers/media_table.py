@@ -267,6 +267,27 @@ class MediaTableController(PBComponent):
             self.window._media_ws.ensure_status_panel_selection(videos, audios)
         except (AttributeError, RuntimeError):
             pass
+        # B-797: Der Nenner des Verwendungs-Banners ("Timeline nutzt X von N
+        # Clips") kommt aus video_pool_model.total_row_count(). Dieses Model
+        # wird hier ASYNCHRON befuellt, waehrend der B-657-Aufrufer das Banner
+        # bereits beim Projektwechsel (synchron, vor dem Nachladen) berechnet
+        # hat -> N blieb auf dem Stand des alten Projekts stehen, bis zufaellig
+        # ein Auto-Edit oder Timeline-Add lief (live 2026-08-11: "354 von 2",
+        # ueber 90s und einen Tab-Wechsel hinweg stale). Deshalb das Banner
+        # nach dem Nachladen genau einmal nachziehen.
+        #
+        # Kein Endlos-Refresh: _refresh_timeline_usage_marking() setzt nur
+        # Model-/Grid-Markierung + Label und stoesst KEINEN Medien-Reload an.
+        # Zusaetzlich laeuft der Nachzug nur, wenn sich die Pool-Groesse
+        # gegenueber dem letzten Banner-Stand geaendert hat — sonst spart man
+        # sich den synchronen Timeline-Query im GUI-Thread.
+        try:
+            _video_total = len(videos)
+            if _video_total != getattr(self, "_usage_banner_video_total", None):
+                self._usage_banner_video_total = _video_total
+                self.window.edit_workspace._refresh_timeline_usage_marking()
+        except (AttributeError, RuntimeError) as exc:
+            logger.debug("B-797: Banner-Nachzug nach Pool-Reload fehlgeschlagen: %s", exc)
 
     def _sync_schnitt_audio_selection(self) -> None:
         """Propagate blocked combo selection to SCHNITT audio binders."""

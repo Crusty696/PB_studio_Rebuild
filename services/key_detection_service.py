@@ -219,22 +219,29 @@ class KeyDetectionService:
             # ------------------------------------------------------------------
             if bass_path and other_path:
                 import os
+                import shutil
                 import tempfile
                 from services.stem_router import mix_bass_other
+                # B-680: Cleanup gehoert ins finally. Vorher lag das
+                # unlink/rmdir am Ende des Erfolgspfads — warf mix_bass_other
+                # oder librosa.load, blieb pb_keydet_*/bass_other.wav (bis zu
+                # MAX_DURATION_MODULATION Sekunden WAV) dauerhaft im Temp
+                # liegen. rmtree(ignore_errors=True) ist das im Repo bereits
+                # verwendete Muster (B-618, style_bucket_clusterer) und wirft
+                # selbst nie; tmp_dir wird nirgends als Ergebnis zurueckgegeben.
+                tmp_dir: str | None = None
                 try:
                     tmp_dir = tempfile.mkdtemp(prefix="pb_keydet_")
                     tmp_mix = os.path.join(tmp_dir, "bass_other.wav")
                     mix_bass_other({"bass": bass_path, "other": other_path}, tmp_mix)
                     y, sr = librosa.load(tmp_mix, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
                     log.info("Key detection: bass+other streaming-mix used (%d samples @ %d Hz)", len(y), sr)
-                    try:
-                        os.unlink(tmp_mix)
-                        os.rmdir(tmp_dir)
-                    except OSError:
-                        pass
                 except Exception as e:  # noqa: BLE001
                     log.warning("bass/other streaming-mix failed (%s) -> fallback to original", e)
                     y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
+                finally:
+                    if tmp_dir is not None:
+                        shutil.rmtree(tmp_dir, ignore_errors=True)
             else:
                 y, sr = librosa.load(file_path, sr=DEFAULT_SR, mono=True, duration=MAX_DURATION_MODULATION)
             if y is None or len(y) == 0:

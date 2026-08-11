@@ -42,8 +42,14 @@ try:
         _FAULT_HANDLER_FILE = (_early_log_dir / "freeze_stacks.log").open("a", encoding="utf-8")
         _fault_handler_target = _FAULT_HANDLER_FILE
     _faulthandler.enable(file=_fault_handler_target)
-except Exception:  # broad: best-effort diagnostics must not kill GUI startup
-    pass
+except Exception as e:  # B-798 Fix: Log instead of silent pass
+    # broad: best-effort diagnostics must not kill GUI startup.
+    # Bootstrap-Schritt: ohne faulthandler gibt es bei nativen Crashes
+    # (SIGSEGV) keinen Python-Stacktrace mehr. Logging steht hier noch nicht
+    # (setup_logging() laeuft erst in main()) -> lokaler Logger, WARNING,
+    # damit die Meldung ueber logging.lastResort auf stderr sichtbar wird.
+    import logging as _log
+    _log.getLogger(__name__).warning("faulthandler enable failed: %s", e)
 try:
     import signal as _signal
     if hasattr(_signal, "SIGBREAK"):
@@ -51,8 +57,13 @@ try:
             _faulthandler.register(_signal.SIGBREAK, file=_FAULT_HANDLER_FILE, all_threads=True)
         else:
             _faulthandler.register(_signal.SIGBREAK, all_threads=True)
-except Exception:  # broad: best-effort, kein App-Killer
-    pass
+except Exception as e:  # B-798 Fix: Log instead of silent pass
+    # broad: best-effort, kein App-Killer.
+    # Bootstrap-Schritt: ohne SIGBREAK-Registrierung kann der User per
+    # Ctrl+Pause keinen Thread-Stack-Dump mehr ausloesen (UI-Hang-Diagnose).
+    # Logging noch nicht konfiguriert -> lokaler Logger + WARNING.
+    import logging as _log
+    _log.getLogger(__name__).warning("SIGBREAK stack-dump handler not registered: %s", e)
 
 # P1-FIX: Lokales bin-Verzeichnis zum PATH hinzufügen (ffmpeg/ffprobe Support)
 _APP_ROOT = Path(__file__).parent.absolute()
@@ -1862,8 +1873,10 @@ def main():
             import torch  # type: ignore
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except Exception:
-            pass
+        except Exception as e:  # B-798 Fix: Log instead of silent pass
+            # Best-Effort-Cleanup im atexit-Pfad: VRAM wird beim
+            # Prozess-Ende ohnehin vom Treiber freigegeben -> debug.
+            logger.debug("atexit CUDA empty_cache failed: %s", e)
     import atexit as _atexit_cuda
     _atexit_cuda.register(_cuda_atexit_cleanup)
 
@@ -1947,8 +1960,10 @@ def main():
                             if (isinstance(obj, _QLineEdit)
                                     and obj.echoMode() != _QLineEdit.EchoMode.Normal):
                                 return False
-                        except Exception:
-                            pass
+                        except Exception as e:  # B-798 Fix: Log instead of silent pass
+                            # Best-Effort-Guard im Klick-Log-Eventfilter: pro
+                            # Tastendruck aufgerufen -> debug statt Log-Flut.
+                            logger.debug("Clicklog password-field guard failed: %s", e)
                         key = event.key()
                         try:
                             from PySide6.QtCore import Qt as _Qt
@@ -1958,8 +1973,10 @@ def main():
                         mods = ""
                         try:
                             mods = event.modifiers().name
-                        except Exception:
-                            pass
+                        except Exception as e:  # B-798 Fix: Log instead of silent pass
+                            # Best-Effort-Detail im Klick-Log: fehlende
+                            # Modifier-Info ist kosmetisch -> debug.
+                            logger.debug("Clicklog modifier name unavailable: %s", e)
                         cls = type(obj).__name__
                         try:
                             name = obj.objectName() or ""

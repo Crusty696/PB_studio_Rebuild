@@ -349,6 +349,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
         video_segments = []
         _missing_clip_count = 0
+        _missing_clip_ids: list = []
         for ve in video_entries:
             clip = _clips_by_id.get(ve.media_id)
             if not clip:
@@ -356,6 +357,7 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 # oder fehlender VideoClip wuerde sonst still aus dem Export
                 # fallen. Sichtbar machen, aber Export NICHT abbrechen.
                 _missing_clip_count += 1
+                _missing_clip_ids.append(ve.media_id)
                 logger.warning(
                     "Timeline-Eintrag %s referenziert fehlenden/soft-geloeschten "
                     "VideoClip media_id=%s — Segment wird NICHT exportiert",
@@ -393,11 +395,18 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
 
         if _missing_clip_count:
             # B-580: zusammenfassende Warnung, damit der Datenverlust nicht
-            # in vielen Einzelzeilen untergeht.
+            # in vielen Einzelzeilen untergeht. Die betroffenen Clip-IDs
+            # stehen MIT in der Summenzeile — sonst muesste man sie aus den
+            # Einzelzeilen zusammensuchen, die bei grossen Timelines im Log
+            # weit auseinander liegen.
+            _missing_ids_str = ", ".join(str(_i) for _i in _missing_clip_ids[:20])
+            if len(_missing_clip_ids) > 20:
+                _missing_ids_str += f", ... (+{len(_missing_clip_ids) - 20})"
             logger.warning(
                 "Export: %d von %d Video-Timeline-Eintraegen referenzieren "
-                "fehlende/soft-geloeschte VideoClips und wurden NICHT exportiert",
-                _missing_clip_count, len(video_entries),
+                "fehlende/soft-geloeschte VideoClips und wurden NICHT "
+                "exportiert (media_id: %s)",
+                _missing_clip_count, len(video_entries), _missing_ids_str,
             )
             # B-580 Nachtrag 2026-08-09: der Logeintrag allein erreichte den
             # User nie — der Export meldete Erfolg, das Ergebnis war still
@@ -408,8 +417,9 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
                 warning_cb,
                 f"{_missing_clip_count} von {len(video_entries)} "
                 f"Video-Segmenten fehlen (geloeschte oder nicht mehr "
-                f"vorhandene Clips) und wurden NICHT exportiert. Das "
-                f"Video ist entsprechend kuerzer als die Timeline.",
+                f"vorhandene Clips, media_id: {_missing_ids_str}) und wurden "
+                f"NICHT exportiert. Das Video ist entsprechend kuerzer als "
+                f"die Timeline.",
             )
 
         audio_source = None

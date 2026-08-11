@@ -265,14 +265,41 @@ def _copy_raw_bundle(
 
 
 def _consolidate_raw_bundle(raw_database: Path) -> Path:
+    """Consolidate a throwaway duplicate so the archived raw bytes survive.
+
+    B-749: ``sqlite3.connect()`` directly on the archived copy recovers and
+    checkpoints its WAL and — as the last connection closes — deletes the
+    archived ``-wal``/``-shm`` files and rewrites the archived main file. The
+    manifest then listed sidecar artifacts that no longer existed on disk, so a
+    raw-byte restore of the pre-incident WAL was not provable.
+
+    The bundle is therefore duplicated into a scratch directory first and only
+    that duplicate is opened. Consolidation itself keeps using
+    ``Connection.backup()`` — the same WAL-safe mechanism as
+    ``database.migrations._wal_safe_db_copy`` / ``BackupService._sqlite_backup``
+    (B-691 / B-498) — so committed-but-uncheckpointed WAL rows still land in
+    ``consolidated.db``. That helper is not imported here on purpose: it opens
+    the *source* DB, while this tool must never open an original database and
+    must not import product modules.
+    """
     consolidated = raw_database.parent / "consolidated.db"
-    source = sqlite3.connect(raw_database)
-    target = sqlite3.connect(consolidated)
+    work_dir = raw_database.parent / "consolidation_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    work_database = work_dir / raw_database.name
     try:
-        source.backup(target)
+        for suffix in SIDECAR_SUFFIXES:
+            component = Path(f"{raw_database}{suffix}")
+            if component.is_file():
+                shutil.copy2(component, Path(f"{work_database}{suffix}"))
+        source = sqlite3.connect(work_database)
+        target = sqlite3.connect(consolidated)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
     finally:
-        target.close()
-        source.close()
+        shutil.rmtree(work_dir, ignore_errors=True)
     return consolidated
 
 
