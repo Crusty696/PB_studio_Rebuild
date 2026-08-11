@@ -730,7 +730,17 @@ def _m1_restore_timeline_placement(session, video_ids, audio_ids) -> None:
             session.delete(backup)
 
 
-def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
+def delete_selected_media(
+    video_ids: list[int],
+    audio_ids: list[int],
+    on_timeline_removed=None,
+) -> int:
+    """B-803: ``on_timeline_removed(anzahl)`` meldet entfernte Timeline-Segmente.
+
+    Optional und ohne Vorgabe — bestehende Aufrufer bleiben unveraendert.
+    Das Muster entspricht ``progress_cb``/``cancel_check``/``warning_cb`` im
+    Repo, damit hier kein zweites Konzept entsteht.
+    """
     """Loescht einzelne Audio- und Video-Eintraege anhand ihrer IDs.
 
     Bereinigt zuerst alle abhaengigen Child-Rows (ClipAnchors, TimelineEntries,
@@ -767,6 +777,29 @@ def delete_selected_media(video_ids: list[int], audio_ids: list[int]) -> int:
         # werden — restore_media legt sie daraus wieder an.
         if entries:
             _m1_backup_timeline_placement(session, entries)
+
+        # B-803: Der Nutzer erfaehrt sonst NICHT, dass beim Loeschen eines
+        # Clips auch seine Timeline-Segmente verschwinden. Live-Verify
+        # 2026-08-11: sechs Timeline-Eintraege wurden beim Soft-Delete
+        # kommentarlos auf einen reduziert — kein Log, kein Hinweis, keine
+        # Zahl. Die Platzierung ist zwar durch das M1-Backup gesichert und
+        # kehrt beim Restore zurueck, aber wer das nicht weiss, haelt die
+        # Arbeit fuer verloren.
+        # Das erklaert auch, warum die Export-Warnung aus B-580 nie erschien:
+        # zum Exportzeitpunkt ist die Timeline laengst bereinigt, es gibt gar
+        # nichts mehr zu ueberspringen.
+        if entries:
+            logger.warning(
+                "B-803: %d Timeline-Segment(e) beim Loeschen von %d Medien "
+                "entfernt (Platzierung im M1-Backup gesichert, kehrt beim "
+                "Wiederherstellen zurueck).",
+                len(entries), len(video_ids) + len(audio_ids),
+            )
+            if on_timeline_removed is not None:
+                try:
+                    on_timeline_removed(len(entries))
+                except Exception as exc:  # broad: Meldung darf das Loeschen nie kippen
+                    logger.warning("B-803: Timeline-Meldung fehlgeschlagen: %s", exc)
 
         # Grandchildren zuerst
         if timeline_ids:

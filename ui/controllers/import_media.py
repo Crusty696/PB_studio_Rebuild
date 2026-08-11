@@ -65,6 +65,9 @@ class _PartialDeleteWorker(QObject):
     """
     finished = Signal(int)
     error = Signal(str)
+    # B-803: Anzahl der Timeline-Segmente, die beim Loeschen mitentfernt
+    # wurden. Ohne diese Meldung verschwand die Schnittarbeit kommentarlos.
+    timeline_removed = Signal(int)
 
     def __init__(self, video_ids: list[int], audio_ids: list[int], parent=None):
         super().__init__(parent)
@@ -73,7 +76,11 @@ class _PartialDeleteWorker(QObject):
 
     def run(self):
         try:
-            count = delete_selected_media(self._video_ids, self._audio_ids)
+            count = delete_selected_media(
+                self._video_ids,
+                self._audio_ids,
+                on_timeline_removed=self.timeline_removed.emit,
+            )
             self.finished.emit(count)
         except Exception as e:  # broad catch intentional — Error via Signal ans UI propagiert
             logger.exception("PartialDeleteWorker.run failed")
@@ -500,6 +507,32 @@ class ImportMediaController(PBComponent):
                     pass  # Widget inzwischen geloescht
 
         worker = _PartialDeleteWorker(video_ids, audio_ids)
+
+        # B-803: Verschwundene Timeline-Segmente sichtbar machen. Live-Verify
+        # 2026-08-11: sechs Eintraege wurden beim Loeschen kommentarlos auf
+        # einen reduziert — kein Hinweis, keine Zahl. Der Hinweis nennt
+        # ausdruecklich den Papierkorb, weil die Platzierung durch das
+        # M1-Backup (B-706) gesichert ist und beim Wiederherstellen
+        # zurueckkehrt. Ohne diesen Zusatz haelt der User seine Schnittarbeit
+        # fuer verloren.
+        def _on_timeline_removed(anzahl: int):
+            if anzahl <= 0:
+                return
+            try:
+                self.window.console_text.append(
+                    f"[System] {anzahl} Timeline-Segment(e) entfernt, weil die "
+                    "zugehoerigen Clips geloescht wurden. Wiederherstellen "
+                    "ueber den Papierkorb bringt sie samt Platzierung zurueck."
+                )
+                self.window.status_bar.showMessage(
+                    f"{anzahl} Timeline-Segment(e) mitentfernt", 10_000,
+                )
+            except (AttributeError, RuntimeError) as exc:
+                logger.debug("B-803: Timeline-Hinweis nicht anzeigbar: %s", exc)
+
+        worker.timeline_removed.connect(
+            _on_timeline_removed, Qt.ConnectionType.QueuedConnection,
+        )
 
         def _on_done(count: int):
             try:
