@@ -124,8 +124,16 @@ class Recorder:
             try:
                 con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
                 for tbl in WATCH_TABLES:
+                    # Der Tabellenname laesst sich nicht parametrisieren (SQLite
+                    # erlaubt Platzhalter nur fuer Werte, nicht fuer Bezeichner).
+                    # Statt sich darauf zu verlassen, dass WATCH_TABLES eine
+                    # Code-Konstante ist, wird hier explizit dagegen validiert —
+                    # das haelt auch, falls die Liste spaeter befuellt wird.
+                    if tbl not in WATCH_TABLES:
+                        continue
+                    sql = f"SELECT COUNT(*) FROM {tbl}"  # nosec B608 - Bezeichner gegen WATCH_TABLES validiert
                     try:
-                        n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+                        n = con.execute(sql).fetchone()[0]
                     except sqlite3.Error:
                         continue
                     key = f"{db.parent.name}/{tbl}"
