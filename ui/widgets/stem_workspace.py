@@ -290,7 +290,21 @@ class StemWorkspace(QWidget):
         # (verhindert "Internal C++ object already deleted" wenn quit() async läuft)
         thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda t=thread, w=worker: self._on_peak_thread_done(t, w))
+        # B-605: Das Lambda haelt ``self`` stark und feuert auf
+        # ``QThread::finished``. Wird das Widget vorher zerstoert, greift der
+        # Slot auf ein totes C++-Objekt zu — genau der Qt6Core-Crashpfad des
+        # Tickets. ``shiboken6.isValid`` vor dem Zugriff, wie an den bereits
+        # gesicherten Stellen im Repo (ui/timeline.py, ui/widgets/media_grid.py).
+        def _peak_thread_done(t=thread, w=worker, _self=self) -> None:
+            import shiboken6
+            if not shiboken6.isValid(_self):
+                return
+            try:
+                _self._on_peak_thread_done(t, w)
+            except RuntimeError as exc:  # C++-Objekt zwischenzeitlich zerstoert
+                logger.debug("B-605: peak-thread-cleanup uebersprungen: %s", exc)
+
+        thread.finished.connect(_peak_thread_done)
 
         # B-602 Fix: Thread-Safe Zugriff auf Listen mit Lock
         with self._peak_lock:
