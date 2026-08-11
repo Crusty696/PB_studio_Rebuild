@@ -517,6 +517,44 @@ Jeder Flow-Eintrag hat:
   fehlerfrei. Kein Crash, kein Traceback — stiller Datenanzeige-Fehler.
   Report/Log: `logs/live-verify-2026-08-11-gui.log` (Abschnitt "NACHTRAG S7").
 
+### 2.27 Live-Verify Runde 2 (B-799/B-800/B-797/B-644/B-580/B-798/B-605) — NEU 2026-08-11
+- **B-799 Pre-Block nicht-modal (BESTAETIGT):** Der Guard-Dialog "... ist nicht moeglich,
+  solange Hintergrund-Tasks laufen" (B-465-Pre-Block) ist tatsaechlich nicht-modal. Beweis:
+  Klick auf einen Tab HINTER dem offenen Dialog wechselt den Tab sofort (sichtbar im
+  Screenshot), waehrend die Box weiter offen bleibt. Zweite Ausloesung waehrend die erste
+  Box offen ist erzeugt KEINE zweite Box (list-windows zeigt weiterhin genau 1 Fenster
+  "Projekt oeffnen"), sondern nur einen zweiten Log-Eintrag -- die Box wird aktualisiert.
+- **EXPORT-Tab-Klick-Falle:** `click-element --name-re "^EXPORT$"` trifft den QLabel
+  "Export" auf dem PROJEKT-Cockpit (Text-Karte), NICHT den Tab. Fuer den echten Tab-Wechsel
+  `find-element --name-re "Workflow"` nutzen (liefert `workspace_nav.workspace_btn`
+  CheckBoxen "Projekt/Material und Analyse/Schnitt/Export Workflow" mit exakten
+  Koordinaten) -- gleiches Muster wie schon in 2.21 fuer Schnitt/Material dokumentiert,
+  gilt auch fuer Export.
+- **Quick-Preview-Export-Buttons:** `Quick-Preview rendern` liegt bei y≈1294 (3240x2160),
+  NICHT bei y≈796 wie ein erster Screenshot-Schaetzversuch ergab -- IMMER
+  `find-element`/`click-element` fuer Export-Tab-Buttons nutzen statt Screenshot-Koordinaten
+  zu schaetzen (Layout variiert je nach Timeline-Status-Panel-Hoehe).
+- **NEUER BUG (nicht B-nummeriert):** PreviewExport (Quick-Preview 10s) bricht bei sehr
+  grossen Quell-WAVs (hier ~976 MB) nach hartem 300s-ffmpeg-Timeout in der
+  LUFS-Normalisierung ab (`RuntimeError: LUFS-Normalisierung Timeout nach 300s`,
+  `services/export_service.py:1367`). Die Normalisierung scheint auf der KOMPLETTEN
+  Audiodatei zu laufen statt nur auf dem Preview-Fenster. TaskEngine faengt den Fehler
+  sauber ab (kein App-Crash, UI bleibt bedienbar, Fehler wird im TASKS-Panel sichtbar
+  als "Fehler" mit Tooltip angezeigt) -- aber das Feature ist fuer grosse Audiodateien
+  faktisch nicht nutzbar.
+- **Stem-Separation laesst sich bei bereits vorhandenem Cache nicht ueber die UI
+  neu triggern:** Weder der "Wiederholen"-Button in der Analyse-Status-Tabelle noch der
+  globale "Stems"-Kachel-Button erzeugten einen sichtbaren neuen TaskEngine-Eintrag, wenn
+  Stems fuer den Track bereits vollstaendig separiert vorliegen (4/4). Fuer B-605-artige
+  Tests (Thread-Lifecycle waehrend laufender Separation) ist ein frisches, noch nicht
+  separiertes Audio-Projekt notwendig.
+- **Grosse Ordner-Importe (486 Dateien) erzeugen eine sehr langsame Proxy-Konvertierungs-
+  Queue** (~0.3 Konvertierungen/Sekunde beobachtet, 20+ Minuten fuer volle Queue). Der
+  TASKS-Panel-"Abbrechen"-Button stoppt nur EINEN TaskEngine-Task, NICHT die separate
+  ConvertService-Queue (Proxy-Generierung laeuft nach Abbrechen-Klick unbeirrt weiter) --
+  fuer schnelle Tests eher auf bereits vorhandene, durchanalysierte Testprojekte (z. B.
+  `LV-A`/`LV-B` aus einer frueheren Session) zurueckgreifen statt neu zu importieren.
+
 ## 3. Änderungslog
 - 2026-07-14: Gerüst angelegt (Freeze-Sanierung B-619/622/623/624/625/626/627).
   Flow-Details TODO — erster GUI-Test befüllt Widget-Namen/Koordinaten.
@@ -629,3 +667,11 @@ Jeder Flow-Eintrag hat:
   App-Bug, sondern Automatisierungs-Luecke: harness `kill` kennt diesen
   Dialog nicht. Fuer sauberen Graceful-Shutdown-Test: vor `kill` erst
   Ctrl+S oder "nicht speichern" im Dialog explizit klicken.
+- 2026-08-11 (Live-Verify Runde 2, B-799/B-800/B-797/B-644/B-580/B-798/B-605): Flow 2.27
+  (neu) ergaenzt. B-799 Pre-Block-Dialog nicht-modal bestaetigt (Klick hinter Box wirkt
+  sofort), B-800 Keyframe-String-Feld wird bei Projektwechsel korrekt geleert, B-797
+  Verwendungs-Banner-Nenner sofort korrekt nach Projektwechsel, B-644 Beatgrid-Linien
+  bei 4 Zoomstufen visuell konsistent duenn, B-798 Bootstrap-Logging sauber. B-580
+  (Export-Skip-Warnung) und B-605 (Stem-Thread-Lifecycle) NICHT-TESTBAR in dieser Runde
+  (siehe Details oben). Neuer Bug gefunden: PreviewExport-LUFS-Timeout bei grossen WAVs.
+  Report: `logs/live-verify-2026-08-11-runde2.log`.
