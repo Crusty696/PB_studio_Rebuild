@@ -675,3 +675,49 @@ Jeder Flow-Eintrag hat:
   (Export-Skip-Warnung) und B-605 (Stem-Thread-Lifecycle) NICHT-TESTBAR in dieser Runde
   (siehe Details oben). Neuer Bug gefunden: PreviewExport-LUFS-Timeout bei grossen WAVs.
   Report: `logs/live-verify-2026-08-11-runde2.log`.
+
+---
+
+## 2.28 Standard-Testmaterial (User-Anweisung 2026-08-11)
+
+### Audio, kurze Tests — DEFAULT
+
+`C:\Users\David_Lochmann\Music\Maceo Plex - Sub-Alot (free download).mp3`
+5:37 min, 16 MB, echter Techno mit Drums und Bass.
+
+Repo-Kopien:
+- `tests/qa_material/lv3_maceo_full.mp3` — voller Track
+- `tests/qa_material/lv3_maceo_45s.wav` — 45-s-Ausschnitt ab 1:00,
+  mitten im Beat (Stem-Separation, mehrere Durchläufe)
+
+Diese Datei ist ab sofort der Standard für **jeden kurzen Test**.
+Sie ist lang genug für echte Analyse und kurz genug, dass Quick-Preview
+und LUFS-Normalisierung durchlaufen — die 149-MB- und 976-MB-Dateien
+liefen in den 300-s-ffmpeg-Timeout (siehe B-801).
+
+### Audio, Last- und Langlauftests
+
+`C:\Users\David_Lochmann\Music\Crusty_Progressive Psy Set2.mp3`
+149 MB, ~92 min. Nur wenn Langlaufverhalten selbst der Testgegenstand
+ist (Chunk-Handling, VRAM über Zeit, B-331). Für Funktionstests
+ungeeignet — provoziert Timeouts.
+
+### Niemals synthetische Signale
+
+Sinus-Töne per `ffmpeg -f lavfi` sind für Audio-Analyse **unbrauchbar**:
+kein Beat, keine Transienten, keine Drums. Stem-Separation,
+Beat-Detection und Struktur-Analyse liefern darauf triviale oder leere
+Ergebnisse, und ein "Test bestanden" darauf ist wertlos.
+
+Dieser Fehler wurde am 2026-08-11 gemacht und vom User korrigiert.
+Merksatz: Testmaterial muss die Eigenschaft tragen, die geprüft wird.
+
+Defekte Dateien für Fehlerpfad-Tests aus echtem Material erzeugen
+(Kopie abschneiden), nicht synthetisch.
+
+### Stems-Cache
+
+`storage/stems/<track_id>/`. Ein **frisch importierter** Track bekommt
+eine neue ID und hat damit keine gecachten Stems — der einzige Weg, ein
+Stem-Separations-Race live zu testen (B-605 scheiterte in Runde 2 daran,
+dass alle vorhandenen Tracks bereits separiert waren).
