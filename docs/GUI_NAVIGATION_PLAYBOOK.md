@@ -721,3 +721,21 @@ Defekte Dateien für Fehlerpfad-Tests aus echtem Material erzeugen
 eine neue ID und hat damit keine gecachten Stems — der einzige Weg, ein
 Stem-Separations-Race live zu testen (B-605 scheiterte in Runde 2 daran,
 dass alle vorhandenen Tracks bereits separiert waren).
+
+### Video-Ordner (Pfad korrigiert 2026-08-11)
+
+```
+C:\Users\David_Lochmann\Videos\Solo_Natur-20260406T220640Z-3-001\Solo_Natur
+```
+
+**125 `.mp4`-Dateien** plus ein `converted`-Ordner (verifiziert
+2026-08-11). Themen-Tags im Dateinamen (Neon Jungle, Bioluminescent
+Jungle Festival, Mystical Jungle …).
+
+Achtung: Der früher in Doku und Memory notierte Pfad
+`C:\Users\David Lochmann\Documents\Solo_Natur-...` **existiert nicht** —
+Leerzeichen statt Underscore im Benutzernamen und `Documents` statt
+`Videos`. Auch die Angabe "103 Dateien" war veraltet.
+
+Für: Folder-Import, Batch-Analyse, Pipeline, Pacing-Auto-Edit,
+Export-Render, Vision-Caption, SigLIP-Embedding, Scene-Detection.
