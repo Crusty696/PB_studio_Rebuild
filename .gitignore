@@ -136,3 +136,4 @@ Test-ergebniss/
 tests/qa_material/*_broken*.wav
 tests/qa_material/*_v2.wav
 tests/qa_material/s1_fresh_video/
+tests/qa_projects/
