@@ -21,7 +21,23 @@ def test_cancelled_live_qthread_does_not_keep_app_process_alive():
             env=env,
             capture_output=True,
             text=True,
-            timeout=45,
+            # B-592: Das Budget lag bei 45 s, aber allein `import main` braucht
+            # auf diesem Rechner rund 34 s (gemessen 2026-08-11: torch 4.8 s,
+            # ui 2.7 s, der Rest im main-Modulkoerper). Der Kindprozess
+            # importiert main, fuehrt danach das eigentliche Szenario aus und
+            # faehrt herunter — das passte nicht mehr zuverlaessig hinein.
+            # Deshalb war der Test seriell knapp gruen und im parallelen Lauf
+            # rot, was jahrelang als "Test-Pollution" gedeutet wurde.
+            #
+            # Widerlegt: der dGPU-Wake-Check in main.py ist NICHT die Ursache.
+            # Messung mit und ohne uebersprungenen Check: 34.4 s gegen 35.1 s.
+            # Er kostet nichts, solange die GPU wach ist.
+            #
+            # Das Budget deckt jetzt den gemessenen Import plus Reserve. Die
+            # lange Importzeit selbst bleibt ein eigenes Thema — sie ist auch
+            # die Startzeit der App und gehoert dort behandelt, nicht hier
+            # wegoptimiert.
+            timeout=120,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
