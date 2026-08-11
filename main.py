@@ -275,8 +275,9 @@ class PBWindow(QMainWindow):
         # P8-FREEZE-PROBE: Heartbeat fuer den Watchdog-Thread (siehe main()).
         # Der QTimer tickt alle 200ms → setzt den Zeitstempel. Watchdog
         # vergleicht: wenn Zeitstempel >1.5s alt → Stack-Dump (Main-Thread hing).
-        import os as _os_hb
-        if _os_hb.environ.get("PB_STUDIO_FREEZE_PROBE") == "1":
+        # B-805: per Default armiert — Opt-out via PB_STUDIO_FREEZE_PROBE=0.
+        from services.freeze_probe import freeze_probe_enabled as _freeze_probe_enabled
+        if _freeze_probe_enabled():
             import time as _time_hb
             from PySide6.QtCore import QTimer as _QTHb
             self._fh_timer = _QTHb(self)
@@ -1805,15 +1806,18 @@ def main():
         sys.exit(0 if result["passed"] else 1)
 
     # P8-FAULTHANDLER: Heartbeat-Watchdog — dumpt NUR wenn der Qt-Main-Thread
-    # den Event-Loop >1.5s nicht mehr bedient. Aktiv wenn PB_STUDIO_FREEZE_PROBE=1.
+    # den Event-Loop >1.5s nicht mehr bedient. B-805: per Default AKTIV,
+    # Opt-out via PB_STUDIO_FREEZE_PROBE=0 (vorher: nur bei ...=1, weshalb
+    # der 27-Minuten-Freeze vom 2026-08-11 keinen einzigen Dump erzeugte).
     #
     # Mechanik:
     #   - QTimer im Main-Thread tickt alle 200ms → aktualisiert _heartbeat_ts.
     #   - Watchdog-Thread prueft alle 500ms: wenn _heartbeat_ts > 1.5s alt,
     #     dumpt faulthandler.dump_traceback(all_threads=True).
     #   - Kein periodischer Dump bei idle. Nur bei echten Main-Thread-Hangs.
-    import os as _os_fh
-    if _os_fh.environ.get("PB_STUDIO_FREEZE_PROBE") == "1":
+    # B-805: per Default armiert — Opt-out via PB_STUDIO_FREEZE_PROBE=0.
+    from services.freeze_probe import freeze_probe_enabled as _freeze_probe_enabled
+    if _freeze_probe_enabled():
         import faulthandler as _fh
         import threading as _threading_fh
         import time as _time_fh

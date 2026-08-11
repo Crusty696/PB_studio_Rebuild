@@ -19,9 +19,13 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import os
+import sys
 import threading
 import time
+import traceback
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator, Optional
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,42 @@ logger = logging.getLogger(__name__)
 # war vorher unentdeckbar). Ab 30 s Wartezeit wird der aktuelle Holder geloggt.
 DEFAULT_ACQUIRE_TIMEOUT_S = 300.0
 _WAIT_LOG_INTERVAL_S = 30.0
+
+# B-804: der Warte-Pfad war abgesichert (B-503), der HALTE-Pfad nicht. Ein
+# Holder, der nie zurueckkommt (haengender ffmpeg-Reader, toter Worker-Thread,
+# blockierter GUI-Thread), haelt den Lock unbegrenzt — beim Vorfall vom
+# 2026-08-11 27 Minuten lang, ohne eine einzige Logzeile. Der Hold-Watchdog
+# meldet einen ueberfaelligen Halter und dumpt die Stacks ALLER Threads in
+# eine eigene Datei; er greift bewusst NICHT ein (kein Force-Release, kein
+# Raise) — die B-503-Timeout-Semantik der Warteseite bleibt unveraendert.
+DEFAULT_HOLD_WARN_S = 300.0
+_HOLD_POLL_INTERVAL_S = 5.0
+_STALL_DUMP_ENV = "PB_GPU_STALL_DUMP"
+_HOLD_WARN_ENV = "PB_GPU_HOLD_WARN_S"
+
+
+def _default_stall_dump_path() -> Path:
+    """Ablageort fuer den Stall-Stackdump (eigene Datei, kein Mischschreiber).
+
+    Bewusst NICHT ``logs/freeze_stacks.log``: dort haelt ``main.py`` einen
+    eigenen offenen ``faulthandler``-Handle; zwei Schreiber auf demselben
+    File wuerden sich die Eintraege zerschneiden.
+    """
+    override = os.environ.get(_STALL_DUMP_ENV, "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[2] / "logs" / "gpu_serializer_stalls.log"
+
+
+def _env_hold_warn_s(default: float = DEFAULT_HOLD_WARN_S) -> float:
+    raw = os.environ.get(_HOLD_WARN_ENV, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 class GpuSerializer:
@@ -48,12 +88,27 @@ class GpuSerializer:
     (empty_cache_on_release=True).
     """
 
-    def __init__(self, *, name: str = "brain_v3", empty_cache_on_release: bool = True):
+    def __init__(
+        self,
+        *,
+        name: str = "brain_v3",
+        empty_cache_on_release: bool = True,
+        hold_warn_s: Optional[float] = None,
+        hold_poll_s: float = _HOLD_POLL_INTERVAL_S,
+    ):
         self.name = name
         self.empty_cache_on_release = empty_cache_on_release
         self._lock = threading.Lock()
         self._async_lock: Optional[asyncio.Lock] = None  # lazy
         self._current_holder: Optional[str] = None
+        # B-804: Hold-Watchdog-Zustand.
+        self._hold_warn_s = _env_hold_warn_s() if hold_warn_s is None else float(hold_warn_s)
+        self._hold_poll_s = max(0.01, float(hold_poll_s))
+        self._hold_started_at: Optional[float] = None
+        self._hold_thread: Optional[str] = None
+        self._hold_watchdog: Optional[threading.Thread] = None
+        self._hold_watchdog_lock = threading.Lock()
+        self.stall_reports: int = 0
 
     @contextmanager
     def acquire(
@@ -90,7 +145,13 @@ class GpuSerializer:
             legacy_lock.release()
             raise
         prev = self._current_holder
+        prev_started = self._hold_started_at
+        prev_thread = self._hold_thread
         self._current_holder = holder
+        # B-804: Halte-Beginn markieren + Watchdog scharfschalten.
+        self._hold_started_at = time.monotonic()
+        self._hold_thread = threading.current_thread().name
+        self._ensure_hold_watchdog()
         logger.debug("GpuSerializer[%s].acquired by %s", self.name, holder)
         try:
             yield
@@ -98,9 +159,101 @@ class GpuSerializer:
             if self.empty_cache_on_release:
                 self._try_empty_cuda_cache()
             self._current_holder = prev
+            self._hold_started_at = prev_started
+            self._hold_thread = prev_thread
             self._lock.release()
             legacy_lock.release()
             logger.debug("GpuSerializer[%s].released by %s", self.name, holder)
+
+    # --- B-804: Hold-Watchdog -------------------------------------------
+    def _ensure_hold_watchdog(self) -> None:
+        """Startet den Beobachter-Thread beim ersten Acquire (lazy, daemon)."""
+        if self._hold_watchdog is not None:
+            return
+        with self._hold_watchdog_lock:
+            if self._hold_watchdog is not None:
+                return
+            thread = threading.Thread(
+                target=self._hold_watchdog_loop,
+                name=f"gpu-hold-watchdog-{self.name}",
+                daemon=True,
+            )
+            self._hold_watchdog = thread
+            thread.start()
+
+    def _hold_watchdog_loop(self) -> None:
+        last_report = 0.0
+        while True:
+            time.sleep(self._hold_poll_s)
+            started = self._hold_started_at
+            if started is None:
+                last_report = 0.0
+                continue
+            held = time.monotonic() - started
+            if held < self._hold_warn_s:
+                continue
+            now = time.monotonic()
+            if last_report and (now - last_report) < self._hold_warn_s:
+                continue
+            last_report = now
+            try:
+                self._report_stalled_holder(held)
+            except Exception as exc:  # pragma: no cover - Watchdog darf nie sterben
+                logger.debug("GpuSerializer hold-watchdog report failed: %s", exc)
+
+    def _report_stalled_holder(self, held_s: float) -> None:
+        """Meldet einen ueberfaelligen Halter und dumpt alle Thread-Stacks.
+
+        Greift NICHT ein: der Lock bleibt gehalten, es fliegt keine Exception.
+        Der Dump geht zusaetzlich in eine Datei, weil beim Vorfall vom
+        2026-08-11 auch die Logging-Kette stumm war — ein reiner
+        ``logger.error`` waere dort verlorengegangen.
+        """
+        holder = self._current_holder
+        thread_name = self._hold_thread
+        logger.error(
+            "GpuSerializer[%s]: Halter %r (Thread %r) haelt den Lock seit %.1fs "
+            "(Schwelle %.1fs) — Stack-Dump: %s",
+            self.name, holder, thread_name, held_s, self._hold_warn_s,
+            self._stall_dump_path,
+        )
+        try:
+            dump = self._format_all_thread_stacks()
+        except Exception as exc:  # broad: Diagnose darf nie ganz ausfallen
+            dump = f"(Stack-Dump fehlgeschlagen: {exc!r})\n"
+        header = (
+            f"\n=== GPU-SERIALIZER STALL [{self.name}] "
+            f"holder={holder!r} thread={thread_name!r} "
+            f"held={held_s:.1f}s threshold={self._hold_warn_s:.1f}s "
+            f"ts={time.strftime('%Y-%m-%d %H:%M:%S')} ===\n"
+        )
+        path = self._stall_dump_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fp:
+                fp.write(header)
+                fp.write(dump)
+                fp.flush()
+        except OSError as exc:
+            logger.error("GpuSerializer[%s]: Stall-Dump nach %s fehlgeschlagen: %s",
+                         self.name, path, exc)
+        # Zaehler zuletzt: 'stall_reports' bedeutet "Meldung inkl. Dump fertig".
+        self.stall_reports += 1
+
+    @property
+    def _stall_dump_path(self) -> Path:
+        return _default_stall_dump_path()
+
+    @staticmethod
+    def _format_all_thread_stacks() -> str:
+        names = {t.ident: t.name for t in threading.enumerate()}
+        chunks = []
+        # Snapshot: das Dict von sys._current_frames() darf sich waehrend der
+        # Iteration aendern (RuntimeError) — deshalb erst kopieren.
+        for ident, frame in list(sys._current_frames().items()):
+            chunks.append(f"\n--- Thread {names.get(ident, '?')} (id={ident}) ---\n")
+            chunks.append("".join(traceback.format_stack(frame)))
+        return "".join(chunks)
 
     def _timed_acquire(self, lock, label: str, holder: str, deadline: Optional[float]) -> bool:
         """B-503: Lock-Acquire mit Deadline + Holder-Logging bei langer Wartezeit.
