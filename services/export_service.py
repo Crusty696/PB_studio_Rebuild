@@ -113,7 +113,22 @@ def _prepare_audio_entry_for_timeline(
     track_duration: float | None,
     temp_files: list,
     cancel_check=None,
+    max_duration: float | None = None,
 ) -> str:
+    """B-801: ``max_duration`` deckelt den geschnittenen Audio-Ausschnitt.
+
+    Nur der Preview-Pfad setzt das. Hintergrund: die Quick-Preview zeigt
+    10 Sekunden, schnitt das Audio aber auf die volle Dauer des
+    Timeline-Eintrags — bei einem DJ-Mix als einem einzigen Eintrag sind
+    das 92 Minuten. Die anschliessende LUFS-Normalisierung
+    (Zwei-Pass-``loudnorm`` ueber die gesamte Datei) lief dann in ihren
+    300-s-Timeout, und die Vorschau lieferte nie ein Ergebnis
+    (live 2026-08-11, 976 MB WAV).
+
+    Ohne ``max_duration`` bleibt das Verhalten unveraendert — der echte
+    Export normalisiert weiterhin ueber die volle Laenge, denn dort ist
+    genau das richtig.
+    """
     timeline_start = float(entry.start_time or 0.0)
     if timeline_start < 0:
         raise ValueError(
@@ -131,10 +146,25 @@ def _prepare_audio_entry_for_timeline(
     )
     source_start = float(entry.source_start or 0.0)
     source_end = getattr(entry, "source_end", None)
+    # B-801: im Preview-Pfad reicht der sichtbare Ausschnitt. Der Deckel
+    # greift nur, wenn er tatsaechlich kuerzt — ein bereits kurzer Clip
+    # bleibt unangetastet.
+    _capped = False
+    if max_duration is not None and max_duration > 0:
+        _effective = max(0.0, float(max_duration) - timeline_start)
+        if _effective <= 0.0:
+            # Der Eintrag beginnt erst nach dem Preview-Fenster: er ist in
+            # der Vorschau ohnehin nicht hoerbar. Trotzdem etwas schneiden,
+            # damit kein 92-Minuten-Audio durch die Normalisierung laeuft.
+            _effective = min(source_duration, 1.0)
+        if _effective < source_duration:
+            source_duration = _effective
+            _capped = True
     needs_prepare = (
         timeline_start > 0.001
         or source_start > 0.001
         or source_end is not None
+        or _capped
     )
     if not needs_prepare:
         return audio_path
@@ -1719,6 +1749,12 @@ def export_preview(project_id: int = 1, resolution: str = "1920x1080",
                 audio_source[2],
                 audio_temp_files,
                 cancel_check=cancel_check,
+                # B-801: nur so viel Audio vorbereiten, wie die Vorschau
+                # zeigt. Ohne diesen Deckel normalisierte eine
+                # 10-Sekunden-Preview die komplette Datei und lief in den
+                # 300-s-LUFS-Timeout. Etwas Reserve fuer Crossfades am
+                # Fensterende.
+                max_duration=float(duration_limit) + 2.0,
             )
         except Exception:
             # B-706/F3: schlaegt das Audio-Trim/adelay-ffmpeg fehl, liegen die
