@@ -249,6 +249,15 @@ class PanelSetupController(PBComponent):
                         self.window.console_text.append(f"[GPU] HARDWARE AKTIV: {gpu_name} ({vram:.0f} MB VRAM)")
                 except (ImportError, AttributeError, OSError) as exc:
                     logger.warning("_show_gpu_info_deferred: failed to get GPU info: %s", exc)
+                except RuntimeError as exc:
+                    # B-020: Der Timer feuert 2 s spaeter — das Fenster kann
+                    # bis dahin geschlossen sein. Dann wirft der Zugriff auf
+                    # `console_text` einen RuntimeError ("wrapped C/C++ object
+                    # has been deleted"), den die Zeile darueber nicht faengt.
+                    # Der zurueckgehaltene Traceback-Frame hielt dabei eine
+                    # Referenz auf den Controller fest (per Referrer-Analyse
+                    # 2026-08-11 nachgewiesen).
+                    logger.debug("_show_gpu_info_deferred: Fenster bereits zu: %s", exc)
             QTimer.singleShot(2000, _show_gpu_info_deferred)
 
             # B-321: Kein synchroner Ollama-Health-Check im UI-Bootpfad.
