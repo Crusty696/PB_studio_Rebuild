@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsPixmapItem, QMenu,
     QGraphicsItem, QStyleOptionGraphicsItem,
 )
-from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
+from PySide6.QtCore import Qt, QRectF, QPointF, QLineF, Signal, QTimer
 from PySide6.QtGui import (
     QPainter, QColor, QFont, QBrush, QPen, QPolygonF, QUndoStack, QPixmap,
 )
@@ -570,10 +570,24 @@ class BeatGridItem(QGraphicsItem):
         else:
             step = 1  # Alle Beats
 
-        # Pens fuer verschiedene Beat-Typen vorab instanziieren
+        # Pens fuer verschiedene Beat-Typen vorab instanziieren.
+        # B-644: kosmetisch, damit die Linie bei jedem Zoom genau ein
+        # Geraetepixel breit bleibt statt mitzuskalieren (Vorbild:
+        # waveform_item.py, dort im Rahmen desselben Tickets eingefuehrt).
         downbeat_pen = QPen(QColor(212, 175, 55, 140), 1, Qt.PenStyle.SolidLine)
         beat_pen = QPen(QColor(90, 90, 100, 60), 1, Qt.PenStyle.DotLine)
         half_beat_pen = QPen(QColor(60, 60, 70, 40), 1, Qt.PenStyle.DotLine)
+        for _p in (downbeat_pen, beat_pen, half_beat_pen):
+            _p.setCosmetic(True)
+
+        # B-644: Antialiasing NUR lokal fuer diesen Block. Global ist am View
+        # bewusst nur TextAntialiasing gesetzt (P8-B1 gegen Scroll-Lag) — das
+        # dort einzuschalten waere eine Regression. Beat-Positionen liegen auf
+        # echten Subpixel-Zeitpunkten; ohne AA rasten sie auf ganze Pixel und
+        # erzeugen den "8-Bit-Look". Mit AA bleibt die Position exakt.
+        # Kostenkontrolle laeuft ueber das LOD oben plus das Culling unten.
+        _was_aa = painter.testRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         # Culling via binary search fuer sichtbares Intervall
         t_left = max(0.0, clip_rect.left()) / PIXELS_PER_SECOND
@@ -607,9 +621,24 @@ class BeatGridItem(QGraphicsItem):
                 pen_color = pen.color()
                 pen_color.setAlphaF(pen_color.alphaF() * e)
                 pen = QPen(pen_color, pen.widthF(), pen.style())
+                pen.setCosmetic(True)  # B-644: auch der Energy-Pen bleibt 1 px
 
             painter.setPen(pen)
-            painter.drawLine(x, grid_top, x, grid_bottom)
+            # B-644 — DAS ist die eigentliche Ursache des "8-Bit-Looks":
+            # ``drawLine(x, grid_top, x, grid_bottom)`` mit float-Argumenten
+            # landet auf der INTEGER-Ueberladung (QLine), die Subpixel-Anteile
+            # verwirft. Gemessen (QImage, 1-px-Pen): mit der alten Fassung
+            # rendern x=10.0/10.25/10.5/10.75 ALLE identisch auf Spalte 10 —
+            # die Beat-Position rastet also auf ganze Pixel, unabhaengig vom
+            # Antialiasing. Mit QLineF wirkt sie: 10.25 -> 63/192,
+            # 10.5 -> scharfe 255, 10.75 -> 191/64.
+            painter.drawLine(
+                QLineF(QPointF(x, grid_top), QPointF(x, grid_bottom))
+            )
+
+        # B-644: Render-Hint exakt auf den vorherigen Zustand zuruecksetzen —
+        # der Painter wird von anderen Items weiterverwendet.
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, _was_aa)
 
 
 class CutLinesItem(QGraphicsItem):
