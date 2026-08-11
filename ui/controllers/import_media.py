@@ -224,6 +224,7 @@ class ImportMediaController(PBComponent):
                 f"[Brain V3] Scheduler nicht aktiv — Embedding skip ({media_hash[:8]}...)"
             )
             return
+        self._ensure_embedding_skip_bridge(scheduler)
         try:
             job_id = scheduler.submit_path(media_hash, source_path, media_type)
         except Exception as exc:
@@ -239,6 +240,62 @@ class ImportMediaController(PBComponent):
             self.window.console_text.append(
                 f"[Brain V3] Embedding-Job submitted ({media_hash[:8]}..., id={job_id})"
             )
+
+    def _ensure_embedding_skip_bridge(self, scheduler) -> None:
+        """B-576 Restluecke 2026-08-11: ``job_skipped`` einen UI-Konsumenten geben.
+
+        Ein nicht oeffnbares/korruptes Video wird im Scheduler sauber
+        uebersprungen (``SkipEmbeddingError`` -> ``job_skipped``), aber das
+        Signal war an keinen Slot verbunden — der User erfuhr nie, dass ein
+        Clip ohne Embedding blieb (gleiche Silent-Failure-Klasse wie
+        B-552/B-567/B-803). Verbindung wird genau einmal pro Scheduler-Instanz
+        aufgebaut (Qt wuerde sonst pro Import erneut connecten -> Mehrfach-
+        Meldungen).
+
+        Thread: ``job_skipped`` wird vom Scheduler bereits im GUI-Thread
+        re-emittiert — ``skipped_bridge`` (Worker-Thread) haengt per
+        Signal-zu-Signal an ``job_skipped`` des Scheduler-QObject, das im
+        GUI-Thread lebt, also Queued. Deshalb genuegt hier ein normaler
+        Connect (``PBComponent`` ist kein QObject und taugt nicht als
+        Queued-Empfaengerkontext).
+        """
+        if getattr(self, "_embedding_skip_bridge_for", None) is scheduler:
+            return
+        try:
+            scheduler.job_skipped.connect(self._on_embedding_job_skipped)
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            logger.warning("B-576: job_skipped nicht verbindbar: %s", exc)
+            return
+        self._embedding_skip_bridge_for = scheduler
+
+    def _on_embedding_job_skipped(self, media_hash: str, reason: str) -> None:
+        """B-576: uebersprungenes Embedding sichtbar machen.
+
+        Cache-Hits sind der Normalfall (B-707) und werden nur in der Konsole
+        vermerkt. Jeder ANDERE Grund heisst: dieses Medium bekommt kein
+        Embedding — das ist ein echter Defekt und landet zusaetzlich in der
+        Statuszeile.
+        """
+        short = (reason or "unbekannter Grund").strip()[:160]
+        try:
+            self.window.console_text.append(
+                f"[Brain V3] Embedding uebersprungen ({media_hash[:8]}...): {short}"
+            )
+        except (AttributeError, RuntimeError):
+            pass
+        if short.startswith("cache-hit"):
+            return
+        logger.warning(
+            "B-576: Embedding uebersprungen hash=%s grund=%s", media_hash[:8], short
+        )
+        show_error = getattr(self.window, "show_status_error", None)
+        if callable(show_error):
+            try:
+                show_error(
+                    f"Medium ohne Analyse uebersprungen ({media_hash[:8]}...): {short}"
+                )
+            except (AttributeError, RuntimeError):
+                pass
 
     def _import_folder(self):
         """Importiert alle unterstuetzten Medien aus einem Ordner.

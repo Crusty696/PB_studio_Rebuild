@@ -50,6 +50,21 @@ BEAT_THIS_CHECKPOINT_SHA256 = (
 )
 BEAT_THIS_CHECKPOINT_SIZE = 81058141
 
+# B-718 Restluecke (2026-08-11): Die reine Cache-Pruefung schuetzt nur bereits
+# vorhandene Dateien. Beim ERSTdownload macht ``beat_this.inference.
+# load_checkpoint()`` Download und ``torch.load()`` in einem einzigen Aufruf
+# (``torch.hub.load_state_dict_from_url`` ohne ``check_hash``) — ein
+# manipuliertes Artefakt vom Endpunkt wuerde also ungeprueft deserialisiert.
+# Deshalb wird der Checkpoint hier VORAB selbst geladen: erst in eine
+# ``.b718-part``-Temp-Datei, dann SHA256-Pruefung, und nur bei Treffer
+# Umbenennung auf den Cache-Pfad. beat_this findet danach eine verifizierte
+# Datei vor und laedt nicht mehr selbst.
+# URL exakt wie in ``vendor/beat_this/beat_this/inference.py`` (CHECKPOINT_URL
+# + "/final0.ckpt"; ``load_model()``-Default ist der Shortname "final0").
+BEAT_THIS_CHECKPOINT_URL = (
+    "https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt"
+)
+
 
 def beat_this_checkpoint_path() -> Path:
     """Pfad der gecachten beat_this-Checkpoint-Datei.
@@ -107,16 +122,69 @@ def verify_beat_this_checkpoint(path: Path | str | None = None) -> dict:
     }
 
 
+def download_beat_this_checkpoint_verified(target: Path | str | None = None) -> bool:
+    """B-718: Erstdownload des Checkpoints MIT Hash-Pruefung vor dem Ablegen.
+
+    Laedt in eine Temp-Datei neben dem Cache-Ziel, prueft die SHA256 und
+    verschiebt nur bei Treffer. Damit sieht ``torch.load()`` niemals ein
+    ungeprueftes Artefakt.
+
+    Returns:
+        True  -> verifizierte Datei liegt am Cache-Pfad.
+        False -> Download nicht moeglich (kein Netz o.ae.); Aufrufer faellt
+                 auf das bisherige Verhalten zurueck (beat_this/librosa).
+
+    Raises:
+        RuntimeError: Download lieferte ein Artefakt mit falschem SHA256.
+    """
+    import torch
+
+    ckpt = Path(target) if target is not None else beat_this_checkpoint_path()
+    ckpt.parent.mkdir(parents=True, exist_ok=True)
+    part = ckpt.with_name(ckpt.name + ".b718-part")
+    try:
+        torch.hub.download_url_to_file(
+            BEAT_THIS_CHECKPOINT_URL, str(part), progress=False
+        )
+    except Exception as exc:  # kein Netz / Endpunkt weg / Proxy
+        part.unlink(missing_ok=True)
+        logger.warning(
+            "B-718: Verifizierter Erstdownload des beat_this-Checkpoints "
+            "fehlgeschlagen (%s) — Fallback-Pfad bleibt aktiv.",
+            exc,
+        )
+        return False
+
+    actual_sha = _sha256_file(part)
+    actual_size = part.stat().st_size
+    if actual_sha != BEAT_THIS_CHECKPOINT_SHA256:
+        part.unlink(missing_ok=True)
+        raise RuntimeError(
+            "B-718: Erstdownload des beat_this-Checkpoints verworfen — "
+            f"SHA256 passt nicht zum Pin. URL: {BEAT_THIS_CHECKPOINT_URL} | "
+            f"erwartet SHA256={BEAT_THIS_CHECKPOINT_SHA256} "
+            f"({BEAT_THIS_CHECKPOINT_SIZE} Bytes) | geladen "
+            f"SHA256={actual_sha} ({actual_size} Bytes). Die Datei wurde NICHT "
+            "in den Torch-Cache uebernommen und nicht deserialisiert."
+        )
+    part.replace(ckpt)
+    logger.info(
+        "B-718: beat_this-Checkpoint verifiziert heruntergeladen (%s).", ckpt
+    )
+    return True
+
+
 def _enforce_beat_this_checkpoint_identity() -> None:
     """B-718: Muss VOR jedem ``torch.load()``-Pfad von beat_this laufen.
 
     - Hash passt  -> still weiterlaufen.
     - Hash falsch -> ``RuntimeError`` (klarer Fehler statt stillem Laden).
-    - Datei fehlt -> Warnung, aber weiterlaufen. Damit bleibt das bisherige
-      Verhalten (torch.hub-Download bzw. Fallback auf librosa bei fehlendem
-      Netz) unveraendert. Der erste Download laesst sich hier nicht vor dem
-      ``torch.load`` abfangen, weil beat_this Download und Deserialisierung
-      in einem Aufruf macht — das ist bewusst als Restrisiko dokumentiert.
+    - Datei fehlt -> B-718-Restluecke (2026-08-11): der Erstdownload wird
+      jetzt selbst und verifiziert ausgefuehrt
+      (``download_beat_this_checkpoint_verified``). Gelingt er, liegt eine
+      hash-gepruefte Datei im Cache und beat_this laedt nicht mehr selbst.
+      Schlaegt er mangels Netz fehl, bleibt das bisherige Verhalten
+      (beat_this-Download bzw. librosa-Fallback) unveraendert.
     """
     report = verify_beat_this_checkpoint()
     if report["reason"] == "sha256_mismatch":
@@ -131,11 +199,17 @@ def _enforce_beat_this_checkpoint_identity() -> None:
             "services/beat_analysis_service.py bewusst aktualisieren."
         )
     if not report["exists"]:
-        logger.warning(
-            "B-718: beat_this-Checkpoint nicht im Cache (%s) — Download/Fallback "
-            "laeuft ungeprueft. Nach dem ersten Download greift die Hash-Pruefung.",
+        logger.info(
+            "B-718: beat_this-Checkpoint nicht im Cache (%s) — verifizierter "
+            "Erstdownload wird versucht.",
             report["path"],
         )
+        if not download_beat_this_checkpoint_verified():
+            logger.warning(
+                "B-718: Kein verifizierter Checkpoint verfuegbar (%s) — "
+                "beat_this-Eigendownload/Fallback laeuft ungeprueft.",
+                report["path"],
+            )
         return
     logger.debug("B-718: beat_this-Checkpoint-Hash verifiziert (%s)", report["path"])
 

@@ -138,14 +138,95 @@ def test_ensure_model_loads_when_hash_matches(tmp_path, monkeypatch, fresh_servi
     assert fresh_service._model is not None
 
 
+def _stub_download(monkeypatch, payload: bytes | None):
+    """torch.hub.download_url_to_file ersetzen.
+
+    ``payload=None`` simuliert einen fehlgeschlagenen Download (kein Netz).
+    """
+    import torch
+
+    seen: list[tuple[str, str]] = []
+
+    def _fake(url, dst, *args, **kwargs):
+        seen.append((url, str(dst)))
+        if payload is None:
+            raise OSError("kein Netz (Test-Stub)")
+        Path(dst).write_bytes(payload)
+
+    monkeypatch.setattr(torch.hub, "download_url_to_file", _fake)
+    return seen
+
+
 def test_ensure_model_keeps_download_path_when_checkpoint_missing(
     tmp_path, monkeypatch, fresh_service
 ):
-    """Fehlende Datei darf das bisherige Download-/Fallback-Verhalten nicht brechen."""
+    """Fehlende Datei + kein Netz: bisheriges Download-/Fallback-Verhalten bleibt."""
     _point_torch_hub_at(monkeypatch, tmp_path)
+    _stub_download(monkeypatch, None)
 
     fresh_service._ensure_model()
 
+    assert len(_File2BeatsSpy.calls) == 1
+    assert fresh_service._model is not None
+
+
+# --- B-718 Restluecke 2026-08-11: Erstdownload ------------------------------
+
+
+def test_first_download_is_verified_before_it_lands_in_cache(tmp_path, monkeypatch):
+    """Erstdownload wird gehasht und erst dann in den Torch-Cache uebernommen."""
+    ckpt = _point_torch_hub_at(monkeypatch, tmp_path)
+    payload = b"echter-checkpoint"
+    monkeypatch.setattr(
+        bas, "BEAT_THIS_CHECKPOINT_SHA256", hashlib.sha256(payload).hexdigest().upper()
+    )
+    seen = _stub_download(monkeypatch, payload)
+
+    assert bas.download_beat_this_checkpoint_verified() is True
+    assert ckpt.read_bytes() == payload
+    # Geladen wurde in eine Temp-Datei, nicht direkt auf den Cache-Pfad.
+    assert seen[0][0] == bas.BEAT_THIS_CHECKPOINT_URL
+    assert seen[0][1].endswith(".b718-part")
+    assert list(ckpt.parent.glob("*.b718-part")) == []
+
+
+def test_tampered_first_download_never_reaches_cache_or_torch_load(
+    tmp_path, monkeypatch, fresh_service
+):
+    """Kern-Beweis der Restluecke: manipuliertes Erst-Artefakt -> Abbruch.
+
+    Ohne den Fix wuerde beat_this selbst herunterladen und die Datei per
+    ``torch.load()`` entpickeln -> Spy saehe einen Aufruf.
+    """
+    ckpt = _point_torch_hub_at(monkeypatch, tmp_path)
+    _stub_download(monkeypatch, b"\x80\x04\x95evil-payload-vom-endpunkt")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        fresh_service._ensure_model()
+
+    msg = str(excinfo.value)
+    assert "B-718" in msg
+    assert "SHA256" in msg
+    assert not ckpt.exists()
+    assert list(ckpt.parent.glob("*.b718-part")) == []
+    assert _File2BeatsSpy.calls == []
+    assert fresh_service._model is None
+
+
+def test_verified_first_download_feeds_normal_load_path(
+    tmp_path, monkeypatch, fresh_service
+):
+    """Gegenprobe: passender Erstdownload -> Modell laedt normal weiter."""
+    ckpt = _point_torch_hub_at(monkeypatch, tmp_path)
+    payload = b"echter-checkpoint"
+    monkeypatch.setattr(
+        bas, "BEAT_THIS_CHECKPOINT_SHA256", hashlib.sha256(payload).hexdigest().upper()
+    )
+    _stub_download(monkeypatch, payload)
+
+    fresh_service._ensure_model()
+
+    assert ckpt.read_bytes() == payload
     assert len(_File2BeatsSpy.calls) == 1
     assert fresh_service._model is not None
 

@@ -36,6 +36,48 @@ def extract_worker_error_message(args) -> str:
     return str(args[-1])
 
 
+def coerce_progress_int(value) -> int:
+    """B-302: beliebigen Progress-Wert auf ``int`` zwingen (nie werfen).
+
+    ``QProgressBar.setValue()`` akzeptiert nur ``int``. Ein ``str`` aus einem
+    falsch aufgeloesten Signal-Overload loeste frueher eine Qt-TypeError im
+    C++-Slot-Aufruf aus (kein Python-``except``-Frame) — bei Wiederholung
+    Reentrancy im ``perf_watchdog`` und Access-Violation 0xC0000005.
+    """
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    try:
+        return int(float(str(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_progress_args(first, second) -> tuple[int, str]:
+    """B-302 Restluecke 2026-08-11: beide ``progress``-Overloads auf (int, str).
+
+    ``AutoEditWorker.progress`` ist ``Signal((str, float), (int, str))``. Ein
+    nackter ``connect()`` bindet den DEFAULT-Overload ``(str, float)``, also
+    kommt beim Slot ``("audio_load", 0.1)`` statt ``(pct, msg)`` an. Bisher
+    war nur der Konsument (``task_manager_dock._as_int``) dagegen gehaertet —
+    der vertauschte Payload lief weiter durch die ganze Kette und der User sah
+    eine Endlos-Marquee mit "0.1" als Meldung.
+
+    Hier wird die Vertauschung an der Quelle erkannt und zurueckgedreht:
+    ``(str, Zahl)`` = Stage-Progress (Fraction 0..1 -> Prozent, Stage-Key wird
+    Meldung), alles andere = ``(pct, msg)`` mit int-Coercion.
+    """
+    if (
+        isinstance(first, str)
+        and isinstance(second, (int, float))
+        and not isinstance(second, bool)
+    ):
+        fraction = max(0.0, min(1.0, float(second)))
+        return int(round(fraction * 100)), first
+    return coerce_progress_int(first), "" if second is None else str(second)
+
+
 def _release_worker_resource_claim(worker: QObject | None) -> None:
     """Ruft optionalen Dispatcher-Release-Hook ohne Audio-Importzyklus auf."""
     if worker is None:
@@ -425,10 +467,14 @@ class GlobalTaskManager(QObject):
             worker.task_id = task_id
 
             if hasattr(worker, "progress"):
+                # B-302: Overload-Normalisierung an der Quelle (siehe
+                # normalize_progress_args) statt nur beim UI-Konsumenten.
+                def _on_progress(first, second, _tid=task_id, _self=self):
+                    pct, msg = normalize_progress_args(first, second)
+                    _self.update_task(_tid, pct, message=msg)
+
                 worker.progress.connect(
-                    lambda pct, msg, _tid=task_id: self.update_task(
-                        _tid, pct, message=msg
-                    ),
+                    _on_progress,
                     Qt.ConnectionType.QueuedConnection,
                 )
 
@@ -548,9 +594,12 @@ class GlobalTaskManager(QObject):
         with self._tasks_lock:
             if task_id in self._tasks:
                 t = self._tasks[task_id]
-                t.progress = progress
-                t.total = total
-                t.message = message
+                # B-302: defensive int-Coercion — ein Worker mit kaputtem
+                # Progress-Typ darf die UI nie mehr erreichen (der Dock-Guard
+                # _as_int bleibt als zweite Ebene bestehen).
+                t.progress = coerce_progress_int(progress)
+                t.total = coerce_progress_int(total)
+                t.message = "" if message is None else str(message)
         self.task_updated.emit(task_id)
 
     def finish_task(self, task_id: str, status: str = "finished", message: str = ""):

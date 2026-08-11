@@ -512,6 +512,14 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
     # stiller DB-Write wuerde den QUndoStack umgehen). Gelockte Segmente
     # werden NIE verschoben; Luecken davor werden durch Verlaengern der
     # ungelockten Vorgaenger (Restmaterial) geschlossen.
+    # B-397 Restluecke 2026-08-11: Die Heilung verkuerzt den Export gegenueber
+    # der Timeline (Segmente wandern nach links). Bisher stand das nur als
+    # INFO im Log — der User sah ein erfolgreiches, aber stilles kuerzeres
+    # Video (gleiche Klasse wie B-580/B-803). Deshalb wird die tatsaechliche
+    # Verkuerzung gemessen und wie in B-693 nach oben gemeldet.
+    _timeline_end_before = max(
+        (float(_s["end"]) for _s in video_segments), default=0.0
+    )
     _heal_result = heal_video_timeline_gaps(video_segments)
     if _heal_result["unclosable"]:
         _gap_from, _gap_to = _heal_result["unclosable"][0]
@@ -527,6 +535,24 @@ def export_timeline(project_id: int = 1, output_name: str = "output.mp4",
             "B-769: %d Luecken fuer Export in-memory geschlossen "
             "(DB unveraendert)", _heal_result["gaps_closed"],
         )
+        _timeline_end_after = max(
+            (float(_s["end"]) for _s in video_segments), default=0.0
+        )
+        _shortened = _timeline_end_before - _timeline_end_after
+        if _shortened > 0.05:
+            logger.warning(
+                "B-397: Export ist %.2fs kuerzer als die Timeline — %d "
+                "Luecke(n) wurden fuer das Rendering geschlossen (DB "
+                "unveraendert).",
+                _shortened, _heal_result["gaps_closed"],
+            )
+            _emit_export_warning(
+                warning_cb,
+                f"{_heal_result['gaps_closed']} Timeline-Luecke(n) wurden "
+                f"fuer den Export geschlossen — das Video ist "
+                f"{_shortened:.2f}s kuerzer als die Timeline. Die Timeline "
+                f"selbst bleibt unveraendert.",
+            )
 
     _validate_video_timeline_gaps(video_segments)
 

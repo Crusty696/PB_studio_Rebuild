@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QObject
-from services.task_manager import GlobalTaskManager
+from services.task_manager import GlobalTaskManager, normalize_progress_args
 from ui.base_component import PBComponent
 
 # P-017: Legacy Thread-Registry — nur noch fuer GC-Schutz,
@@ -157,10 +157,15 @@ class WorkerDispatcherController(PBComponent):
                     worker.error.connect(_default_error_handler, qc)
 
                 if hasattr(worker, "progress"):
-                    worker.progress.connect(
-                        lambda pct, msg, _tid=existing_task_id: tm.update_task(_tid, pct, message=msg),
-                        qc,
-                    )
+                    # B-302: der nackte connect() band den DEFAULT-Overload
+                    # (str, float) von AutoEditWorker.progress und lieferte
+                    # damit ("audio_load", 0.1) statt (pct, msg). Normalisierung
+                    # jetzt an der Quelle, nicht erst im TaskManagerDock.
+                    def _on_progress(first, second, _tid=existing_task_id, _tm=tm):
+                        pct, msg = normalize_progress_args(first, second)
+                        _tm.update_task(_tid, pct, message=msg)
+
+                    worker.progress.connect(_on_progress, qc)
 
                 worker.finished.connect(thread.quit)
                 worker.error.connect(thread.quit)
