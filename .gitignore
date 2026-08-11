@@ -131,3 +131,8 @@ vendor/beat_this/build/
 
 # Manuelle Test-Ergebnisse (lokal, nicht versionieren) — Konsolidierung 2026-06-24
 Test-ergebniss/
+
+# Testartefakte der GUI-Live-Runden (aus echtem Material erzeugt, nicht versioniert)
+tests/qa_material/*_broken*.wav
+tests/qa_material/*_v2.wav
+tests/qa_material/s1_fresh_video/
