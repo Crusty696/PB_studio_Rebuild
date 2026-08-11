@@ -335,10 +335,21 @@ class VideoAnalysisController(PBComponent):
         if not hasattr(self, "_proxy_pending"):
             self._proxy_pending = deque()
             self._proxy_active = 0
+            self._proxy_queue_stopped = False
+        # B-802: ein neuer Auftrag hebt eine fruehere Abbruch-Sperre auf —
+        # sonst bliebe die Queue nach einem Abbruch dauerhaft taub.
+        self._proxy_queue_stopped = False
         self._proxy_pending.append((clip_id, video_path, title))
         self._drain_proxy_queue()
 
     def _drain_proxy_queue(self):
+        # B-802: nach einem Abbruch darf nichts mehr nachruecken. Vorher lief
+        # `_proxy_slot_released` -> `_drain_proxy_queue` auch dann weiter, wenn
+        # der User gerade abgebrochen hatte — der Abbruch BESCHLEUNIGTE die
+        # Queue also, statt sie zu stoppen (live gemessen ~0.3 Konvertierungen/s
+        # trotz Abbruch, bei 486 Clips).
+        if getattr(self, "_proxy_queue_stopped", False):
+            return
         while self._proxy_active < self._PROXY_MAX_ACTIVE and self._proxy_pending:
             clip_id, video_path, title = self._proxy_pending.popleft()
             self._proxy_active += 1
@@ -347,6 +358,56 @@ class VideoAnalysisController(PBComponent):
     def _proxy_slot_released(self):
         self._proxy_active = max(0, self._proxy_active - 1)
         self._drain_proxy_queue()
+
+    def cancel_pending_proxies(self, grund: str = "Abbruch") -> int:
+        """B-802: alle noch nicht gestarteten Proxy-Auftraege verwerfen.
+
+        Bei einem Ordner-Import mit 486 Clips existieren nur zwei sichtbare,
+        cancelbare Tasks — die restlichen 484 warten unsichtbar in
+        ``_proxy_pending``, ohne Task, ohne Zeile im TASKS-Panel und ohne
+        Cancel-Pfad. Ein Abbruch erreichte sie deshalb nie.
+
+        Laufende Worker werden hier bewusst **nicht** angefasst: die haben
+        einen eigenen, funktionierenden Cancel-Weg
+        (``CancellableMixin`` -> ``cancel_check`` -> ffmpeg ``terminate()``,
+        abgesichert durch B-362). Diese Methode kuemmert sich ausschliesslich
+        um das, was noch gar nicht gestartet ist.
+
+        Gibt die Zahl der verworfenen Auftraege zurueck.
+        """
+        pending = getattr(self, "_proxy_pending", None)
+        anzahl = len(pending) if pending else 0
+        self._proxy_queue_stopped = True
+        if pending:
+            pending.clear()
+        if anzahl:
+            logger.info(
+                "B-802: %d wartende Proxy-Auftraege verworfen (%s).", anzahl, grund,
+            )
+            try:
+                self.window.console_text.append(
+                    f"[Proxy] {anzahl} wartende Auftraege verworfen ({grund})."
+                )
+            except Exception as exc:  # broad: Konsole darf den Abbruch nie blocken
+                logger.debug("B-802: Konsolenmeldung fehlgeschlagen: %s", exc)
+        return anzahl
+
+    def reset_proxy_queue(self, grund: str = "Projektwechsel") -> int:
+        """B-802: Queue leeren UND wieder aufnahmebereit machen.
+
+        ``_proxy_pending`` wurde repo-weit nie geleert — es gab nur ``append``
+        und ``popleft``. Die Warteschlange des alten Projekts lief nach einem
+        Projektwechsel einfach weiter und erzeugte Proxies fuer Clips, die im
+        neuen Projekt gar nicht existieren.
+
+        Anders als ``cancel_pending_proxies`` hebt das die Sperre wieder auf:
+        nach einem Projektwechsel soll ein neuer Import ganz normal
+        funktionieren.
+        """
+        anzahl = self.cancel_pending_proxies(grund)
+        self._proxy_queue_stopped = False
+        self._proxy_active = 0
+        return anzahl
 
     def _launch_proxy_worker(self, clip_id: int, video_path: str, title: str):
         task = _get_task_manager().create_task(

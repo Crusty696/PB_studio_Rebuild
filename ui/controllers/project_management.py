@@ -430,6 +430,18 @@ class ProjectManagementController(PBComponent):
             self.window.edit_workspace._refresh_timeline_usage_marking()
         except Exception as e:
             logging.debug("Timeline-Usage-Markierung nach Projektwechsel fehlgeschlagen: %s", e)
+        # B-802: Die Proxy-Warteschlange im VideoAnalysisController wurde
+        # repo-weit nie geleert — es gab nur append/popleft. Sie ueberlebte
+        # damit den Projektwechsel und erzeugte danach Proxies fuer Clips, die
+        # im neuen Projekt gar nicht existieren. Anders als beim Abbruch wird
+        # hier zurueckgesetzt, nicht gesperrt: ein Import im neuen Projekt soll
+        # normal funktionieren.
+        try:
+            _va = getattr(self.window, "video_analysis", None)
+            if _va is not None and hasattr(_va, "reset_proxy_queue"):
+                _va.reset_proxy_queue("Projektwechsel")
+        except Exception as e:
+            logging.debug("B-802: Proxy-Queue-Reset nach Projektwechsel: %s", e)
         # B-800: keyframe_text ist ein einziges QTextEdit, das beim
         # Projektwechsel nie zurueckgesetzt wurde. Die Keyframe-Strings des
         # ALTEN Projekts blieben deshalb sichtbar und sahen aus, als

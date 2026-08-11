@@ -54,6 +54,28 @@ def _refresh_active_analysis_status_panel(window, media_type: str, media_id: int
 class PanelSetupController(PBComponent):
     """Controller for TaskDock, Console, and ChatDock in PBWindow."""
 
+    def _cancel_pending_proxies_if_proxy_task(self, task_id: str) -> None:
+        """B-802: Abbruch eines Proxy-Tasks stoppt auch die wartende Queue.
+
+        Bewusst nur bei Proxy-Tasks: der Abbruch eines Export- oder
+        Analyse-Tasks soll die Proxy-Erstellung nicht mit abraeumen. Der
+        Taskname ist die einzige verlaessliche Unterscheidung, die hier
+        vorliegt (``f"Proxy: {title}"`` aus
+        ``video_analysis._launch_proxy_worker``).
+        """
+        try:
+            from services.task_manager import GlobalTaskManager
+
+            task = GlobalTaskManager.instance().get_task(task_id)
+            if task is None or not str(getattr(task, "name", "")).startswith("Proxy:"):
+                return
+            ctrl = getattr(self.window, "video_analysis", None)
+            if ctrl is None or not hasattr(ctrl, "cancel_pending_proxies"):
+                return
+            ctrl.cancel_pending_proxies("Abbruch im TASKS-Panel")
+        except Exception as exc:  # broad: der Abbruch selbst darf nie scheitern
+            logger.warning("B-802: Proxy-Queue-Stopp fehlgeschlagen: %s", exc)
+
     def setup_task_dock(self):
         """P9-Step2: TaskManager als TASKS-Tab im Right-Panel.
 
@@ -68,6 +90,15 @@ class PanelSetupController(PBComponent):
         """
         self.window._task_mgr_dock = TaskManagerDock(self.window)
         self.window._task_mgr_dock.cancel_requested.connect(self.window.worker_dispatcher._cancel_worker_for_task)
+        # B-802: Der Abbruch erreichte bisher nur den laufenden Worker. Die noch
+        # nicht gestarteten Proxy-Auftraege warten aber in einer eigenen Queue im
+        # VideoAnalysisController — ohne Task, ohne Zeile im Panel, ohne
+        # Cancel-Pfad. Bei 486 Clips waren das 484 unsichtbare Auftraege, die
+        # nach dem Abbruch munter weiterliefen. Wird ein Proxy-Task abgebrochen,
+        # ist das ersichtlich als "stopp die Proxy-Erstellung" gemeint.
+        self.window._task_mgr_dock.cancel_requested.connect(
+            self._cancel_pending_proxies_if_proxy_task
+        )
         task_w = self.window._task_mgr_dock.widget()
         # Wichtig: re-parent zum Right-Panel, sonst stirbt das Widget mit dem Dock
         task_w.setParent(self.window.right_panel)
