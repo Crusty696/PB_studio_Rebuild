@@ -7,23 +7,46 @@ from __future__ import annotations
 import inspect
 
 
-def test_b158_auto_edit_phase3_uses_try_finally_for_engine():
-    """B-158: auto_edit_phase3 muss _ae_eng in try/finally disposen,
-    damit unaccaught Exceptions keine Engine-Leaks erzeugen."""
+def test_b158_auto_edit_phase3_uses_cached_engine_without_dispose(monkeypatch):
+    """Auto-Edit nutzt die kanonische Cache-Engine und disposed sie nicht."""
+    import database.session as session_module
     from services import pacing_service
+    from services.pacing import bridge
 
-    src = inspect.getsource(pacing_service.auto_edit_phase3)
-    # Try-Block muss VOR der Engine-Erzeugung oder direkt danach starten,
-    # finally-Block muss dispose() rufen.
-    assert "try:" in src and "finally:" in src, (
-        "auto_edit_phase3 muss try/finally fuer Engine-Cleanup nutzen (B-158)."
+    class CachedEngine:
+        dispose_calls = 0
+
+        def dispose(self):
+            self.dispose_calls += 1
+
+    cached = CachedEngine()
+    seen = {}
+    monkeypatch.setattr(session_module, "_get_cached_nullpool_engine", lambda: cached)
+    monkeypatch.setattr(
+        bridge, "maybe_use_studio_brain_pipeline", lambda **_kwargs: False,
     )
-    # Heuristik: dispose-Call im finally-Bereich.
-    finally_idx = src.find("finally:")
-    after_finally = src[finally_idx:] if finally_idx >= 0 else ""
-    assert "dispose()" in after_finally, (
-        "finally-Block muss _ae_eng.dispose() rufen (B-158)."
-    )
+
+    def fake_inner(engine, audio_id, video_clip_ids, settings, **kwargs):
+        seen.update(
+            engine=engine,
+            audio_id=audio_id,
+            video_clip_ids=video_clip_ids,
+            settings=settings,
+            kwargs=kwargs,
+        )
+        return ["segment"], ["cut"]
+
+    monkeypatch.setattr(pacing_service, "_auto_edit_phase3_inner", fake_inner)
+    settings = object()
+
+    result = pacing_service.auto_edit_phase3(7, [11, 12], settings)
+
+    assert result == (["segment"], ["cut"])
+    assert seen["engine"] is cached
+    assert seen["audio_id"] == 7
+    assert seen["video_clip_ids"] == [11, 12]
+    assert seen["settings"] is settings
+    assert cached.dispose_calls == 0
 
 
 def test_b160_get_section_at_time_no_id_based_cache():

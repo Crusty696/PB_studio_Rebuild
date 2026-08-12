@@ -347,37 +347,9 @@ def _select_scene_for_offset(scenes: list, offset_sec: float) -> dict:
 
 
 def _make_auto_edit_engine():
-    """P7-FIX: Lokale NullPool-Engine fuer auto_edit_phase3.
-
-    Der gemeinsame Pool (pool_size=10, overflow=30) wird bei parallelen
-    Workern (StemSeparator, Export, etc.) zusaetzlich belastet. Auto-Edit
-    oeffnet bis zu 4 Sessions auf 101+ Clips. Eigene NullPool-Engine pro
-    Worker-Aufruf entkoppelt den langen DB-intensiven Pfad vom UI-Pool.
-
-    K6a: Engine-Bau ueber die gemeinsame Fabrik ``make_nullpool_engine``
-    aus database/session.py (statt duplizierter create_engine-Aufruf).
-    K6b (D-073/E4): enable_foreign_keys=True — FK-Enforcement gilt jetzt
-    auch im Auto-Edit-Pfad (wie ueberall sonst via session.py-Pragma).
-    connect-timeout/busy_timeout wie in session.py.
-
-    Statusaufnahme 2026-07-27: die Engine wurde aus ``APP_ROOT`` gebaut
-    statt aus der aktiven Engine-URL. Beides ist normalerweise identisch,
-    weil ``set_project()`` beides zusammen umschaltet — aber eben nur
-    normalerweise: schlaegt dort ``create_all`` fehl, wird die Engine
-    trotzdem geswappt (B-721), und dann zeigen APP_ROOT und Engine auf
-    verschiedene Dateien. Der Auto-Edit-Pfad schrieb dann in die falsche
-    Projekt-DB. Im Testlauf war es reproduzierbar: mem_pacing_run-Zeilen
-    landeten in der echten pb_studio.db, obwohl die globale Engine auf eine
-    Temp-DB zeigte.
-
-    Die Quelle ist jetzt dieselbe wie in ``_get_cached_nullpool_engine()``:
-    die URL der aktiven Engine.
-    """
+    """P7-FIX: NullPool-Engine fuer auto_edit_phase3 aus session.py-Cache."""
     import database.session as _session
-    return _session.make_nullpool_engine(
-        str(_session.engine.url),
-        enable_foreign_keys=True,
-    )
+    return _session._get_cached_nullpool_engine()
 
 
 def auto_edit_phase3(
@@ -401,19 +373,15 @@ def auto_edit_phase3(
         audio_id=audio_id, video_clip_ids=video_clip_ids,
     )
 
-    # B-158: try/finally garantiert Engine-Dispose auch bei uncaught Exceptions
-    # zwischen Engine-Erzeugung und finalem Return. Bisher fuehrten nur die
-    # explizit abgefangenen Pfade (early return) zum Dispose, nicht aber
-    # raise-Pfade aus _precompute_mood_embeddings/CrossModalMatcher/etc.
-    _ae_eng = _make_auto_edit_engine()  # P7-FIX: siehe _make_auto_edit_engine Docstring
-    try:
-        return _auto_edit_phase3_inner(
-            _ae_eng, audio_id, video_clip_ids, settings,
-            studio_brain_requested=_studio_brain_requested,
-            progress_cb=progress_cb, should_stop_cb=should_stop_cb,
-        )
-    finally:
-        _ae_eng.dispose()
+    # Der kanonische NullPool-Cache haelt nur die Engine-Konfiguration;
+    # Connections entstehen pro Session frisch und werden dort geschlossen.
+    # Deshalb darf dieser Aufrufer die gemeinsam gecachte Engine nicht disposen.
+    _ae_eng = _make_auto_edit_engine()
+    return _auto_edit_phase3_inner(
+        _ae_eng, audio_id, video_clip_ids, settings,
+        studio_brain_requested=_studio_brain_requested,
+        progress_cb=progress_cb, should_stop_cb=should_stop_cb,
+    )
 
 
 # ======================================================================

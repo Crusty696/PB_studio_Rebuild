@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b23fabf1f1c844afad389951ffb0f18d",
+  "recorded_at": "2026-08-12T10:53:31+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "AGY stellte Auto-Edit auf gemeinsame NullPool-Cache-Engine um, entfernte Dispose, liess aber _ae_eng undefiniert; alter B-158-Test forderte weiterhin per-Run-Dispose.",
+  "cause": "Engine-Lifecycle wechselte von pro-Aufruf zu projekt-URL-gecachet, ohne Wrapper und historischen Source-Test atomar auf neuen Ownership-Vertrag umzustellen.",
+  "rule": "Bei Ownership-/Lifecycle-Wechseln Producer, Consumer und Cleanup-Test als eine Einheit aktualisieren; gemeinsam gecachte Ressourcen nie im einzelnen Consumer disposen.",
+  "applies_to": "SQLAlchemy-Engine-Caches, Worker-Ressourcen und PB-Studio Auto-Edit"
+}
