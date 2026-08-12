@@ -1,0 +1,10 @@
+{
+  "lesson_id": "64897f63e5294bedb9fcca0ec129d339",
+  "recorded_at": "2026-08-12T11:11:38+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Echter AGY-Live-Test blieb als ungetracktes Scratch-Skript ohne sicheren Handoff",
+  "cause": "Reproduzierbares Diagnosewerkzeug wurde nach Lauf weder in scripts/diag archiviert noch mit DB-Schreibwirkung dokumentiert",
+  "rule": "Manuelle Live-Diagnosen mit dauerhaftem Beweiswert nach erfolgreichem Lauf unter scripts/diag ablegen und DB-/Dateisystem-Nebenwirkungen im Docstring explizit nennen",
+  "applies_to": "PB Studio Live-Diagnoseskripte und Agent-Handoff"
+}
