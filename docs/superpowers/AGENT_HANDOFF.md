@@ -2,21 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## D-089 AGY-Rest vor B-758 2026-08-12 (newest)
+## D-089 AGY-Rest abgeschlossen / B-758 aktiv 2026-08-12 (newest)
 
-- User hat Dirty-Stand und gesamten nicht abgeschlossenen AGY-Auftrag
-  uebernommen/freigegeben.
-- Aktuelle einzige Task: `AGY-REST-2026-08-12`.
-- Scope: vorhandenen Dirty-Stand abschliessen; belegte Altlasten in
-  App-Start/Shutdown, Analyse-Pipeline/Worker und totem/verwaistem Code. Keine
-  pauschalen Refactors.
-- Bekannter Defekt: `services/pacing_service.py` referenziert uncommitted
-  `_ae_eng`, ohne die Variable zu setzen.
-- Fuenf Timeline-/QA-Untracked-Pfade sind Fremdbestand und bleiben ausserhalb
-  AGY-Scope.
-- Danach: `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten
-  W3-Live-Run`.
-- Decision: Vault `wiki/decisions/D-089-agy-rest-vor-b758.md`.
+- AGY-Dirty-Stand abgeschlossen. Auto-Edit-Cache-Fix `6c1857a`; B-817-Fix
+  `48a7f1c`; B-818-Fix `edb7de3`; Live-Diagnose `6867d4a`.
+- Normaler Current-Appstart und Shutdown auf GTX 1060/CUDA live gruen.
+  Spezielle OOM/DB-Lock/PnP-Code-45/47-Faelle nicht erzwungen; kein
+  User-`fixed`-Marker.
+- Fuenf Timeline-/QA-Untracked-Pfade sind Fremdbestand und unveraendert.
+- Aktuelle einzige Task: `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im
+  isolierten W3-Live-Run`.
+- Decision: Vault `wiki/decisions/D-089-agy-rest-vor-b758.md`; Abschluss:
+  `wiki/synthesis/agy-rest-complete-2026-08-12.md`.
 
 ## B-758 blockiert W3 2026-08-02 (newest)
 

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "739226004dc24f4c824c7ab4ac9a9505",
+  "recorded_at": "2026-08-12T11:14:03+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Abgeschlossene Zwischen-Task blieb in historischem Planabschnitt als aktuelle einzige Task formuliert",
+  "cause": "Governance-Wechsel aktualisierte Current-Block, aber historische D-089-Zeile blieb praesentisch",
+  "rule": "Bei Plan-Wechsel alle praesentischen Current-/Next-Formulierungen in historischen Abschnitten auf Zeitpunktssprache umstellen und Repo/Vault gemeinsam pruefen",
+  "applies_to": "ACTIVE_PLAN, PLAN_REGISTRY, Living Plan, Vault-Mirror, Agent-Handoff"
+}

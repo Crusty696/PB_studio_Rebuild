@@ -10,8 +10,8 @@ stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\
 live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
 current_sequence_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-089-agy-rest-vor-b758.md
 updated: 2026-08-12
-worktree: .worktrees/stab1-b727
-branch: codex/B-727-stability-gate
+worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
+branch: main
 
 ## Why This Plan Is Active
 
@@ -22,13 +22,11 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`AGY-REST-2026-08-12 / unvollstaendigen Altlasten-Auftrag abschliessen`.
-
-Userentscheidung D-089: vorhandenen AGY-Dirty-Stand zuerst sicher
-abschliessen; belegte teure Altlasten und unbewiesene Hypothesen-Fixes in
-App-Start/Shutdown, Analyse-Pipeline/Worker und totem/verwaistem Code eng
-pruefen. Keine pauschalen Refactors. Danach unveraendert:
 `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
+AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
+abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;
+`fixed` bleibt Userrecht. Naechste einzige Task ist wieder B-758/W3.
 
 W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler
 Systemcheck meldete `CUDA GPU FAIL` und `NVENC Encode FAIL`; degradierter Start

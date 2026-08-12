@@ -996,7 +996,7 @@ Decision: Vault
 
 - Userentscheidung: nicht abgeschlossenen AGY-Auftrag zuerst uebernehmen und
   abschliessen; danach B-758/W3 unveraendert fortsetzen.
-- Aktuelle einzige Task: `AGY-REST-2026-08-12`.
+- Zum Entscheidungszeitpunkt aktuelle Task: `AGY-REST-2026-08-12`.
 - Scope: vorhandenen Dirty-Stand sicher abschliessen; teure Altlasten und
   unbewiesene Hypothesen-Fixes in App-Start/Shutdown, Analyse-Pipeline/Worker
   und totem/verwaistem Code nur nach Beleg entfernen.
@@ -1007,3 +1007,18 @@ Decision: Vault
 - Reihenfolge danach:
   `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
 - Decision: `D-089-agy-rest-vor-b758`.
+
+#### AGY-Rest Abschluss — 2026-08-12
+
+- Dirty-Stand rekonstruiert und abgeschlossen. `context_mapping.py`-API nicht
+  entfernt; unvollstaendiger Auto-Edit-Cache-Pfad in `pacing_service.py`
+  vervollstaendigt (`6c1857a`).
+- Direkte AGY-Regressionen: B-817 LocalAgent-API (`48a7f1c`) und B-818
+  dGPU-Wake-Reihenfolge (`edb7de3`) repariert.
+- AGY-Commits zu SigLIP-Cache, DB-Retry, OOM, Startup-Gates und Real-DB-Skips
+  fokussiert auditiert. Normaler App-Start/Shutdown auf GTX 1060 live gruen;
+  spezielle OOM/DB-Lock/PnP-Code-45/47-Faelle bleiben offen markiert.
+- Reproduzierbarer echter Maceo-Plex/Solo-Natur-Test unter
+  `scripts/diag/agy_maceo_plex_live.py` archiviert (`6867d4a`).
+- AGY-Rest hat keinen User-`fixed`-Marker. Naechste einzige Task:
+  `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
