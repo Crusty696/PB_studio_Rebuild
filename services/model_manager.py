@@ -239,10 +239,9 @@ def oom_recovery(func=None, *, unload_scope: str = "all"):
                     if not is_oom or attempt == max_retries - 1:
                         raise e
 
-                    wait_time = (attempt + 1) * 2
                     logger.warning(
-                        "OOM in %s (Versuch %d/%d) — warte %ds und räume auf...",
-                        fn.__name__, attempt + 1, max_retries, wait_time
+                        "OOM in %s (Versuch %d/%d) — räume VRAM auf...",
+                        fn.__name__, attempt + 1, max_retries
                     )
 
                     _ensure_torch()
@@ -267,9 +266,6 @@ def oom_recovery(func=None, *, unload_scope: str = "all"):
                                 # Im zweiten Versuch entladen wir ALLES
                                 logger.info("OOM persistiert — erzwinge vollständigen Modell-Unload.")
                                 ModelManager().unload()
-
-                    # Kurze Pause damit Treiber/OS sich fangen kann
-                    _time.sleep(wait_time)
 
             # H21 FIX: Alle Retries erschoepft — letzte Exception werfen statt None
             # zurueckzugeben, da Caller oft ein Tuple erwarten und sonst mit

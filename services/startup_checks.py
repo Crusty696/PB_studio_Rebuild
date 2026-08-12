@@ -282,14 +282,50 @@ def _check_nvenc() -> tuple[bool, str]:
 
 
 def _get_nvidia_driver_version() -> tuple[str, str]:
-    """Ermittelt NVIDIA-Treiber-Version via WMI (Windows) oder nvidia-smi.
+    """Ermittelt NVIDIA-Treiber-Version via winreg (Windows-Registry, <1ms) mit Fallback auf WMI.
 
     Returns:
-        (nvidia_version_str, gpu_name)  z.B. ("561.09", "NVIDIA GeForce GTX 1060")
+        (nvidia_version_str, gpu_name)  z.B. ("546.33", "NVIDIA GeForce GTX 1060")
         Leere Strings wenn nicht ermittelbar.
     """
     gpu_name = ""
     driver_ver = ""
+    # Fast path: Windows-Registry via winreg (< 0.5 ms statt powershell 500-1500 ms)
+    if sys.platform == "win32":
+        try:
+            import winreg
+            root_key = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root_key) as root:
+                i = 0
+                while True:
+                    try:
+                        sub_name = winreg.EnumKey(root, i)
+                        i += 1
+                        with winreg.OpenKey(root, sub_name) as k:
+                            try:
+                                desc, _ = winreg.QueryValueEx(k, "DriverDesc")
+                                if "NVIDIA" in str(desc).upper():
+                                    gpu_name = str(desc)
+                                    raw_ver, _ = winreg.QueryValueEx(k, "DriverVersion")
+                                    parts = str(raw_ver).split(".")
+                                    if len(parts) >= 4:
+                                        combined = parts[-2] + parts[-1]
+                                        if len(combined) >= 5:
+                                            driver_ver = combined[-5:-2] + "." + combined[-2:]
+                                        else:
+                                            driver_ver = str(raw_ver)
+                                    else:
+                                        driver_ver = str(raw_ver)
+                                    if driver_ver:
+                                        return driver_ver, gpu_name
+                            except (FileNotFoundError, OSError):
+                                pass
+                    except OSError:
+                        break
+        except Exception as exc:
+            logger.debug("NVIDIA driver version check via winreg failed: %s", exc)
+
+    # Slow fallback: WMI via PowerShell
     try:
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command",

@@ -814,7 +814,7 @@ class BeatAnalysisService:
                         # FrequencyAnalyzer + BeatAnalysis parallel auf denselben
                         # Lock retrien (z.B. Komplett-Analyse mit 3 Tracks).
                         import random as _random
-                        base_wait = 2 ** attempt
+                        base_wait = 0.05 * (2 ** attempt)
                         jitter = _random.uniform(0.5, 1.5)
                         wait = base_wait * jitter
                         logger.warning(

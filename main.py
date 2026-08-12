@@ -154,23 +154,25 @@ for _p in _DLL_DIRS:
 # torch) mit kurzem Retry, damit torchs erste Probe die wache GPU sieht.
 if os.name == "nt":
     try:
-        import time as _gpu_wait_time
-        from services.startup_checks import check_nvidia_gpu_state
-        for _gpu_attempt in range(4):
-            _gpu_state, _gpu_detail = check_nvidia_gpu_state()
-            if _gpu_state == "ok":
-                break
-            if _gpu_attempt == 0:
-                print(
-                    f"[GPU] dGPU noch nicht bereit ({_gpu_state}: {_gpu_detail}) "
-                    f"- warte aufs Aufwachen vor CUDA-Init ...",
-                    flush=True,
-                )
-            _gpu_wait_time.sleep(1.5)
+        import torch as _early_torch
+        import services.startup_checks as _sc
+        if _early_torch.cuda.is_available():
+            # Fast path: GPU is already awake and available (< 50ms) -> skip PowerShell Get-PnpDevice (1.3s)
+            _sc._GPU_STATE_CACHE = ("ok", None)
+        else:
+            import time as _gpu_wait_time
+            for _gpu_attempt in range(4):
+                _gpu_state, _gpu_detail = _sc.check_nvidia_gpu_state(force_refresh=True)
+                if _gpu_state == "ok":
+                    break
+                if _gpu_attempt == 0:
+                    print(
+                        f"[GPU] dGPU noch nicht bereit ({_gpu_state}: {_gpu_detail}) "
+                        f"- warte aufs Aufwachen vor CUDA-Init ...",
+                        flush=True,
+                    )
+                _gpu_wait_time.sleep(1.5)
     except Exception as e:  # B-035 Fix: Log instead of silent pass
-        # Bootstrap-Schritt: dGPU-Wake-Check uebersprungen -> torch kann die
-        # GTX 1060 im Import-Moment verpassen (ganze Session auf CPU, B-336).
-        # Logging noch nicht konfiguriert -> lokaler Logger + WARNING.
         import logging as _log
         _log.getLogger(__name__).warning("dGPU PnP wake check failed: %s", e)
 
@@ -181,9 +183,6 @@ try:
         # Trigger actual context creation
         torch.cuda.get_device_name(0)
 except Exception as e:  # B-035 Fix: Log instead of silent pass
-    # Bootstrap-Schritt: torch-Import bzw. CUDA-Context-Init fehlgeschlagen ->
-    # die gesamte Session laeuft auf CPU. Logging noch nicht konfiguriert
-    # (setup_logging() erst in main()) -> lokaler Logger + WARNING.
     import logging as _log
     _log.getLogger(__name__).warning("Early CUDA init failed: %s", e)
 # ---------------------------------------

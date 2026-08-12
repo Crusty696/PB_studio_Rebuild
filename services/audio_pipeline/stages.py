@@ -194,17 +194,6 @@ def _guard_no_fallback_persist(
     return False
 
 
-def _legacy_guard_raise(result: Any, stage_name: str) -> None:
-    """Alt-Verhalten (Exception) — nur fuer Aufrufer ohne Context erhalten."""
-    if not _is_fallback_result(result):
-        return
-    reason = _fallback_reason(result)
-    raise RuntimeError(
-        f"Analyse-Fallback in Stage '{stage_name}' erkannt — Result wurde "
-        f"NICHT als gueltig persistiert: {reason}"
-    )
-
-
 def _persist_to_track(track_id: int, fields: dict) -> None:
     """OTK-018: schreibt berechnete Analyse-Felder an den AudioTrack.
 

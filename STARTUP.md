@@ -110,9 +110,7 @@ Critical services are initialized in this order:
 main.py supports environment-based feature flags:
 
 ```env
-# .env file
-PB_STUDIO_ENABLE_VERSION_CHECK=1  # Check for updates on startup
-PB_STUDIO_ENABLE_SETUP_WIZARD=1   # Show first-run setup wizard
+# .env file (Note: Version check and setup wizard are managed via SettingsStore)
 PB_STUDIO_JSON_LOGS=0             # Use JSON log format
 ```
 
