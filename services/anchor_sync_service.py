@@ -22,6 +22,7 @@ import random as _random
 import time as _time
 
 from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
+from sqlalchemy import text as _sa_text  # B-628: busy_timeout aus Restbudget
 
 from database import AudioVideoAnchor, Scene, nullpool_session
 
@@ -134,6 +135,26 @@ def sync_dialog_anchors(audio_track_id: int, anchors: list[dict]) -> int:
     for attempt in range(_MAX_RETRIES):
         try:
             with nullpool_session() as session:
+                # B-628: Das Budget deckelte bisher nur den START eines
+                # Versuchs, nicht seine DAUER. Ein begonnener Versuch lief
+                # danach in den vollen busy_timeout von 120 s — auch wenn nur
+                # noch 30 s Budget uebrig waren. Gemessen (skaliert, echte
+                # WAL-DB mit BEGIN EXCLUSIVE als Blocker): Abbruch nach
+                # Budget + einem ganzen busy_timeout. Real waren das rund
+                # 240 s GUI-Blockade statt der zugesagten 150 s.
+                # Deshalb den busy_timeout aus dem RESTBUDGET ableiten: ein
+                # Versuch darf nie laenger warten, als insgesamt noch erlaubt
+                # ist. Damit haelt die Konstante, was ihr Name verspricht.
+                _rest_ms = max(
+                    250, int((_deadline - _time.monotonic()) * 1000)
+                )
+                try:
+                    session.execute(_sa_text(f"PRAGMA busy_timeout={_rest_ms}"))
+                except Exception as _pragma_exc:  # broad: Pragma darf nie kippen
+                    logger.debug(
+                        "[AnchorSync] busy_timeout nicht setzbar (%s) — "
+                        "es gilt der Vorgabewert.", _pragma_exc,
+                    )
                 # Idempotenz: alte Dialog-Anker dieses Tracks entfernen.
                 session.query(AudioVideoAnchor).filter(
                     AudioVideoAnchor.audio_track_id == audio_track_id,
