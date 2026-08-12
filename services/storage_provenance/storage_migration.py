@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Callable
@@ -54,6 +55,12 @@ class StorageMigrationService:
         self.layout = StorageLayout(storage_root)
         self.storage_root = storage_root
         self.progress_callback = progress_callback
+        # B-814: (project_id, pfad) -> Liste bekannter (sha, bytes, mtime_ns).
+        # Wird beim ersten Zugriff mit EINER Query gefuellt, siehe
+        # ``_source_fingerprints``.
+        self._source_fingerprints_cache: dict[
+            tuple[int, str], list[tuple[str, int | None, int | None]]
+        ] | None = None
 
     def _record_manifest(
         self,
@@ -132,11 +139,12 @@ class StorageMigrationService:
         # ``logs/freeze_stacks_BEFORE_FIX.log`` steht der blockierte
         # Main-Thread 14-mal genau in dieser Funktion.
         #
-        # Der Aufwand selbst ist hier nicht gefahrlos zu senken — die Quell-
-        # Identitaet IST der Hash, und ``project_sources`` hat keine Spalte
-        # fuer Groesse/mtime, mit der man einen unveraenderten Treffer
-        # abkuerzen koennte (anders als bei den Artefakten, wo ``bytes`` genau
-        # das erlaubt, siehe ``_upsert_artifact``). Also mindestens: melden.
+        # NACHTRAG B-814 (Alembic ``a3b4c5d6e7f8``): der Aufwand ist jetzt
+        # gesenkt. ``project_sources`` hat mit ``source_bytes`` /
+        # ``source_mtime_ns`` den Stat-Fingerabdruck, der bei den Artefakten
+        # ueber ``bytes`` laengst existiert (siehe ``_upsert_artifact``).
+        # ``_source_sha`` kuerzt damit ab: Groesse UND mtime unveraendert =>
+        # gespeicherten Hash wiederverwenden, Datei gar nicht erst oeffnen.
         total = len(audio_tracks) + len(video_clips)
         start = time.monotonic()
         letzte_meldung = start
@@ -205,7 +213,7 @@ class StorageMigrationService:
         if not existing_stems:
             return False
 
-        source_sha = compute_source_sha256(source, media_type="audio", mode="strict")
+        source_sha = self._source_sha(track.project_id, source, "audio")
         source_root = self.layout.ensure_source_root(source_sha)
         first_stem_dir = next(iter(existing_stems.values())).parent
         create_directory_link(source_root / "audio" / "stems", first_stem_dir)
@@ -249,7 +257,7 @@ class StorageMigrationService:
         if not existing_outputs:
             return False
 
-        source_sha = compute_source_sha256(source, media_type="video", mode="strict")
+        source_sha = self._source_sha(clip.project_id, source, "video")
         self.layout.ensure_source_root(source_sha)
         self._upsert_project_source(clip.project_id, source_sha, source)
         job = self._upsert_job(source_sha, "video.plan_a.outputs", "1", "legacy-plan-a", "done")
@@ -281,6 +289,85 @@ class StorageMigrationService:
             )
         return True
 
+    # ------------------------------------------------------------------
+    # B-814: Quell-Hash-Kurzschluss
+    # ------------------------------------------------------------------
+
+    def _source_fingerprints(
+        self,
+    ) -> dict[tuple[int, str], list[tuple[str, int | None, int | None]]]:
+        """Alle bekannten Stat-Fingerabdruecke, in EINER Query geladen.
+
+        Key ist ``(project_id, normalisierter Pfad)``. Der Wert ist eine LISTE,
+        weil derselbe Pfad mehrere Rows tragen kann: aendert sich der Inhalt
+        einer Quelle, entsteht eine zweite Row mit neuem ``source_sha256``,
+        waehrend die alte Row weiter auf denselben Pfad zeigt. Die Aufloesung
+        macht ``_source_sha`` ueber den Stat-Vergleich — nicht diese Funktion.
+        """
+        if self._source_fingerprints_cache is None:
+            cache: dict[tuple[int, str], list[tuple[str, int | None, int | None]]] = {}
+            rows = self.session.execute(
+                select(
+                    ProjectSource.project_id,
+                    ProjectSource.current_source_path,
+                    ProjectSource.source_sha256,
+                    ProjectSource.source_bytes,
+                    ProjectSource.source_mtime_ns,
+                )
+            ).all()
+            for project_id, path, sha, size, mtime_ns in rows:
+                if project_id is None or not path or not sha:
+                    continue
+                cache.setdefault((project_id, _normalize_path(path)), []).append(
+                    (sha, size, mtime_ns)
+                )
+            self._source_fingerprints_cache = cache
+        return self._source_fingerprints_cache
+
+    def _source_sha(self, project_id: int, source: Path, media_type: str) -> str:
+        """Quell-Identitaet — ohne die Datei zu lesen, wenn nichts sich aenderte.
+
+        ``migrate_existing_outputs`` laeuft bei JEDEM Projekt-Open. Vorher wurde
+        hier bedingungslos ``compute_source_sha256(..., mode="strict")`` gerufen,
+        also die komplette Quelldatei gelesen — an einer realen Projekt-DB
+        gemessen 123 Clips / 1,16 GB pro Open.
+
+        Der Kurzschluss greift nur, wenn Groesse UND ``st_mtime_ns`` exakt dem
+        entsprechen, was beim letzten echten Hash-Lauf gespeichert wurde. Fehlt
+        einer der Werte (Bestandszeile, vor Alembic ``a3b4c5d6e7f8``
+        geschrieben), wird regulaer gehasht und der Wert in
+        ``_upsert_project_source`` nachgetragen — die DB heilt sich beim ersten
+        Open selbst, ohne Backfill-Skript.
+        """
+        candidates = self._source_fingerprints().get(
+            (project_id, _normalize_path(source))
+        )
+        if candidates:
+            try:
+                stat = source.stat()
+            except OSError:
+                stat = None
+            if stat is not None:
+                treffer = {
+                    sha
+                    for sha, size, mtime_ns in candidates
+                    if size is not None
+                    and mtime_ns is not None
+                    and size == stat.st_size
+                    and mtime_ns == stat.st_mtime_ns
+                }
+                # Nur bei EINDEUTIGEM Treffer abkuerzen. Mehrere passende Rows
+                # zum selben Pfad heissen: derselbe Pfad ist unter
+                # verschiedenen ``source_sha256`` registriert — z.B. weil er
+                # einmal als Audio und einmal als Video gehasht wurde
+                # (``compute_source_sha256`` mischt ``media_type`` in den
+                # Hash). ``project_sources`` hat keine media_type-Spalte, mit
+                # der man das aufloesen koennte. Dann lieber regulaer hashen
+                # als die falsche Identitaet zurueckgeben.
+                if len(treffer) == 1:
+                    return next(iter(treffer))
+        return compute_source_sha256(source, media_type=media_type, mode="strict")
+
     def _upsert_project_source(self, project_id: int, source_sha: str, source_path: Path) -> ProjectSource:
         row = (
             self.session.query(ProjectSource)
@@ -298,6 +385,25 @@ class StorageMigrationService:
         else:
             row.current_source_path = str(source_path)
             row.last_seen_at = datetime.utcnow()
+
+        # B-814: Stat-Fingerabdruck mitschreiben, damit der naechste Open
+        # abkuerzen kann. Nur bei echter Abweichung zuweisen — gleiches Muster
+        # wie ``_upsert_artifact``, das die Row sonst unnoetig dirty markiert.
+        try:
+            stat = source_path.stat()
+        except OSError:
+            stat = None
+        if stat is not None:
+            if row.source_bytes != stat.st_size:
+                row.source_bytes = stat.st_size
+            if row.source_mtime_ns != stat.st_mtime_ns:
+                row.source_mtime_ns = stat.st_mtime_ns
+            # Cache mitziehen, damit ein zweiter Treffer im selben Lauf
+            # ebenfalls abkuerzt.
+            key = (project_id, _normalize_path(source_path))
+            entries = self._source_fingerprints().setdefault(key, [])
+            entries[:] = [e for e in entries if e[0] != source_sha]
+            entries.append((source_sha, stat.st_size, stat.st_mtime_ns))
         return row
 
     def _upsert_job(
@@ -369,6 +475,17 @@ class StorageMigrationService:
     def _progress(self, phase: str, index: int, total: int) -> None:
         if self.progress_callback is not None:
             self.progress_callback(phase, index, total)
+
+
+def _normalize_path(path: str | Path) -> str:
+    """Vergleichsform fuer ``project_sources.current_source_path``.
+
+    ``os.path.normcase`` deckt die Windows-Realitaet ab (Gross/Kleinschreibung
+    und ``/`` vs ``\\`` sind dort identisch); auf POSIX ist es die Identitaet.
+    Ein Fehlschlag beim Normalisieren ist ungefaehrlich: dann greift der
+    Kurzschluss nicht und es wird regulaer gehasht.
+    """
+    return os.path.normcase(str(path))
 
 
 def _file_sha256(path: Path) -> str:

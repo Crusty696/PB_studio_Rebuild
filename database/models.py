@@ -144,6 +144,15 @@ class ProjectSource(Base):
     source_sha256 = Column(String, nullable=False)
     current_source_path = Column(String, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
+    # B-814: Stat-Fingerabdruck der Datei, die zuletzt zu ``source_sha256``
+    # gehasht wurde. Erlaubt ``StorageMigrationService`` beim Projekt-Open den
+    # Kurzschluss "Groesse UND mtime unveraendert => Hash nicht neu berechnen".
+    # Ohne diese Spalten musste jedes Oeffnen jede Quelldatei komplett lesen
+    # (real gemessen: 123 Clips / 1,16 GB pro Open). Analog zu
+    # ``AnalysisArtifact.bytes``, das denselben Guard fuer Artefakte erlaubt.
+    # NULL = "nie erfasst" (Bestandszeilen) => einmal hashen und nachtragen.
+    source_bytes = Column(BigInteger, nullable=True)
+    source_mtime_ns = Column(BigInteger, nullable=True)
 
 
 class AudioTrack(Base):
