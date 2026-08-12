@@ -46,9 +46,71 @@ _UMAPReducer = Any
 # pynndescent-Kernel lazy, also erst beim ersten fit(). Der Warmup waermte den
 # relevanten Cache also nicht. Siehe ``_WARMUP_SNIPPET``.
 # ---------------------------------------------------------------------------
+# Nachtrag 2026-08-12 (B-618, User-Entscheidung): Der Warmup lief bisher
+# ausschliesslich SEQUENZIELL — direkt vor dem In-Process-Import, der auf ihn
+# wartete. Gemessen 2026-08-09 an einem echten Kaltstart: der In-Process-Teil
+# sank zwar von 110 s auf 66,5 s, der GESAMTE Kaltstart stieg dabei aber von
+# 110 s auf 169-190 s, weil die 102,8 s des Warmup-Subprozesses vollstaendig
+# oben drauf kamen. Der Fix machte den Kaltstart also unterm Strich langsamer.
+#
+# Deshalb kann der Warmup jetzt frueh und nebenlaeufig gestartet werden
+# (``start_umap_warmup_async``, aufgerufen beim App-Start). Er laeuft dann
+# waehrend der Nutzer importiert und Clips auswaehlt. Trifft der Fit spaeter
+# ein, wartet er nur noch auf die RESTZEIT statt auf die volle Dauer.
+#
+# Die Wartesemantik faellt dabei ohne Zusatzcode ab: der Hintergrund-Thread
+# ruft dieselbe ``warm_umap_cache()`` und haelt dabei ``_WARMUP_LOCK``. Ein
+# spaeterer synchroner Aufruf blockiert genau so lange am Lock, wie der
+# Warmup noch braucht — und findet danach ``done=True`` vor.
 _WARMUP_TIMEOUT_S: float = 600.0
 _WARMUP_LOCK = threading.Lock()
 _WARMUP_STATE: dict[str, bool] = {"done": False}
+# Getrenntes Lock: schuetzt nur das Starten des Hintergrund-Threads. Es darf
+# NICHT ``_WARMUP_LOCK`` sein, sonst wuerde der Starter auf den laufenden
+# Warmup warten — genau das, was hier vermieden werden soll.
+_WARMUP_ASYNC_LOCK = threading.Lock()
+_WARMUP_ASYNC_THREAD: threading.Thread | None = None
+
+
+def start_umap_warmup_async(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
+    """Startet den Numba-Warmup im Hintergrund und kehrt sofort zurueck (B-618).
+
+    Gedacht fuer den App-Start: der teure Numba-JIT laeuft dann parallel zum
+    Import und zur Clip-Auswahl des Nutzers statt sequenziell vor dem ersten
+    Cluster-Fit.
+
+    Returns:
+        True  -- ein Hintergrund-Warmup laeuft jetzt (oder lief schon).
+        False -- kein Warmup noetig oder moeglich (bereits erledigt, umap
+                 schon importiert, Frozen-Build).
+
+    Idempotent und raise-frei: mehrfache Aufrufe starten hoechstens einen
+    Thread. Ein spaeterer ``warm_umap_cache()`` wartet automatisch auf das
+    Ergebnis, weil beide dasselbe ``_WARMUP_LOCK`` benutzen.
+    """
+    global _WARMUP_ASYNC_THREAD
+    if _WARMUP_STATE["done"] or "umap" in sys.modules:
+        return False
+    if getattr(sys, "frozen", False):
+        # Im Frozen ist der Warmup nachweislich wirkungslos (Numba kann dort
+        # nicht cachen) — der Fit laeuft stattdessen im Kind-Prozess.
+        return False
+    with _WARMUP_ASYNC_LOCK:
+        if _WARMUP_ASYNC_THREAD is not None and _WARMUP_ASYNC_THREAD.is_alive():
+            return True
+        thread = threading.Thread(
+            target=warm_umap_cache,
+            args=(timeout,),
+            name="umap-warmup",
+            daemon=True,
+        )
+        _WARMUP_ASYNC_THREAD = thread
+        thread.start()
+    logger.info(
+        "B-618: UMAP/Numba-Warmup im Hintergrund gestartet — er laeuft jetzt "
+        "parallel zur Bedienung statt sequenziell vor dem ersten Cluster-Fit.",
+    )
+    return True
 
 # B-618 Frozen: Zeitbudget fuer den Cluster-Fit im Kind-Prozess. Deckt den
 # nicht-cachebaren Numba-JIT (gemessen 79 s) PLUS den eigentlichen Fit auf

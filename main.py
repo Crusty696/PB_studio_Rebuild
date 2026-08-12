@@ -2208,6 +2208,22 @@ def main():
         reason="daily",
     )
 
+    # ── B-618: UMAP/Numba-Warmup nebenlaeufig anstossen ───────────────
+    # Der Warmup lief bisher erst unmittelbar vor dem ersten Cluster-Fit und
+    # blockierte diesen. Gemessen 2026-08-09: In-Process 110 s -> 66,5 s, aber
+    # Gesamt-Kaltstart 110 s -> 169-190 s, weil die 102,8 s des Warmup-
+    # Subprozesses sequenziell oben drauf kamen.
+    # Hier gestartet laeuft er waehrend Import und Clip-Auswahl. Der Aufruf
+    # kehrt sofort zurueck, startet nichts im Frozen-Build und wirft nie.
+    try:
+        from services.enrichment.style_bucket_clusterer import start_umap_warmup_async
+        start_umap_warmup_async()
+    except Exception as _warmup_exc:  # Start darf daran nie scheitern
+        logging.getLogger(__name__).warning(
+            "B-618: Hintergrund-Warmup nicht startbar (%s) — der Fit waermt "
+            "den Cache spaeter selbst.", _warmup_exc,
+        )
+
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.
     splash.show_message("Lade Benutzeroberfläche...")
