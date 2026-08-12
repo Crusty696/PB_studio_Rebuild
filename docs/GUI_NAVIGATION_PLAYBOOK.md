@@ -739,3 +739,79 @@ Leerzeichen statt Underscore im Benutzernamen und `Documents` statt
 
 Für: Folder-Import, Batch-Analyse, Pipeline, Pacing-Auto-Edit,
 Export-Render, Vision-Caption, SigLIP-Embedding, Scene-Detection.
+
+## 2.29 Live-Verify B-808/B-809 — NEU 2026-08-12
+
+### B-809: SCHNITT-Audio-Adapter-Junction lebt im GLOBALEN Storage, nicht im Projektordner
+- **Falle:** Die Junction, die `create_directory_link` fuer den SCHNITT-Audio-Adapter
+  anlegt, liegt NICHT im Projektordner (`<projekt>/storage/...`), sondern im
+  **globalen, content-addressed Storage** unter
+  `%APPDATA%\PBStudio\storage\by_sha\<sha[:2]>\<sha>\audio\stems` (sha =
+  `compute_source_sha256(..., mode="strict")` der Audioquelle). `ensure_schnitt_audio_adapter()`
+  wird bei **jedem** Projekt-Open unconditional aufgerufen
+  (`services/project_manager.py:459-464`), nutzt aber
+  `default_global_storage_root()` als Default — projekt-lokal nur wenn explizit
+  ein `storage_root` uebergeben wird (bei GUI-Boot nicht der Fall).
+- **Gate VOR `create_directory_link`:** `_migrate_audio_track()`
+  (`services/storage_provenance/storage_migration.py:133`) baut zuerst
+  `existing_stems` per `Path(track.stem_*_path).is_file()` gegen die **aktuellen**
+  DB-Pfade. Ist auch nur EINE Datei am DB-Pfad weg, wird bei allen leer
+  `existing_stems` -> `return False` **vor** dem Aufruf von
+  `create_directory_link`. Konsequenz: eine Reproduktion, die einfach nur die
+  Zieldatein loescht, auf die die DB *aktuell* zeigt, triggert den B-809-Fix
+  **nicht** — sie verhindert schon den Migrationsversuch selbst (weder
+  Fix-Logzeile noch der alte `mklink /J failed`-Fehler erscheinen, die Junction
+  bleibt einfach unveraendert liegen).
+- **Funktionierende Live-Reproduktion (real getestet, kein Mock):** Orphaned
+  Junction + gueltiges, ABWEICHENDES aktuelles Ziel. Konkret gefunden im
+  laufenden Log: Projekt `LV-Runde2-A` (`C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\projects\LV-Runde2-A`)
+  hatte aus einer fruehren Session (vor Fix-Commit `718c40f`, 2026-08-12 07:15:06)
+  eine echte, seit 01:35 verwaiste Junction unter
+  `by_sha\54\5417dac...\audio\stems`, die auf ein laengst geloeschtes
+  `outputs/sos-test/storage/stems/1` zeigte, waehrend die DB (Track 2,
+  Standard-Maceo-Material) bereits auf ein GUELTIGES, ANDERES Ziel
+  `LV-Runde2-A\storage\stems\2` verwies. Genau dieses Delta (verwaiste Junction
+  != aktuelles gueltiges Ziel) ist die reale Vorbedingung fuer den Bug — deckt
+  sich exakt mit dem Unit-Test `test_b809_verwaiste_junction_wird_neu_gesetzt`
+  (`altes_ziel` vs. `neues_ziel`). Live-Ergebnis nach Fix: Log zeigt
+  `B-809: verwaiste Junction ... wird neu gesetzt.`, KEIN
+  `mklink /J failed`, Junction zeigt danach via `fsutil reparsepoint query`
+  korrekt auf `LV-Runde2-A\storage\stems\2` (Path.exists()=True, 4 WAV-Dateien
+  lesbar). **BESTAETIGT.**
+- **Reproduktions-Rezept fuer kuenftige Tests:** `fsutil reparsepoint query
+  <junction>` liefert "Druckname" = tatsaechliches Ziel — schneller/robuster
+  als Python `os.readlink` (funktioniert unter CPython 3.10 nicht fuer
+  Windows-Junctions). Global-Storage-Scan:
+  `os.walk(%APPDATA%\PBStudio\storage\by_sha)`, dann pro `audio/stems`-Ordner
+  `os.path.lexists()` (True) vs. `os.path.exists()` (False) prueft auf
+  verwaist. In dieser Session lagen bereits **11 verwaiste Junctions** aus
+  frueheren Testlaeufen im globalen Storage — nur EINE davon aktiv genutzt.
+- **NEBENBEFUND (kein B-809/B-808-Bug, aber live entdeckt):**
+  `repair_missing_sources_on_project_open()` (`services/project_manager.py:20`,
+  laeuft im selben Open-Pfad direkt NACH dem SCHNITT-Audio-Adapter) brauchte
+  fuer `LV-Runde2-A` (213 `project_sources`, 91 davon mit fehlendem
+  `current_source_path`, 486 `video_clips`) **6 Minuten 38 Sekunden**
+  (07:32:31–07:39:09) ohne jede Zwischen-Log-Zeile. Windows meldete den
+  Prozess durchgehend `Responding: True` (kein echter Message-Pump-Hang), aber
+  Fenstertitel und TASKS-Panel zeigten ueber 6+ Minuten unveraendert den ALTEN
+  Projektstand — fuer einen Nutzer ohne Log-Zugriff nicht von einem Freeze zu
+  unterscheiden. Nicht Teil dieses Auftrags, aber dokumentationswuerdig fuer
+  einen kuenftigen Perf-Task (moeglicher O(N×M)-Scan bei vielen
+  `project_sources` gegen viele `video_clips`-Kandidaten).
+
+### B-808: Cockpit-Label "Analyse offen" vs. "Fehlt" — live verifiziert
+- **Ablauf:** Neues Projekt -> `+ Ordner` -> 12 echte Solo_Natur-Clips
+  importiert (Kopien, keine synthetischen Dateien) -> KEINE Analyse gestartet
+  -> PROJEKT-Tab.
+- **Ergebnis (BESTAETIGT):** Video-Karte zeigt `"Analyse offen"` (nicht
+  `"Fehlt"`), Audio-Karte (kein Audio importiert) zeigt weiterhin `"Fehlt"` —
+  im selben Screenshot sauber unterscheidbar.
+- **Gegenprobe (BESTAETIGT):** Frisches, komplett leeres Projekt (kein Import)
+  zeigt fuer BEIDE Karten `"Fehlt"`.
+- **Dritte, ungeplante Bestaetigung:** `LV-Runde2-A` (Audio vorhanden+Stems
+  fertig, Video NIE importiert) zeigte konsistent Audio=`"Bereit"`,
+  Video=`"Fehlt"` — korrekt, da fuer Video wirklich nichts importiert wurde
+  (kein Fall von "Analyse offen").
+- **Screenshots:** `tests/qa_artifacts/06_cockpit_after_import_20260812_072525.png`
+  (Analyse offen), `07_cockpit_empty_project_20260812_072619.png` (Fehlt/Fehlt),
+  `11_lv2a_final_20260812_073930.png` (Bereit/Fehlt).
