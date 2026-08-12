@@ -95,12 +95,15 @@ def write_compat_edges(
             # Ein DELETE fuer alle Szenen statt eines pro Szene. Semantik
             # identisch: entfernt jede Kante, die eine der Szenen beruehrt.
             id_list = list(this_clip_scene_ids)
-            placeholders = ", ".join(f":s{i}" for i in range(len(id_list)))
+            # Nur generierte Platzhalternamen (:s0, :s1, ...) gehen in den
+            # String — die Szenen-IDs werden gebunden uebergeben. Kein Wert aus
+            # der DB oder vom Nutzer landet je im SQL-Text.
+            placeholders = ", ".join(f":s{i}" for i in range(len(id_list)))  # nosec B608
             session.execute(
                 text(
                     "DELETE FROM struct_compat_edge "
-                    f"WHERE scene_id_a IN ({placeholders}) "
-                    f"OR scene_id_b IN ({placeholders})"
+                    f"WHERE scene_id_a IN ({placeholders}) "  # nosec B608
+                    f"OR scene_id_b IN ({placeholders})"  # nosec B608
                 ),
                 {f"s{i}": sid for i, sid in enumerate(id_list)},
             )
@@ -127,11 +130,12 @@ def write_compat_edges(
         }
         if fremde_quellen:
             f_list = list(fremde_quellen)
-            f_ph = ", ".join(f":f{i}" for i in range(len(f_list)))
+            # Wie oben: nur Platzhalternamen im String, Werte gebunden.
+            f_ph = ", ".join(f":f{i}" for i in range(len(f_list)))  # nosec B608
             session.execute(
                 text(
                     "DELETE FROM struct_compat_edge "
-                    f"WHERE scene_id_a IN ({f_ph})"
+                    f"WHERE scene_id_a IN ({f_ph})"  # nosec B608
                 ),
                 {f"f{i}": sid for i, sid in enumerate(f_list)},
             )
