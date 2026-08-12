@@ -732,11 +732,27 @@ class SetupWizard(QDialog):
     def done(self, result: int) -> None:
         # done() ist der zentrale Ausgang fuer accept()/reject() (inkl. Esc).
         self._shutdown_downloads()
+        # B-807: Auch das Wegklicken zaehlt als "gesehen". Vorher setzten nur
+        # Skip, Launch und ein abgeschlossener Download das Flag — wer den
+        # Wizard mit Esc oder dem Fenster-X schloss, bekam ihn bei JEDEM
+        # weiteren Start erneut. Live belegt: "First-Run erkannt" steht
+        # dreimal in den Logs, obwohl die App laengst konfiguriert war.
+        # Ein First-Run-Dialog, den man bewusst wegklickt, darf nicht
+        # wiederkehren; erreichbar bleibt er ueber die Einstellungen.
+        self._mark_seen()
         super().done(result)
+
+    def _mark_seen(self) -> None:
+        """B-807: Flag setzen, aber den Dialog daran nie scheitern lassen."""
+        try:
+            mark_setup_complete()
+        except Exception as exc:  # broad: Schliessen darf nie blockieren
+            logger.warning("SetupWizard: setup_complete nicht setzbar: %s", exc)
 
     def closeEvent(self, event) -> None:
         # Fenster-X / Window-Manager-Close, falls es done() nicht durchlaeuft.
         self._shutdown_downloads()
+        self._mark_seen()  # B-807, siehe done()
         super().closeEvent(event)
 
     def _apply_styles(self) -> None:
