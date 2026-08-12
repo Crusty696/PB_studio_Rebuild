@@ -168,9 +168,22 @@ class MediaTableController(PBComponent):
             self._on_media_reload_failed()
 
     def _on_media_reload_done(self, videos: list, audios: list, also_combos: bool):
-        """Finished-Slot: wendet Daten an und loest dann den In-Flight-Status."""
+        """Finished-Slot: wendet Daten an und loest dann den In-Flight-Status.
+
+        B-020: Der Slot haengt per QueuedConnection an einem Hintergrund-Worker
+        und kann NACH dem Fenster-Teardown noch zugestellt werden. Dann ist
+        ``self.window`` tot (weakref leer) bzw. einzelne Kind-Widgets sind
+        C++-seitig schon zerstoert. Beides darf keinen Traceback werfen — ein
+        zurueckgehaltener Traceback-Frame haelt sonst wieder Objekte fest.
+        """
         try:
+            if not self._window_alive():
+                logger.debug("B-020: Medien-Reload nach Fenster-Teardown verworfen.")
+                return
             self._apply_refreshed_data(videos, audios, also_combos)
+        except RuntimeError as exc:
+            # C++-Kind-Widget zwischen Guard und Zugriff zerstoert.
+            logger.debug("B-020: Medien-Reload gegen zerstoertes Widget: %s", exc)
         finally:
             self._reload_finished_cleanup()
 
@@ -312,5 +325,8 @@ class MediaTableController(PBComponent):
 
     def _do_refresh_media_table(self) -> None:
         """Fuehrt die verzoegerte Aktualisierung der Media-Tabelle aus."""
+        # B-020: singleShot(200) kann nach dem Fenster-Teardown zugestellt werden.
+        if not self._window_alive():
+            return
         self.window._refresh_pending = False
         self._refresh_media_table()

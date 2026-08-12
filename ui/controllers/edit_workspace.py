@@ -297,6 +297,9 @@ class EditWorkspaceController(PBComponent):
         self._gen_project_token = None
 
     def _on_cuts_done(self, cuts: list, total_dur: float, seq: int = 0):
+        # B-020: Worker-Rueckkanal — kann nach dem Fenster-Teardown feuern.
+        if not self._window_alive():
+            return
         # B-172: stale-result Drop wenn neuerer Klick schon in Flight.
         if seq and seq != getattr(self, "_gen_seq", seq):
             logger.debug("_on_cuts_done: stale seq %d (current %d), ignored.",
@@ -334,6 +337,10 @@ class EditWorkspaceController(PBComponent):
         self._defer_cut_list_refresh()
 
     def _on_cuts_failed(self, err: str, seq: int = 0):
+        # B-020: Worker-Rueckkanal — kann nach dem Fenster-Teardown feuern.
+        if not self._window_alive():
+            logger.warning("calculate_cut_points failed (Fenster weg): %s", err)
+            return
         # B-172: stale-Fail-Drop
         if seq and seq != getattr(self, "_gen_seq", seq):
             return

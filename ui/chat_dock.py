@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import weakref
 from typing import TYPE_CHECKING
 from pathlib import Path
 
@@ -174,6 +175,31 @@ class ChatDock(QDockWidget):
     Unterstützt Multi-Action-Ergebnisse: Wenn die KI mehrere Aktionen
     gleichzeitig ausführt, werden alle Ergebnisse einzeln angezeigt.
     """
+
+    # B-020: Rueckwaertskante zum Hauptfenster ist eine *nicht besitzende*
+    # Elternreferenz. Als starke Referenz schloss sie zusammen mit
+    # `PBWindow -> chat_dock` einen Python-Zyklus, den der GC nicht abraeumt
+    # (der Fensterbaum ueberlebte close() vollstaendig). Nur echte QObject-
+    # Fenster werden schwach gehalten; Test-Doubles haben keinen anderen
+    # Besitzer und blieben sonst nicht am Leben.
+    @property
+    def _main_window(self):
+        ref = self.__dict__.get("_main_window_ref")
+        if ref is not None:
+            return ref()
+        return self.__dict__.get("_main_window_strong")
+
+    @_main_window.setter
+    def _main_window(self, value):
+        if isinstance(value, QObject):
+            try:
+                self.__dict__["_main_window_ref"] = weakref.ref(value)
+                self.__dict__["_main_window_strong"] = None
+                return
+            except TypeError:
+                pass
+        self.__dict__["_main_window_ref"] = None
+        self.__dict__["_main_window_strong"] = value
 
     def __init__(self, parent=None):
         super().__init__(parent)

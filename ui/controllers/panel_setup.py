@@ -109,6 +109,10 @@ class PanelSetupController(PBComponent):
         self.window._task_mgr_dock.hide()
         # show_dock_requested → bringt TASKS-Tab nach vorn
         def _focus_tasks():
+            # B-020: haengt am GlobalTaskManager-Singleton, das das Fenster
+            # ueberlebt — ohne Guard laeuft der Slot ins tote Fenster.
+            if not self._window_alive():
+                return
             if hasattr(self.window, "_set_context_panel_visible"):
                 self.window._set_context_panel_visible(True)
             for i in range(self.window.right_panel.count()):
@@ -368,6 +372,11 @@ class PanelSetupController(PBComponent):
         damit jede Zeile auch ein eigener Block (eigene maxBlockCount-Zeile)
         wird ohne N synchrone Layout-Recompute-Zyklen auszuloesen.
         """
+        # B-020: 250-ms-Repeat-Timer. Zwischen close() und der endgueltigen
+        # Zerstoerung feuert er weiter; danach ist self.window tot.
+        if not self._window_alive():
+            return
+
         with self._console_lock:
             if not self._console_buffer:
                 return

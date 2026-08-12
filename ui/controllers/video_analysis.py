@@ -350,6 +350,12 @@ class VideoAnalysisController(PBComponent):
         # trotz Abbruch, bei 486 Clips).
         if getattr(self, "_proxy_queue_stopped", False):
             return
+        # B-020: die Queue laedt sich ueber `finished` selbst nach und fasst
+        # dabei self.window an. Nach dem Fenster-Teardown darf nichts mehr
+        # nachruecken.
+        if not self._window_alive():
+            self._proxy_pending.clear()
+            return
         while self._proxy_active < self._PROXY_MAX_ACTIVE and self._proxy_pending:
             clip_id, video_path, title = self._proxy_pending.popleft()
             self._proxy_active += 1

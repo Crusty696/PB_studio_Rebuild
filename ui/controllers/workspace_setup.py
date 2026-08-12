@@ -618,14 +618,24 @@ class WorkspaceSetupController(PBComponent):
 
         from services import analysis_status_service
 
+        # B-020: `_window_alive()` als Vorbedingung — der Listener wird aus
+        # einem beliebigen Analyse-Worker-Thread gerufen und ist im globalen
+        # analysis_status_service registriert, kann also nach dem
+        # Fenster-Teardown noch feuern.
         self.window._cockpit_completion_listener = (
             lambda _media_type, _media_id, _step_key, _summary: (
-                self.window._project_dashboard.refresh_requested.emit()
+                self._window_alive()
+                and self.window._project_dashboard.refresh_requested.emit()
             )
         )
         analysis_status_service.register_completion_listener(
             self.window._cockpit_completion_listener
         )
+        # B-020: zweite, fensterunabhaengige Referenz. `destroyed` kann feuern,
+        # wenn der Python-Wrapper des Fensters schon weg ist (self.window ist
+        # dann None) — ohne diese Kopie bliebe der Listener fuer immer im
+        # globalen analysis_status_service registriert.
+        self._cockpit_completion_listener = self.window._cockpit_completion_listener
         self.window.destroyed.connect(
             lambda *_args: self._unregister_cockpit_listener()
         )
@@ -824,7 +834,9 @@ class WorkspaceSetupController(PBComponent):
         self.logger.warning("Unbekannte Cockpit-Aktion: %s", action_key)
 
     def _unregister_cockpit_listener(self):
-        listener = getattr(self.window, "_cockpit_completion_listener", None)
+        listener = getattr(self, "_cockpit_completion_listener", None)
+        if listener is None:
+            listener = getattr(self.window, "_cockpit_completion_listener", None)
         if listener is None:
             return
         try:
@@ -832,7 +844,9 @@ class WorkspaceSetupController(PBComponent):
             analysis_status_service.unregister_completion_listener(listener)
         except Exception as exc:
             self.logger.debug("cockpit listener unregister failed: %s", exc)
-        self.window._cockpit_completion_listener = None
+        self._cockpit_completion_listener = None
+        if self.window is not None:
+            self.window._cockpit_completion_listener = None
 
     def _on_workspace_changed(self, index: int):
         # Freeze-Fix (Option 2): Paint-Updates des Stacks fuer die Dauer des

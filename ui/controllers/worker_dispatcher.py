@@ -95,6 +95,9 @@ class WorkerDispatcherController(PBComponent):
     def _cleanup_taskmanager_worker(self, worker: QObject) -> None:
         """Entfernt TaskManager-eigenen BG-Worker aus lokaler UI-GC-Liste."""
         worker._pb_terminal_cleanup_done = True
+        # B-020: Spaeter Rueckkanal — Fenster kann bereits weg sein.
+        if not self._window_alive():
+            return
         if worker in self.window._active_workers:
             self.window._active_workers.remove(worker)
 
@@ -269,11 +272,17 @@ class WorkerDispatcherController(PBComponent):
             self.window.console_text.append(f"[System] Task abgebrochen: {task_id}")
 
     def _cleanup_worker(self, thread: QThread, worker: QObject):
-        """Entfernt Worker/Thread aus lokalen Listen."""
-        if worker in self.window._active_workers:
-            self.window._active_workers.remove(worker)
-        if thread in self.window._active_threads:
-            self.window._active_threads.remove(thread)
+        """Entfernt Worker/Thread aus lokalen Listen.
+
+        B-020: haengt an ``thread.finished`` und feuert per Definition spaet —
+        auch nachdem das Fenster schon abgebaut ist. Die globale Liste und die
+        Resource-Claims muessen dann trotzdem aufgeraeumt werden.
+        """
+        if self._window_alive():
+            if worker in self.window._active_workers:
+                self.window._active_workers.remove(worker)
+            if thread in self.window._active_threads:
+                self.window._active_threads.remove(thread)
         pair = (thread, worker)
         if pair in _GLOBAL_ACTIVE_THREADS:
             _GLOBAL_ACTIVE_THREADS.remove(pair)
