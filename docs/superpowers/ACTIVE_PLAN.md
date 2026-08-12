@@ -22,11 +22,13 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+`ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;
-`fixed` bleibt Userrecht. Naechste einzige Task ist wieder B-758/W3.
+`fixed` bleibt Userrecht. B-758-Systemcheck ist im exakten isolierten W3-
+Harness gruen; Gesamtmanifest wurde durch neu entdeckten B-819-Schemadrift
+rot. Erste-Fehler-Regel stoppt W3. Naechste einzige Task ist B-819.
 
 W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler
 Systemcheck meldete `CUDA GPU FAIL` und `NVENC Encode FAIL`; degradierter Start
@@ -41,7 +43,7 @@ Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 leitet Schema-
 und UI-Grenze jetzt aus 18 kanonischen Achsen ab; Fokus und Review gruen,
 App-Livebeweis offen. B-738 ist code-complete/live-pending: sicherer Tool-/
 Non-Tool-Gateway, reservierter Learn-Control-Prefix und read-only Vision-
-Recall/Explain sind fokussiert gruen. Naechste einzige Task ist W3-Liveverify.
+Recall/Explain sind fokussiert gruen. Damalige Folgetask war W3-Liveverify.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt

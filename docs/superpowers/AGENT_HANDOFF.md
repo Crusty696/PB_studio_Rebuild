@@ -2,6 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-758 App-Gate gruen / B-819 blockiert Manifest 2026-08-12 (newest)
+
+- Run `20260812T1323-b758-w3-recheck`, HEAD `6b2ce85`, sauberer isolierter
+  W3-Harness: GTX 1060/CUDA-Appmarker komplett, Screenshot, kein CUDA-/NVENC-
+  FAIL, graceful Shutdown, keine Prozessreste. Gate-JSON `passed: true`.
+- Gesamtmanifest `fail`: nur isolierte Bootstrap-DB driftete 425984→512000 B.
+  Inhalte identisch; 20 Indizes neu, inklusive durch Alembic
+  `f0a1b2c3d4e5` entfernten Duplikaten.
+- Neuer Bug B-819; Host-DBs unveraendert. Erste-Fehler-Regel stoppt W3.
+- Aktuelle einzige Task: `ROOT-CAUSE / B-819 Appstart rekreiert von Alembic
+  entfernte SQLite-Indizes`. Danach B-758-Manifest-Recheck, dann W3.
+- Evidence extern unter
+  `C:/Users/David_Lochmann/AppData/Local/PBStudioB758Isolated/PBStudioStability/20260812T1323-b758-w3-recheck/`.
+
 ## D-089 AGY-Rest abgeschlossen / B-758 aktiv 2026-08-12 (newest)
 
 - AGY-Dirty-Stand abgeschlossen. Auto-Edit-Cache-Fix `6c1857a`; B-817-Fix
@@ -25,7 +39,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - Pre-Manifest `20260802T2126-w3-final-pre`; Post `20260802T2134-w3-b758-post`.
 - W3-/Hostprojekt-DBs unverändert. Neu erzeugte Repo-Root-WAL/SHM extern
   gesichert und nach Prozessfreiheit recoverable entfernt.
-- Nächste einzige Task:
+- Damals nächste einzige Task:
   `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
 
 ## B-738 Fokus-PASS / W3 Liveverify aktiv 2026-08-02 (newest)

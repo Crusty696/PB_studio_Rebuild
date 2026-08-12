@@ -1022,3 +1022,16 @@ Decision: Vault
   `scripts/diag/agy_maceo_plex_live.py` archiviert (`6867d4a`).
 - AGY-Rest hat keinen User-`fixed`-Marker. Naechste einzige Task:
   `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
+#### B-758 isolierter Recheck / B-819 Gate-Stopp — 2026-08-12
+
+- Exakter isolierter W3-Harness auf `6b2ce85`: Hardware-Preflight und
+  App-Gate gruen; GTX 1060/CUDA-Appmarker, Screenshot, kein CUDA-/NVENC-FAIL,
+  graceful Shutdown, keine Prozessreste.
+- Gesamtmanifest rot, weil einmaliger Appstart in isolierter Bootstrap-DB
+  20 Indizes rekreiert. Darunter zwei durch Migration `f0a1b2c3d4e5`
+  ausdruecklich entfernte Duplikate. Inhalte blieben identisch.
+- Neuer Bug B-819. Erste-Fehler-Regel stoppt W3.
+- Naechste einzige Task:
+  `ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
+- Danach: B-758-Manifest-Recheck, dann W3.

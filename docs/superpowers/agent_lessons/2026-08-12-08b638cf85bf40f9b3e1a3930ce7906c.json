@@ -1,0 +1,10 @@
+{
+  "lesson_id": "08b638cf85bf40f9b3e1a3930ce7906c",
+  "recorded_at": "2026-08-12T11:24:58+00:00",
+  "session_id": "db7f8b2335374ce58220401d26bf390b",
+  "head_at_start": "6b2ce85c9c8cb90872eee649d61a941617ca3377",
+  "problem": "B-758 Stability-Run wurde vor Appstart durch vorab angelegten Evidence-Output blockiert",
+  "cause": "Projektpfad lag unter output-root und wurde vor stability_run erstellt; Runner verlangt output-root exist_ok=False",
+  "rule": "Bei stability_run Evidence-Root und alle Unterpfade erst vom Runner bzw. Gate-Command erstellen lassen; vorbereitete isolierte DBs ausserhalb des neuen Run-Output ablegen",
+  "applies_to": "tools/stability_run.py und manifestierte GUI-Live-Gates"
+}
