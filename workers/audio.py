@@ -63,6 +63,51 @@ class StemSeparationWorker(QObject, CancellableMixin):
                 mark_cancelled("audio", self.track_id, "stem_separation")
                 self.error.emit(self.track_id, "Stem-Separation abgebrochen (User-Cancel)")
                 return
+            # B-774-Luecke (belegt im B-331-Langlauf 2026-08-12): der
+            # Kontexttod-Pfad war ausschliesslich im Video-Worker verdrahtet
+            # (`workers/video.py:626-657`). Im Audio-/Demucs-Pfad fing dieser
+            # generische Handler einen gestorbenen CUDA-Kontext als
+            # gewoehnlichen Fehler ab — ohne `mark_cuda_context_lost()`. Folge:
+            # die naechsten Modell-Loads liefen weiter gegen den toten Kontext
+            # statt auf CPU zurueckzufallen, und der User bekam einen
+            # technischen Traceback-Text statt der Neustart-Anweisung.
+            # Eine Demucs-Trennung dauert Minuten bis Stunden — genau der
+            # Zeitraum, in dem ein Kontexttod (Treiber-Reset, dGPU-Unplug)
+            # wahrscheinlich ist.
+            from workers.video import _is_cuda_context_error
+
+            if _is_cuda_context_error(e):
+                from services.errors import CudaContextLostError
+                from services.model_manager import ModelManager
+
+                _mm = ModelManager()
+                try:
+                    _cuda_alive = _mm.cuda_health_check()
+                except Exception as _probe_exc:  # broad: Probe darf den Handler nie killen
+                    logger.warning(
+                        "B-774: cuda_health_check crashte (%s) — werte Kontext als tot.",
+                        _probe_exc,
+                    )
+                    _cuda_alive = False
+                if not _cuda_alive:
+                    logging.error(
+                        "B-774: CUDA-Kontext verloren waehrend Stem-Separation "
+                        "(Track %s) — App-weiter CPU-Fallback: %s",
+                        self.track_id, e,
+                    )
+                    _mm.mark_cuda_context_lost()
+                    self._errored = True
+                    mark_error("audio", self.track_id, "stem_separation", str(e))
+                    self.error.emit(
+                        self.track_id,
+                        format_user_error(
+                            CudaContextLostError(
+                                f"CUDA-Kontext verloren bei Stem-Separation "
+                                f"(Track {self.track_id}): {e}"
+                            )
+                        ),
+                    )
+                    return
             logging.error("StemSeparationWorker[%s] crashed: %s\n%s",
                           self.track_id, e, traceback.format_exc())
             self._errored = True
