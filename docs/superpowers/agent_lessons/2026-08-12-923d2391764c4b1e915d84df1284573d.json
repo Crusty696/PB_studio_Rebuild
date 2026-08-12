@@ -1,0 +1,10 @@
+{
+  "lesson_id": "923d2391764c4b1e915d84df1284573d",
+  "recorded_at": "2026-08-12T10:47:19+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "User autorisierte AGY-Fortsetzung, aktive Planquelle nannte aber B-758 als einzige naechste Task.",
+  "cause": "Chat-Auftrag und kanonische Planreihenfolge waren nicht synchron; Produktcodearbeit waere ohne Plan-Nachtrag regelwidrig gewesen.",
+  "rule": "Vor Fortsetzung eines uebernommenen Auftrags Registry, ACTIVE_PLAN, Repo-Plan, Vault-Mirror und Decision auf dieselbe aktuelle Task synchronisieren; erst danach Produktcode anfassen.",
+  "applies_to": "PB-Studio Handoffs, Planwechsel und uebernommene Dirty-Staende"
+}

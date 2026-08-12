@@ -8,7 +8,8 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
 stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
 live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
-updated: 2026-08-02
+current_sequence_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-089-agy-rest-vor-b758.md
+updated: 2026-08-12
 worktree: .worktrees/stab1-b727
 branch: codex/B-727-stability-gate
 
@@ -21,6 +22,12 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
+`AGY-REST-2026-08-12 / unvollstaendigen Altlasten-Auftrag abschliessen`.
+
+Userentscheidung D-089: vorhandenen AGY-Dirty-Stand zuerst sicher
+abschliessen; belegte teure Altlasten und unbewiesene Hypothesen-Fixes in
+App-Start/Shutdown, Analyse-Pipeline/Worker und totem/verwaistem Code eng
+pruefen. Keine pauschalen Refactors. Danach unveraendert:
 `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
 
 W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler

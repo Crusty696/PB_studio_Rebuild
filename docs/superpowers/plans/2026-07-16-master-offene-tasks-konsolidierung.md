@@ -991,3 +991,19 @@ Decision: Vault
 - W3 bleibt 25 %. Erster Fehler stoppt Workflow.
 - Naechste einzige Task:
   `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+
+#### D-089 AGY-Rest vor B-758 — 2026-08-12
+
+- Userentscheidung: nicht abgeschlossenen AGY-Auftrag zuerst uebernehmen und
+  abschliessen; danach B-758/W3 unveraendert fortsetzen.
+- Aktuelle einzige Task: `AGY-REST-2026-08-12`.
+- Scope: vorhandenen Dirty-Stand sicher abschliessen; teure Altlasten und
+  unbewiesene Hypothesen-Fixes in App-Start/Shutdown, Analyse-Pipeline/Worker
+  und totem/verwaistem Code nur nach Beleg entfernen.
+- Kein pauschaler Refactor. Jede Aenderung einzeln testen, live verifizieren,
+  im Vault spiegeln und committen. `fixed` setzt nur User.
+- Bekannter erster Defekt: `services/pacing_service.py` referenziert im
+  uncommitted Stand `_ae_eng`, ohne die Variable zu setzen.
+- Reihenfolge danach:
+  `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+- Decision: `D-089-agy-rest-vor-b758`.
