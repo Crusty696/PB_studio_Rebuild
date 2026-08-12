@@ -111,6 +111,31 @@ def write_compat_edges(
             or e.scene_id_b in this_clip_scene_ids
         ]
 
+        # B-815: Geschrieben werden auch Rueckwaertskanten, deren Quellszene
+        # eine FREMDE Szene ist (fremd -> Clip-Szene). Das DELETE oben trifft
+        # davon nur die Kante zur Clip-Szene selbst — die uebrigen alten
+        # Kanten derselben Quellszene bleiben stehen. Sie bekommt damit neue
+        # Raenge 1..20 zusaetzlich zu ihren alten.
+        # An der echten DB belegt: 9054 statt 8800 Kanten, 20 Szenen mit Grad
+        # 31-35 statt 20, und 259 doppelte (scene_id_a, rank_in_a).
+        # Deshalb fuer jede Quellszene, die neu geschrieben wird, ihren
+        # kompletten alten Kantensatz entfernen — sonst mischen sich zwei
+        # Rangfolgen.
+        fremde_quellen = {
+            e.scene_id_a for e in to_write
+            if e.scene_id_a not in this_clip_scene_ids
+        }
+        if fremde_quellen:
+            f_list = list(fremde_quellen)
+            f_ph = ", ".join(f":f{i}" for i in range(len(f_list)))
+            session.execute(
+                text(
+                    "DELETE FROM struct_compat_edge "
+                    f"WHERE scene_id_a IN ({f_ph})"
+                ),
+                {f"f{i}": sid for i, sid in enumerate(f_list)},
+            )
+
     params = [
         {
             "a": e.scene_id_a,
