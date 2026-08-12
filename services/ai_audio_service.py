@@ -1464,7 +1464,7 @@ class FrequencyAnalyzer:
                     # statt linearer 2/4/6s — verhindert Thundering-Herd wenn
                     # mehrere Analysen parallel auf denselben Lock retrien.
                     import random as _random
-                    base_wait = 2 ** attempt
+                    base_wait = 0.05 * (2 ** attempt)
                     jitter = _random.uniform(0.5, 1.5)
                     wait = base_wait * jitter
                     logger.warning(

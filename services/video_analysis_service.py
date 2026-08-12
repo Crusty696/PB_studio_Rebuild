@@ -701,10 +701,7 @@ def generate_embeddings(
             if owns_model and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    # SigLIP nur entladen wenn WIR es geladen haben (nicht im Batch-Modus)
-    if owns_model:
-        mm.unload()
-
+    # SigLIP bleibt im ModelManager ge-cached (VRAM-Residenz fuer schnelle Suchen)
     embedded = sum(1 for s in scenes if s.embedding is not None)
     logger.info("SigLIP Embeddings generiert: %d/%d", embedded, len(scenes))
     return scenes
@@ -1400,21 +1397,19 @@ def text_to_embedding(query: str) -> np.ndarray | None:
                 embedding = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
                 result = embedding.cpu().numpy().astype(np.float32)[0]
 
-            # SigLIP entladen um VRAM freizugeben
-            mm.unload()
+            # SigLIP resident halten (Cache fuer Folge-Queries); ModelManager entlaedt automatisch bei anderem Modell
             return result
 
         except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("Text-Embedding Fehler: %s", e)
-            mm.unload()
             return None
 
 
 def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
     """Konvertiert mehrere Text-Queries in SigLIP-Vektoren in EINEM Model-Load.
 
-    Laedt SigLIP einmal, berechnet alle Embeddings, entlaedt sofort.
-    Spart ~15s pro zusaetzlichem Query gegenueber einzelnem text_to_embedding().
+    Laedt SigLIP einmal, berechnet alle Embeddings. ModelManager behaelt SigLIP resident
+    fuer Folge-Anfragen im Director's Cockpit.
 
     Returns:
         Dict[query_text, 1152-dim numpy array]. Fehlgeschlagene Queries fehlen.
@@ -1460,8 +1455,6 @@ def texts_to_embeddings_batch(queries: list[str]) -> dict[str, np.ndarray]:
 
         except (RuntimeError, ValueError, AttributeError) as e:
             logger.error("Batch Text-Embedding Fehler: %s", e)
-        finally:
-            mm.unload()
 
     logger.info("SigLIP Batch: %d/%d Text-Embeddings berechnet", len(results), len(queries))
     return results
