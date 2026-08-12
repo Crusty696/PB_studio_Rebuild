@@ -20,13 +20,6 @@ from services.errors import PBStudioError
 
 logger = logging.getLogger(__name__)
 
-# B-239: Default-Modell wird jetzt live ueber OllamaService.get_default_model()
-# resolved (Family-Match auf 'gemma4' in /api/tags). Hartcoded "gemma4:e4b"
-# existierte nirgends als Tag und blockierte alle LLM-Calls.
-# DEFAULT_MODEL_ID bleibt als Sentinel fuer Aufrufer die den ModelManager-
-# Lookup verlangen (nur HuggingFace-Fallback-Pfad nutzt das noch).
-DEFAULT_MODEL_ID = "gemma3:4b"
-
 # Ollama-Einstellungen (werden von Settings-Dialog gesetzt)
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
 OLLAMA_ENABLED_ENV = "PB_OLLAMA_ENABLED"   # "1" oder "0"
@@ -138,7 +131,7 @@ class LocalAgentService:
     def __init__(
         self,
         registry: ActionRegistry | None = None,
-        model_id: str = DEFAULT_MODEL_ID,
+        model_id: str | None = None,
         device: str | None = None,
         ollama_url: str | None = None,
         ollama_model: str | None = None,
@@ -146,10 +139,6 @@ class LocalAgentService:
     ):
         self.registry = registry or action_registry
         self.model_id = model_id
-        # GPU-ZWANG: Device wird lazy ermittelt (torch-Import blockiert 5-15s)
-        self._device_override = device
-        self._device_resolved = False
-        self.device = device  # None = ModelManager waehlt automatisch (GPU-ZWANG)
 
         # Thread-Safety: RLock erlaubt rekursive Aufrufe im selben Thread
         self._lock = threading.RLock()
@@ -952,18 +941,6 @@ class LocalAgentService:
                 "actions": list[dict] | None,   # Alle Ergebnisse (bei multi action)
             }
         """
-        # Lazy Device-Resolution (torch-Import nur beim ersten Aufruf)
-        if not self._device_resolved:
-            self._device_resolved = True
-            try:
-                import torch
-                cuda_available = torch.cuda.is_available()
-                self.device = "cuda" if cuda_available else "cpu"
-                if self._device_override and self._device_override != self.device and cuda_available:
-                    logger.warning("GPU-ZWANG: Device '%s' → 'cuda' erzwungen", self._device_override)
-            except ImportError:
-                self.device = "cpu"
-
         response = {
             "action": "none",
             "params": {},

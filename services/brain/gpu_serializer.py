@@ -284,12 +284,6 @@ class GpuSerializer:
                 self.name, holder, time.monotonic() - start, label, self._current_holder,
             )
 
-    def acquire_async(self, holder: str = "anonymous"):
-        """Async-Variante — lazy-init asyncio.Lock im Event-Loop."""
-        if self._async_lock is None:
-            self._async_lock = asyncio.Lock()
-        return _AsyncAcquireCtx(self, holder)
-
     def is_locked(self) -> bool:
         return self._lock.locked()
 
@@ -311,81 +305,6 @@ class GpuSerializer:
         """Bridge zu V1/V2 GPU lock, damit Brain V3 mit Demucs/RAFT serialisiert."""
         from services.model_manager import GPU_EXECUTION_LOCK
         return GPU_EXECUTION_LOCK
-
-
-class _AsyncAcquireCtx:
-    """Async-Context-Manager fuer GpuSerializer.acquire_async().
-
-    B-503: Blocking Lock-Acquires laufen via ``loop.run_in_executor`` in einem
-    dedizierten Single-Thread-Executor statt synchron in der Coroutine — vorher
-    blockierte ``__aenter__`` den gesamten Event-Loop solange ein anderer
-    Thread den GPU-Lock hielt. Der Single-Thread-Executor ist Pflicht, weil
-    der legacy GPU_EXECUTION_LOCK ein ``threading.RLock`` ist (thread-affin):
-    acquire und release MUESSEN im selben Thread passieren.
-
-    Hinweis: Dadurch greift die RLock-Reentranz des Event-Loop-Threads fuer
-    den legacy Lock nicht mehr (Acquire laeuft im Executor-Thread). Der
-    Async-Pfad wird aktuell nur in Tests genutzt; Konsumenten duerfen
-    ``acquire_async`` nicht aufrufen waehrend derselbe Thread den
-    GPU_EXECUTION_LOCK bereits haelt.
-    """
-
-    def __init__(self, serializer: GpuSerializer, holder: str):
-        self._s = serializer
-        self._holder = holder
-        self._prev: Optional[str] = None
-        self._legacy_lock = None
-        self._executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
-
-    async def __aenter__(self):
-        assert self._s._async_lock is not None
-        loop = asyncio.get_running_loop()
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=f"gpu_ser_async_{self._s.name}",
-        )
-        self._legacy_lock = self._s._legacy_gpu_execution_lock()
-        try:
-            await loop.run_in_executor(self._executor, self._legacy_lock.acquire)
-        except BaseException:
-            self._cleanup_executor()
-            self._legacy_lock = None
-            raise
-        try:
-            await self._s._async_lock.acquire()
-            # Auch sync-Lock greifen — dieselbe Resource wird ggf. von
-            # sync-Konsumenten genutzt. threading.Lock darf von beliebigen
-            # Threads released werden — Executor-Acquire ist hier unkritisch.
-            await loop.run_in_executor(self._executor, self._s._lock.acquire)
-            self._prev = self._s._current_holder
-            self._s._current_holder = self._holder
-            return None
-        except BaseException:
-            # Legacy-RLock im selben Executor-Thread releasen (thread-affin).
-            self._executor.submit(self._legacy_lock.release).result()
-            self._cleanup_executor()
-            self._legacy_lock = None
-            raise
-
-    async def __aexit__(self, exc_type, exc, tb):
-        if self._s.empty_cache_on_release:
-            self._s._try_empty_cuda_cache()
-        self._s._current_holder = self._prev
-        self._s._lock.release()
-        assert self._s._async_lock is not None
-        self._s._async_lock.release()
-        assert self._legacy_lock is not None
-        assert self._executor is not None
-        loop = asyncio.get_running_loop()
-        # Release im selben Executor-Thread wie das Acquire (RLock thread-affin).
-        await loop.run_in_executor(self._executor, self._legacy_lock.release)
-        self._cleanup_executor()
-        self._legacy_lock = None
-        return False  # don't suppress
-
-    def _cleanup_executor(self) -> None:
-        if self._executor is not None:
-            self._executor.shutdown(wait=False)
-            self._executor = None
 
 
 # --- Modul-globaler Default-Serializer (lazy) -------------------------------

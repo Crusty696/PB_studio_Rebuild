@@ -76,23 +76,6 @@ def test_reset_default_creates_new_instance():
     assert s1 is not s2
 
 
-def test_async_acquire_serializes():
-    s = GpuSerializer(empty_cache_on_release=False)
-    events: list[tuple[str, str]] = []
-
-    async def worker(name: str, delay: float):
-        async with s.acquire_async(name):
-            events.append((name, "enter"))
-            await asyncio.sleep(delay)
-            events.append((name, "exit"))
-
-    async def run():
-        await asyncio.gather(worker("A", 0.05), worker("B", 0.05))
-
-    asyncio.run(run())
-    seq = [e for _n, e in events]
-    assert seq == ["enter", "exit", "enter", "exit"]
-
 
 def test_empty_cache_on_release_does_not_crash_without_torch(monkeypatch):
     """empty_cache muss bei fehlendem torch oder CUDA nicht eskalieren."""
