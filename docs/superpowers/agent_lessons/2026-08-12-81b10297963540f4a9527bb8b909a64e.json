@@ -1,0 +1,10 @@
+{
+  "lesson_id": "81b10297963540f4a9527bb8b909a64e",
+  "recorded_at": "2026-08-12T11:08:46+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Startup-Optimierung pruefte torch.cuda vor Surface-Book-dGPU-PnP-Wake",
+  "cause": "Fastpath verschob ersten Torch-CUDA-Probe vor dokumentierte B-336 OS-Wake-Grenze",
+  "rule": "Auf Hotplug-/Sleep-dGPU-Systemen immer OS-PnP-Zustand vor erstem Torch-Import oder torch.cuda-Probe herstellen; Startup-Zeit nie durch Umkehr dieser Reihenfolge optimieren",
+  "applies_to": "main.py Startup-Bootstrap, CUDA-Initialisierung, Surface Book dGPU"
+}
