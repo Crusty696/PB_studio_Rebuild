@@ -1,9 +1,41 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
+import stat
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def _ist_verzeichnis_link(pfad: Path) -> bool:
+    """B-809: True fuer Symlinks und Windows-Junctions — auch fuer kaputte.
+
+    Dieselbe Erkennung wie ``storage_browser._is_link`` (B-578):
+    ``os.path.islink`` liefert bei ``mklink /J``-Junctions auf CPython 3.10
+    ``False``, und ``os.path.isjunction`` gibt es erst ab 3.12. Deshalb
+    zusaetzlich der Reparse-Tag aus ``os.lstat`` — genau das Signal, das 3.12
+    intern nutzt.
+    """
+    try:
+        if pfad.is_symlink():
+            return True
+    except OSError:
+        return False
+    is_junction = getattr(os.path, "isjunction", None)
+    if is_junction is not None:
+        try:
+            if is_junction(pfad):
+                return True
+        except OSError:
+            return False
+    try:
+        st = os.lstat(pfad)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_reparse_tag", 0) == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003))
 
 
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -54,6 +86,32 @@ def create_directory_link(link_path: str | Path, target_dir: str | Path) -> Path
         if not link.is_dir():
             raise FileExistsError(f"Link path exists and is not a directory: {link}")
         return link
+
+    # B-809: ``exists()`` FOLGT der Junction. Zeigt eine vorhandene Junction auf
+    # ein inzwischen geloeschtes Ziel, liefert es ``False`` — obwohl der Pfad im
+    # Dateisystem belegt ist. ``mklink`` scheiterte dann mit "Eine Datei kann
+    # nicht erstellt werden, wenn sie bereits vorhanden ist", und der
+    # SCHNITT-Audio-Adapter wurde bei jedem Projekt-Open nicht initialisiert
+    # (live beobachtet 2026-08-12).
+    # ``lexists`` folgt dem Link nicht und sieht deshalb auch die kaputte
+    # Junction. Sie wird entfernt und neu gesetzt — der Pfad soll auf das
+    # aktuelle Ziel zeigen, nicht auf ein verschwundenes.
+    if os.path.lexists(link):
+        if _ist_verzeichnis_link(link):
+            logger.info(
+                "B-809: verwaiste Junction %s zeigt ins Leere — wird neu gesetzt.",
+                link,
+            )
+            try:
+                os.rmdir(link)  # entfernt die Junction, nicht ihr Ziel
+            except OSError as exc:
+                raise OSError(
+                    f"Verwaiste Junction {link} nicht entfernbar: {exc}"
+                ) from exc
+        else:
+            raise FileExistsError(
+                f"Link path exists but is neither a usable directory nor a link: {link}"
+            )
 
     if os.name == "nt":
         # text=True would decode mklink's output with the locale codec (cp1252
