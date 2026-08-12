@@ -20,6 +20,10 @@ from services.errors import PBStudioError
 
 logger = logging.getLogger(__name__)
 
+# Kompatibilitaets-Export fuer bestehende Aufrufer. ``None`` bedeutet:
+# Ollama-Modell dynamisch ueber OllamaService/ModelRouter aufloesen.
+DEFAULT_MODEL_ID: str | None = None
+
 # Ollama-Einstellungen (werden von Settings-Dialog gesetzt)
 OLLAMA_DEFAULT_URL = "http://localhost:11434"
 OLLAMA_ENABLED_ENV = "PB_OLLAMA_ENABLED"   # "1" oder "0"
@@ -139,6 +143,8 @@ class LocalAgentService:
     ):
         self.registry = registry or action_registry
         self.model_id = model_id
+        # API-/Diagnostikvertrag erhalten, ohne Torch beim Chatstart zu laden.
+        self.device = device
 
         # Thread-Safety: RLock erlaubt rekursive Aufrufe im selben Thread
         self._lock = threading.RLock()

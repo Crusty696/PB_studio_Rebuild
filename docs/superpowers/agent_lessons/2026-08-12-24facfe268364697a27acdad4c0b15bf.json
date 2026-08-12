@@ -1,0 +1,10 @@
+{
+  "lesson_id": "24facfe268364697a27acdad4c0b15bf",
+  "recorded_at": "2026-08-12T10:58:42+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "AGY entfernte DEFAULT_MODEL_ID und self.device, obwohl Import- und Konstruktorvertrag fortbestand; Deep-Functional-Test meldete intern FAIL, aber pytest PASS.",
+  "cause": "API-Cleanup pruefte Produktionscalls, nicht exportierte Kompatibilitaetsvertraege; Test schluckte Exceptions und entkoppelte eigenes Verdict vom pytest-Exitcode.",
+  "rule": "Vor Entfernung exportierter Namen oder Attribute alle Import-/Konstruktorvertraege pruefen; Regressionstests muessen Assertions propagieren und duerfen FAIL nicht nur loggen.",
+  "applies_to": "PB-Studio Service-APIs und Deep-Functional-Tests"
+}
