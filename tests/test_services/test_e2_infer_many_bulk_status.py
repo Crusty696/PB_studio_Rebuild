@@ -74,7 +74,12 @@ def test_e2_infer_many_bulk_status_and_reuses_loaded_scenes(test_engine, monkeyp
         if statement.lstrip().startswith("select") and " scenes" in statement
     ]
     assert len(status_selects) == 1
-    assert len(scene_selects) == 2
+    # B-811 (2026-08-12): war ``== 2`` — eine Scene-Abfrage je Clip. Genau das
+    # war der N+1: der Aufwand wuchs mit der Zahl der Clips (366 Clips = 733
+    # Statements an der realen Projekt-DB). Jetzt eine Sammelabfrage
+    # ``WHERE scenes.video_clip_id IN (...)``. Alle inhaltlichen Zusicherungen
+    # dieses Tests sind unveraendert und gruen.
+    assert len(scene_selects) == 1
 
     with Session(test_engine) as session:
         rows = session.execute(

@@ -44,6 +44,103 @@ REFIT_THRESHOLD: int = 50  # if fewer active struct_clip_tags rows → fit mode
 # read-mostly and unaffected.
 _FIT_MODE_LOCK: threading.Lock = threading.Lock()
 
+# B-813: Kanten des Compat-Graphen sammelweise schreiben statt einzeln.
+#
+# Befund 2026-08-12 (Klassensuche nach stummen Langlaeufern nach B-810):
+# Zwischen ``progress.emit(80, "Compat-Graph aufbauen …")`` und
+# ``progress.emit(95, …)`` schrieb der Worker JEDE Kante mit einem eigenen
+# ``session.execute``. ``CompatGraphBuilder`` liefert top_k=20 Kanten je Szene
+# in beide Richtungen — in einer Bibliothek der Groessenordnung 486 Clips a
+# ~20 Szenen sind das sechsstellig viele Einzel-Rundreisen. Die
+# Fortschrittsanzeige stand die ganze Zeit unveraendert auf 80 %. Fuer den
+# Nutzer nicht von einem Freeze zu unterscheiden — genau der Schaden aus B-810.
+#
+# Der inkrementelle Zweig war zusaetzlich quadratisch: pro Szene EIN DELETE mit
+# ``scene_id_a = :sid OR scene_id_b = :sid``. Das OR ueber zwei Spalten kann
+# keinen Index nutzen, es lief also pro Szene ein voller Tabellen-Scan.
+#
+# Groesse eines executemany-Blocks. 2000 Zeilen bleiben deutlich unter dem
+# SQLite-Parameterlimit (4 Parameter je Zeile) und ergeben genug Bloecke fuer
+# eine sichtbar laufende Anzeige.
+_EDGE_INSERT_CHUNK: int = 2000
+
+_INSERT_COMPAT_EDGE = text(
+    "INSERT OR REPLACE INTO struct_compat_edge "
+    "(scene_id_a, scene_id_b, cosine_similarity, rank_in_a) "
+    "VALUES (:a, :b, :sim, :rank)"
+)
+
+
+def write_compat_edges(
+    session: Session,
+    edges: list,
+    *,
+    this_clip_scene_ids: set[int],
+    full_library: bool,
+    progress: Callable[[int, str], None] | None = None,
+) -> int:
+    """Schreibt die Compat-Kanten und meldet dabei Fortschritt.
+
+    Geschrieben werden exakt dieselben Zeilen wie zuvor; nur die Zahl der
+    Rundreisen sinkt von "eine je Kante" auf "eine je Block".
+
+    Returns die Zahl der geschriebenen Kanten.
+    """
+    if full_library:
+        # Full library: truncate and bulk-insert
+        session.execute(text("DELETE FROM struct_compat_edge"))
+        to_write = list(edges)
+    else:
+        if this_clip_scene_ids:
+            # Ein DELETE fuer alle Szenen statt eines pro Szene. Semantik
+            # identisch: entfernt jede Kante, die eine der Szenen beruehrt.
+            id_list = list(this_clip_scene_ids)
+            placeholders = ", ".join(f":s{i}" for i in range(len(id_list)))
+            session.execute(
+                text(
+                    "DELETE FROM struct_compat_edge "
+                    f"WHERE scene_id_a IN ({placeholders}) "
+                    f"OR scene_id_b IN ({placeholders})"
+                ),
+                {f"s{i}": sid for i, sid in enumerate(id_list)},
+            )
+        # Insert only edges involving at least one target scene
+        to_write = [
+            e for e in edges
+            if e.scene_id_a in this_clip_scene_ids
+            or e.scene_id_b in this_clip_scene_ids
+        ]
+
+    params = [
+        {
+            "a": e.scene_id_a,
+            "b": e.scene_id_b,
+            "sim": e.cosine_similarity,
+            "rank": e.rank_in_a,
+        }
+        for e in to_write
+    ]
+    total = len(params)
+    if not total:
+        if progress is not None:
+            progress(94, "Compat-Graph: keine Kanten zu schreiben.")
+        return 0
+
+    for start in range(0, total, _EDGE_INSERT_CHUNK):
+        session.execute(_INSERT_COMPAT_EDGE, params[start:start + _EDGE_INSERT_CHUNK])
+        done = min(start + _EDGE_INSERT_CHUNK, total)
+        if progress is not None:
+            progress(
+                80 + int(14 * done / total),
+                f"Compat-Graph schreiben … {done}/{total} Kanten",
+            )
+    logger.info(
+        "B-813: %d Compat-Kanten geschrieben (%d executemany-Bloecke).",
+        total, (total + _EDGE_INSERT_CHUNK - 1) // _EDGE_INSERT_CHUNK,
+    )
+    return total
+
+
 _REDUCER_PATH = (
     Path(__file__).resolve().parent.parent / "storage" / "enricher" / "umap_v1.pkl"
 )
@@ -849,54 +946,15 @@ class StructureEnrichmentWorker(QObject):
         edges = builder.build(compat_matrix, compat_scene_ids)
         this_clip_scene_ids: set[int] = {s["id"] for s in enrichable_scenes}
 
-        # Write edges to DB within our transaction
-        if self.clip_id is None:
-            # Full library: truncate and bulk-insert
-            session.execute(text("DELETE FROM struct_compat_edge"))
-            for edge in edges:
-                session.execute(
-                    text(
-                        "INSERT OR REPLACE INTO struct_compat_edge "
-                        "(scene_id_a, scene_id_b, cosine_similarity, rank_in_a) "
-                        "VALUES (:a, :b, :sim, :rank)"
-                    ),
-                    {
-                        "a": edge.scene_id_a,
-                        "b": edge.scene_id_b,
-                        "sim": edge.cosine_similarity,
-                        "rank": edge.rank_in_a,
-                    },
-                )
-        else:
-            # Incremental: delete old edges for this clip's scenes, re-insert
-            if this_clip_scene_ids:
-                for sid in this_clip_scene_ids:
-                    session.execute(
-                        text(
-                            "DELETE FROM struct_compat_edge "
-                            "WHERE scene_id_a = :sid OR scene_id_b = :sid"
-                        ),
-                        {"sid": sid},
-                    )
-            # Insert only edges involving at least one target scene
-            for edge in edges:
-                if (
-                    edge.scene_id_a in this_clip_scene_ids
-                    or edge.scene_id_b in this_clip_scene_ids
-                ):
-                    session.execute(
-                        text(
-                            "INSERT OR REPLACE INTO struct_compat_edge "
-                            "(scene_id_a, scene_id_b, cosine_similarity, rank_in_a) "
-                            "VALUES (:a, :b, :sim, :rank)"
-                        ),
-                        {
-                            "a": edge.scene_id_a,
-                            "b": edge.scene_id_b,
-                            "sim": edge.cosine_similarity,
-                            "rank": edge.rank_in_a,
-                        },
-                    )
+        # Write edges to DB within our transaction (B-813, siehe
+        # ``write_compat_edges``).
+        write_compat_edges(
+            session,
+            edges,
+            this_clip_scene_ids=this_clip_scene_ids,
+            full_library=self.clip_id is None,
+            progress=self.progress.emit,
+        )
 
         # ── 7. Write struct_clip_tags ─────────────────────────────────────────
         self.progress.emit(95, "Schreibe struct_clip_tags …")

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import logging
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -25,6 +26,11 @@ from services.storage_provenance.source_manifest import record_manifest_job
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, int], None]
+
+# B-814: Abstand zwischen Fortschrittsmeldungen. Gleicher Wert wie in B-810
+# (services/storage_provenance/file_tracking.py) — beide Laeufe haengen am
+# selben Projekt-Open und sollen sich im Log gleich verhalten.
+_MIGRATION_LOG_INTERVAL_S = 5.0
 
 
 @dataclass(frozen=True)
@@ -107,8 +113,52 @@ class StorageMigrationService:
         video_count = 0
         skipped = 0
 
+        # B-814: dieser Lauf war komplett stumm.
+        #
+        # ``migrate_existing_outputs`` laeuft bei JEDEM ``open_project`` —
+        # direkt vor der Quellen-Reparatur aus B-810, im selben try-Block
+        # (services/project_manager.py:464). Pro Audiotrack/Videoclip mit
+        # vorhandenen Outputs berechnet es ``compute_source_sha256(...,
+        # mode="strict")``, also einen Hash ueber die KOMPLETTE Quelldatei.
+        # An der realen Projekt-DB ``outputs/test-tabelle`` gemessen: 123
+        # Clips mit existierender Quelle und existierenden Outputs,
+        # zusammen 1,16 GB, die bei jedem Oeffnen vollstaendig gelesen und
+        # gehasht werden.
+        #
+        # ``progress_callback`` bleibt dabei wirkungslos: KEIN Aufrufer im
+        # Produktivpfad setzt ihn (``ensure_schnitt_audio_adapter`` uebergibt
+        # keinen), und das Modul hatte ausser einem ``logger.warning`` keine
+        # einzige Ausgabe. Historischer Beleg: in
+        # ``logs/freeze_stacks_BEFORE_FIX.log`` steht der blockierte
+        # Main-Thread 14-mal genau in dieser Funktion.
+        #
+        # Der Aufwand selbst ist hier nicht gefahrlos zu senken — die Quell-
+        # Identitaet IST der Hash, und ``project_sources`` hat keine Spalte
+        # fuer Groesse/mtime, mit der man einen unveraenderten Treffer
+        # abkuerzen koennte (anders als bei den Artefakten, wo ``bytes`` genau
+        # das erlaubt, siehe ``_upsert_artifact``). Also mindestens: melden.
+        total = len(audio_tracks) + len(video_clips)
+        start = time.monotonic()
+        letzte_meldung = start
+        logger.info(
+            "B-814: Storage-Migration beim Projekt-Open — pruefe %d Audiotrack(s) "
+            "und %d Videoclip(s) ...",
+            len(audio_tracks), len(video_clips),
+        )
+
+        def _melde(phase: str, index: int) -> None:
+            nonlocal letzte_meldung
+            jetzt = time.monotonic()
+            if jetzt - letzte_meldung >= _MIGRATION_LOG_INTERVAL_S:
+                logger.info(
+                    "B-814: %s %d/%d geprueft (%.0fs) — Migration laeuft ...",
+                    phase, index, total, jetzt - start,
+                )
+                letzte_meldung = jetzt
+
         for index, track in enumerate(audio_tracks, start=1):
             self._progress("audio", index, len(audio_tracks))
+            _melde("Audio", index)
             migrated = self._migrate_audio_track(track)
             if migrated is None:
                 skipped += 1
@@ -117,6 +167,7 @@ class StorageMigrationService:
 
         for index, clip in enumerate(video_clips, start=1):
             self._progress("video", index, len(video_clips))
+            _melde("Video", len(audio_tracks) + index)
             migrated = self._migrate_video_clip(clip)
             if migrated is None:
                 skipped += 1
@@ -124,6 +175,11 @@ class StorageMigrationService:
                 video_count += 1
 
         self.session.commit()
+        logger.info(
+            "B-814: Storage-Migration fertig — %d Audio, %d Video migriert, "
+            "%d uebersprungen (Quelle fehlt), %.1fs.",
+            audio_count, video_count, skipped, time.monotonic() - start,
+        )
         return StorageMigrationResult(
             audio_tracks=audio_count,
             video_clips=video_count,

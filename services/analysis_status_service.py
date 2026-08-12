@@ -411,21 +411,120 @@ def infer_many_from_db(media_type: str, media_ids: list[int]) -> None:
             for entry in rows
         }
         if media_type == "video":
+            prefetch = _prefetch_video_facts(session, ids)
             for media_id in ids:
-                _infer_video_status(session, media_id, status_entries=status_entries)
+                _infer_video_status(
+                    session, media_id,
+                    status_entries=status_entries, prefetch=prefetch,
+                )
         elif media_type == "audio":
+            prefetch = _prefetch_audio_facts(session, ids)
             for media_id in ids:
-                _infer_audio_status(session, media_id, status_entries=status_entries)
+                _infer_audio_status(
+                    session, media_id,
+                    status_entries=status_entries, prefetch=prefetch,
+                )
         else:
             logger.warning("Unknown media_type for infer_many_from_db: %s", media_type)
             return
         session.commit()
 
 
+# B-811: Bulk-Vorabladen fuer ``infer_many_from_db``.
+#
+# ``infer_many_from_db`` buendelte bisher nur die AnalysisStatus-Abfrage; die
+# eigentlichen Fakten holte es weiter PRO Medium. Gemessen an der realen
+# Projekt-DB ``outputs/test-tabelle`` (366 Clips): 733 SQL-Statements fuer einen
+# einzigen Aufruf — 2*N+1 (VideoClip-Spalten + Scene-Captions je Clip). Auf dem
+# Audio-Pfad sind es 4*N+1. Der Aufruf haengt an ``get_all_video`` /
+# ``get_all_audio``, also an JEDEM Medien-Tabellen-Refresh (Projekt-Open,
+# nach jedem Import). Waehrenddessen gibt es keine einzige Logzeile: bei
+# belegter DB (Hintergrund-Writer, busy_timeout) kostet jede Rundreise
+# zusaetzlich Wartezeit, und der Nutzer sieht nur Stillstand.
+#
+# Die Vorab-Dicts liefern exakt dieselben Werte wie die Einzelabfragen; wo
+# frueher ``.first()`` eine beliebige Zeile gewann, gewinnt jetzt die erste
+# Zeile derselben Ergebnismenge (``setdefault``).
+
+
+def _prefetch_video_facts(session: Session, ids: list[int]) -> dict[str, dict]:
+    clips = {
+        row.id: row
+        for row in session.execute(
+            select(
+                VideoClip.id,
+                VideoClip.duration,
+                VideoClip.width,
+                VideoClip.height,
+                VideoClip.fps,
+                VideoClip.codec,
+            ).where(VideoClip.id.in_(ids))
+        ).all()
+    }
+    captions: dict[int, list] = {}
+    for clip_id, caption in session.execute(
+        select(Scene.video_clip_id, Scene.ai_caption).where(
+            Scene.video_clip_id.in_(ids)
+        )
+    ).all():
+        captions.setdefault(int(clip_id), []).append((caption,))
+    return {"clips": clips, "captions": captions}
+
+
+def _prefetch_audio_facts(session: Session, ids: list[int]) -> dict[str, dict]:
+    tracks = {
+        row.id: row
+        for row in session.execute(
+            select(
+                AudioTrack.id,
+                AudioTrack.key,
+                AudioTrack.key_confidence,
+                AudioTrack.lufs,
+                AudioTrack.mood,
+                AudioTrack.genre,
+                AudioTrack.spectral_bands,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_other_path,
+            ).where(AudioTrack.id.in_(ids))
+        ).all()
+    }
+    beatgrids: dict[int, Any] = {}
+    for row in session.execute(
+        select(
+            Beatgrid.audio_track_id, Beatgrid.bpm, Beatgrid.beat_positions
+        ).where(Beatgrid.audio_track_id.in_(ids))
+    ).all():
+        beatgrids.setdefault(int(row.audio_track_id), row)
+    waveforms: dict[int, Any] = {}
+    for row in session.execute(
+        select(
+            WaveformData.audio_track_id, WaveformData.num_samples
+        ).where(WaveformData.audio_track_id.in_(ids))
+    ).all():
+        waveforms.setdefault(int(row.audio_track_id), row)
+    segment_counts = {
+        int(track_id): int(count)
+        for track_id, count in session.execute(
+            select(StructureSegment.audio_track_id, func.count())
+            .where(StructureSegment.audio_track_id.in_(ids))
+            .group_by(StructureSegment.audio_track_id)
+        ).all()
+    }
+    return {
+        "tracks": tracks,
+        "beatgrids": beatgrids,
+        "waveforms": waveforms,
+        "segment_counts": segment_counts,
+    }
+
+
 def _infer_video_status(
     session: Session,
     video_id: int,
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
+    prefetch: dict[str, dict] | None = None,
 ) -> None:
     """Infer video analysis status from existing DB data.
 
@@ -438,15 +537,20 @@ def _infer_video_status(
     (E-Live-Freezes 2-14s, freeze_stacks.log 2026-07-13).
     Status-Werte und value_summary bleiben identisch.
     """
-    video = session.execute(
-        select(
-            VideoClip.duration,
-            VideoClip.width,
-            VideoClip.height,
-            VideoClip.fps,
-            VideoClip.codec,
-        ).where(VideoClip.id == video_id)
-    ).first()
+    # B-811: im Bulk-Pfad kommen die Fakten aus zwei Sammelabfragen statt aus
+    # zwei Abfragen PRO Clip. Der Einzelpfad (infer_from_db) bleibt unveraendert.
+    if prefetch is None:
+        video = session.execute(
+            select(
+                VideoClip.duration,
+                VideoClip.width,
+                VideoClip.height,
+                VideoClip.fps,
+                VideoClip.codec,
+            ).where(VideoClip.id == video_id)
+        ).first()
+    else:
+        video = prefetch["clips"].get(video_id)
     if not video:
         return
 
@@ -461,9 +565,12 @@ def _infer_video_status(
 
     # scene_detection: Scenes vorhanden? (nur ai_caption-Spalte laden —
     # gebraucht werden Anzahl + Caption-Truthiness, keine Blob-Spalten)
-    scene_captions = session.execute(
-        select(Scene.ai_caption).where(Scene.video_clip_id == video_id)
-    ).all()
+    if prefetch is None:
+        scene_captions = session.execute(
+            select(Scene.ai_caption).where(Scene.video_clip_id == video_id)
+        ).all()
+    else:
+        scene_captions = prefetch["captions"].get(video_id, [])
     if scene_captions:
         scene_count = len(scene_captions)
         _ensure_status_done(session, "video", video_id, "scene_detection", {
@@ -487,6 +594,7 @@ def _infer_audio_status(
     session: Session,
     audio_id: int,
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
+    prefetch: dict[str, dict] | None = None,
 ) -> None:
     """Infer audio analysis status from existing DB data.
 
@@ -499,31 +607,38 @@ def _infer_audio_status(
     2026-07-13, Frame sqltypes.py:2821 process/json.loads).
     Status-Werte und value_summary bleiben identisch.
     """
-    audio = session.execute(
-        select(
-            AudioTrack.key,
-            AudioTrack.key_confidence,
-            AudioTrack.lufs,
-            AudioTrack.mood,
-            AudioTrack.genre,
-            AudioTrack.spectral_bands,
-            AudioTrack.stem_vocals_path,
-            AudioTrack.stem_drums_path,
-            AudioTrack.stem_bass_path,
-            AudioTrack.stem_other_path,
-        ).where(AudioTrack.id == audio_id)
-    ).first()
+    # B-811: siehe _infer_video_status — Bulk-Pfad nutzt vorgeladene Fakten.
+    if prefetch is None:
+        audio = session.execute(
+            select(
+                AudioTrack.key,
+                AudioTrack.key_confidence,
+                AudioTrack.lufs,
+                AudioTrack.mood,
+                AudioTrack.genre,
+                AudioTrack.spectral_bands,
+                AudioTrack.stem_vocals_path,
+                AudioTrack.stem_drums_path,
+                AudioTrack.stem_bass_path,
+                AudioTrack.stem_other_path,
+            ).where(AudioTrack.id == audio_id)
+        ).first()
+    else:
+        audio = prefetch["tracks"].get(audio_id)
     if not audio:
         return
 
     # bpm_detection: Beatgrid vorhanden? (nur bpm + beat_positions laden —
     # beat_positions wird fuer den beats-Count gebraucht; onset_*/energy-
     # Blobs bleiben ungeladen)
-    beatgrid = session.execute(
-        select(Beatgrid.bpm, Beatgrid.beat_positions).where(
-            Beatgrid.audio_track_id == audio_id
-        )
-    ).first()
+    if prefetch is None:
+        beatgrid = session.execute(
+            select(Beatgrid.bpm, Beatgrid.beat_positions).where(
+                Beatgrid.audio_track_id == audio_id
+            )
+        ).first()
+    else:
+        beatgrid = prefetch["beatgrids"].get(audio_id)
     if beatgrid:
         _ensure_status_done(session, "audio", audio_id, "bpm_detection", {
             "bpm": beatgrid.bpm,
@@ -531,11 +646,14 @@ def _infer_audio_status(
         }, status_entries)
 
     # waveform_analysis: WaveformData vorhanden? (band_low/mid/high NICHT laden)
-    waveform = session.execute(
-        select(WaveformData.num_samples).where(
-            WaveformData.audio_track_id == audio_id
-        )
-    ).first()
+    if prefetch is None:
+        waveform = session.execute(
+            select(WaveformData.num_samples).where(
+                WaveformData.audio_track_id == audio_id
+            )
+        ).first()
+    else:
+        waveform = prefetch["waveforms"].get(audio_id)
     if waveform:
         _ensure_status_done(session, "audio", audio_id, "waveform_analysis", {
             "num_samples": waveform.num_samples,
@@ -569,11 +687,14 @@ def _infer_audio_status(
 
     # structure_detection: StructureSegments vorhanden? (COUNT statt
     # selectin-Load aller Segment-Rows)
-    segment_count = session.execute(
-        select(func.count()).select_from(StructureSegment).where(
-            StructureSegment.audio_track_id == audio_id
-        )
-    ).scalar_one()
+    if prefetch is None:
+        segment_count = session.execute(
+            select(func.count()).select_from(StructureSegment).where(
+                StructureSegment.audio_track_id == audio_id
+            )
+        ).scalar_one()
+    else:
+        segment_count = prefetch["segment_counts"].get(audio_id, 0)
     if segment_count:
         _ensure_status_done(session, "audio", audio_id, "structure_detection", {
             "segments": segment_count,
