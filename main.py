@@ -1612,15 +1612,14 @@ def main():
 
     setup_logging()
 
-    # B-618: Frozen-Warmup-Entrypoint. Der StyleBucketClusterer re-invoket die
-    # App-EXE mit PB_WARMUP_UMAP=1, um den Numba-JIT-Cache fuer umap/pynndescent
-    # in einem KIND-Prozess vorzuwaermen — so haelt der JIT-Kaltstart nie den GIL
-    # des Eltern-Main-Threads. Headless, VOR QApplication/GUI/Watchdog. Exit-Code
-    # != 0 signalisiert dem Aufrufer einen Import-Fehlschlag (z.B. Bundling).
+    # B-618 (Frozen-Fix 2026-07-15): Cluster-Fit im KIND-Prozess.
     # Lokaler os-Alias (wie _os_smoke unten): main() enthaelt weiter unten ein
     # bedingtes `import os` -> globales os ist hier funktionsweit als lokaler
     # Name gebunden und waere vor jenem import unbound (UnboundLocalError).
-    # B-618 (Frozen-Fix 2026-07-15): Cluster-Fit im KIND-Prozess.
+    #
+    # Der fruehere PB_WARMUP_UMAP-Entrypoint stand hier ebenfalls und ist am
+    # 2026-08-12 entfernt worden — die Messung zeigte, dass der Warmup 37-46 s
+    # kostete und nur 4,3 s sparte. Siehe style_bucket_clusterer.py.
     #
     # Messung im Frozen-Build: der Numba-JIT fuer umap/pynndescent dauert 79 s und
     # der Cache bleibt danach LEER (0 Dateien) — PyInstaller bundlet die Quellen,
@@ -1713,37 +1712,6 @@ def main():
         except Exception as _wf_exc:  # noqa: BLE001
             print(f"PB_WAVEFORM_PARSE failed: {_wf_exc}", file=sys.stderr)
             sys.exit(3)
-
-    import os as _os_warmup
-    if _os_warmup.environ.get("PB_WARMUP_UMAP") == "1":
-        try:
-            import numpy as _warm_np
-            import umap  # noqa: F401
-
-            # Ein blosser ``import umap`` genuegt NICHT: Numba kompiliert die
-            # pynndescent-Kernel lazy, also erst beim ersten fit(). Live-Beleg
-            # (2026-07-15): nach reinem Import blieb NUMBA_CACHE_DIR leer — der
-            # Warmup waermte den Cache also gar nicht, und der JIT-Kaltstart
-            # haette beim ersten echten Cluster-fit() trotzdem zugeschlagen.
-            # Darum hier ein Mini-fit mit denselben JIT-relevanten Parametern
-            # wie StyleBucketClusterer.fit(): metric="cosine" (kompiliert
-            # pynndescent/distances.py — genau der Pfad aus den Watchdog-Stacks)
-            # und float32-2D-Input (bestimmt die Numba-Signatur). Groesse und
-            # n_neighbors sind fuer die Signatur egal, darum bewusst winzig.
-            _warm_x = _warm_np.random.RandomState(0).rand(40, 32).astype(
-                _warm_np.float32
-            )
-            umap.UMAP(
-                n_neighbors=5,
-                min_dist=0.0,
-                n_components=2,
-                metric="cosine",
-                random_state=42,
-            ).fit(_warm_x)
-            sys.exit(0)
-        except Exception as _warm_exc:  # noqa: BLE001
-            print(f"PB_WARMUP_UMAP warmup failed: {_warm_exc}", file=sys.stderr)
-            sys.exit(2)
 
     import os as _os_smoke
     if _os_smoke.environ.get("PB_FROZEN_AUDIO_SMOKE") == "1":
@@ -2207,22 +2175,6 @@ def main():
         backup_dir=Path(_db_session.APP_ROOT) / "storage" / "backups",
         reason="daily",
     )
-
-    # ── B-618: UMAP/Numba-Warmup nebenlaeufig anstossen ───────────────
-    # Der Warmup lief bisher erst unmittelbar vor dem ersten Cluster-Fit und
-    # blockierte diesen. Gemessen 2026-08-09: In-Process 110 s -> 66,5 s, aber
-    # Gesamt-Kaltstart 110 s -> 169-190 s, weil die 102,8 s des Warmup-
-    # Subprozesses sequenziell oben drauf kamen.
-    # Hier gestartet laeuft er waehrend Import und Clip-Auswahl. Der Aufruf
-    # kehrt sofort zurueck, startet nichts im Frozen-Build und wirft nie.
-    try:
-        from services.enrichment.style_bucket_clusterer import start_umap_warmup_async
-        start_umap_warmup_async()
-    except Exception as _warmup_exc:  # Start darf daran nie scheitern
-        logging.getLogger(__name__).warning(
-            "B-618: Hintergrund-Warmup nicht startbar (%s) — der Fit waermt "
-            "den Cache spaeter selbst.", _warmup_exc,
-        )
 
     # P1-FIX: Fenster sofort zeigen, damit der User Feedback hat.
     # Schwere Operationen werden verzögert ausgeführt.

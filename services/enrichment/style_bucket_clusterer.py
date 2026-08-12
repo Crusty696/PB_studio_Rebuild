@@ -25,179 +25,32 @@ logger = logging.getLogger(__name__)
 _UMAPReducer = Any
 
 # ---------------------------------------------------------------------------
-# B-618: Numba-JIT-Kaltstart-Warmup
+# B-618: Der Numba-JIT-Warmup wurde am 2026-08-12 ENTFERNT.
 #
-# Der Lazy-Import von ``umap`` (direkt in ``fit()`` bzw. indirekt via
-# ``pickle.load`` in ``load_reducer()`` — Unpickling des UMAP-Reducers
-# importiert das umap-Modul) loest bei KALTEM Numba-Disk-Cache
-# JIT-Kompilierung aus (pynndescent/distances.py). Diese haelt den GIL des
-# App-Prozesses so lange, dass der Qt-Main-Thread eskalierend blockiert
-# (Watchdog-Stacks 19.9s -> 24.0s -> 26.7s) und der Prozess ohne Traceback
-# starb (live-belegt 2026-07-13). Bei warmem Cache dauert derselbe Pfad nur
-# noch 1.5-4.7s und ist stabil (Warmlauf-Nachtest, 8x ausgeloest).
+# Die Annahme des Tickets war, dass die Numba-JIT-Kompilierung von
+# pynndescent den GIL haelt und dadurch den Qt-Main-Thread abwuergt. Eine
+# vollstaendige Messung widerlegt das: 52 Cache-Dateien wirklich entfernt,
+# freier System-RAM per Ballast auf 450-650 MB gedrueckt (der Co-Faktor, der
+# allen frueheren Laeufen fehlte), Fit im QThread mit echtem Qt-Event-Loop.
+# OHNE Warmup lief der JIT nachweislich in-process (Cache 0 -> 52 Dateien) und
+# die laengste Main-Thread-Blockade betrug 0,13 s. LLVM gibt den GIL waehrend
+# der Kompilierung offenbar frei.
 #
-# Fix: Vor dem In-Process-Import einmalig einen Mini-``fit()`` in einem
-# SEPARATEN Subprocess ausfuehren (``_WARMUP_SNIPPET``). Der Subprocess fuellt
-# den Numba-Disk-Cache, ohne den GIL des App-Prozesses zu halten; der
-# anschliessende In-Process-Import trifft dann den warmen Cache.
+# Damit war der Warmup ein reiner Verlust:
+#   In-Process-JIT      4,3 s  (36,35 s kalt gegen 32,0 s warm)
+#   Warmup-Subprozess  37-46 s
+# Er bezahlte rund 40 Sekunden, um 4 zu sparen — und das auch nur einmal pro
+# Installation, weil der Numba-Cache ohnehin auf der Platte liegt.
 #
-# Korrektur 2026-07-15: Frueher lief hier nur ``import umap``. Der Frozen-Verify
-# zeigte, dass NUMBA_CACHE_DIR danach LEER blieb — Numba kompiliert die
-# pynndescent-Kernel lazy, also erst beim ersten fit(). Der Warmup waermte den
-# relevanten Cache also nicht. Siehe ``_WARMUP_SNIPPET``.
+# Was den Prozess am 2026-07-13 wirklich getoetet hat, ist damit OFFEN. Der
+# Absturz ist real dokumentiert, der JIT ist nach dieser Messung nicht die
+# Ursache. Details: wiki/bugs/B-618-*.md.
+#
+# NICHT entfernt: der Kind-Prozess-Fit fuer den Frozen-Build
+# (``_fit_subprocess`` + PB_CLUSTER_FIT in main.py). Der ist unabhaengig davon
+# live bewiesen (F6-Endbeweis 2026-07-18) und loest ein anderes Problem —
+# im Frozen kann Numba gar nicht cachen.
 # ---------------------------------------------------------------------------
-# Nachtrag 2026-08-12 (B-618, User-Entscheidung): Der Warmup lief bisher
-# ausschliesslich SEQUENZIELL — direkt vor dem In-Process-Import, der auf ihn
-# wartete. Gemessen 2026-08-09 an einem echten Kaltstart: der In-Process-Teil
-# sank zwar von 110 s auf 66,5 s, der GESAMTE Kaltstart stieg dabei aber von
-# 110 s auf 169-190 s, weil die 102,8 s des Warmup-Subprozesses vollstaendig
-# oben drauf kamen. Der Fix machte den Kaltstart also unterm Strich langsamer.
-#
-# Deshalb kann der Warmup jetzt frueh und nebenlaeufig gestartet werden
-# (``start_umap_warmup_async``, aufgerufen beim App-Start). Er laeuft dann
-# waehrend der Nutzer importiert und Clips auswaehlt. Trifft der Fit spaeter
-# ein, wartet er nur noch auf die RESTZEIT statt auf die volle Dauer.
-#
-# Die Wartesemantik faellt dabei ohne Zusatzcode ab: der Hintergrund-Thread
-# ruft dieselbe ``warm_umap_cache()`` und haelt dabei ``_WARMUP_LOCK``. Ein
-# spaeterer synchroner Aufruf blockiert genau so lange am Lock, wie der
-# Warmup noch braucht — und findet danach ``done=True`` vor.
-_WARMUP_TIMEOUT_S: float = 600.0
-_WARMUP_LOCK = threading.Lock()
-_WARMUP_STATE: dict[str, bool] = {"done": False}
-# Getrenntes Lock: schuetzt nur das Starten des Hintergrund-Threads. Es darf
-# NICHT ``_WARMUP_LOCK`` sein, sonst wuerde der Starter auf den laufenden
-# Warmup warten — genau das, was hier vermieden werden soll.
-_WARMUP_ASYNC_LOCK = threading.Lock()
-_WARMUP_ASYNC_THREAD: threading.Thread | None = None
-
-
-def start_umap_warmup_async(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
-    """Startet den Numba-Warmup im Hintergrund und kehrt sofort zurueck (B-618).
-
-    Gedacht fuer den App-Start: der teure Numba-JIT laeuft dann parallel zum
-    Import und zur Clip-Auswahl des Nutzers statt sequenziell vor dem ersten
-    Cluster-Fit.
-
-    Returns:
-        True  -- ein Hintergrund-Warmup laeuft jetzt (oder lief schon).
-        False -- kein Warmup noetig oder moeglich (bereits erledigt, umap
-                 schon importiert, Frozen-Build).
-
-    Idempotent und raise-frei: mehrfache Aufrufe starten hoechstens einen
-    Thread. Ein spaeterer ``warm_umap_cache()`` wartet automatisch auf das
-    Ergebnis, weil beide dasselbe ``_WARMUP_LOCK`` benutzen.
-    """
-    global _WARMUP_ASYNC_THREAD
-    if _WARMUP_STATE["done"] or "umap" in sys.modules:
-        return False
-    if getattr(sys, "frozen", False):
-        # Im Frozen ist der Warmup nachweislich wirkungslos (Numba kann dort
-        # nicht cachen) — der Fit laeuft stattdessen im Kind-Prozess.
-        return False
-    with _WARMUP_ASYNC_LOCK:
-        if _WARMUP_ASYNC_THREAD is not None and _WARMUP_ASYNC_THREAD.is_alive():
-            return True
-        thread = threading.Thread(
-            target=warm_umap_cache,
-            args=(timeout,),
-            name="umap-warmup",
-            daemon=True,
-        )
-        _WARMUP_ASYNC_THREAD = thread
-        thread.start()
-    logger.info(
-        "B-618: UMAP/Numba-Warmup im Hintergrund gestartet — er laeuft jetzt "
-        "parallel zur Bedienung statt sequenziell vor dem ersten Cluster-Fit.",
-    )
-    return True
-
-# B-618 Frozen: Zeitbudget fuer den Cluster-Fit im Kind-Prozess. Deckt den
-# nicht-cachebaren Numba-JIT (gemessen 79 s) PLUS den eigentlichen Fit auf
-# echten Datenmengen ab.
-_FIT_SUBPROCESS_TIMEOUT_S: float = 900.0
-
-# Ein blosser ``import umap`` reicht NICHT: Numba kompiliert die
-# pynndescent-Kernel lazy, also erst beim ersten fit(). Live-Beleg
-# (2026-07-15, Frozen): nach reinem Import blieb NUMBA_CACHE_DIR leer — der
-# Warmup fuellte den Cache also gar nicht. Darum ein Mini-fit mit denselben
-# JIT-relevanten Parametern wie ``fit()`` unten: metric="cosine" (kompiliert
-# pynndescent/distances.py — der Pfad aus den Watchdog-Stacks) und
-# float32-2D-Input (bestimmt die Numba-Signatur). Sample-Zahl und n_neighbors
-# beeinflussen die Signatur nicht, darum bewusst winzig gehalten.
-# Muss als Einzeiler-Snippet fuer ``python -c`` gueltig bleiben.
-_WARMUP_SNIPPET: str = (
-    "import numpy as np, umap; "
-    "umap.UMAP(n_neighbors=5, min_dist=0.0, n_components=2, metric='cosine', "
-    "random_state=42).fit(np.random.RandomState(0).rand(40, 32).astype(np.float32))"
-)
-
-
-def warm_umap_cache(timeout: float = _WARMUP_TIMEOUT_S) -> bool:
-    """Fuellt den Numba-Disk-Cache fuer umap/pynndescent per Subprocess (B-618).
-
-    Returns:
-        True  -- In-Process-Import trifft warmen Zustand (Warmup gelaufen,
-                 umap bereits importiert, oder Warmup schon erledigt).
-        False -- Warmup konnte nicht laufen (Frozen-Build, Subprocess-Fehler
-                 oder Timeout); der Aufrufer faellt auf den bisherigen
-                 In-Process-Import zurueck (der den Cache dann selbst fuellt).
-
-    Thread-safe und idempotent: Nur der erste Aufrufer zahlt die Warmup-Zeit;
-    parallele Aufrufer warten am Lock, bis der Cache warm ist. Nach einem
-    Fehlschlag wird NICHT erneut versucht -- der In-Process-Import
-    kompiliert und persistiert den Cache ohnehin selbst.
-    """
-    with _WARMUP_LOCK:
-        if _WARMUP_STATE["done"]:
-            return True
-        if "umap" in sys.modules:
-            # JIT-Kosten in diesem Prozess bereits bezahlt.
-            _WARMUP_STATE["done"] = True
-            return True
-        if getattr(sys, "frozen", False):
-            # B-618 Frozen: KEIN Warmup — er waere nachweislich schaedlich.
-            #
-            # Messung 2026-07-15 im Frozen-Build: `PB_WARMUP_UMAP=1 pb_studio.exe`
-            # laeuft 79 s (das IST der Numba-JIT) und NUMBA_CACHE_DIR bleibt danach
-            # LEER (0 Dateien). PyInstaller bundlet die Quellen -> Numba findet
-            # keinen Cache-Locator und kann die Kompilate nicht persistieren.
-            # Ein Warmup-Kindprozess verpufft damit: der Elternprozess JITet beim
-            # ersten fit() erneut 79 s. Der Warmup verdoppelte also nur die Zeit,
-            # ohne den Freeze zu verhindern.
-            # Der Freeze wird stattdessen an der Wurzel geloest: ``fit()`` fuehrt
-            # den kompletten Cluster-Fit im Kind-Prozess aus (_fit_subprocess),
-            # wo der JIT einen eigenen GIL haelt.
-            _WARMUP_STATE["done"] = True
-            logger.info(
-                "B-618: Warmup im Frozen uebersprungen (Numba-Cache dort nicht "
-                "persistierbar, gemessen) — der Fit laeuft im Kind-Prozess.",
-            )
-            return False
-        creationflags = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        )
-        try:
-            subprocess.run(
-                [sys.executable, "-c", _WARMUP_SNIPPET],
-                check=True,
-                timeout=timeout,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags,
-            )
-        except Exception as exc:  # noqa: BLE001 — Warmup darf Aufrufer nie crashen
-            _WARMUP_STATE["done"] = True
-            logger.warning(
-                "B-618: UMAP-Warmup-Subprocess fehlgeschlagen (%s) — "
-                "Fallback auf In-Process-Import.",
-                exc,
-            )
-            return False
-        _WARMUP_STATE["done"] = True
-        logger.info("B-618: UMAP/Numba-Disk-Cache-Warmup-Subprocess erfolgreich.")
-        return True
-
 
 @dataclass(frozen=True)
 class ClusterResult:
@@ -347,9 +200,6 @@ class StyleBucketClusterer:
                 reason=f"small_library:{n_samples}",
             )
 
-        # B-618: Numba-Disk-Cache per Subprocess fuellen, bevor der Import den
-        # GIL dieses Prozesses fuer die JIT-Kompilierung blockieren kann.
-        warm_umap_cache()
         import umap  # type: ignore[import-untyped]  # lazy -- keeps module import cheap
         from sklearn.cluster import HDBSCAN  # type: ignore[import-untyped]  # lazy
 
@@ -430,11 +280,6 @@ class StyleBucketClusterer:
                 f"UMAP reducer not found at '{p}'. "
                 "Run StyleBucketClusterer.fit() and save_reducer() first."
             )
-        # B-618: Unpickling des UMAP-Reducers importiert das umap-Modul und
-        # loeste bei kaltem Numba-Disk-Cache GIL-blockierende JIT-Kompilierung
-        # aus (App-Prozess starb ohne Traceback). Cache vorher per Subprocess
-        # waermen.
-        warm_umap_cache()
         # B-037 / B301: ``p`` zeigt auf den eigenen UMAP-Reducer-Cache
         # unter ``storage/`` — ausschliesslich von uns geschrieben in
         # ``save_reducer()``. Kein attacker-controlled Pickle-Source.
