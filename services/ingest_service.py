@@ -53,6 +53,14 @@ def ingest_audio(
         raise ValueError(f"Nicht unterstuetzte Audio-Extension: {path.suffix}")
     resolved = str(path.resolve())
 
+    # B-806: Laenge schon beim Import messen — wie ingest_video() es tut.
+    # Vorher blieb ``audio_tracks.duration`` bis zur ersten BPM-/Wellenform-
+    # Analyse NULL; plan_video_timeline_add() las das als "kein Audio-Track
+    # vorhanden" und blockte "Zur Timeline hinzufuegen" trotz gesetzter
+    # Checkbox. Wie bei ingest_video laeuft der ffprobe-Subprocess VOR dem
+    # Oeffnen der Session (Session-Split-Pattern, Bug-15).
+    probed_duration = _probe_audio_duration(resolved)
+
     try:
         from database import nullpool_session
         with nullpool_session() as session:
@@ -104,6 +112,7 @@ def ingest_audio(
                 project_id=project_id,
                 file_path=meta["file_path"],
                 title=meta["title"],
+                duration=probed_duration,  # B-806
             )
             session.add(track)
             session.commit()
@@ -122,6 +131,26 @@ def ingest_audio(
     except Exception as e:  # broad catch intentional — re-raised after logging; SQLAlchemy + OS errors
         logger.error("ingest_audio fehlgeschlagen: %s", e)
         raise
+
+
+def _probe_audio_duration(file_path: str) -> float | None:
+    """B-806: Audio-Laenge beim Import via ffprobe (Pendant zu _probe_video_meta).
+
+    Gibt ``None`` zurueck, wenn ffprobe fehlschlaegt oder keinen Wert liefert.
+    ``None`` ist bewusst kein Import-Blocker (anders als B-701 fuer Video):
+    ein Audio-Track ohne messbare Laenge bleibt importierbar, die Laenge wird
+    spaeter von der BPM-/Wellenform-Analyse oder von
+    ``timeline_service._measure_and_store_audio_duration`` nachgetragen.
+    """
+    from services.ffmpeg_utils import probe_duration
+    try:
+        measured = float(probe_duration(
+            file_path, fallback=0.0, timeout=FFMPEG_PROBE_TIMEOUT_SEC))
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
+        logger.warning("ffprobe Audio-Dauer fuer '%s' fehlgeschlagen: %s",
+                       file_path, e)
+        return None
+    return measured if measured > 0.0 else None
 
 
 def _probe_video_meta(file_path: str) -> dict:

@@ -23,7 +23,7 @@ from database import get_active_project_id
 # Nicht per ruff F401 entfernen.
 from database import engine  # noqa: F401
 from database import TimelineEntry
-from sqlalchemy import select  # B-090: column-select statt Blob-Voll-Load
+from sqlalchemy import select, update  # B-090: column-select statt Blob-Voll-Load
 
 # M-12 Fix: Thread-safe lock for timeline writes to prevent data races
 _timeline_write_lock = threading.Lock()
@@ -39,6 +39,49 @@ def _get_exports_dir() -> Path:
 
 # PB Studio namespace in OTIO metadata
 PB_NS = "pb_studio"
+
+
+def _measure_and_store_audio_duration(session, audio_id: int,
+                                      file_path: str | None) -> float | None:
+    """B-806: misst die Laenge eines Audio-Tracks nach und speichert sie.
+
+    Hintergrund: ``ingest_audio()`` legte ``AudioTrack`` ohne ``duration`` an
+    (``ingest_video()`` misst dagegen per ffprobe). Bis zur ersten BPM-/
+    Wellenform-Analyse war ``audio_tracks.duration`` deshalb NULL. Jeder
+    Konsument hat das mit einer eigenen Magic-Number ueberdeckt (Add-Worker
+    30.0, Pacing 300.0, Export 0.0) — der Budget-Planer blockte stattdessen.
+
+    Gibt die gemessene Dauer zurueck oder ``None``, wenn nicht messbar
+    (fehlende Datei, ffprobe-Fehler, 0-Ergebnis). Ein Fehlschlag wird geloggt,
+    aber nie geworfen: die Timeline-Planung darf daran nicht sterben.
+    """
+    if not file_path:
+        return None
+    from database import AudioTrack
+    from services.ffmpeg_utils import probe_duration
+    try:
+        measured = float(probe_duration(file_path, fallback=0.0))
+    except Exception as exc:  # ffprobe/OS/Parse — nie fatal fuer die Planung
+        logger.warning("B-806: Audio-Laenge fuer #%s nicht messbar: %s",
+                       audio_id, exc)
+        return None
+    if measured <= 0.0:
+        logger.warning("B-806: Audio-Laenge fuer #%s nicht messbar (%s).",
+                       audio_id, file_path)
+        return None
+    try:
+        session.execute(
+            update(AudioTrack).where(AudioTrack.id == audio_id)
+            .values(duration=measured)
+        )
+        session.commit()
+        logger.info("B-806: Audio-Laenge fuer #%s nachgetragen: %.2fs",
+                    audio_id, measured)
+    except Exception as exc:  # Schreibfehler darf den Add nicht blockieren
+        session.rollback()
+        logger.warning("B-806: duration-Nachtrag fuer #%s fehlgeschlagen: %s",
+                       audio_id, exc)
+    return measured
 
 
 def plan_video_timeline_add(
@@ -103,21 +146,45 @@ def plan_video_timeline_add(
             .first()
         )
         ref_audio_id = int(audio_row[0]) if audio_row and audio_row[0] else audio_id_hint
+        ref_audio_title: str | None = None
         if ref_audio_id is not None:
             # B-090: column-select statt ORM-Voll-Laden (waveform_data/beatgrid joined); nutzt nur duration
             track = session.execute(
-                select(AudioTrack.duration).where(AudioTrack.id == ref_audio_id)
+                select(AudioTrack.duration, AudioTrack.file_path, AudioTrack.title)
+                .where(AudioTrack.id == ref_audio_id)
             ).first()
-            if track is not None and track.duration:
-                budget = float(track.duration)
+            if track is not None:
+                ref_audio_title = track.title
+                if track.duration:
+                    budget = float(track.duration)
+                else:
+                    # B-806: ``ingest_audio`` hat historisch KEINE duration
+                    # gespeichert — der Wert entstand erst bei der BPM-/
+                    # Wellenform-Analyse. Ein frisch importierter, markierter
+                    # Track galt dadurch als "nicht vorhanden" und blockte den
+                    # Bulk-Add. Laenge jetzt nachmessen und persistieren,
+                    # damit auch Alt-Projekte ohne Re-Import heilen.
+                    budget = _measure_and_store_audio_duration(
+                        session, ref_audio_id, track.file_path)
         result["budget"] = budget
 
         if budget is None and is_bulk:
-            result["blocked_reason"] = (
-                "Kein Audio-Track als Laengen-Referenz vorhanden. Zuerst "
-                "Audio zur Timeline hinzufuegen (oder mit-markieren) — die "
-                "Audio-Datei gibt die Timeline-Laenge vor."
-            )
+            if ref_audio_id is None:
+                result["blocked_reason"] = (
+                    "Kein Audio-Track als Laengen-Referenz vorhanden. Zuerst "
+                    "Audio zur Timeline hinzufuegen (oder mit-markieren) — die "
+                    "Audio-Datei gibt die Timeline-Laenge vor."
+                )
+            else:
+                # B-806: NICHT behaupten, es gaebe kein Audio — es gibt eines,
+                # nur ist seine Laenge unbekannt (Datei weg/defekt/kein ffprobe).
+                result["blocked_reason"] = (
+                    f"Laenge des Audio-Tracks '{ref_audio_title or ref_audio_id}' "
+                    "ist unbekannt und liess sich nicht messen (Datei fehlt "
+                    "oder ffprobe schlug fehl). Ohne Audio-Laenge gibt es kein "
+                    "Budget fuer den Bulk-Add — Audio-Analyse (BPM/Wellenform) "
+                    "starten oder Datei pruefen."
+                )
             return result
 
         for vid in video_ids:
