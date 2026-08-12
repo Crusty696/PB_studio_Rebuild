@@ -32,6 +32,10 @@ ProgressCallback = Callable[[str, int, int], None]
 # (services/storage_provenance/file_tracking.py) — beide Laeufe haengen am
 # selben Projekt-Open und sollen sich im Log gleich verhalten.
 _MIGRATION_LOG_INTERVAL_S = 5.0
+# B-816: ab dieser Groesse wird VOR dem Pruefen gemeldet — eine einzelne
+# grosse Datei kann laenger dauern als das Meldeintervall, dann greift die
+# Zeitschwelle nie und der Lauf wirkt eingefroren.
+_GROSSE_DATEI_MB = 150.0
 
 
 @dataclass(frozen=True)
@@ -154,19 +158,43 @@ class StorageMigrationService:
             len(audio_tracks), len(video_clips),
         )
 
-        def _melde(phase: str, index: int) -> None:
+        def _melde(phase: str, index: int, pfad=None) -> None:
+            """B-816: melden BEVOR die teure Arbeit beginnt, nicht nur danach.
+
+            Live gemessen 2026-08-12 am echten Projekt: trotz 5-s-Intervall gab
+            es beim ersten Open **17 Sekunden ohne jede Logzeile**. Grund: die
+            Meldung lag ZWISCHEN den Clips. Dauert das Hashen einer einzelnen
+            grossen Videodatei 17 s, schweigt es genau so lange — das
+            Zeitintervall kann dort gar nicht greifen.
+
+            Deshalb bei grossen Dateien immer vorher ansagen, was jetzt kommt.
+            Damit weiss der Nutzer, dass gearbeitet wird und woran.
+            """
             nonlocal letzte_meldung
             jetzt = time.monotonic()
-            if jetzt - letzte_meldung >= _MIGRATION_LOG_INTERVAL_S:
-                logger.info(
-                    "B-814: %s %d/%d geprueft (%.0fs) — Migration laeuft ...",
-                    phase, index, total, jetzt - start,
-                )
+            gross_mb = 0.0
+            if pfad:
+                try:
+                    gross_mb = Path(pfad).stat().st_size / 1048576
+                except OSError:
+                    gross_mb = 0.0
+            faellig = jetzt - letzte_meldung >= _MIGRATION_LOG_INTERVAL_S
+            if faellig or gross_mb >= _GROSSE_DATEI_MB:
+                if gross_mb >= _GROSSE_DATEI_MB:
+                    logger.info(
+                        "B-814: %s %d/%d — pruefe %.0f MB (%.0fs) ...",
+                        phase, index, total, gross_mb, jetzt - start,
+                    )
+                else:
+                    logger.info(
+                        "B-814: %s %d/%d geprueft (%.0fs) — Migration laeuft ...",
+                        phase, index, total, jetzt - start,
+                    )
                 letzte_meldung = jetzt
 
         for index, track in enumerate(audio_tracks, start=1):
             self._progress("audio", index, len(audio_tracks))
-            _melde("Audio", index)
+            _melde("Audio", index, getattr(track, "file_path", None))
             migrated = self._migrate_audio_track(track)
             if migrated is None:
                 skipped += 1
@@ -175,7 +203,8 @@ class StorageMigrationService:
 
         for index, clip in enumerate(video_clips, start=1):
             self._progress("video", index, len(video_clips))
-            _melde("Video", len(audio_tracks) + index)
+            _melde("Video", len(audio_tracks) + index,
+                   getattr(clip, "file_path", None))
             migrated = self._migrate_video_clip(clip)
             if migrated is None:
                 skipped += 1
