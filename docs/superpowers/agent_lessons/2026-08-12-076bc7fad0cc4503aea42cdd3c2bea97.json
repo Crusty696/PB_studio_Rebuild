@@ -1,0 +1,10 @@
+{
+  "lesson_id": "076bc7fad0cc4503aea42cdd3c2bea97",
+  "recorded_at": "2026-08-12T11:49:28+00:00",
+  "session_id": "db7f8b2335374ce58220401d26bf390b",
+  "head_at_start": "6b2ce85c9c8cb90872eee649d61a941617ca3377",
+  "problem": "Sichtbarer Stability-Gate-Aufruf scheiterte zweimal vor Appstart: einmal Windows OS-Code 5 bei ueberlangem Shell-Command, danach PowerShell-Quoting zerstoerte mehrzeiliges Python -c.",
+  "cause": "Langer Inline-Programmtext wurde ueber mehrere Windows-Prozess-/PowerShell-Argumentgrenzen transportiert; Kommando-Laenge und Quote-Normalisierung waren nicht stabil.",
+  "rule": "Komplexe Windows-Live-Gates als externes, evidence-lokales Python-Skript ausfuehren und dem Stability-Runner nur kurzen Dateipfad plus Env-Parameter uebergeben; jeden Fehlstart mit neuer Run-ID erfassen.",
+  "applies_to": "tools/stability_run.py,tests/gui_harness.py,Windows PowerShell live gates"
+}

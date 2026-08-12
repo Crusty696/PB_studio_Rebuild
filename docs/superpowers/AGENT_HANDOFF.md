@@ -2,6 +2,23 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-819 Live-Manifest PASS / W3 aktiv 2026-08-12 (newest)
+
+- Fix `532165f`: Legacy-Indizes werden nach Spaltenfolge/Unique-Semantik
+  abgeglichen; sieben beabsichtigte Indizes leben kanonisch in ORM-Metadata.
+- Fokus-Suite 4 passed; PyCompile/Ruff gruen; externer zweiter `init_db()`-
+  Lauf schema- und zeilenstabil.
+- Sichtbarer Run `20260812T1354-b819-live-manifest`: Manifest `pass`, Gate
+  `passed: true`, App/Screenshot/Shutdown gruen, GTX-1060-CUDA-Marker komplett.
+- Bootstrap-DB vor/nach exakt identisch: 442368 B, Datei-SHA-256
+  `3eb0a5a2ef8722adde325506b2a07329c7c56b1317e974ecb1bf9b35a0aa43f9`,
+  Schema-SHA-256
+  `9984c139377ffa2e4b66482d8a4ad6183845ca56e43a14c32d961a0e7ad5240b`.
+- B-819 bleibt bis Userfreigabe ohne `fixed`-Marker. Naechste einzige Task:
+  W3 Audio V2 komplett, Cancel, Retry, Neustart im isolierten Projekt.
+- Evidence:
+  `C:/Users/David_Lochmann/AppData/Local/PBStudioB819LiveIsolated/PBStudioStability/20260812T1354-b819-live-manifest/`.
+
 ## B-758 App-Gate gruen / B-819 blockiert Manifest 2026-08-12 (newest)
 
 - Run `20260812T1323-b758-w3-recheck`, HEAD `6b2ce85`, sauberer isolierter

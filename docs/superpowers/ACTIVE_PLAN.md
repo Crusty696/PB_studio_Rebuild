@@ -22,13 +22,17 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
+`W3 Audio V2 komplett, Cancel, Retry, Neustart` im isolierten
+Stabilitaetsprojekt fortsetzen.
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;
 `fixed` bleibt Userrecht. B-758-Systemcheck ist im exakten isolierten W3-
-Harness gruen; Gesamtmanifest wurde durch neu entdeckten B-819-Schemadrift
-rot. Erste-Fehler-Regel stoppt W3. Naechste einzige Task ist B-819.
+Harness gruen. B-819 wurde in Commit `532165f` korrigiert: 4 Fokus-Tests,
+Syntax/Ruff, isolierter Zwei-`init_db()`-Lauf und sichtbarer App-Manifestlauf
+`20260812T1354-b819-live-manifest` sind gruen; geschuetzte Bootstrap-DB vor/
+nach byte-, schema- und logisch identisch. `fixed` bleibt Userrecht. B-758-
+Manifest-Recheck damit pass; naechste einzige Task ist W3-Fortsetzung.
 
 W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler
 Systemcheck meldete `CUDA GPU FAIL` und `NVENC Encode FAIL`; degradierter Start

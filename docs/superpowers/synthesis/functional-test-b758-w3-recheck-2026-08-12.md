@@ -1,6 +1,6 @@
 # B-758 isolierter W3-Recheck 2026-08-12
 
-Status: B-758-App-Gate pass; Gesamtmanifest fail durch B-819
+Status: B-758-App-Gate pass; B-819-Follow-up-Manifest pass
 
 ## Scope
 
@@ -38,4 +38,21 @@ Screenshot persistent extern im Evidence-Ordner:
 
 ## Naechste einzige Task
 
-`ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
+`W3 Audio V2 komplett, Cancel, Retry, Neustart` im isolierten
+Stabilitaetsprojekt fortsetzen.
+
+## B-819 Follow-up
+
+Commit `532165f` verhindert semantisch duplizierte Legacy-Indizes und fuehrt
+sieben beabsichtigte Indizes kanonisch in ORM-Metadata. Verifikation:
+
+- 4 Fokus-Tests, PyCompile und Ruff gruen;
+- echter zweiter `init_db()`-Lauf schema- und zeilenstabil;
+- sichtbarer App-Run `20260812T1354-b819-live-manifest`: Manifest `pass`, Gate
+  `passed: true`, Screenshot, GTX-1060-CUDA-Marker und Shutdown gruen;
+- geschuetzte Bootstrap-DB vor/nach byte-, schema- und logisch identisch.
+
+Evidence:
+`C:/Users/David_Lochmann/AppData/Local/PBStudioB819LiveIsolated/PBStudioStability/20260812T1354-b819-live-manifest/`
+
+B-819-`fixed`-Marker bleibt Userfreigabe.
