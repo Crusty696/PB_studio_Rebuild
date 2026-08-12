@@ -246,7 +246,41 @@ class ProjectDashboard(QWidget):
     def _refresh_current_project(self) -> None:
         self.refresh(self._project_id)
 
+    # B-808: Woran haengt eine Karte? "Fehlt" nur, wenn wirklich nichts da ist.
+    _BLOCKIERUNGS_LABELS = {
+        "kein_projekt": "Fehlt",
+        "kein_audio": "Fehlt",
+        "kein_video": "Fehlt",
+        "timeline_leer": "Offen",
+        "audio_video_unvollstaendig": "Analyse offen",
+    }
+
+    def _blockierungs_label(self, card_key: str) -> str:
+        """B-808: unterscheidet 'nichts importiert' von 'Analyse noch offen'.
+
+        Die Gruende stehen bereits in ``missing_steps_per_card`` und landen im
+        Tooltip. Sie sagen aber nur, WAS fehlt — die Karte selbst schrieb
+        pauschal "Fehlt", auch wenn Material vorhanden und nur die Analyse
+        unvollstaendig war. Genau das las sich wie ein Datenverlust.
+        """
+        steps = (getattr(self, "_letzte_missing_steps", {}) or {}).get(card_key) or []
+        if not steps:
+            return "Offen"
+        # Ein echter Import-Mangel wiegt schwerer als eine offene Analyse.
+        for schluessel in ("kein_projekt", "kein_audio", "kein_video"):
+            if schluessel in steps:
+                return "Fehlt"
+        if all(s in self._BLOCKIERUNGS_LABELS for s in steps):
+            return self._BLOCKIERUNGS_LABELS[steps[0]]
+        # Konkrete Analyseschritte offen -> das ist kein fehlendes Material.
+        return "Analyse offen"
+
     def set_readiness(self, readiness) -> None:
+        # B-808: erst merken, dann die Karten beschriften — das Label haengt
+        # davon ab, WORAN es scheitert.
+        self._letzte_missing_steps = (
+            getattr(readiness, "missing_steps_per_card", {}) or {}
+        )
         self._project_id = readiness.project_id
         self.update_project(readiness.project_name, readiness.project_path)
         self._current_action_key = readiness.next_action.key
@@ -261,7 +295,14 @@ class ProjectDashboard(QWidget):
                 continue
             card, state_label, _detail = self.readiness_cards[key]
             ready = state == "ready"
-            state_label.setText("Bereit" if ready else "Fehlt")
+            # B-808: "Fehlt" war irrefuehrend. Live beobachtet 2026-08-12: das
+            # Cockpit zeigte "Audio: Fehlt" und "Video: Fehlt" neben
+            # "Export: Bereit" — bei 121 importierten Videos und einem
+            # Audio-Track. Beides stimmte sogar: exportierbar ist eine gefuellte
+            # Timeline, die Analyse braucht man erst fuers Auto-Edit. Aber
+            # "Fehlt" liest sich als "nichts da", nicht als "Analyse offen".
+            # Deshalb wird jetzt unterschieden, woran es tatsaechlich haengt.
+            state_label.setText("Bereit" if ready else self._blockierungs_label(key))
             state_label.setStyleSheet(
                 "color:#4ade80; font-weight:700;" if ready else "color:#ef4444; font-weight:700;"
             )
