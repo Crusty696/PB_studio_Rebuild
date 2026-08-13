@@ -504,10 +504,11 @@ def _run_ffmpeg_with_progress(
     stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
     stderr_thread.start()
 
+    _stop_watchdogs = threading.Event()
     cancel_watchdog = None
     if cancel_check is not None:
         def _cancel_watch():
-            while process.poll() is None:
+            while not _stop_watchdogs.is_set() and process.poll() is None:
                 try:
                     if cancel_check():
                         cancelled.set()
@@ -519,7 +520,7 @@ def _run_ffmpeg_with_progress(
                         return
                 except Exception:
                     return
-                _time.sleep(0.2)
+                _stop_watchdogs.wait(0.05)
         cancel_watchdog = threading.Thread(target=_cancel_watch, daemon=True)
         cancel_watchdog.start()
 
@@ -529,7 +530,7 @@ def _run_ffmpeg_with_progress(
     _start_ts = _time.monotonic()
     if timeout is not None and timeout > 0:
         def _timeout_watch():
-            while process.poll() is None:
+            while not _stop_watchdogs.is_set() and process.poll() is None:
                 if _time.monotonic() - _start_ts >= timeout:
                     timed_out.set()
                     try:
@@ -541,7 +542,7 @@ def _run_ffmpeg_with_progress(
                     except Exception:
                         pass
                     return
-                _time.sleep(0.5)
+                _stop_watchdogs.wait(0.05)
         timeout_watchdog = threading.Thread(target=_timeout_watch, daemon=True)
         timeout_watchdog.start()
 
@@ -587,6 +588,7 @@ def _run_ffmpeg_with_progress(
         process.kill()
         timed_out.set()
     finally:
+        _stop_watchdogs.set()
         # Bug-32 Fix: Stelle sicher dass Process terminiert wird, auch wenn Exception auftritt
         if process.poll() is None:
             process.kill()
