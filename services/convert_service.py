@@ -623,19 +623,4 @@ def _run_ffmpeg_with_progress(
     return stderr
 
 
-def get_available_presets() -> list[dict]:
-    """Gibt alle verfuegbaren Presets mit Details zurueck."""
-    nvenc = detect_nvenc()
-    result = []
-    for key, preset in PRESETS.items():
-        available = True
-        if preset.video_codec == "h264_nvenc" and not nvenc["h264_nvenc"]:
-            available = False
-        result.append({
-            "key": key,
-            "name": preset.name,
-            "description": preset.description,
-            "available": available,
-            "codec": preset.video_codec,
-        })
-    return result
+
