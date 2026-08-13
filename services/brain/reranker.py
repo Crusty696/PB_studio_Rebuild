@@ -81,10 +81,6 @@ COUPLED_VISUAL_AXES: frozenset[str] = frozenset({
     "color_temp_match_weight",
 })
 
-# Rueckwaerts-kompatibler Alias (B-707). Enthaelt jetzt die Vereinigung, wird
-# aber nicht mehr pauschal angewandt — siehe `_cut_no_signal_axes`.
-STRUCTURAL_NO_SIGNAL_AXES: frozenset[str] = CUT_LEVEL_AXES | COUPLED_VISUAL_AXES
-
 # Mapping Bridge-Achse -> Key in `raw_audio_features` -> AudioContext-Feld.
 # Ein `None`-Feld heisst "Quelle fehlt fuer diesen Track" -> Key wird NICHT
 # gesetzt -> BridgeDimensions faellt auf 0.5 zurueck UND die Achse wird als

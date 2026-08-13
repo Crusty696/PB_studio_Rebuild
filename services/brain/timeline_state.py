@@ -50,38 +50,6 @@ def ensure_state_db(project_root: Path | None = None) -> Path:
     return db_path
 
 
-def load_current_timeline_metadata(
-    project_root: Path | None = None,
-) -> dict[tuple[int, int], BrainV3TimelineCutMeta]:
-    """Return metadata keyed by ``(clip_id, rounded_start_ms)``."""
-    db_path = ensure_state_db(project_root)
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT c.id, c.clip_id, c.start_time, c.brain_v3_scores_json, c.metadata_json
-            FROM timeline_cuts c
-            JOIN timelines t ON t.id = c.timeline_id
-            WHERE t.is_current = 1
-            ORDER BY c.position_idx ASC, c.id ASC
-            """
-        ).fetchall()
-
-    out: dict[tuple[int, int], BrainV3TimelineCutMeta] = {}
-    for row in rows:
-        try:
-            clip_id = int(row[1])
-        except (TypeError, ValueError):
-            logger.debug("Brain V3 state: skip non-int clip_id=%r", row[1])
-            continue
-        start_time = float(row[2] or 0.0)
-        out[(clip_id, _round_ms(start_time))] = BrainV3TimelineCutMeta(
-            cut_id=int(row[0]),
-            clip_id=clip_id,
-            start_time=start_time,
-            confidence=_extract_confidence(row[3], row[4]),
-        )
-    return out
-
 
 # B-781: Achsen-Scores der Entscheidungen des juengsten Pacing-Runs zu genau
 # diesem Audio-Track. ``agent_rationale -> brain_v3_scores`` ist die EINZIGE

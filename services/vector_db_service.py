@@ -329,14 +329,6 @@ class VectorDBService:
         ]
         return embeddings, metadata
 
-    def search_by_text(
-        self,
-        text_embedding: list[float] | np.ndarray,
-        top_k: int = 5,
-    ) -> list[dict]:
-        """Suche mit Text-Embedding."""
-        return self.search(text_embedding, top_k=top_k)
-
     def get_all_embeddings(self) -> tuple[np.ndarray, list[dict]]:
         """Gibt ALLE Embeddings als Matrix + Metadaten zurueck.
 
