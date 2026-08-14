@@ -220,10 +220,18 @@ class SchnittTabPacingAnker(QWidget):
         self.btn_regenerate = QPushButton("Mit neuen Pacing-Einstellungen generieren")
         self.btn_regenerate.setObjectName("btn_accent")
         self.btn_regenerate.setFixedHeight(30)
+        # B-833: Der Tooltip versprach neu berechnete Clips und die Beruecksichtigung
+        # von Stil- und Ankerwerten. Tatsaechlich laeuft dieser Button in denselben
+        # Codepfad wie "Timeline generieren" im Editor-Kopf: er zeichnet nur die
+        # Cut-Linien neu, legt keine Clips an und liest weder Anker noch Style.
         self.btn_regenerate.setToolTip(
-            "Wirkung: Berechnet die Timeline mit aktuellen Pacing-, Stil- und Ankerwerten neu. "
-            "Wann: Nutze es nach Aenderung von Cut Rate, Style, Breakdown, Reaktivitaet oder Vibe. "
-            "Ergebnis: Clips/Cuts koennen ersetzt oder verschoben werden."
+            "Wirkung: Zeichnet die Cut-Linien mit den aktuellen Pacing-Werten neu — "
+            "eine Vorschau, identisch zu 'Timeline generieren' im Editor-Kopf. "
+            "Wann: Nutze es nach Aenderung von Cut Rate, Breakdown oder Reaktivitaet, "
+            "um die Schnittpunkte vorab zu sehen. "
+            "Ergebnis: Nur Cut-Linien in der Timeline. Es werden KEINE Clips erzeugt, "
+            "ersetzt oder verschoben und nichts gespeichert — zum tatsaechlichen "
+            "Schneiden 'Auto-Edit' verwenden."
         )
         self.btn_regenerate.setAccessibleName("Timeline mit neuen Pacing-Einstellungen generieren")
         self.btn_regenerate.setStyleSheet(

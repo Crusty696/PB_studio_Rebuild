@@ -15,7 +15,11 @@ _PRESETS = {
     "Techno":     {"cut_rate_index": 2, "energy_reactivity": 70, "breakdown": "halve"},
     "Cinematic":  {"cut_rate_index": 4, "energy_reactivity": 30, "breakdown": "none"},
     "House":      {"cut_rate_index": 3, "energy_reactivity": 50, "breakdown": "halve"},
-    "Festival":   {"cut_rate_index": 1, "energy_reactivity": 90, "breakdown": "halve"},
+    # B-833: Index 0 = 1 Beat. Die Kachel im Empty-State verspricht "1 Beat,
+    # maximaler Druck", und das DB-Preset "Festival" (cut_rate 1.8, "schnellste
+    # Cuts") meint dieselbe Stufe. Index 1 waeren 2 Beat gewesen — langsamer
+    # als versprochen und im Widerspruch zu beiden anderen Quellen.
+    "Festival":   {"cut_rate_index": 0, "energy_reactivity": 90, "breakdown": "halve"},
 }
 
 

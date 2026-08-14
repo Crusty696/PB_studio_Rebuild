@@ -59,14 +59,17 @@ def test_widget_to_profile_then_profile_to_widget():
 def test_d3_initial_sync_widgets_reflect_profile_after_construction():
     """D3: Konstruktor ruft apply_profile am Ende → Widgets matchen Profile."""
     _qapp()
-    profile = PacingProfile.from_preset("Festival")  # cut=1, react=90, brk=halve
+    # B-833: Festival steht auf Combo-Index 0 = "1 Beat". Vorher war es Index 1
+    # (2 Beat) und widersprach damit der eigenen Kachel-Beschriftung
+    # ("Maximaler Druck. 1 Beat") und dem DB-Preset (cut_rate 1.8).
+    profile = PacingProfile.from_preset("Festival")  # cut_rate_index=0, react=90, brk=halve
     cut, style, slider, spin, brk, vibe = _make_widgets()
     PacingProfileBinder(
         profile, cut_rate_combo=cut, style_combo=style,
         reactivity_slider=slider, reactivity_spin=spin,
         breakdown_combo=brk, vibe_input=vibe,
     )
-    assert cut.currentIndex() == 1
+    assert cut.currentIndex() == 0
     assert spin.value() == 90
     assert slider.value() == 90
     assert brk.currentText() == "halve"

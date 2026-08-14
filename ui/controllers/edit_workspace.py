@@ -21,6 +21,54 @@ from workers import AutoEditWorker
 from ui.base_component import PBComponent
 
 logger = logging.getLogger(__name__)
+
+
+# B-830: `StylePreset.cut_rate` ist ein FAKTOR (Defaults 0.3 bis 1.8) — hoeher
+# heisst schnellere Cuts. Die Combo fuehrt dagegen BEAT-ABSTAENDE (1/2/4/8/16)
+# — hoeher heisst langsamere Cuts. Beides sind gegenlaeufige Groessen.
+#
+# Vorher wurde der numerisch naechste Beat-Wert gesucht
+# (`min(keys, key=lambda x: abs(x - cut_rate))`). Damit landete alles ausser
+# Festival auf "1 Beat" und Festival auf "2 Beat": Ambient (0.3,
+# "atmosphaerisch, lange Clips") bekam schnellere Cuts als Festival (1.8,
+# "Maximum Energy, schnellste Cuts"). Reihenfolge umgekehrt, neun Presets auf
+# zwei Stufen gestaucht.
+#
+# Die Schwellen sind so gewaehlt, dass jedes Default-Preset zu seiner eigenen
+# Beschreibung passt:
+#   Ambient 0.3 / Cinematic 0.5 -> 16 Beat  ("lange Clips", "filmisch")
+#   Hip-Hop 0.6 / Minimal 0.7   ->  8 Beat  ("langsame Cuts", "reduziert")
+#   House 0.8 / Standard 1.0    ->  4 Beat  ("mittleres Tempo", "ausgewogen")
+#   Techno 1.2                  ->  2 Beat  ("schnelle Cuts")
+#   Drum & Bass 1.5 / Festival 1.8 -> 1 Beat ("schnell", "schnellste Cuts")
+_CUT_RATE_SCHWELLEN: tuple[tuple[float, int], ...] = (
+    (1.35, 0),   # >= 1.35  ->  1 Beat
+    (1.10, 1),   # >= 1.10  ->  2 Beat
+    (0.75, 2),   # >= 0.75  ->  4 Beat
+    (0.55, 3),   # >= 0.55  ->  8 Beat
+)
+_CUT_RATE_LANGSAMSTER_INDEX = 4  # 16 Beat
+_CUT_RATE_FALLBACK_INDEX = 2     # 4 Beat, die neutrale Mitte
+
+
+def cut_rate_faktor_zu_beat_index(cut_rate: float | None) -> int:
+    """Bildet den Preset-Faktor auf den Combo-Index des Beat-Abstands ab.
+
+    Hoehere ``cut_rate`` ergibt einen kleineren Index, also kuerzere Abstaende
+    und damit schnellere Cuts. Unbrauchbare Werte (``None``, negativ, nicht
+    numerisch) landen auf der neutralen Mitte statt am Rand — ein kaputtes
+    Preset soll nicht stillschweigend das schnellste oder langsamste werden.
+    """
+    try:
+        wert = float(cut_rate)
+    except (TypeError, ValueError):
+        return _CUT_RATE_FALLBACK_INDEX
+    if wert <= 0:
+        return _CUT_RATE_FALLBACK_INDEX
+    for schwelle, index in _CUT_RATE_SCHWELLEN:
+        if wert >= schwelle:
+            return index
+    return _CUT_RATE_LANGSAMSTER_INDEX
 task_manager = TaskManagerProxy()
 
 class EditWorkspaceController(PBComponent):
@@ -1180,9 +1228,10 @@ class EditWorkspaceController(PBComponent):
                 preset = session.query(StylePreset).filter_by(name=preset_name).first()
                 if not preset:
                     return
-                cut_rate_map = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4}
-                closest_beat = min(cut_rate_map.keys(), key=lambda x: abs(x - preset.cut_rate))
-                pacing_tab.cut_rate_combo.setCurrentIndex(cut_rate_map.get(closest_beat, 2))
+                # B-830: cut_rate ist ein Faktor, kein Beat-Abstand.
+                pacing_tab.cut_rate_combo.setCurrentIndex(
+                    cut_rate_faktor_zu_beat_index(preset.cut_rate)
+                )
                 pacing_tab.reactivity_slider.setValue(int(preset.energy_reactivity * 100))
                 breakdown_map = {"halve": 0, "16beat": 1, "none": 2}
                 pacing_tab.breakdown_combo.setCurrentIndex(breakdown_map.get(preset.breakdown_behavior, 0))

@@ -174,17 +174,27 @@ def _compute_effective_step(
     reactivity = energy_reactivity / 100.0
     energy_step = effective
 
-    # F-007 Fix: Warne bei fehlenden Energy-Daten, nutze 0.5 als Fallback
-    if reactivity > 0 and beat_index < len(energy_per_beat):
+    # B-831: Reaktivitaet 0 heisst "die Energie beeinflusst nichts". Vorher
+    # wurde in diesem Fall `energy = 0.5` gesetzt; damit griff weiter unten der
+    # Mittelband-Zweig `effective * 1.5` und der Schnitt wurde LANGSAMER — also
+    # genau gegenteilig zur Beschriftung des Reglers.
+    if reactivity <= 0:
+        energy = None
+    elif beat_index < len(energy_per_beat):
         energy = energy_per_beat[beat_index]
     else:
+        # F-007 Fix: Warne bei fehlenden Energy-Daten, nutze 0.5 als Fallback
         energy = 0.5
-        if reactivity > 0:
-            logger.warning("F-007: Energy-Fallback 0.5 @ beat %d (reactivity=%.2f, energy_per_beat_len=%d)",
-                          beat_index, reactivity, len(energy_per_beat))
+        logger.warning("F-007: Energy-Fallback 0.5 @ beat %d (reactivity=%.2f, energy_per_beat_len=%d)",
+                      beat_index, reactivity, len(energy_per_beat))
+
+    # B-831: `energy is None` bedeutet Reaktivitaet 0 — alle Energie-Zweige
+    # werden uebersprungen, `energy_step` bleibt gleich `effective`.
+    if energy is None:
+        pass
 
     # Hohe Energie (>0.7): Step reduzieren (mehr Cuts)
-    if energy > 0.7:
+    elif energy > 0.7:
         if high_energy_behavior == "force1":
             energy_step = 1
         elif high_energy_behavior == "force16":
@@ -207,7 +217,13 @@ def _compute_effective_step(
 
     # Mittlere Energie (0.3-0.7): Leichte Modulation
     elif 0.3 <= energy <= 0.5:
-        energy_step = min(16, int(effective * 1.5))
+        # B-831: Der Faktor war fest auf 1.5 verdrahtet und ignorierte den
+        # Regler komplett — 50 % und 100 % Reaktivitaet lieferten hier
+        # messbar dasselbe Ergebnis. Jetzt skaliert die Modulation mit:
+        # 0 % waere keine Modulation (wird oben schon abgefangen),
+        # 100 % ergibt weiterhin die bisherigen 1.5.
+        modulation = 1.0 + 0.5 * reactivity
+        energy_step = min(16, max(1, int(round(effective * modulation))))
 
     # Section + Energy blenden: 60% Section, 40% Energy
     if section_type and section_type in SECTION_PACING_MAP:
@@ -225,7 +241,13 @@ def _compute_effective_step(
 
     # 4. Motion-Adjusted Step (PhD-Spec Schritt 3: combined_intensity)
     # Kombiniert Audio-Energie mit Video-Motion-Score
-    combined_intensity = energy * 0.6 + avg_motion * 0.4
+    #
+    # B-831: Bei Reaktivitaet 0 ist `energy` None. Hier wird bewusst weiterhin
+    # mit 0.5 gerechnet — exakt wie vor dem Fix. Der Motion-Block ist ein
+    # eigener Mechanismus und war nicht Teil des Defekts; ihn mit zu aendern
+    # waere eine Verhaltensaenderung ohne Auftrag.
+    energie_fuer_motion = 0.5 if energy is None else energy
+    combined_intensity = energie_fuer_motion * 0.6 + avg_motion * 0.4
     if combined_intensity >= 0.8:
         effective = max(1, effective // 4)
     elif combined_intensity >= 0.6:

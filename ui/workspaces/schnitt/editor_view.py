@@ -92,8 +92,15 @@ class SchnittEditorView(QWidget):
         self.btn_generate.setFixedHeight(24)
         self.btn_generate.setMaximumWidth(200)
         self.btn_generate.setAccessibleName("Timeline generieren")
+        # B-833: Der Tooltip versprach eine neu generierte Timeline. Der Button
+        # zeichnet aber nur Beat-Marker und Cut-Linien — er legt keine Clips an
+        # und schreibt nichts in die Datenbank. Clips entstehen ausschliesslich
+        # ueber Auto-Edit. Der Text sagt jetzt, was wirklich passiert.
         self.btn_generate.setToolTip(
-            "Timeline aus Audio, Videoauswahl und Pacing-Einstellungen neu generieren."
+            "Zeigt die Schnittpunkte aus Audio und Pacing-Einstellungen als "
+            "Linien in der Timeline an — eine Vorschau.\n"
+            "Es werden dabei KEINE Clips erzeugt und nichts gespeichert. "
+            "Zum tatsaechlichen Schneiden 'Auto-Edit' verwenden."
         )
         row.addWidget(self.btn_generate)
 

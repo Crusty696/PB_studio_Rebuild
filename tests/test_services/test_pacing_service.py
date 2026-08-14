@@ -193,7 +193,12 @@ class TestComputeEffectiveStep:
         """high_energy_behavior='force1' with energy_reactivity=0 falls back to energy=0.5.
 
         Since reactivity is 0, the energy_per_beat data is not consulted, energy
-        defaults to 0.5 (mid-range), and the 0.3-0.5 band applies: step = int(8*1.5) = 12.
+        B-831: Frueher wurde bei ``energy_reactivity=0`` die Energie auf 0.5
+        gesetzt, wodurch das Mittelband ``effective * 1.5`` griff und aus 8
+        eine 12 wurde — der Regler machte auf null also LANGSAMER statt nichts.
+        Reaktivitaet 0 heisst jetzt: die Energie beeinflusst nichts, der
+        base_step bleibt stehen. ``high_energy_behavior`` ist ein
+        Energie-Zweig und wird damit ebenfalls nicht mehr erreicht.
         """
         from services.pacing_service import _compute_effective_step
 
@@ -208,17 +213,17 @@ class TestComputeEffectiveStep:
             pacing_curve=None,
             high_energy_behavior="force1",
         )
-        assert step == 12
+        assert step == 8
 
     def test_high_energy_peak_time(self):
-        """high_energy_behavior='peak-time' with energy_reactivity=0 falls back to energy=0.5.
+        """high_energy_behavior='peak-time' bei energy_reactivity=0.
 
-        Since reactivity is 0, energy data is not consulted, energy defaults to 0.5
-        (mid-range), and the 0.3-0.5 band applies: step = int(8*1.5) = 12.
+        B-831: siehe test_high_energy_force1 — bei Reaktivitaet 0 greift kein
+        Energie-Zweig mehr, der base_step bleibt unveraendert.
         """
         from services.pacing_service import _compute_effective_step
 
-        # energy_reactivity=0 -> energy falls back to 0.5 -> mid-range -> step 12
+        # B-831: reactivity=0 -> keine Energie-Modulation -> base_step
         step1 = _compute_effective_step(
             base_step=8,
             energy_per_beat=[0.9],
@@ -226,9 +231,9 @@ class TestComputeEffectiveStep:
             beat_index=0, beat_time=1.0, total_duration=60.0,
             energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
         )
-        assert step1 == 12
+        assert step1 == 8
 
-        # Same logic: reactivity=0 -> energy=0.5 -> mid-range -> step 12
+        # B-831: gleiche Begruendung — reactivity=0 laesst den base_step stehen
         step2 = _compute_effective_step(
             base_step=8,
             energy_per_beat=[0.75],
@@ -236,7 +241,7 @@ class TestComputeEffectiveStep:
             beat_index=0, beat_time=1.0, total_duration=60.0,
             energy_reactivity=0, breakdown_behavior="none", pacing_curve=None,
         )
-        assert step2 == 12
+        assert step2 == 8
 
     def test_low_energy_with_halve_doubles_step(self):
         """Niedrige Energie (<0.3) mit halve verdoppelt den Schritt."""
@@ -273,8 +278,14 @@ class TestComputeEffectiveStep:
     def test_no_energy_data_returns_base_step(self):
         """Ohne Energie-Daten faellt energy auf 0.5 zurueck.
 
-        With empty energy_per_beat, energy defaults to 0.5. The 0.3-0.5 band
-        applies: step = int(4 * 1.5) = 6. Motion combined_intensity = 0.5 (no change).
+        Der Fallback selbst bleibt: fehlen die Energiedaten, wird mit 0.5
+        weitergerechnet und das Mittelband greift.
+
+        B-831: Der Faktor dieses Mittelbands war fest auf 1.5 verdrahtet und
+        ignorierte den Reaktivitaets-Regler — 50 % und 100 % lieferten hier
+        dasselbe Ergebnis. Jetzt skaliert er mit: ``1.0 + 0.5 * reactivity``.
+        Bei den hier gesetzten 50 % ergibt das ``4 * 1.25 = 5`` statt vorher 6;
+        bei 100 % bleibt es wie bisher bei 6.
         """
         from services.pacing_service import _compute_effective_step
 
@@ -288,7 +299,20 @@ class TestComputeEffectiveStep:
             breakdown_behavior="halve",
             pacing_curve=None,
         )
-        assert step == 6
+        assert step == 5
+
+        # Gegenprobe zu B-831: bei voller Reaktivitaet bleibt es beim alten Wert.
+        step_voll = _compute_effective_step(
+            base_step=4,
+            beat_index=5,
+            beat_time=5.0,
+            total_duration=60.0,
+            energy_per_beat=[],
+            energy_reactivity=100,
+            breakdown_behavior="halve",
+            pacing_curve=None,
+        )
+        assert step_voll == 6
 
     def test_result_is_always_at_least_1(self):
         """Schritt-Wert ist immer >= 1."""
