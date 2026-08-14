@@ -143,7 +143,10 @@ class EditWorkspaceController(PBComponent):
 
         audio_id = self.window.audio_combo.currentData()
         video_id = self.window.video_combo.currentData()
-        densities = self.window.pacing_curve.get_all_densities()
+        # B-829: nur eine wirklich gezeichnete Kurve gilt als Vorgabe. Vorher
+        # ging der Ruhezustand [0.5]*200 als `manual_density_curve` durch und
+        # ueberstimmte die Cut-Rate-Wahl.
+        densities = self.window.pacing_curve.get_manual_override()
         cut_rate_map = {0: 90, 1: 70, 2: 50, 3: 30, 4: 10}
         tempo_val = cut_rate_map.get(self.window.cut_rate_combo.currentIndex(), 50)
         reactivity = self.window.energy_reactivity_spin.value()
@@ -467,7 +470,8 @@ class EditWorkspaceController(PBComponent):
             energy_reactivity=self.window.energy_reactivity_spin.value(),
             breakdown_behavior=breakdown,
             vibe=self.window.vibe_input.text(),
-            manual_density_curve=self.window.pacing_curve.get_all_densities(),
+            # B-829: siehe _generate_timeline_impl — nur gezeichnete Kurven.
+            manual_density_curve=self.window.pacing_curve.get_manual_override(),
             anchors=anchors,
             use_llm_strategist=_llm_strategist,
             use_llm_pacing=_llm_pacing,

@@ -19,6 +19,14 @@ class PacingCurveWidget(QWidget):
         )
         self._num_samples = 200
         self._density = [0.5] * self._num_samples
+        # B-829: Der Ruhezustand [0.5]*200 ist KEINE Nutzereingabe. Wurde er
+        # trotzdem als `manual_density_curve` weitergereicht, gewann er in
+        # `_compute_effective_step` gegen die Cut-Rate-Wahl: `0.5` ergibt
+        # `curve_step=2`, und `min(base_step, 2)` machte aus 4, 8 und 16 jeweils
+        # 2. Vier von fuenf UI-Stufen lieferten damit dasselbe Ergebnis, und
+        # nebenbei schaltete die Kurve die Section-Logik ab.
+        # Deshalb merken, ob wirklich gezeichnet wurde.
+        self._user_edited = False
         self._drawing = False
         self._total_duration = 60.0
         self.setCursor(Qt.CursorShape.CrossCursor)
@@ -30,8 +38,26 @@ class PacingCurveWidget(QWidget):
 
     def reset_curve(self):
         self._density = [0.5] * self._num_samples
+        # B-829: Zuruecksetzen heisst auch, dass keine Nutzervorgabe mehr
+        # existiert — sonst bliebe die flache Kurve als Override haengen und
+        # der Cut-Rate-Regler waere weiterhin wirkungslos.
+        self._user_edited = False
         self.curve_changed.emit()
         self.update()
+
+    def get_manual_override(self) -> list[float] | None:
+        """B-829: Die Kurve nur dann als manuelle Vorgabe liefern.
+
+        Gibt ``None`` zurueck, solange der Nutzer nichts gezeichnet hat. Nur so
+        bleibt die Cut-Rate-Wahl wirksam; eine tatsaechlich gezeichnete Kurve
+        behaelt wie vorgesehen Vorrang vor allen anderen Pacing-Parametern.
+
+        ``get_all_densities()`` bleibt unveraendert und liefert weiterhin immer
+        die rohen Werte — die Zeichenflaeche selbst braucht sie.
+        """
+        if not self._user_edited:
+            return None
+        return list(self._density)
 
     def get_density_at(self, time_sec: float) -> float:
         if self._total_duration <= 0:
@@ -132,6 +158,8 @@ class PacingCurveWidget(QWidget):
         y_ratio = max(0.0, min(1.0, 1.0 - (pos.y() / h)))
         idx = int(x_ratio * (self._num_samples - 1))
         idx = max(0, min(idx, self._num_samples - 1))
+        # B-829: ab hier ist es eine echte Nutzervorgabe.
+        self._user_edited = True
         # Wider brush radius for organic, smooth drawing
         radius = 6
         for offset in range(-radius, radius + 1):
