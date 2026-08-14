@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 # UNIQUE-Constraint scheitern (read-then-insert-Race -> IntegrityError).
 _UQ_COLS = ["media_type", "media_id", "step_key"]
 
+# B-820: Ein User-Cancel wird als status='error' plus dieser error_message
+# modelliert (mark_cancelled). Der Marker ist die einzige Unterscheidung
+# zwischen "abgebrochen" und "fehlgeschlagen" — beides liegt sonst als
+# status='error' in derselben Spalte. _ensure_status_done() muss ihn kennen,
+# sonst hebt der Reconciler abgebrochene Schritte wieder auf 'done'.
+CANCELLED_MARKER = "cancelled"
+
 # B-253: Pub/Sub fuer Analysis-Completion-Events. Loest das UI-Refresh-Loch
 # wenn eine Pipeline ueber das ActionRegistry / agent_command_signal /
 # auto_workflow laeuft (statt ueber den UI-Button-Pfad). Ohne diesen Hook
@@ -282,13 +289,13 @@ def mark_cancelled(media_type: str, media_id: int, step_key: str) -> None:
             step_key=step_key,
             status="error",
             started_at=now,
-            error_message="cancelled",
+            error_message=CANCELLED_MARKER,
         ).on_conflict_do_update(
             index_elements=_UQ_COLS,
             set_=dict(
                 status="error",
                 completed_at=None,
-                error_message="cancelled",
+                error_message=CANCELLED_MARKER,
             ),
         )
         session.execute(stmt)
@@ -721,7 +728,21 @@ def _ensure_status_done(
     value_summary: dict[str, Any],
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
 ) -> None:
-    """Helper: Setzt status='done' nur wenn noch kein Eintrag existiert."""
+    """Helper: Hebt einen Schritt auf status='done', wenn die DB es belegt.
+
+    Legt einen fehlenden Eintrag an und reconciled einen vorhandenen, der noch
+    nicht 'done' ist (B-461: ein echter Fehler wie ein FFmpeg-Timeout gilt als
+    behoben, sobald der Wert nachweislich in der DB steht).
+
+    B-820: Ausgenommen ist der bewusste User-Cancel
+    (``status='error'`` plus ``error_message=CANCELLED_MARKER``). Eine Stage
+    persistiert ihr Artefakt, bevor der Cancel-Check greift — die blosse
+    Existenz des Artefakts belegt also NICHT, dass der Schritt regulaer zu Ende
+    lief. Ohne diese Ausnahme wuerde der naechste Status-Refresh den Abbruch
+    stillschweigend in einen Erfolg umdeuten und die ``error_message``
+    loeschen; der Nutzer saehe 'fertig' fuer etwas, das er selbst abgebrochen
+    hat, und verloere das Retry-Angebot.
+    """
     key = (media_id, step_key)
     if status_entries is None:
         stmt = select(AnalysisStatus).where(
@@ -747,6 +768,15 @@ def _ensure_status_done(
         if status_entries is not None:
             status_entries[key] = entry
         logger.info("Inferred status='done' for %s/%d/%s", media_type, media_id, step_key)
+    elif entry.status == "error" and entry.error_message == CANCELLED_MARKER:
+        # B-820: bewusster User-Cancel bleibt stehen, damit der Schritt
+        # retry-bar bleibt und die UI nicht faelschlich 'fertig' meldet.
+        logger.debug(
+            "Kept cancelled status for %s/%d/%s (B-820: kein Reconcile auf 'done')",
+            media_type,
+            media_id,
+            step_key,
+        )
     elif entry.status != "done":
         entry.status = "done"
         entry.completed_at = datetime.now(timezone.utc)

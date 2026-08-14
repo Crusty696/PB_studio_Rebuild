@@ -2,7 +2,35 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## W3 Audio V2 Live-Session / B-820 aktiv 2026-08-14 (newest)
+## B-820 gefixt und live bestaetigt / B-821 aktiv 2026-08-14 (newest)
+
+- **B-820 gefixt**, TDD RED 3/4 -> GREEN 16, breitere Gegenprobe 125 passed,
+  py_compile und Ruff gruen. `_ensure_status_done()` laesst einen bewussten
+  User-Cancel (`status='error'` + `error_message=CANCELLED_MARKER`) jetzt
+  stehen; der B-461-Reconcile-Pfad fuer echte Fehler bleibt erhalten.
+  Der RED-Lauf bewies nebenbei, dass B-820 Audio UND Video betraf.
+- **Live bestaetigt** in Run `20260814T0530-w3-b820-verify`: Cancel blieb
+  `error`/`cancelled`/`completed_at=None`, kein `Reconciled status='done'`
+  mehr. Vorschlag `fixed`, Marker bleibt Userrecht.
+- **W3 weiter abgearbeitet**: Retry nach Cancel pass (10 Schritte `done`,
+  `bpm_detection` sauber von `cancelled` auf `done`), Neustartvergleich pass
+  (alle 10 Schritte ueberleben den Neustart unveraendert).
+- **Offen aus W3: nur noch "fehlendes Stem"**. Drei Klickversuche auf den
+  `Stems`-Button loesten nichts aus. Wahrscheinlichste Erklaerung ist ein nicht
+  angekommener Koordinatenklick (fremdes Fenster im Vordergrund, `focus`
+  schlug mit `Error code from Windows: 0` fehl) — nicht bewiesen.
+- **Zwei neue Bugs**: B-821 (medium, Analyse-Button nach Cancel tot, meldet
+  nichts ins Logfile) und B-822 (high, `audio_tracks.stem_*_path` zeigt aus
+  dem isolierten Projekt heraus in einen Host-Ordner; Lesezugriff belegt,
+  Schreibzugriff nicht provoziert).
+- **Requirements nachgezogen**: `pywinauto`, `pyautogui`, `pygetwindow`, `mss`
+  sind jetzt in `requirements-py310-cu113.txt` gepinnt, mit Begruendung im
+  Kommentar. `environment.yml` zieht die Datei bereits.
+- Hostschutz beider Runs: Pre-/Post-Manifest `pass`, alle fuenf Host-/Repo-DBs
+  byte-identisch, graceful Shutdown, 0 Prozessreste.
+- Naechste einzige Task: `ROOT-CAUSE / B-821`, danach B-822, dann W3 schliessen.
+
+## W3 Audio V2 Live-Session / B-820 gefunden 2026-08-14
 
 - Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`, isolierter Root
   `C:\Users\David_Lochmann\AppData\Local\PBStudioW3AudioV2\`, Projekt als

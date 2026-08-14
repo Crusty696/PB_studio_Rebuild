@@ -132,6 +132,19 @@ ruff>=0.9.0,<1.0.0
 # fuer Pre-Commit/Pre-Push.
 bandit>=1.8.0,<2.0.0
 
+# === GUI-Automation fuer echte End-to-End-Tests ===
+# B-820/W3 2026-08-14: Diese vier fehlten im conda-env und standen in KEINER
+# Requirements-Datei — sie lebten nur ad-hoc im inzwischen entfernten
+# `.venv310`. Nach dem Neuaufbau der Umgebung war `tests/gui_harness.py` damit
+# unbrauchbar: wait-window, list-windows, click, drag, type und click-element
+# scheitern alle mit ModuleNotFoundError, und ein GUI-Live-Test laesst sich
+# nicht mehr fahren. Deshalb hier gepinnt.
+# Nur Test-Tooling: kein Produktcode importiert diese Pakete.
+pywinauto>=0.6.9,<0.7.0
+pyautogui>=0.9.54,<1.0.0
+pygetwindow>=0.0.9,<0.1.0
+mss>=10.0.0,<11.0.0
+
 # === Build / Packaging (release gate) ===
 # Active Windows onedir build path for PB Studio v0.5.0.
 pyinstaller==6.20.0

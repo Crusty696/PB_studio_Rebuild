@@ -130,10 +130,25 @@ Jeder Flow-Eintrag hat:
   nach 10915 ms freigegeben, Worker meldet INFO statt ERROR, B-724-Vertrag
   greift. Latenz vom Cancel-Klick bis Stage-Ende rund 6 s (der Cancel-Check
   liegt am Stage-Ende, nicht in der Chunk-Schleife der `beat_grid`-Stage).
-- **ACHTUNG B-820:** Der Cancel ist im Log korrekt, aber **nicht persistent**.
-  Nach dem nächsten Status-Refresh steht der Schritt in `analysis_status`
-  wieder auf `status='done'`. Bei Cancel-Verifikation deshalb IMMER die DB
-  nach dem Refresh prüfen, nie nur die Logzeile `Analysis cancelled`.
+- **B-820 (gefixt 2026-08-14):** Der Cancel war früher im Log korrekt, aber
+  nicht persistent — der Status-Reconciler hob ihn sofort wieder auf `done`.
+  Seit dem Fix bleibt `status='error'` / `error_message='cancelled'` stehen.
+  Bei Cancel-Verifikation trotzdem IMMER die DB **nach** dem nächsten
+  Status-Refresh prüfen, nie nur die Logzeile `Analysis cancelled`.
+- **ACHTUNG B-821:** Nach einem Cancel wirkt der Analyse-Button tot. Ein
+  erneuter Klick löst nichts aus und schreibt **keine einzige Logzeile**.
+  Abhilfe im Test: vor jedem Folgeklick die Trackzeile neu anklicken. Verdacht:
+  `_v2_finalize()` refresht die Tabelle und verwirft dabei die Selektion.
+- **Klicks kommen nur im Vordergrund an.** `click-element` meldet
+  `method: click_input`, also einen echten Koordinatenklick — liegt ein
+  fremdes Fenster über der App, bekommt dieses den Klick. Vor jeder Sequenz
+  `focus --title "<Fenstertitel>"` aufrufen **und das Ergebnis prüfen**.
+  `focus failed: Error code from Windows: 0` bedeutet: nicht weiterklicken.
+  Bleibt nach einem Klick jede Logzeile aus, zuerst „Klick kam nicht an"
+  ausschließen, bevor ein App-Defekt behauptet wird.
+- **Namen sind nicht eindeutig.** `--name-re "^Stems$"` trifft zuerst den
+  Tabellen-**Header**, nicht den Button. Immer `--control-type Button`
+  mitgeben.
 - **Voraussetzung Umgebung:** `pywinauto`, `pyautogui`, `pygetwindow`, `mss`
   müssen im genutzten Python liegen. Im conda-env `pb-studio` fehlten sie am
   2026-08-14 und stehen in keiner Requirements-Datei.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d5c2002e36144bca917206f891f28aea",
+  "recorded_at": "2026-08-14T03:54:08+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Mehrere GUI-Klicks per gui_harness blieben wirkungslos: kein Task, keine einzige Logzeile, obwohl der Button per UIA als visible+enabled gemeldet wurde und der Prozess Responding=True war.",
+  "cause": "gui_harness click-element faellt auf 'click_input' zurueck, also einen echten Mausklick an Bildschirmkoordinaten. Lag ein fremdes Fenster deckungsgleich ueber der App, bekam dieses den Klick. Zusaetzlich meldet die App einen leeren Auswahlzustand nur in ein Konsolen-Widget und nicht ins Logfile, sodass ein verworfener Klick von einem nie angekommenen Klick nicht unterscheidbar ist.",
+  "rule": "Vor jeder GUI-Klicksequenz den Fensterfokus explizit setzen UND das Ergebnis pruefen; schlaegt focus fehl, keine Koordinatenklicks werten. Bleibt nach einem Klick jede Logzeile aus, zuerst 'Klick kam nicht an' ausschliessen, bevor ein App-Defekt behauptet wird.",
+  "applies_to": "GUI-Live-Tests mit gui_harness, jede pywinauto-Automation auf einem Desktop mit weiteren Fenstern"
+}

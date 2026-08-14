@@ -22,9 +22,26 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-820 Cancel-Status wird vom Status-Reconciler auf done
-überschrieben`. Danach W3 fortsetzen mit Retry, Neustartvergleich und
-fehlendem Stem.
+`ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot`. Er blockiert den
+letzten offenen W3-Teilschritt „fehlendes Stem". Danach B-822
+(Stem-Pfade verlassen den Projektordner), dann W3 abschliessen.
+
+B-820 ist gefixt und live bestätigt (Run `20260814T0530-w3-b820-verify`):
+`_ensure_status_done()` lässt einen bewussten User-Cancel jetzt stehen, der
+B-461-Reconcile-Pfad für echte Fehler bleibt erhalten. RED 3/4 → GREEN 16,
+breitere Gegenprobe 125 passed. Live: Cancel blieb `error`/`cancelled` und
+wurde erst durch den bewussten Retry auf `done` aufgelöst. `fixed` bleibt
+Userrecht.
+
+W3-Teilschritte live pass: App-Start und Systemcheck, Projekt-Load, Fehlerpfad
+bei fehlender Quelldatei, Cancel-Mechanik, Cancel-Persistenz nach Fix, Retry
+(10 Schritte `done`), Neustartvergleich, Shutdown und Hostschutz. Beide Runs
+mit Pre-/Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch.
+
+Offen: „fehlendes Stem" — drei Klickversuche auf den `Stems`-Button lösten
+nichts aus. Wahrscheinlichste Erklärung ist ein nicht angekommener
+Koordinatenklick (fremdes Fenster im Vordergrund, `focus` schlug fehl), nicht
+bewiesen. Siehe B-821.
 
 W3-Live-Session 2026-08-14, Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`:
 App-Start, Systemcheck, Projekt-Load im isolierten Scope, Fehlerpfad bei

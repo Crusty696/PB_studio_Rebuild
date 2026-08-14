@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 05:10 Europe/Zurich
+Letztes Update: 2026-08-14 05:58 Europe/Zurich
 
-Gesamtfortschritt: **ca. 23–25 %**
+Gesamtfortschritt: **ca. 25–27 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-820 Cancel-Status wird vom Status-Reconciler auf done überschrieben**
+Aktiv: **ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **30 %** | W1/W2 live-pass; B-758 auf HEAD 22f96b8 live gruen; W3 Start/Load/Cancel-Mechanik/Shutdown pass, aber durch B-820 gestoppt (Retry, Neustart, fehlendes Stem offen) |
+| STAB-2 Acht Live-Workflows | **35 %** | W1/W2 live-pass; B-758 live gruen; W3 pass fuer Start, Load, Fehlerpfad, Cancel-Mechanik, Cancel-Persistenz (nach B-820-Fix), Retry, Neustartvergleich, Shutdown/Hostschutz. Offen nur "fehlendes Stem" (B-821 blockiert) |
 | STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
