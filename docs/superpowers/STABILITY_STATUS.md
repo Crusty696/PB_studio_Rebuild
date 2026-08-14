@@ -1,16 +1,16 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 05:58 Europe/Zurich
+Letztes Update: 2026-08-14 06:10 Europe/Zurich
 
-Gesamtfortschritt: **ca. 25–27 %**
+Gesamtfortschritt: **ca. 27–29 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot**
+Aktiv: **ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen Host-Ordner**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **35 %** | W1/W2 live-pass; B-758 live gruen; W3 pass fuer Start, Load, Fehlerpfad, Cancel-Mechanik, Cancel-Persistenz (nach B-820-Fix), Retry, Neustartvergleich, Shutdown/Hostschutz. Offen nur "fehlendes Stem" (B-821 blockiert) |
+| STAB-2 Acht Live-Workflows | **37,5 %** | W1/W2/W3 live-pass (3/8); B-758 live gruen. W3 komplett durchlaufen inkl. Cancel, Cancel-Persistenz nach B-820-Fix, Retry, Neustartvergleich und Stem-Selbstheilung. Usermarker offen |
 | STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
@@ -96,10 +96,30 @@ Aktiv: **ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot**
 - W2 Finalmanifest: 15/15 geschützte Pre-Pfade unverändert, 18/18 Quickcheck,
   Host-Settings-SHA unverändert, PB-/Ollama-Prozesse 0. W2 live-pass.
 
+- B-819 gefixt (`532165f`), per Merge `22f96b8` nach `main` integriert;
+  4 Fokus-Tests plus Live-Manifest-PASS. Usermarker offen.
+- B-758 auf Current HEAD selbst live belegt: CUDA available true,
+  GTX 1060 6143 MB, kein FAIL-Modal. Root Cause war extern (HotPlug/TDR).
+- W3 Audio V2 komplett live durchlaufen (2026-08-14, drei Runs):
+  App-Start, Projekt-Load, Fehlerpfad fehlende Quelldatei, Cancel-Mechanik,
+  Cancel-Persistenz nach B-820-Fix, Retry (10 Schritte `done`),
+  Neustartvergleich und Stem-Selbstheilung (`htdemucs` auf `cuda:0`,
+  VRAM 4.91/3.39 GB, 4 Stems neu). Alle Pre-/Post-Manifeste `pass`,
+  fünf Host-/Repo-DBs byte-identisch, Host-Stems unverändert, 0 Prozessreste.
+  Usermarker offen.
+- B-820 gefixt und live bestätigt (`f46d2eb`): ein User-Cancel überlebt den
+  Status-Reconciler. RED 3/4 → GREEN 16, breitere Gegenprobe 125 passed.
+- Neu offen: B-822 (high, Stem-Pfade zeigen aus dem Projekt heraus in einen
+  Host-Ordner) und B-821 (low, leerer Auswahlzustand wird nur ins
+  Konsolen-Widget gemeldet, nicht ins Logfile). B-821 war zunaechst als
+  "Button nach Cancel tot" erfasst; der nachgeholte Stem-Test entlastete das
+  Symptom weitgehend — die fruehen Fehlklicks waren nicht zugestellt.
+
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
-Danach B-758-Manifest-Recheck und W3 Retry/Neustart/fehlendes Stem.
+`ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen
+Host-Ordner`. Danach B-821 (low), dann W4 Videoanalyse inklusive defektem
+Clip und Reanalyse.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und

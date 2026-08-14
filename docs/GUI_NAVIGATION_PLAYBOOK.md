@@ -149,6 +149,29 @@ Jeder Flow-Eintrag hat:
 - **Namen sind nicht eindeutig.** `--name-re "^Stems$"` trifft zuerst den
   Tabellen-**Header**, nicht den Button. Immer `--control-type Button`
   mitgeben.
+- **Trackauswahl robuster per UIA statt Koordinate:**
+  `click-element --name-re "^<Tracktitel>$"` trifft das `DataItem` der Zeile.
+  Danach mit `find-element --name-re "(?i)^Audio: "` pruefen, welcher Track im
+  Panel ANALYSE-STATUS wirklich aktiv ist.
+
+### 2.4b Stem-Selbstheilung bei fehlendem Artefakt — verifiziert 2026-08-14
+- **Ziel:** Pruefen, ob die App ein geloeschtes Stem-File erkennt, obwohl
+  `analysis_status` fuer `stem_separation` auf `done` steht.
+- **Aufbau:** Eine der vier `.wav` unter
+  `<projekt>\storage\stems\htdemucs\<track>\` loeschen (Backup anlegen!),
+  App starten, Projekt oeffnen, Track waehlen.
+- **Schritt:** Button `Stems`
+  (`auto_id="workflow_card.btn_secondary"`, `--control-type Button`).
+- **Live-Befund 2026-08-14:** Ein Klick genuegt. Die App separiert vollstaendig
+  neu — `[StemSeparator] Modell 'htdemucs' geladen auf cuda:0`, 2 Chunks fuer
+  45 s Audio, VRAM frei vor/nach 4.91/3.39 GB, alle VIER Stems werden neu
+  geschrieben, danach `Stem-SNR: ...` und
+  `Analysis completed: audio/<id>/stem_separation (summary: {'stems': 4})`.
+  Dauer rund 15 s fuer einen 45-s-Track auf der GTX 1060.
+- **Zielpfad:** geschrieben wird in den Projektordner. Achtung, siehe B-822:
+  `audio_tracks.stem_*_path` kann auf einen Ordner AUSSERHALB des Projekts
+  zeigen. Vor einem Stem-Test in isoliertem Scope diese vier Spalten pruefen,
+  sonst droht ein Schreibzugriff ausserhalb der Testgrenze.
 - **Voraussetzung Umgebung:** `pywinauto`, `pyautogui`, `pygetwindow`, `mss`
   müssen im genutzten Python liegen. Im conda-env `pb-studio` fehlten sie am
   2026-08-14 und stehen in keiner Requirements-Datei.

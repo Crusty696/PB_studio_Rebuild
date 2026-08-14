@@ -22,9 +22,15 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot`. Er blockiert den
-letzten offenen W3-Teilschritt „fehlendes Stem". Danach B-822
-(Stem-Pfade verlassen den Projektordner), dann W3 abschliessen.
+`ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen
+Host-Ordner`. Danach B-821 (leerer Auswahlzustand nur im Konsolen-Widget,
+nicht im Logfile), dann W4.
+
+Reihenfolge korrigiert: B-821 war zunächst als nächste Task gesetzt, weil der
+Analyse-Button nach einem Cancel tot wirkte. Der nachgeholte Stem-Test zeigte
+jedoch, dass jeder Klick sofort ankommt, sobald kein fremdes Fenster über der
+App liegt. Das Symptom ist damit weitgehend entlastet und B-821 auf `low`
+gesenkt; B-822 ist der einzige verbliebene High-Befund.
 
 B-820 ist gefixt und live bestätigt (Run `20260814T0530-w3-b820-verify`):
 `_ensure_status_done()` lässt einen bewussten User-Cancel jetzt stehen, der
@@ -33,15 +39,24 @@ breitere Gegenprobe 125 passed. Live: Cancel blieb `error`/`cancelled` und
 wurde erst durch den bewussten Retry auf `done` aufgelöst. `fixed` bleibt
 Userrecht.
 
-W3-Teilschritte live pass: App-Start und Systemcheck, Projekt-Load, Fehlerpfad
-bei fehlender Quelldatei, Cancel-Mechanik, Cancel-Persistenz nach Fix, Retry
-(10 Schritte `done`), Neustartvergleich, Shutdown und Hostschutz. Beide Runs
-mit Pre-/Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch.
+**Alle geplanten W3-Teilschritte sind live durchlaufen**: App-Start und
+Systemcheck, Projekt-Load, Fehlerpfad bei fehlender Quelldatei,
+Cancel-Mechanik, Cancel-Persistenz nach Fix, Retry (10 Schritte `done`),
+Neustartvergleich, fehlendes Stem und Shutdown/Hostschutz. Alle drei Runs mit
+Pre-/Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch, 0
+Prozessreste.
 
-Offen: „fehlendes Stem" — drei Klickversuche auf den `Stems`-Button lösten
-nichts aus. Wahrscheinlichste Erklärung ist ein nicht angekommener
-Koordinatenklick (fremdes Fenster im Vordergrund, `focus` schlug fehl), nicht
-bewiesen. Siehe B-821.
+Fehlendes Stem (Run `20260814T0610-w3-stem-heal`): `vocals.wav` gelöscht,
+während `stem_separation` auf `done` stand. Die App erkannte das fehlende
+Artefakt und heilte sich durch vollständige Neuseparation auf `cuda:0`
+(htdemucs, 2 Chunks, VRAM 4.91/3.39 GB, alle vier Stems neu geschrieben,
+`Analysis completed ... {'stems': 4}`). Host-Stems unverändert.
+
+Der frühere Fehlschlag lag am Fensterfokus, nicht an der App: ein fremdes
+Fenster lag deckungsgleich über PB Studio und fing die Koordinatenklicks ab.
+Nach dem Minimieren kam der Klick beim ersten Versuch an.
+
+Der `pass`-Marker für W3 als Ganzes ist Userrecht.
 
 W3-Live-Session 2026-08-14, Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`:
 App-Start, Systemcheck, Projekt-Load im isolierten Scope, Fehlerpfad bei

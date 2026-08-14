@@ -1,12 +1,16 @@
 # W3 Audio V2 — Live-Session 2026-08-14
 
-Status: W3 grösstenteils belegt. B-820 gefunden, gefixt und live bestätigt.
-Offen bleibt nur der Teilschritt „fehlendes Stem" (nicht auslösbar, siehe Nachtrag).
-Runs: `20260814T0405-w3-audio-v2` (Run 1) und `20260814T0530-w3-b820-verify` (Run 2)
-HEAD Run 1: `22f96b8` · Baseline Run 2: `3507828` plus B-820-Fix
+Status: **alle geplanten W3-Teilschritte live durchlaufen.** B-820 gefunden,
+gefixt und live bestätigt. Offen bleiben die dabei gefundenen Bugs B-821 und
+B-822. Der `pass`-Marker für W3 als Ganzes ist Userrecht.
 
-> Der Abschnitt bis zur Trennlinie beschreibt Run 1 und den Stand **vor** dem
-> Fix. Der Nachtrag am Ende hält Fix und Run 2 fest.
+Runs: `20260814T0405-w3-audio-v2` (Run 1), `20260814T0530-w3-b820-verify`
+(Run 2), `20260814T0610-w3-stem-heal` (Run 3)
+HEAD Run 1: `22f96b8` · Baseline Run 2: `3507828` + B-820-Fix · Run 3: `f46d2eb`
+
+> Der Abschnitt bis zur ersten Trennlinie beschreibt Run 1 und den Stand
+> **vor** dem Fix. Nachtrag 1 hält Fix und Run 2 fest, Nachtrag 2 den
+> nachgeholten Stem-Test. Die Gesamttabelle steht am Ende.
 
 ## Scope
 
@@ -273,3 +277,75 @@ braucht keine Änderung.
 
 `ROOT-CAUSE / B-821 Analyse-Button wirkt nach Cancel tot` — er blockiert den
 offenen W3-Teilschritt „fehlendes Stem". Danach B-822 und der Rest von W3.
+
+---
+
+# Nachtrag 2 — „fehlendes Stem" nachgeholt, W3 komplett
+
+Run: `20260814T0610-w3-stem-heal`, Baseline `f46d2eb`
+
+Der Teilschritt war zuvor zweimal gescheitert, weil ein fremdes Fenster
+deckungsgleich über der App lag und die Koordinatenklicks abfing. Nachdem der
+Nutzer es minimiert hatte, kam der Klick beim **ersten** Versuch an.
+
+## Aufbau
+
+`vocals.wav` im isolierten Stems-Ordner gelöscht, während `analysis_status`
+für `audio/2/stem_separation` weiterhin auf `done` stand — die DB behauptet
+„fertig", das Artefakt fehlt.
+
+## Ergebnis: pass
+
+```
+06:06:45 [StemSeparator] Modell 'htdemucs' geladen auf cuda:0
+06:06:45 [StemSeparator] Audio: 45.0s, SR=44100, Chunks=2 (je 30s, 2s Overlap)
+06:06:51 [StemSeparator] Chunk 1/2 apply_model fertig: 5.98s, VRAM frei vor/nach: 4.91/3.39 GB
+06:06:52 [StemSeparator] Chunk 2/2 apply_model fertig: 1.29s, VRAM frei vor/nach: 4.37/3.42 GB
+06:06:53 [StemSeparator] Modell entladen, VRAM freigegeben
+06:06:53 [StemSeparator] Gespeichert: drums|bass|other|vocals -> ...\PBStudioW3AudioV2\project\storage\stems\htdemucs\lv3_maceo_45s\
+06:06:57 Stem-SNR: drums=46.9 dB, bass=32.4 dB, vocals=51.5 dB, other=26.5 dB
+06:06:57 Analysis completed: audio/2/stem_separation (summary: {'stems': 4})
+06:06:58 [StemPlayer] 4 Stems geöffnet (Streaming), 1984500 Frames, Dauer=45.0s
+```
+
+Die App erkennt das fehlende Artefakt trotz `done`-Marker und heilt sich durch
+vollständige Neuseparation. Alle vier Dateien liegen wieder da (je 15876088 B).
+GPU-Hartregel eingehalten (`cuda:0`), beide Chunks klar innerhalb der 6 GB.
+
+Ein einziger Klick genügte — B-821 trat hier nicht auf. In diesem Lauf ging
+allerdings auch kein Cancel voraus, der Befund bleibt also gültig.
+
+## Hostschutz
+
+Host-Stems unter `Documents\PB_studio_Rebuild\projects\runde4-s1\` unverändert
+(alle vier Dateien weiterhin Stand 2026-08-11 21:29). Post-Manifest `pass`,
+verändert nur die isolierte Projekt-DB, alle fünf Host-/Repo-DBs
+byte-identisch. Graceful Shutdown, 0 Prozessreste.
+
+## Teil-Entlastung für B-822 — mit Einschränkung
+
+Die Regenerierung schrieb in den **Projektordner**, nicht an einen DB-Pfad
+außerhalb. Das ist ein gutes Zeichen, aber **kein Beweis**: die Stem-Spalten
+zeigten in diesem Lauf bereits auf den Projektordner, weil sie zuvor
+umgeschrieben worden waren. Ob die App bei einem Host-Pfad in der DB ebenfalls
+ins Projekt schriebe, ist ungeprüft. Der Gegentest wurde bewusst nicht
+gefahren, um keinen Schreibzugriff auf Host-Dateien zu riskieren.
+B-822 bleibt offen.
+
+## Gesamtergebnis W3 Audio V2
+
+| Teilschritt | Ergebnis |
+|---|---|
+| App-Start / Systemcheck | **pass** |
+| Projekt-Load im isolierten Scope | **pass** |
+| Fehlende Audio-Quelldatei | **pass** |
+| Audio-V2-Cancel — Mechanik | **pass** |
+| Audio-V2-Cancel — persistierter Status | **pass** (nach B-820-Fix) |
+| Retry | **pass** |
+| Neustartvergleich | **pass** |
+| Fehlendes Stem | **pass** |
+| Shutdown / Hostschutz | **pass** |
+
+**Alle geplanten W3-Teilschritte sind live durchlaufen.** Offen bleiben die
+beiden dabei gefundenen Bugs B-821 und B-822. Der `pass`-Marker für W3 als
+Ganzes ist Userrecht.

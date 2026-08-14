@@ -2,7 +2,31 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-820 gefixt und live bestaetigt / B-821 aktiv 2026-08-14 (newest)
+## W3 Audio V2 komplett durchlaufen 2026-08-14 (newest)
+
+- Der letzte offene Teilschritt **"fehlendes Stem" ist nachgeholt und pass**
+  (Run `20260814T0610-w3-stem-heal`, Baseline `f46d2eb`).
+  `vocals.wav` geloescht, waehrend `stem_separation` auf `done` stand. Die App
+  erkannte das fehlende Artefakt und heilte sich durch vollstaendige
+  Neuseparation: `htdemucs` auf `cuda:0`, 2 Chunks, VRAM frei vor/nach
+  4.91/3.39 GB, alle vier Stems neu geschrieben,
+  `Analysis completed: audio/2/stem_separation (summary: {'stems': 4})`,
+  Stem-SNR berechnet. Ein einziger Klick genuegte.
+- Der fruehere Fehlschlag lag am **Fensterfokus**, nicht an der App: ein
+  fremdes Fenster lag deckungsgleich ueber PB Studio und fing die
+  Koordinatenklicks ab. Nach dem Minimieren kam der Klick sofort an.
+- **Damit sind alle geplanten W3-Teilschritte live durchlaufen.** Alle drei
+  Runs mit Pre-/Post-Manifest `pass`, alle fuenf Host-/Repo-DBs byte-identisch,
+  Host-Stems unveraendert, 0 Prozessreste. Usermarker fuer W3 offen.
+- Teil-Entlastung fuer B-822: die Regenerierung schrieb in den Projektordner.
+  KEIN Beweis — die Stem-Spalten zeigten in diesem Lauf bereits dorthin. Der
+  Gegentest mit Host-Pfad wurde bewusst nicht gefahren. B-822 bleibt offen.
+- **B-821 entlastet und auf `low` gesenkt**: die fruehen Fehlklicks waren nicht
+  zugestellt, nicht von der App verworfen. Es bleibt der Codebefund, dass ein
+  leerer Auswahlzustand nur ins Konsolen-Widget geht und nie ins Logfile.
+- Naechste einzige Task: `ROOT-CAUSE / B-822`, danach B-821, dann W4.
+
+## B-820 gefixt und live bestaetigt 2026-08-14
 
 - **B-820 gefixt**, TDD RED 3/4 -> GREEN 16, breitere Gegenprobe 125 passed,
   py_compile und Ruff gruen. `_ensure_status_done()` laesst einen bewussten

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "31e51e4b9d6c4cb980024dfe19f864c4",
+  "recorded_at": "2026-08-14T04:11:44+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Der W3-Teilschritt 'fehlendes Stem' scheiterte zweimal scheinbar an der App: der Stems-Button loeste nichts aus und schrieb keine Logzeile. Beim dritten Anlauf, nachdem der Nutzer ein ueberlagerndes Fenster minimiert hatte, funktionierte derselbe Klick sofort.",
+  "cause": "gui_harness click-element stellt per click_input einen echten Mausklick an Bildschirmkoordinaten zu. Ein deckungsgleich darueberliegendes Fremdfenster fing die Klicks ab. UIA meldete den Button weiterhin als visible+enabled, weil die Elementabfrage den Z-Order ignoriert - die Erfolgsmeldung des Harness sagt also nichts darueber aus, ob die App den Klick bekam.",
+  "rule": "Eine ausbleibende Reaktion nach einem GUI-Klick ist erst dann ein App-Befund, wenn der Klick nachweislich angekommen ist. Vorher pruefen: liegt das Zielfenster wirklich vorn (list-windows liefert die Z-Order, erstes Element ist vorderstes), und schlug focus fehl? Ein 'ok: true' vom Harness ist kein Zustellbeleg.",
+  "applies_to": "GUI-Live-Tests mit gui_harness, jede pywinauto-Automation, Bugbewertung bei stillen UI-Klicks"
+}
