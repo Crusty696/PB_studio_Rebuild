@@ -158,6 +158,51 @@ def test_doppelte_verbindung_loggt_nur_einmal(qtbot, caplog):
     assert len(_zeilen(caplog)) == 1, "Widget wurde mehrfach verbunden"
 
 
+def test_totes_widget_reisst_die_app_nicht_mit(caplog):
+    """Qt kann das C++-Objekt zerstoeren, waehrend der Wrapper noch feuert.
+
+    Gegenprobe zum Modul-Versprechen "Logging darf NIE die App stoeren": die
+    Wert-Abfrage muss innerhalb des Schutzes liegen, nicht im Lambda-Argument
+    der Signalverbindung.
+    """
+    from services.ui_action_log import _sicher_loggen
+
+    class TotesWidget:
+        def objectName(self):
+            return "tot"
+
+        def currentText(self):
+            raise RuntimeError(
+                "wrapped C/C++ object of type QComboBox has been deleted"
+            )
+
+    widget = TotesWidget()
+    with caplog.at_level(logging.INFO):
+        _sicher_loggen(widget, "COMBO", widget.currentText)  # darf nicht werfen
+
+    assert not _zeilen(caplog), "fuer ein totes Widget darf nichts geloggt werden"
+
+
+def test_slider_ueberspringt_ohne_none_zu_loggen(qtbot, caplog):
+    """Beim Ziehen wird uebersprungen — es darf keine 'None'-Zeile entstehen."""
+    from PySide6.QtWidgets import QSlider
+    from services.ui_action_log import _verbinde
+
+    slider = QSlider()
+    qtbot.addWidget(slider)
+    slider.setRange(0, 100)
+    _verbinde(slider)
+
+    with caplog.at_level(logging.INFO):
+        slider.setSliderDown(True)
+        slider.setValue(30)
+
+    assert not any("None" in z for z in _zeilen(caplog)), (
+        f"Uebersprungene Zwischenwerte duerfen nicht als 'None' im Log landen: "
+        f"{_zeilen(caplog)!r}"
+    )
+
+
 def test_install_ist_ohne_widgets_unauffaellig(qtbot, caplog):
     """install() darf beim Start nichts kaputtmachen und muss sich melden."""
     from PySide6.QtWidgets import QApplication

@@ -71,6 +71,32 @@ def _log_wert(widget, art: str, wert) -> None:
         pass
 
 
+# Rueckgabewert, mit dem eine Wert-Funktion sagt: diesmal nichts schreiben.
+# Ein schlichtes None taugt dafuer nicht — None kann ein echter Widget-Wert
+# sein, und die Bedeutung waere nicht mehr eindeutig.
+_UEBERSPRINGEN = object()
+
+
+def _sicher_loggen(widget, art: str, wert_fn) -> None:
+    """Wert erst beim Feuern ermitteln — und dabei tote Widgets aushalten.
+
+    Die Wert-Abfrage (``currentText()``, ``value()`` …) muss innerhalb dieses
+    Schutzes liegen, nicht im Lambda-Argument der Signalverbindung: Qt kann das
+    C++-Objekt hinter einem Widget zerstoeren, waehrend der Python-Wrapper noch
+    lebt — etwa wenn ein Dialog schliesst und dabei noch ein Signal feuert. Ein
+    Zugriff darauf wirft ``RuntimeError: wrapped C/C++ object … has been
+    deleted``. Ohne diesen Schutz wuerde ausgerechnet die Aufzeichnung die App
+    zum Absturz bringen, die sie beobachten soll.
+    """
+    try:
+        wert = wert_fn()
+    except Exception:
+        return
+    if wert is _UEBERSPRINGEN:
+        return
+    _log_wert(widget, art, wert)
+
+
 def _verbinde(widget) -> None:
     """Signale eines einzelnen Widgets verbinden, falls es eines von Interesse ist."""
     from PySide6.QtWidgets import (
@@ -88,8 +114,8 @@ def _verbinde(widget) -> None:
 
     if isinstance(widget, QComboBox):
         widget.currentIndexChanged.connect(
-            lambda idx, w=widget: _log_wert(
-                w, "COMBO", f"index={idx} text='{w.currentText()}'"
+            lambda idx, w=widget: _sicher_loggen(
+                w, "COMBO", lambda: f"index={idx} text='{w.currentText()}'"
             )
         )
         verbunden = True
@@ -100,10 +126,12 @@ def _verbinde(widget) -> None:
         # bei sliderReleased geschrieben. Tastatur, Mausrad und
         # programmatische Aenderungen laufen weiter sofort durch.
         widget.valueChanged.connect(
-            lambda val, w=widget: None if w.isSliderDown() else _log_wert(w, "SLIDER", val)
+            lambda val, w=widget: _sicher_loggen(
+                w, "SLIDER", lambda: _UEBERSPRINGEN if w.isSliderDown() else val
+            )
         )
         widget.sliderReleased.connect(
-            lambda w=widget: _log_wert(w, "SLIDER", w.value())
+            lambda w=widget: _sicher_loggen(w, "SLIDER", w.value)
         )
         verbunden = True
 
@@ -112,7 +140,9 @@ def _verbinde(widget) -> None:
         # Basisklasse QAbstractSpinBox aber nicht — deshalb per getattr.
         signal = getattr(widget, "valueChanged", None)
         if signal is not None:
-            signal.connect(lambda val, w=widget: _log_wert(w, "SPIN", val))
+            signal.connect(
+                lambda val, w=widget: _sicher_loggen(w, "SPIN", lambda: val)
+            )
             verbunden = True
 
     elif isinstance(widget, QLineEdit):
@@ -125,14 +155,14 @@ def _verbinde(widget) -> None:
         except Exception:
             return
         widget.editingFinished.connect(
-            lambda w=widget: _log_wert(w, "TEXT", w.text())
+            lambda w=widget: _sicher_loggen(w, "TEXT", w.text)
         )
         verbunden = True
 
     elif isinstance(widget, QTabWidget):
         widget.currentChanged.connect(
-            lambda idx, w=widget: _log_wert(
-                w, "TAB", f"index={idx} text='{w.tabText(idx)}'"
+            lambda idx, w=widget: _sicher_loggen(
+                w, "TAB", lambda: f"index={idx} text='{w.tabText(idx)}'"
             )
         )
         verbunden = True
@@ -141,8 +171,8 @@ def _verbinde(widget) -> None:
         # Nur umschaltbare Knoepfe. Ein einfacher Druck-Knopf ist ueber den
         # Click-Logger bereits vollstaendig erfasst.
         widget.toggled.connect(
-            lambda checked, w=widget: _log_wert(
-                w, "TOGGLE", f"{checked} text='{w.text()}'"
+            lambda checked, w=widget: _sicher_loggen(
+                w, "TOGGLE", lambda: f"{checked} text='{w.text()}'"
             )
         )
         verbunden = True
