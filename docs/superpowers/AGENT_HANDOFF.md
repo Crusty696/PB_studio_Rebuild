@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## CLAUDE-CODE-HANDOFF-2026-08-14 (newest)
+
+- **Repo & Branch**: Canonical Repository `Crusty696/PB_studio_Rebuild`, Branch `main`, **100 % in sync with `origin/main`**.
+- **Stand & Verifikation**:
+  - All 5 critical performance optimizations & dead code cleanups (SigLIP VRAM cache residency, 0ms watchdog exit, NullPool session engine caching, DB backoff 50ms, dead APIs removal) are **100% committed, verified & pushed to `origin/main`**.
+  - All 25 stale topic branches purged, local Git status clean.
+  - Setup environment `pb-studio` is ready to be built fresh from `environment.yml` via `setup_pb_studio.bat`.
+- **Next Authorized Plan Task**:
+  - `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run` (Execute isolated GUI harness test on GTX 1060).
+  - Followed immediately by `W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
+- **Instructions for Claude Code CLI**:
+  - Read `AGENTS.md` completely.
+  - Check `docs/superpowers/ACTIVE_PLAN.md` and `docs/superpowers/PLAN_REGISTRY.md`.
+  - Execute `B-758` & `W3 Audio V2` according to the active plan.
+
 ## D-089 AGY-Rest abgeschlossen / B-758 aktiv 2026-08-12 (newest)
 
 - AGY-Dirty-Stand abgeschlossen. Auto-Edit-Cache-Fix `6c1857a`; B-817-Fix
