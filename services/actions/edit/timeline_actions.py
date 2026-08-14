@@ -568,7 +568,12 @@ def auto_ducking(audio_track_id: int) -> dict:
             track = session.get(AudioTrack, audio_track_id)
             if not track:
                 return {"error": f"Audio-Track #{audio_track_id} nicht gefunden."}
-            if not track.stem_vocals_path or not track.stem_other_path:
+            # B-822: gesetzte Spalte reicht nicht — nach einer Projektkopie
+            # zeigt sie auf den alten Ort. Nur Stems des aktiven Projekts
+            # zaehlen als vorhanden.
+            from services.stem_router import resolve_stem_path
+            if not resolve_stem_path(track.stem_vocals_path) or \
+                    not resolve_stem_path(track.stem_other_path):
                 return {
                     "error": f"Audio-Track #{audio_track_id} hat noch keine Stems. "
                              "Bitte zuerst 'separate_stems' ausführen."

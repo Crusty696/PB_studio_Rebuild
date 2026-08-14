@@ -64,6 +64,117 @@ def select_input(
     return {s: stem_paths[s] for s in needed}
 
 
+def _active_project_root() -> Path | None:
+    """Aktuelles Projekt-Root, oder None wenn die Session nicht importierbar ist."""
+    try:
+        import database.session as _session
+    except ImportError:  # pragma: no cover - nur in kaputter Umgebung
+        log.warning("stem_router: database.session nicht importierbar")
+        return None
+    root = getattr(_session, "APP_ROOT", None)
+    return Path(root) if root else None
+
+
+def resolve_stem_path(stored_path: str | Path | None) -> str | None:
+    """Bindet einen gespeicherten Stem-Pfad an das aktive Projekt (B-822).
+
+    ``audio_tracks.stem_*_path`` speichert absolute Pfade. Wird ein Projekt
+    kopiert oder verschoben, zeigen sie weiter auf den alten Ort — und weil die
+    Dateien dort meist noch liegen, greifen alle ``Path(p).exists()``-Pruefungen
+    beherzt daneben. Im Live-Run vom 2026-08-14 las ein isoliertes Testprojekt
+    dadurch Stems aus einem Host-Ordner, obwohl dieselben Dateien im Projekt
+    lagen.
+
+    Regeln:
+
+    - Pfad liegt im aktiven Projekt und existiert -> unveraendert zurueck.
+    - Pfad liegt ausserhalb, aber dieselbe projektrelative Ablage existiert
+      unterhalb des aktiven Projekts -> der projektinterne Pfad.
+    - Sonst ``None``. Bewusst kein Zugriff nach draussen: ein fehlendes
+      Artefakt ist ehrlicher als ein fremdes, und die Stem-Stage heilt sich
+      ohnehin selbst.
+
+    Ohne bekanntes Projekt-Root faellt die Funktion auf reine
+    Existenzpruefung zurueck, damit headless-Tests und Skripte weiterlaufen.
+    """
+    if not stored_path:
+        return None
+    path = Path(stored_path)
+    root = _active_project_root()
+    if root is None:
+        return str(path) if path.is_file() else None
+
+    try:
+        inside = path.is_relative_to(root)
+    except (OSError, ValueError):  # pragma: no cover - exotische Pfade
+        inside = False
+    if inside:
+        return str(path) if path.is_file() else None
+
+    # Ausserhalb: dieselbe Ablage unterhalb des aktiven Projekts suchen.
+    parts = path.parts
+    for idx in range(len(parts) - 1, -1, -1):
+        if parts[idx].lower() == "storage":
+            candidate = root.joinpath(*parts[idx:])
+            if candidate.is_file():
+                log.info(
+                    "stem_router: B-822 Stem-Pfad auf aktives Projekt umgebogen: %s -> %s",
+                    path, candidate,
+                )
+                return str(candidate)
+            break
+
+    log.warning(
+        "stem_router: B-822 Stem-Pfad liegt ausserhalb des aktiven Projekts und "
+        "hat dort keine Entsprechung — wird als fehlend behandelt: %s",
+        path,
+    )
+    return None
+
+
+def points_outside_project(stored_path: str | Path | None) -> bool:
+    """True, wenn ein gespeicherter Pfad nachweislich aus dem Projekt herausfuehrt.
+
+    Schwaechere Variante von :func:`resolve_stem_path` fuer Stellen, die nur
+    beurteilen, ob ein Artefakt zu diesem Projekt *gehoert*, ohne es zu oeffnen
+    — etwa die Statusinferenz. Sie prueft bewusst NICHT, ob die Datei existiert:
+    ein relativer oder projektinterner Pfad gilt weiter als zugehoerig, auch
+    wenn die Datei gerade fehlt (B-461 reconciled solche Faelle absichtlich).
+
+    Nur ein absoluter Pfad ausserhalb des aktiven Projekt-Roots ist fremd.
+    """
+    if not stored_path:
+        return False
+    path = Path(stored_path)
+    if not path.is_absolute():
+        return False
+    root = _active_project_root()
+    if root is None:
+        return False
+    try:
+        return not path.is_relative_to(root)
+    except (OSError, ValueError):  # pragma: no cover - exotische Pfade
+        return False
+
+
+def resolve_stem_paths(
+    stored: dict[str, str | None] | None,
+) -> dict[str, str]:
+    """``resolve_stem_path`` fuer ein ganzes Stem-Mapping.
+
+    Nicht aufloesbare Eintraege fallen raus statt als fremder Pfad
+    durchgereicht zu werden.
+    """
+    if not stored:
+        return {}
+    resolved: dict[str, str] = {}
+    for name, value in stored.items():
+        actual = resolve_stem_path(value)
+        if actual:
+            resolved[name] = actual
+    return resolved
+
+
 def get_stem_paths(track_id: int) -> dict[str, str] | None:
     """Liefert dict mit existierenden Stem-Pfaden fuer einen Track, oder None.
 

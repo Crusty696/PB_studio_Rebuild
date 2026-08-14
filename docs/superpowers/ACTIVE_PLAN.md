@@ -22,15 +22,18 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen
-Host-Ordner`. Danach B-821 (leerer Auswahlzustand nur im Konsolen-Widget,
-nicht im Logfile), dann W4.
+`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+Offen daneben: B-821 (low) und B-823 (low), beide ohne Produktcodebezug.
 
-Reihenfolge korrigiert: B-821 war zunächst als nächste Task gesetzt, weil der
-Analyse-Button nach einem Cancel tot wirkte. Der nachgeholte Stem-Test zeigte
-jedoch, dass jeder Klick sofort ankommt, sobald kein fremdes Fenster über der
-App liegt. Das Symptom ist damit weitgehend entlastet und B-821 auf `low`
-gesenkt; B-822 ist der einzige verbliebene High-Befund.
+B-822 ist gefixt und live bestätigt. `services/stem_router.py` bekam
+`resolve_stem_path()`/`resolve_stem_paths()` für Stellen mit echtem
+Dateizugriff und `points_outside_project()` für reine Zugehörigkeitsprüfungen;
+angewandt an fünf Konsumenten. RED 6/6 → GREEN 6/6, Regressionslauf
+721 passed bei einem vorbestehenden Flake (B-823). Livebeleg: mit gezielt auf
+den Host-Ordner gesetzten Stem-Spalten meldete die App `stem_separation` nicht
+mehr als vorhanden und separierte statt eines Fremdzugriffs neu in den
+isolierten Projektordner; Host-Dateien blieben unverändert. `fixed` bleibt
+Userrecht.
 
 B-820 ist gefixt und live bestätigt (Run `20260814T0530-w3-b820-verify`):
 `_ensure_status_done()` lässt einen bewussten User-Cancel jetzt stehen, der

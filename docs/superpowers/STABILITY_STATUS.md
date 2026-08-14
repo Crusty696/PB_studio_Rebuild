@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 06:10 Europe/Zurich
+Letztes Update: 2026-08-14 08:55 Europe/Zurich
 
 Gesamtfortschritt: **ca. 27–29 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen Host-Ordner**
+Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -117,9 +117,8 @@ Aktiv: **ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen Ho
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-822 Stem-Pfade zeigen aus dem Projekt heraus in einen
-Host-Ordner`. Danach B-821 (low), dann W4 Videoanalyse inklusive defektem
-Clip und Reanalyse.
+`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+B-821 und B-823 bleiben als low daneben offen.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und

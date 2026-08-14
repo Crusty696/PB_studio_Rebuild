@@ -708,12 +708,18 @@ def _infer_audio_status(
         }, status_entries)
 
     # stem_separation: Stem-Pfade vorhanden?
+    # B-822: ein gesetzter Pfad allein genuegt nicht. Nach einer Projektkopie
+    # zeigen die Spalten auf den alten Ort; solche Stems gehoeren nicht zu
+    # diesem Projekt und duerfen es nicht als analysiert ausweisen.
+    # Bewusst die schwaechere Pruefung: ob die Datei gerade existiert, bleibt
+    # egal — B-461 reconciled fehlende Artefakte absichtlich.
+    from services.stem_router import points_outside_project
     stem_count = sum(1 for p in [
         audio.stem_vocals_path,
         audio.stem_drums_path,
         audio.stem_bass_path,
         audio.stem_other_path,
-    ] if p)
+    ] if p and not points_outside_project(p))
     if stem_count > 0:
         _ensure_status_done(session, "audio", audio_id, "stem_separation", {
             "stems": stem_count,

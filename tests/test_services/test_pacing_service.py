@@ -392,16 +392,20 @@ class TestVocalActivePacing:
         assert len(activity) == len(beats)
         assert all(not active for active in activity), "Alle Beats sollten nicht-vokal sein"
 
-    def test_compute_vocal_activity_with_vocals(self, test_engine, tmp_path):
+    def test_compute_vocal_activity_with_vocals(self, test_engine, tmp_path, monkeypatch):
         """Mit Vocal-Stem wird RMS-basierte Aktivitaet berechnet."""
         import services.pacing_service as svc
         import services.pacing_beat_grid as pbg
+        import database.session as db_session
         from services.pacing_service import compute_vocal_activity
         import numpy as np
         import soundfile as sf
 
         svc.engine = test_engine
         pbg.engine = test_engine
+        # B-822: die Stem-Energie nutzt nur noch Stems des aktiven Projekts.
+        # Der Stem liegt hier in tmp_path, also wird tmp_path zum Projekt-Root.
+        monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
 
         # Erstelle synthetisches Vocal-Audio (44.1kHz, 3 Sekunden)
         sr = 44100

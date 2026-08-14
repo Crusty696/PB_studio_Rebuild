@@ -78,7 +78,14 @@ def test_b566_stem_gen_reuses_complete_db_stem_references(
     monkeypatch, tmp_path, ctx
 ):
     import services.audio_pipeline.stages as stages
+    import database.session as db_session
     from services.audio_pipeline import stem_cache
+
+    # B-822: der Reuse akzeptiert nur noch Stems des aktiven Projekts. Der Test
+    # legte sie frueher direkt in tmp_path, waehrend APP_ROOT auf das Repo
+    # zeigte — das gilt jetzt zu Recht als "ausserhalb". tmp_path wird deshalb
+    # zum Projekt-Root erklaert.
+    monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
 
     paths = {}
     for name in ("drums", "bass", "vocals", "other"):

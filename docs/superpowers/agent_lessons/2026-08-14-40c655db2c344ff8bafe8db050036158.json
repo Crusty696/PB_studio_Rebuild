@@ -1,0 +1,10 @@
+{
+  "lesson_id": "40c655db2c344ff8bafe8db050036158",
+  "recorded_at": "2026-08-14T06:50:54+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Der B-822-Fix machte drei bestehende Tests rot. Zwei davon waren echte Folgen der Verhaltensaenderung, einer sah nur so aus.",
+  "cause": "Der dritte Test (test_compute_vocal_activity_with_vocals) erzeugt sein Signal mit np.random.randn ohne Seed und ist dadurch reihenfolgeabhaengig. Im Sammellauf faellt er auch ohne den Fix um; einzeln ist er gruen. Ohne Gegenprobe waere er faelschlich als eigene Regression eingestuft und mitgefixt worden.",
+  "rule": "Wenn ein Fix bestehende Tests rot macht, vor jeder Anpassung einen Baseline-Lauf mit gestashtem Fix im GLEICHEN Sammellauf-Umfang fahren. Nur Tests, die dort gruen sind, sind echte Regressionen. Der Vergleich muss denselben -k-Filter nutzen, sonst aendert sich die Testreihenfolge und damit das Ergebnis.",
+  "applies_to": "jede Verhaltensaenderung mit Testfallout, Flakiness-Diagnose, Abgrenzung eigener Regressionen von Altlasten"
+}

@@ -628,7 +628,11 @@ def compute_stem_weighted_energy(
         }
 
     # Pruefen ob mindestens ein Stem vorhanden ist
-    available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
+    # B-822: nur Stems des aktiven Projekts zaehlen. Nach einer Projektkopie
+    # zeigen die DB-Spalten sonst auf den alten Ort und die Energiekurve
+    # entstuende aus fremdem Material.
+    from services.stem_router import resolve_stem_paths
+    available = resolve_stem_paths(stem_paths)
     if not available:
         logger.info("Keine Stems fuer Audio %d — Fallback auf Stereo-Summe", audio_id)
         return None

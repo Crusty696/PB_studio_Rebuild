@@ -2,7 +2,27 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## W3 Audio V2 komplett durchlaufen 2026-08-14 (newest)
+## B-822 gefixt und live bestaetigt / W4 aktiv 2026-08-14 (newest)
+
+- `services/stem_router.py` bekam `resolve_stem_path()`/`resolve_stem_paths()`
+  fuer Stellen mit echtem Dateizugriff und `points_outside_project()` fuer
+  reine Zugehoerigkeitspruefungen. Angewandt an fuenf Konsumenten
+  (Stem-Reuse, rehydrate, Stem-Energie, auto_ducking, Statusinferenz).
+- RED 6/6 -> GREEN 6/6. Regressionslauf 721 passed, 1 failed; der Fehlschlag
+  ist vorbestehend (B-823, Test ohne RNG-Seed) und per Baseline-Lauf mit
+  gestashtem Fix belegt.
+- **Livebeleg**: die vier Stem-Spalten wurden gezielt auf den Host-Ordner
+  gesetzt, wo die Dateien real liegen. Die App meldete `stem_separation`
+  daraufhin NICHT als vorhanden und separierte beim Stems-Schritt neu in den
+  isolierten Projektordner statt die Host-Dateien zu benutzen. Host-Ordner
+  unveraendert, Post-Manifest `pass`, fuenf Host-/Repo-DBs byte-identisch.
+- Bewusst nicht geaendert: die Spalten speichern weiter absolute Pfade. Eine
+  Umstellung auf projektrelative Speicherung braeuchte eine Datenmigration und
+  ist eine eigene Entscheidung.
+- Naechste einzige Task: `LIVE-VERIFY / W4 Videoanalyse inklusive defektem
+  Clip und Reanalyse`. Daneben offen: B-821 (low), B-823 (low).
+
+## W3 Audio V2 komplett durchlaufen 2026-08-14
 
 - Der letzte offene Teilschritt **"fehlendes Stem" ist nachgeholt und pass**
   (Run `20260814T0610-w3-stem-heal`, Baseline `f46d2eb`).

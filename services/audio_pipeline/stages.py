@@ -410,9 +410,14 @@ class StemGenStage(Stage):
         except Exception as e:  # noqa: BLE001
             logger.warning("StemGenStage DB-Reuse track=%s fehlgeschlagen: %s", track_id, e)
             return None
-        if not all(path and Path(path).is_file() for path in paths.values()):
+        # B-822: gespeicherte Pfade ans aktive Projekt binden. Nach einer
+        # Projektkopie zeigen sie sonst auf den alten Ort und der Reuse
+        # griffe an den Stems eines fremden Projekts vorbei.
+        from services.stem_router import resolve_stem_paths
+        resolved = resolve_stem_paths(paths)
+        if len(resolved) != len(paths):
             return None
-        return {name: str(Path(path).resolve()) for name, path in paths.items()}
+        return {name: str(Path(path).resolve()) for name, path in resolved.items()}
 
     def _persist_cache_meta(self, context: PipelineContext, result: dict[str, str]) -> None:
         from services.audio_pipeline import stem_cache
@@ -582,6 +587,16 @@ class StemGenStage(Stage):
         except Exception as e:  # noqa: BLE001
             logger.warning("StemGenStage.rehydrate DB-Fallback fehlgeschlagen: %s", e)
             return
+        # B-822: Pfad ans aktive Projekt binden, wo es dort eine Entsprechung
+        # gibt. Laesst er sich nicht aufloesen, bleibt der gespeicherte Wert
+        # stehen — die missing-Erkennung unten braucht ihn und meldet den
+        # Schritt dann korrekt als degradiert statt still auf einen fremden
+        # Ordner auszuweichen.
+        from services.stem_router import resolve_stem_path
+        mapping = {
+            name: (resolve_stem_path(path) or path)
+            for name, path in mapping.items()
+        }
         for name, path in mapping.items():
             if path:
                 context.stem_paths[name] = path
