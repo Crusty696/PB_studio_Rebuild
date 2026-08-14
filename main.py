@@ -1995,6 +1995,14 @@ def main():
         app.installEventFilter(app._click_logger)
         logging.info("[CLICK] Click/Key-Logger aktiv (PB_CLICK_LOG/PB_CLICKLOG=1)")
 
+        # User-Anweisung 2026-08-14: Der Klick allein sagt nicht, welcher Wert
+        # danach eingestellt ist — bei QComboBox liefert text() nichts, bei
+        # QSlider gibt es gar keinen Text. Der Wert-Logger haengt sich deshalb
+        # an die Signale der Wert-Widgets und schreibt [VALUE]-Zeilen ins
+        # gleiche Log, direkt neben die zugehoerigen [CLICK]-Zeilen.
+        from services.ui_action_log import install as _install_value_logger
+        app._value_logger = _install_value_logger(app)
+
     # B-218: Native Power-Event-Listener fuer Windows. Bei Laptop-Andocken/
     # -Sleep verliert die GTX 1060 Mobile den CUDA-Power-State -> der
     # gehaltene CUDA-Context wird stale. Beim naechsten cuda-Call (Modell-

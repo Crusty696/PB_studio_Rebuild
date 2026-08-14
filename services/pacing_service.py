@@ -426,6 +426,34 @@ def _compute_snr_stem_weights(stem_snr):
     return _w_drums, _w_bass, _w_vocals, _w_other
 
 
+def berechne_max_uses(n_slots: int, n_videos: int) -> int:
+    """Obergrenze, wie oft ein einzelner Clip in einer Timeline vorkommen darf.
+
+    B-834 (User-Anweisung 2026-08-14: "jeder clip nur einmal solange material
+    reicht"). Die Formel lautete frueher ``ceil(n_slots / n_videos) + 1``. Der
+    Aufschlag war bei knappem Material als Reserve gedacht, wirkte aber auch
+    im Ueberfluss: bei 93 Schnitten und 121 Clips ergab ``ceil(0.77)`` bereits
+    1, das ``+1`` hob das Limit auf 2. Livebefund aus dem Projekt 123454321:
+    von 121 Clips kamen nur 51 vor, 42 davon doppelt, 70 blieben unbenutzt.
+
+    Das Cap ist eine Obergrenze, kein Streuzwang — was es erlaubt, nimmt der
+    Scorer auch. Also darf es nur so hoch sein, wie zum Fuellen aller Slots
+    noetig ist:
+
+    * mehr Clips als Schnitte  -> 1 (jeder Clip hoechstens einmal)
+    * weniger Clips als Schnitte -> aufgerundetes Verhaeltnis
+
+    Damit gilt immer ``n_videos * cap >= n_slots``; die Pipeline hat fuer jeden
+    Slot noch einen ungenutzten Kandidaten und muss das Cap nicht aussetzen.
+    Die Aussetz-Zweige in ``services/pacing/pipeline.py`` (B-763/B-776/B-777)
+    bleiben als Notausgang bestehen, falls Rollenmatrix oder
+    Nachbarschaftsregel den Pool zusaetzlich einengen.
+    """
+    slots = max(1, int(n_slots))
+    videos = max(1, int(n_videos))
+    return max(1, -(-slots // videos))  # aufrunden ohne Float-Rundungsfehler
+
+
 def _seed_usage_counts_from_locked(_bind, available_ids: list[int]) -> dict[int, int]:
     """B-778: Nutzungs-Zaehlung mit gelockten Bestands-Segmenten vorbelegen.
 
@@ -1230,15 +1258,14 @@ def _auto_edit_phase3_inner(
             clip_offsets[vid] = offset or 0.0
     used_recently: list[int] = []
     # Fixplan 2026-07-07 Schritt 3: globale Nutzungs-Zaehlung + Cap + Sampling.
-    # Cap = ceil(Segmente/Videos)+1 → bei 58 Segmenten und 39 Videos max. 3
-    # Verwendungen pro Video (vorher real: 1 Video 58x, dann Top-Videos 8x).
+    # Cap-Formel siehe berechne_max_uses (B-834).
     # B-778: gelockte Bestands-Segmente (User-Anker) belegen bereits Slots
     # desselben Clips — sie zaehlen ab Start ins Cap.
     usage_counts: dict[int, int] = _seed_usage_counts_from_locked(
         _ae_eng, available_ids,
     )
     _n_slots = max(1, len(cut_beats) - 1)
-    max_uses_per_video = int(np.ceil(_n_slots / max(1, len(available_ids)))) + 1
+    max_uses_per_video = berechne_max_uses(_n_slots, len(available_ids))
     # Seed: PB_PACING_SEED (Tests/Repro) oder zufaellig pro Run (geloggt).
     import os as _os_seed
     import random as _random
