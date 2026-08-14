@@ -24,6 +24,55 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _drop_indexes_on_column(conn, table: str, column: str) -> list[dict]:
+    """B-825: Indizes auf *column* entfernen und ihre Definition zurueckgeben.
+
+    ``batch_alter_table`` baut eine SQLite-Tabelle beim ``drop_column`` komplett
+    neu und legt dabei die zuvor reflektierten Indizes wieder an. Liegt ein
+    Index auf genau der Spalte, die gerade verschwindet, scheitert das mit
+    ``no such column``.
+
+    Konkret aufgefallen an ``idx_model_registry_last_used``: der Index kam mit
+    B-819 kanonisch in ``database/models.py`` dazu, seitdem war der
+    ``downgrade()``-Pfad dieser Revision gebrochen und
+    ``test_full_roundtrip_empty_db`` rot. Vor B-819 gab es den Index nicht,
+    deshalb lief es vorher.
+
+    Die zurueckgegebenen Definitionen erlauben dem Aufrufer, die Indizes nach
+    dem Umbenennen der Ersatzspalte wiederherzustellen — sonst verlaere ein
+    Downgrade sie stillschweigend.
+    """
+    inspector = sa.inspect(conn)
+    try:
+        indexes = inspector.get_indexes(table)
+    except Exception:  # pragma: no cover - Tabelle fehlt
+        return []
+    betroffen = [
+        idx for idx in indexes
+        if column in (idx.get("column_names") or [])
+    ]
+    for idx in betroffen:
+        name = idx.get("name")
+        if not name:
+            continue
+        conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+    return betroffen
+
+
+def _recreate_indexes(conn, table: str, indexes: list[dict]) -> None:
+    """B-825: Gegenstueck zu :func:`_drop_indexes_on_column`."""
+    for idx in indexes:
+        name = idx.get("name")
+        cols = idx.get("column_names") or []
+        if not name or not cols:
+            continue
+        unique = "UNIQUE " if idx.get("unique") else ""
+        spalten = ", ".join(f'"{c}"' for c in cols)
+        conn.execute(text(
+            f'CREATE {unique}INDEX IF NOT EXISTS "{name}" ON {table} ({spalten})'
+        ))
+
+
 def _column_is_datetime(inspector: sa.engine.reflection.Inspector,
                          table: str, column: str) -> bool:
     """True wenn Spalte existiert und der deklarierte Typ DateTime ist.
@@ -190,11 +239,17 @@ def downgrade() -> None:
                 WHERE created_at IS NOT NULL
             """))
 
+            # B-825: Indizes auf der Spalte muessen weg, bevor
+            # batch_alter_table die Tabelle ohne sie neu baut.
+            _idx = _drop_indexes_on_column(conn, 'ai_pacing_memory', 'created_at')
+
             with op.batch_alter_table('ai_pacing_memory', schema=None) as batch_op:
                 batch_op.drop_column('created_at')
 
             with op.batch_alter_table('ai_pacing_memory', schema=None) as batch_op:
                 batch_op.alter_column('created_at_new', new_column_name='created_at')
+
+            _recreate_indexes(conn, 'ai_pacing_memory', _idx)
 
     # Reverse agent_feedback.created_at
     if 'agent_feedback' in existing_tables:
@@ -208,11 +263,17 @@ def downgrade() -> None:
                 WHERE created_at IS NOT NULL
             """))
 
+            # B-825: Indizes auf der Spalte muessen weg, bevor
+            # batch_alter_table die Tabelle ohne sie neu baut.
+            _idx = _drop_indexes_on_column(conn, 'agent_feedback', 'created_at')
+
             with op.batch_alter_table('agent_feedback', schema=None) as batch_op:
                 batch_op.drop_column('created_at')
 
             with op.batch_alter_table('agent_feedback', schema=None) as batch_op:
                 batch_op.alter_column('created_at_new', new_column_name='created_at')
+
+            _recreate_indexes(conn, 'agent_feedback', _idx)
 
     # Reverse model_registry datetime columns
     if 'model_registry' in existing_tables:
@@ -226,11 +287,17 @@ def downgrade() -> None:
                 WHERE installed_at IS NOT NULL
             """))
 
+            # B-825: Indizes auf der Spalte muessen weg, bevor
+            # batch_alter_table die Tabelle ohne sie neu baut.
+            _idx = _drop_indexes_on_column(conn, 'model_registry', 'installed_at')
+
             with op.batch_alter_table('model_registry', schema=None) as batch_op:
                 batch_op.drop_column('installed_at')
 
             with op.batch_alter_table('model_registry', schema=None) as batch_op:
                 batch_op.alter_column('installed_at_new', new_column_name='installed_at')
+
+            _recreate_indexes(conn, 'model_registry', _idx)
 
         if 'last_used_at' in columns:
             op.add_column('model_registry', sa.Column('last_used_at_new', sa.String(), nullable=True))
@@ -241,8 +308,14 @@ def downgrade() -> None:
                 WHERE last_used_at IS NOT NULL
             """))
 
+            # B-825: Indizes auf der Spalte muessen weg, bevor
+            # batch_alter_table die Tabelle ohne sie neu baut.
+            _idx = _drop_indexes_on_column(conn, 'model_registry', 'last_used_at')
+
             with op.batch_alter_table('model_registry', schema=None) as batch_op:
                 batch_op.drop_column('last_used_at')
 
             with op.batch_alter_table('model_registry', schema=None) as batch_op:
                 batch_op.alter_column('last_used_at_new', new_column_name='last_used_at')
+
+            _recreate_indexes(conn, 'model_registry', _idx)
