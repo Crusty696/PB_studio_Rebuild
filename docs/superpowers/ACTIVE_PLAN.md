@@ -22,8 +22,25 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`W3 Audio V2 komplett, Cancel, Retry, Neustart` im isolierten
-Stabilitaetsprojekt fortsetzen.
+`ROOT-CAUSE / B-820 Cancel-Status wird vom Status-Reconciler auf done
+überschrieben`. Danach W3 fortsetzen mit Retry, Neustartvergleich und
+fehlendem Stem.
+
+W3-Live-Session 2026-08-14, Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`:
+App-Start, Systemcheck, Projekt-Load im isolierten Scope, Fehlerpfad bei
+fehlender Audio-Quelldatei, Cancel-Mechanik und Shutdown sind live pass.
+Pre- und Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch,
+0 Prozessreste. B-758 ist damit erstmals in dieser Session selbst live belegt
+(CUDA available true, GTX 1060 6143 MB, kein FAIL-Modal); `fixed` bleibt
+Userrecht.
+
+Gestoppt nach Erste-Fehler-Regel durch neuen Bug B-820: ein per User-Cancel
+abgebrochener Analyse-Schritt wird in derselben Sekunde vom Status-Reconciler
+(`_ensure_status_done`, `services/analysis_status_service.py:750-754`) wieder
+auf `status='done'` gesetzt, `error_message` wird gelöscht. Der B-751-Cancel-
+vertrag überlebt den nächsten Status-Refresh nicht. Kein Code angefasst.
+Details: `docs/superpowers/synthesis/functional-test-w3-audio-v2-2026-08-14.md`
+und Vault `wiki/bugs/B-820-*.md`.
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;

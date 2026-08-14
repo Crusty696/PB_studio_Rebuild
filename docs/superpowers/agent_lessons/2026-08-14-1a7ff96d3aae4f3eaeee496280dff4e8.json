@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1a7ff96d3aae4f3eaeee496280dff4e8",
+  "recorded_at": "2026-08-14T03:08:18+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Ein per User-Cancel abgebrochener Analyse-Schritt stand in der DB als status='done' mit vollstaendigem Ergebnis, obwohl das App-Log in derselben Sekunde 'Analysis cancelled' meldete.",
+  "cause": "services/analysis_status_service.py _ensure_status_done() ueberschreibt im elif-Zweig JEDEN Nicht-done-Status auf 'done' und loescht error_message, sobald das Artefakt in der DB liegt. Die Stage persistiert ihr Artefakt vor dem Cancel-Check, also existiert nach dem Abbruch 'DB evidence' und der naechste Status-Refresh reconciled den Cancel weg.",
+  "rule": "Bei Cancel-Verifikation nie nur den Cancel-Logeintrag pruefen, sondern immer den persistierten DB-Endzustand NACH dem naechsten Status-Refresh. Ein Status-Reconciler, der aus Artefakt-Existenz auf Erfolg schliesst, kann Abbruch-Absicht nicht von regulaerem Abschluss unterscheiden und macht Cancel-Vertraege unbestaendig.",
+  "applies_to": "Cancel-/Retry-Verifikation, Analyse-Statusmodelle, jede Stelle die Status aus vorhandenen Artefakten rekonstruiert"
+}

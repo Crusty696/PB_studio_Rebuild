@@ -1,0 +1,10 @@
+{
+  "lesson_id": "87dd2089046f49039b8bd86d3f7a29e1",
+  "recorded_at": "2026-08-14T01:39:00+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Handoff-Dokument behauptete '100% committet und auf main gepusht', tatsaechlich hing ein lokaler Branch codex/B-758-w3-recheck mit einem Produktfix (B-819) unmerged und ohne Remote-Gegenstueck.",
+  "cause": "Handoff-Text wurde aus der Sicht einer einzelnen Agentensession geschrieben; es gab keine Pruefung gegen 'git branch --contains' bzw. 'git log main..<branch>' fuer andere lokale Branches und Worktrees derselben Repo.",
+  "rule": "Bei Uebernahme einer Session nie dem Handoff-Text glauben: immer 'git worktree list', 'git branch -a' und fuer jeden fremden Branch 'git log --oneline main..<branch>' pruefen, bevor eine Task als erledigt oder als offen eingestuft wird.",
+  "applies_to": "Agentenuebergabe, Multi-Agent-Repos mit mehreren Worktrees, jede Session-Startpruefung"
+}

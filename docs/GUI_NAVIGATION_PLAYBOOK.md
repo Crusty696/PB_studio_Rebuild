@@ -102,10 +102,44 @@ Jeder Flow-Eintrag hat:
 - **Erwartet:** Vorschau/Pacing-Kurve aktualisiert, kein Stall.
   **Live-Befund 2026-07-14:** max. 254ms Slow-Event, PASS.
 
-### 2.4 Audio analysieren
-- **Ziel:** Audio-V2-Analyse-Route, kein Freeze.
-- **Schritte:** _TODO: Button „Audio analysieren" (audio_analysis)._ 
+### 2.4 Audio analysieren — verifiziert 2026-08-14 (W3-Live-Session)
+- **Ziel:** Audio-V2-Analyse-Route inklusive Cancel, kein Freeze.
+- **Schritte** (Koordinaten bei 3240x2160, App maximiert):
+  1. Tab-Button `name="Material und Analyse Workflow"`
+     (`auto_id="workspace_nav.workspace_btn"`, ca. x=1206, y=154).
+  2. RadioButton `name="Audio Modus"` (ca. x=256, y=318). Gegenstück ist
+     `name="Video Modus"` bei x=96.
+  3. Track in der linken Tabelle per Klick auf die Titel-Spalte wählen
+     (x≈275; erste Datenzeile y≈500, zweite y≈553, Zeilenabstand ≈53).
+     Die Tabelle hat kein UIA-Item pro Zeile — Koordinatenklick nötig.
+  4. Kontrolle, welcher Track aktiv ist: `find-element --name-re "(?i)^Audio: "`
+     liefert das QLabel `Audio: <Titel>` im Panel ANALYSE-STATUS.
+  5. Button `Audio komplett analysieren`,
+     `auto_id="workflow_card.btn_accent"` (x-Mitte wandert mit der Panelbreite,
+     y≈596 — immer per `--auto-id` klicken, nicht per Koordinate).
+  6. Einzelschritte daneben als eigene Buttons: `BPM / Beatgrid`,
+     `Wellenform`, `Tonart`, `LUFS`, `Mood / Genre`, `Spektralanalyse`,
+     `Songstruktur`, `Stems`. Darunter die Schritt-Tabelle mit je einem
+     `Starten`- bzw. `Wiederholen`-Button und unten `Aktualisieren` /
+     `Alle Fehler wiederholen`.
+- **Cancel:** Button `name="Abbrechen"` im rechten TASKS-Panel
+  (ca. x=3170, y=186; die x-Position verschiebt sich leicht, je nachdem ob
+  `Fertige loeschen` daneben aktiv ist — per `--name` klicken).
 - **Erwartet:** Analyse läuft im Worker, UI responsiv.
+- **Live-Befund 2026-08-14:** Cancel-Mechanik sauber — `GPU_EXECUTION_LOCK`
+  nach 10915 ms freigegeben, Worker meldet INFO statt ERROR, B-724-Vertrag
+  greift. Latenz vom Cancel-Klick bis Stage-Ende rund 6 s (der Cancel-Check
+  liegt am Stage-Ende, nicht in der Chunk-Schleife der `beat_grid`-Stage).
+- **ACHTUNG B-820:** Der Cancel ist im Log korrekt, aber **nicht persistent**.
+  Nach dem nächsten Status-Refresh steht der Schritt in `analysis_status`
+  wieder auf `status='done'`. Bei Cancel-Verifikation deshalb IMMER die DB
+  nach dem Refresh prüfen, nie nur die Logzeile `Analysis cancelled`.
+- **Voraussetzung Umgebung:** `pywinauto`, `pyautogui`, `pygetwindow`, `mss`
+  müssen im genutzten Python liegen. Im conda-env `pb-studio` fehlten sie am
+  2026-08-14 und stehen in keiner Requirements-Datei.
+- **Start nur aus PowerShell/cmd**, nicht aus Git-Bash: dort fehlen die
+  conda-DLL-Pfade und der App-Start scheitert mit
+  `ImportError: DLL load failed while importing QtWidgets`.
 
 ### 2.5 Auto-Ducking (Stems)
 - **Ziel:** B-625 (stems `_start_auto_ducking`).

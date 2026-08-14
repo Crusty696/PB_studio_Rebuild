@@ -2,7 +2,34 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-758/B-819 Branch-Integration 2026-08-14 (newest)
+## W3 Audio V2 Live-Session / B-820 aktiv 2026-08-14 (newest)
+
+- Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`, isolierter Root
+  `C:\Users\David_Lochmann\AppData\Local\PBStudioW3AudioV2\`, Projekt als
+  245-MB-Kopie von `W3-runde4-s1` (Original unangetastet).
+- Live pass: App-Start und Systemcheck, Projekt-Load im isolierten Scope,
+  Fehlerpfad bei fehlender Audio-Quelldatei, Cancel-Mechanik (GPU-Lock nach
+  10915 ms sauber freigegeben, B-724-Vertrag griff), graceful Shutdown.
+- Pre- und Post-Manifest `pass`. Alle fuenf Host-/Repo-DBs byte-identisch,
+  0 Python-Prozessreste, `ollama.exe` PID 1592 war Vorbestand.
+- B-758 damit erstmals in dieser Session selbst live belegt: CUDA available
+  true, GTX 1060 6143 MB, kein CUDA-/NVENC-FAIL-Modal. `fixed` bleibt Userrecht.
+- Gestoppt nach Erste-Fehler-Regel durch **B-820**: ein per User-Cancel
+  abgebrochener Schritt wird in derselben Sekunde vom Status-Reconciler
+  (`_ensure_status_done`, `services/analysis_status_service.py:750-754`) auf
+  `status='done'` zurueckgesetzt, `error_message` geloescht. Der
+  B-751-Cancelvertrag ueberlebt den naechsten Status-Refresh nicht.
+- Offen aus W3: Retry, Neustartvergleich, fehlendes Stem.
+- Umgebung: GUI-Automations-Deps (`pywinauto`, `pyautogui`, `pygetwindow`,
+  `mss`) fehlten im conda-env und wurden auf Userentscheidung nachinstalliert.
+  Torch/numpy/pillow/PySide6 nachweislich unveraendert. Sie stehen weiterhin
+  in KEINER Requirements-Datei — ohne Userfreigabe kein Eintrag, also nach dem
+  naechsten Env-Neuaufbau wieder weg.
+- Synthese: `docs/superpowers/synthesis/functional-test-w3-audio-v2-2026-08-14.md`
+  (in Vault gespiegelt). Bugfile: Vault `wiki/bugs/B-820-*.md`.
+- Naechste einzige Task: `ROOT-CAUSE / B-820`.
+
+## B-758/B-819 Branch-Integration 2026-08-14
 
 - Uebernahme durch Claude Code CLI. Vor jeder Codeaenderung geprueft; zwei
   Aussagen des vorherigen Handoff-Eintrags waren nicht zutreffend und werden
