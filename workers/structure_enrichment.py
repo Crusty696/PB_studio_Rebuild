@@ -91,54 +91,67 @@ def write_compat_edges(
         session.execute(text("DELETE FROM struct_compat_edge"))
         to_write = list(edges)
     else:
+        betroffene_quellen: set[int] = set()
         if this_clip_scene_ids:
-            # Ein DELETE fuer alle Szenen statt eines pro Szene. Semantik
-            # identisch: entfernt jede Kante, die eine der Szenen beruehrt.
+            # B-815 (zweite Runde): welche Quellszenen ihren Kantensatz
+            # verlieren, muss VOR dem Loeschen feststehen — danach ist die
+            # Information weg. Getroffen werden nicht nur die Clip-Szenen
+            # selbst, sondern jede fremde Szene, die eine Kante AUF eine
+            # Clip-Szene hatte.
             id_list = list(this_clip_scene_ids)
-            # Nur generierte Platzhalternamen (:s0, :s1, ...) gehen in den
-            # String — die Szenen-IDs werden gebunden uebergeben. Kein Wert aus
-            # der DB oder vom Nutzer landet je im SQL-Text.
-            placeholders = ", ".join(f":s{i}" for i in range(len(id_list)))  # nosec B608
-            session.execute(
-                text(
-                    "DELETE FROM struct_compat_edge "
-                    f"WHERE scene_id_a IN ({placeholders}) "  # nosec B608
-                    f"OR scene_id_b IN ({placeholders})"  # nosec B608
-                ),
-                {f"s{i}": sid for i, sid in enumerate(id_list)},
-            )
-        # Insert only edges involving at least one target scene
-        to_write = [
-            e for e in edges
+            vorab_ph = ", ".join(f":v{i}" for i in range(len(id_list)))  # nosec B608
+            betroffene_quellen = {
+                int(row[0]) for row in session.execute(
+                    text(
+                        "SELECT DISTINCT scene_id_a FROM struct_compat_edge "
+                        f"WHERE scene_id_a IN ({vorab_ph}) "  # nosec B608
+                        f"OR scene_id_b IN ({vorab_ph})"  # nosec B608
+                    ),
+                    {f"v{i}": sid for i, sid in enumerate(id_list)},
+                ).all()
+            }
+            # Ein separates DELETE auf ``scene_id_a IN clip OR scene_id_b IN
+            # clip`` gab es hier frueher. Es ist entfallen, weil das DELETE
+            # unten dieselben Zeilen mit abdeckt: die Quellszenen jener
+            # Rueckwaertskanten stehen bereits in ``betroffene_quellen``.
+            # Zwei DELETEs haetten ausserdem den B-813-Vertrag verletzt
+            # (konstante Zahl DB-Rundreisen, siehe
+            # tests/workers/test_b813_compat_edge_bulk_write.py).
+        # B-815, erste Runde: das DELETE oben traf von einer fremden
+        # Quellszene nur die Kante zur Clip-Szene. Ihre uebrigen alten Kanten
+        # blieben stehen, und sie bekam neue Raenge zusaetzlich zu den alten —
+        # an der echten DB belegt mit 9054 statt 8800 Kanten, 20 Szenen mit
+        # Grad 31-35 statt 20 und 259 doppelten (scene_id_a, rank_in_a).
+        #
+        # B-815, zweite Runde: der Fix dagegen loeschte den kompletten alten
+        # Kantensatz solcher Quellszenen, schrieb aber weiterhin nur die eine
+        # Kante zur Clip-Szene zurueck. Aus dem Ueberschuss wurde ein Verlust
+        # — dieselben Szenen standen danach mit Grad 1 statt 20 da.
+        #
+        # Beides faellt weg, wenn Loeschen und Schreiben dieselbe Menge
+        # betreffen: jede Quellszene, deren Kantensatz angefasst wird, bekommt
+        # ihre vollstaendigen frischen Top-K. ``edges`` enthaelt den kompletten
+        # Library-Graphen, die Zeilen liegen also vor.
+        neue_quellen = {
+            e.scene_id_a for e in edges
             if e.scene_id_a in this_clip_scene_ids
             or e.scene_id_b in this_clip_scene_ids
-        ]
-
-        # B-815: Geschrieben werden auch Rueckwaertskanten, deren Quellszene
-        # eine FREMDE Szene ist (fremd -> Clip-Szene). Das DELETE oben trifft
-        # davon nur die Kante zur Clip-Szene selbst — die uebrigen alten
-        # Kanten derselben Quellszene bleiben stehen. Sie bekommt damit neue
-        # Raenge 1..20 zusaetzlich zu ihren alten.
-        # An der echten DB belegt: 9054 statt 8800 Kanten, 20 Szenen mit Grad
-        # 31-35 statt 20, und 259 doppelte (scene_id_a, rank_in_a).
-        # Deshalb fuer jede Quellszene, die neu geschrieben wird, ihren
-        # kompletten alten Kantensatz entfernen — sonst mischen sich zwei
-        # Rangfolgen.
-        fremde_quellen = {
-            e.scene_id_a for e in to_write
-            if e.scene_id_a not in this_clip_scene_ids
         }
-        if fremde_quellen:
-            f_list = list(fremde_quellen)
+        affected_a = betroffene_quellen | neue_quellen | set(this_clip_scene_ids)
+
+        if affected_a:
+            a_list = list(affected_a)
             # Wie oben: nur Platzhalternamen im String, Werte gebunden.
-            f_ph = ", ".join(f":f{i}" for i in range(len(f_list)))  # nosec B608
+            a_ph = ", ".join(f":a{i}" for i in range(len(a_list)))  # nosec B608
             session.execute(
                 text(
                     "DELETE FROM struct_compat_edge "
-                    f"WHERE scene_id_a IN ({f_ph})"  # nosec B608
+                    f"WHERE scene_id_a IN ({a_ph})"  # nosec B608
                 ),
-                {f"f{i}": sid for i, sid in enumerate(f_list)},
+                {f"a{i}": sid for i, sid in enumerate(a_list)},
             )
+
+        to_write = [e for e in edges if e.scene_id_a in affected_a]
 
     params = [
         {

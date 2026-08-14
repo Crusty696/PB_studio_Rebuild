@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 # umap.UMAP has no type stubs; we use Any for the public API surface.
 _UMAPReducer = Any
 
+# B-618 Frozen: Zeitbudget fuer den Cluster-Fit im Kind-Prozess. Deckt den
+# nicht-cachebaren Numba-JIT (gemessen 79 s) plus den eigentlichen Fit auf
+# echten Datenmengen ab.
+#
+# Die Konstante war beim Entfernen des Warmup-Blocks (Commit b8a73f7,
+# 2026-08-12) versehentlich mit geloescht worden, obwohl ``_fit_subprocess``
+# sie weiter benutzt. Folge: im Frozen-Build warf der Aufruf sofort einen
+# NameError, der vom breiten ``except Exception`` geschluckt wurde — der
+# Kind-Prozess-Pfad war damit tot und der Fit lief immer in-process, also
+# genau in der Konstellation, gegen die er gebaut wurde. Im Dev-Run faellt das
+# nicht auf, weil ``_fit_subprocess`` dort gar nicht aufgerufen wird.
+_FIT_SUBPROCESS_TIMEOUT_S: float = 900.0
+
 # ---------------------------------------------------------------------------
 # B-618: Der Numba-JIT-Warmup wurde am 2026-08-12 ENTFERNT.
 #

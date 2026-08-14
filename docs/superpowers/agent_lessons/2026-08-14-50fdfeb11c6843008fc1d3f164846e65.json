@@ -1,0 +1,10 @@
+{
+  "lesson_id": "50fdfeb11c6843008fc1d3f164846e65",
+  "recorded_at": "2026-08-14T08:39:56+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Ein Analyse-Agent bestimmte als Ursache eines flaky Tests einen fehlenden RNG-Seed. Ich habe das uebernommen und gefixt. Der Test blieb rot — die echte Ursache war ein modul-globaler Cache, der nur auf audio_id gekeyt war und dadurch Testgrenzen ueberlebte.",
+  "cause": "Der Seed war eine plausible Erklaerung fuer 'einzeln gruen, im Sammellauf rot', und ich habe nach dem Fix nur die Datei einzeln plus einen Filterlauf geprueft, in dem der kollidierende Test nicht mitlief. Erst ein breiterer Lauf mit anderem -k-Filter brachte den Widerspruch.",
+  "rule": "Ein Fix fuer einen reihenfolgeabhaengigen Test ist erst belegt, wenn der Test in GENAU der Konstellation gruen ist, in der er vorher rot war — gleicher Umfang, gleicher Filter. Einzellauf und ein engerer Sammellauf beweisen nichts. Bei 'einzeln gruen, zusammen rot' immer zuerst nach geteiltem Zustand suchen (Modul-Globals, Caches, Singletons), nicht nach Zufall.",
+  "applies_to": "Flakiness-Diagnose, Uebernahme von Subagent-Befunden, jede Aenderung an modul-globalen Caches"
+}

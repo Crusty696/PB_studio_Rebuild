@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 09:45 Europe/Zurich
+Letztes Update: 2026-08-14 11:20 Europe/Zurich
 
 Gesamtfortschritt: **ca. 27–29 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab**
+Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -128,8 +128,8 @@ Aktiv: **ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab`.
-Danach `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+Alle `open`-Bugs sind abgearbeitet.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und

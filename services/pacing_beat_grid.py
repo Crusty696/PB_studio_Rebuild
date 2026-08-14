@@ -13,6 +13,7 @@ import bisect
 import collections
 import json
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from functools import lru_cache
@@ -42,12 +43,37 @@ _STEM_CACHE_MAX = 2
 _stem_audio_cache: collections.OrderedDict[int, dict[str, tuple]] = collections.OrderedDict()
 
 
+def _stem_cache_key(stem_path: str, stem_name: str, sr: int) -> tuple:
+    """B-826: Schluessel, der die tatsaechlich geladene Datei mit einschliesst.
+
+    Der Cache war frueher nur mit ``audio_id`` und ``stem_name`` gekeyt. Aendert
+    sich der Inhalt unter derselben ``audio_id``, lieferte er weiterhin das
+    alte Audio — und das passiert im Betrieb regelmaessig:
+
+    - Die Stem-Selbstheilung schreibt fehlende Stems an DENSELBEN Pfad neu.
+      Danach rechnete Pacing mit dem alten Signal weiter.
+    - Seit B-822/B-824 kann dieselbe ``audio_id`` in einer Projektkopie auf
+      einen ganz anderen Ort zeigen.
+
+    Deshalb gehen Pfad, Sample-Rate und ``st_mtime_ns`` in den Schluessel ein.
+    Ist die Datei nicht lesbar, wird ``None`` als mtime benutzt — dann greift
+    der Cache fuer diesen Eintrag nicht, was ehrlicher ist als ein Treffer auf
+    unbekanntem Stand.
+    """
+    try:
+        mtime = os.stat(stem_path).st_mtime_ns
+    except OSError:
+        mtime = None
+    return (stem_name, str(stem_path), int(sr), mtime)
+
+
 def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: int = 22050):
     """Laedt Stem-Audio mit LRU-Cache — vermeidet 4x librosa.load pro auto_edit.
 
     Limit: max _STEM_CACHE_MAX audio_ids im Cache (~30MB pro Stem × 4 = ~120MB pro Track).
     Bei Ueberschreitung wird der aelteste Eintrag entfernt.
     """
+    cache_key = _stem_cache_key(stem_path, stem_name, sr)
     with _cache_lock:
         if audio_id not in _stem_audio_cache:
             _stem_audio_cache[audio_id] = {}
@@ -62,8 +88,8 @@ def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: in
             # Move to end (most recently used)
             _stem_audio_cache.move_to_end(audio_id)
         cache = _stem_audio_cache[audio_id]
-        if stem_name in cache:
-            return cache[stem_name]
+        if cache_key in cache:
+            return cache[cache_key]
 
     # GC outside lock to avoid holding it during collection
     for _evicted_id, evicted_data in evicted_items:
@@ -81,7 +107,14 @@ def _get_cached_stem_audio(audio_id: int, stem_path: str, stem_name: str, sr: in
     with _cache_lock:
         if audio_id not in _stem_audio_cache:
             _stem_audio_cache[audio_id] = {}
-        _stem_audio_cache[audio_id][stem_name] = (y, loaded_sr)
+        eintrag = _stem_audio_cache[audio_id]
+        # B-826: Nur der aktuelle Stand dieser Datei bleibt liegen. Ohne das
+        # sammelten sich unter derselben audio_id beliebig viele Versionen
+        # desselben Stems an — der LRU-Deckel zaehlt nur audio_ids, nicht
+        # Eintraege pro id.
+        for alt in [k for k in eintrag if k[0] == stem_name and k != cache_key]:
+            del eintrag[alt]
+        eintrag[cache_key] = (y, loaded_sr)
     return (y, loaded_sr)
 
 

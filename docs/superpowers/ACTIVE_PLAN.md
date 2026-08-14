@@ -22,42 +22,39 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab`.
-Danach `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
 
-B-820, B-821, B-822, B-823 und B-824 sind gefixt; `fixed` bleibt jeweils
-Userrecht.
+Alle Bugs mit Status `open` sind abgearbeitet. Der Vault fuehrte sechs; nach
+Pruefung blieben davon zwei echte Defekte, zwei waren stale, einer war
+teilweise gefixt und einer war bereits erledigt. Dabei kamen zwei neue Bugs
+zutage, beide ebenfalls gefixt.
 
-- **B-822/B-824** binden die Stem-Pfade ans aktive Projekt und stellen die
-  Speicherung auf projektrelativ um. `services/stem_router.py` liefert
-  `resolve_stem_path()` / `resolve_stem_paths()` für echte Dateizugriffe,
-  `points_outside_project()` für reine Zugehörigkeitsprüfungen und
-  `to_project_relative()` für Schreiber. Alembic `b4c5d6e7f8a9` zieht
-  Bestandsdaten konservativ nach: relativiert wird nur, was unter
-  `projects.path` liegt, Fremdpfade bleiben stehen.
-  Live belegt (Run `20260814T0930-b824-verify`): `4 Stem-Pfade projektrelativ
-  gemacht, 4 ausserhalb des Projekts bewusst unveraendert gelassen`; alle zehn
-  Analyse-Schritte blieben `done`, Stem-Selbstheilung funktionierte weiter.
-- **Nachzug zu B-824**: der erste Livelauf zeigte `[StemPlayer] 0 Stems
-  geöffnet` — elf ungeschützte Stem-Leser wurden gefunden und nachgezogen
-  (StemPlayer, Auto-Ducking, Vocal-Aktivität, SNR, DJ-Mix-Erkennung,
-  Drum-Onsets, Storage-Migration, Cross-Project-Reuse als Schreiber).
-- **B-821**: verworfene Analyse-Klicks landen jetzt per `logger.warning` im
-  Logfile, nicht mehr nur im Konsolen-Widget.
-- **B-823**: fester RNG-Seed im Pacing-Vocal-Test.
+- **B-825** (gefixt, `b70e165`): der M-38-`downgrade()` scheiterte am
+  B-819-Index auf der gedroppten Spalte. `batch_alter_table` baut die Tabelle
+  neu und legt reflektierte Indizes wieder an. Fix nur im Downgrade-Pfad.
+- **B-815** (gefixt): der Fix von 2026-08-12 hat aus dem Kantenueberschuss
+  einen Kantenverlust gemacht — 30 Kanten fehlten, Grad fiel von 5 auf 1-4.
+  Loeschen und Schreiben betreffen jetzt dieselbe Menge.
+- **B-618** (`partial-fix`): die Numba-Hypothese bleibt widerlegt, die Ursache
+  des Absturzes bleibt offen. Gefunden und gefixt wurde dabei ein echter
+  Defekt: `_FIT_SUBPROCESS_TIMEOUT_S` war geloescht worden, der Kind-Prozess-
+  Schutz im Frozen-Build damit tot.
+- **B-628, B-577, B-569** (`cannot-reproduce`): der beschriebene Code existiert
+  nicht mehr. Fuer B-628 wurde der Source-Grep-Test durch einen echten
+  Verhaltenstest ersetzt; fuer B-577/B-569 belegt eine RED-Gegenprobe, dass die
+  bestehenden Tests den Fix wirklich absichern.
+- **B-826** (neu, high, gefixt): der Stem-Audio-Cache ignorierte, welche Datei
+  geladen wurde. Nach einer Stem-Neuseparation an denselben Pfad rechnete
+  Pacing mit dem alten Signal weiter.
+- **B-827** (neu, low, gefixt): eine Jitter-Assertion war zu 3,24 % flaky.
 
-Neu offen: **B-825** (high). Der Alembic-Roundtrip-Test bricht mit
-`no such column: last_used_at` beim `CREATE INDEX idx_model_registry_last_used`.
-Per Baseline-Lauf belegt: **vorbestehend**, nicht durch B-822/B-824 verursacht;
-die neue Revision läuft im Roundtrip sauber up und down. Herkunft vermutlich
-der B-819-Index aus `database/models.py:564` (Merge `22f96b8`). Bewusst nicht
-mitgefixt.
+Testlage: **732 passed, 0 failed** ueber Pacing/Stem/Compat/Anchor/Enrichment/
+Auto-Edit. Statusmarker bleiben durchweg Userrecht — ich habe keinen auf
+`fixed` gesetzt.
 
-**Alle geplanten W3-Teilschritte sind live durchlaufen** (drei Runs am
-2026-08-14): App-Start und Systemcheck, Projekt-Load, Fehlerpfad bei fehlender
-Quelldatei, Cancel-Mechanik, Cancel-Persistenz, Retry, Neustartvergleich,
-fehlendes Stem, Shutdown und Hostschutz. Alle Manifeste `pass`, fünf
-Host-/Repo-DBs byte-identisch. Der `pass`-Marker für W3 ist Userrecht.
+Weiterhin unangetastet, weil bewusst zurueckgestellt oder Userentscheidung:
+sechs `deferred`-Bugs, dreizehn `fixed-unverified`, acht
+`code-fix-pending-live-verification` und B-816 (`agent-fixed-await-user`).
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;
