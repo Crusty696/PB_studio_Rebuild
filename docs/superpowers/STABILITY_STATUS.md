@@ -4,13 +4,13 @@ Letztes Update: 2026-08-02 21:35 Europe/Zurich
 
 Gesamtfortschritt: **ca. 21–23 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL**
+Aktiv: **ROOT-CAUSE / B-819 Appstart rekreiert entfernte SQLite-Indizes**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **25 %** | W1/W2 live-pass; W3 durch B-758 Systemcheck blockiert |
+| STAB-2 Acht Live-Workflows | **25 %** | W1/W2 live-pass; B-758-App-Gate gruen, W3 durch B-819-Manifestdrift blockiert |
 | STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
@@ -98,8 +98,8 @@ Aktiv: **ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL**
 
 ## Nächste einzige Task
 
-`ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
-Danach W3 Retry/Neustart/fehlendes Stem.
+`ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
+Danach B-758-Manifest-Recheck und W3 Retry/Neustart/fehlendes Stem.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und

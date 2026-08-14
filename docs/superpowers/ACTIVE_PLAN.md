@@ -22,11 +22,17 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
+`W3 Audio V2 komplett, Cancel, Retry, Neustart` im isolierten
+Stabilitaetsprojekt fortsetzen.
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;
-`fixed` bleibt Userrecht. Naechste einzige Task ist wieder B-758/W3.
+`fixed` bleibt Userrecht. B-758-Systemcheck ist im exakten isolierten W3-
+Harness gruen. B-819 wurde in Commit `532165f` korrigiert: 4 Fokus-Tests,
+Syntax/Ruff, isolierter Zwei-`init_db()`-Lauf und sichtbarer App-Manifestlauf
+`20260812T1354-b819-live-manifest` sind gruen; geschuetzte Bootstrap-DB vor/
+nach byte-, schema- und logisch identisch. `fixed` bleibt Userrecht. B-758-
+Manifest-Recheck damit pass; naechste einzige Task ist W3-Fortsetzung.
 
 W3 wurde am Current HEAD `e85a2c2` vor jeder Projektöffnung gestoppt: modaler
 Systemcheck meldete `CUDA GPU FAIL` und `NVENC Encode FAIL`; degradierter Start
@@ -41,7 +47,7 @@ Tests gruen; Abschlussreview ohne Critical/High/Medium. B-757 leitet Schema-
 und UI-Grenze jetzt aus 18 kanonischen Achsen ab; Fokus und Review gruen,
 App-Livebeweis offen. B-738 ist code-complete/live-pending: sicherer Tool-/
 Non-Tool-Gateway, reservierter Learn-Control-Prefix und read-only Vision-
-Recall/Explain sind fokussiert gruen. Naechste einzige Task ist W3-Liveverify.
+Recall/Explain sind fokussiert gruen. Damalige Folgetask war W3-Liveverify.
 
 Keine redundante breite Pytest-Suite. Live-Session nutzt isoliertes Projekt,
 Click-/App-/DB-/GPU-/Prozessbelege. Erster reproduzierbare Fehler stoppt

@@ -723,13 +723,53 @@ def _run_legacy_migrations():
             if "playback_offset" not in vc_columns:
                 conn.execute(text("ALTER TABLE video_clips ADD COLUMN playback_offset FLOAT DEFAULT 0.0"))
 
+    def _ensure_legacy_index(
+        conn,
+        inspector,
+        table_name: str,
+        index_name: str,
+        columns: tuple[str, ...],
+        *,
+        unique: bool = False,
+    ) -> None:
+        """Legacy-Index nur ohne gleichwertige kanonische Abdeckung anlegen.
+
+        B-819: Nur den Indexnamen mit ``IF NOT EXISTS`` zu pruefen erzeugte
+        Duplikate neben den spaeter eingefuehrten ``idx_*``-Indizes und neben
+        SQLite-Autoindizes aus ``UniqueConstraint``. Fuer den Legacy-Bring-up
+        zaehlt deshalb dieselbe Spaltenfolge plus dieselbe Unique-Semantik.
+        """
+        for existing in inspector.get_indexes(table_name):
+            if (
+                tuple(existing.get("column_names") or ()) == columns
+                and bool(existing.get("unique")) is unique
+            ):
+                return
+        if unique:
+            for constraint in inspector.get_unique_constraints(table_name):
+                if tuple(constraint.get("column_names") or ()) == columns:
+                    return
+
+        unique_sql = "UNIQUE " if unique else ""
+        column_sql = ", ".join(columns)
+        conn.execute(text(
+            f"CREATE {unique_sql}INDEX IF NOT EXISTS {index_name} "
+            f"ON {table_name}({column_sql})"
+        ))
+
     # Phase 4: Indizes auf neue Tabellen
     insp = inspect(get_raw_engine())
     with engine.begin() as conn:
         if "structure_segments" in insp.get_table_names():
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_structure_segments_audio_track_id ON structure_segments(audio_track_id)"))
+            _ensure_legacy_index(
+                conn, insp, "structure_segments",
+                "ix_structure_segments_audio_track_id", ("audio_track_id",),
+            )
         if "hotcues" in insp.get_table_names():
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_hotcues_audio_track_id ON hotcues(audio_track_id)"))
+            _ensure_legacy_index(
+                conn, insp, "hotcues", "ix_hotcues_audio_track_id",
+                ("audio_track_id",),
+            )
 
     # H5 Fix: Indizes auf Foreign-Key-Spalten erstellen (M-40 Fix: mit Tabellen-Existenz-Checks)
     insp = inspect(get_raw_engine())
@@ -737,40 +777,94 @@ def _run_legacy_migrations():
 
     with engine.begin() as conn:
         if "audio_tracks" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_tracks_project_id ON audio_tracks(project_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_audio_tracks_project_file ON audio_tracks(project_id, file_path)"))
+            _ensure_legacy_index(
+                conn, insp, "audio_tracks", "ix_audio_tracks_project_id",
+                ("project_id",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "audio_tracks", "uq_audio_tracks_project_file",
+                ("project_id", "file_path"), unique=True,
+            )
         if "video_clips" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_video_clips_project_id ON video_clips(project_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_video_clips_project_file ON video_clips(project_id, file_path)"))
+            _ensure_legacy_index(
+                conn, insp, "video_clips", "ix_video_clips_project_id",
+                ("project_id",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "video_clips", "uq_video_clips_project_file",
+                ("project_id", "file_path"), unique=True,
+            )
         if "scenes" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scenes_video_clip_id ON scenes(video_clip_id)"))
+            _ensure_legacy_index(
+                conn, insp, "scenes", "ix_scenes_video_clip_id",
+                ("video_clip_id",),
+            )
         if "beatgrids" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_beatgrids_audio_track_id ON beatgrids(audio_track_id)"))
+            _ensure_legacy_index(
+                conn, insp, "beatgrids", "ix_beatgrids_audio_track_id",
+                ("audio_track_id",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "beatgrids", "uq_beatgrids_audio_track_id",
+                ("audio_track_id",), unique=True,
+            )
         if "waveform_data" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_waveform_data_audio_track_id ON waveform_data(audio_track_id)"))
+            _ensure_legacy_index(
+                conn, insp, "waveform_data", "ix_waveform_data_audio_track_id",
+                ("audio_track_id",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "waveform_data", "uq_waveform_data_audio_track_id",
+                ("audio_track_id",), unique=True,
+            )
         if "timeline_entries" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_timeline_entries_project_id ON timeline_entries(project_id)"))
+            _ensure_legacy_index(
+                conn, insp, "timeline_entries",
+                "ix_timeline_entries_project_id", ("project_id",),
+            )
         if "audio_video_anchors" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_audio_track_id ON audio_video_anchors(audio_track_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audio_video_anchors_video_clip_id ON audio_video_anchors(video_clip_id)"))
+            _ensure_legacy_index(
+                conn, insp, "audio_video_anchors",
+                "ix_audio_video_anchors_audio_track_id", ("audio_track_id",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "audio_video_anchors",
+                "ix_audio_video_anchors_video_clip_id", ("video_clip_id",),
+            )
         if "clip_anchors" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_clip_anchors_timeline_entry_id ON clip_anchors(timeline_entry_id)"))
+            _ensure_legacy_index(
+                conn, insp, "clip_anchors",
+                "ix_clip_anchors_timeline_entry_id", ("timeline_entry_id",),
+            )
         if "ai_pacing_memory" in existing_tables:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ai_pacing_memory_audio_track_id ON ai_pacing_memory(audio_track_id)"))
+            _ensure_legacy_index(
+                conn, insp, "ai_pacing_memory",
+                "ix_ai_pacing_memory_audio_track_id", ("audio_track_id",),
+            )
 
     # AUD-11: model_registry Index (M-40 Fix: mit Tabellen-Existenz-Check)
     if "model_registry" in existing_tables:
         with engine.begin() as conn:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_source ON model_registry(source)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_model_registry_last_used ON model_registry(last_used_at)"))
+            _ensure_legacy_index(
+                conn, insp, "model_registry", "ix_model_registry_source",
+                ("source",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "model_registry", "ix_model_registry_last_used",
+                ("last_used_at",),
+            )
 
     # AUD-12: agent_feedback Index (M-40 Fix: mit Tabellen-Existenz-Check)
     if "agent_feedback" in existing_tables:
         with engine.begin() as conn:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_rating ON agent_feedback(rating)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_feedback_action ON agent_feedback(action_name)"))
+            _ensure_legacy_index(
+                conn, insp, "agent_feedback", "ix_agent_feedback_rating",
+                ("rating",),
+            )
+            _ensure_legacy_index(
+                conn, insp, "agent_feedback", "ix_agent_feedback_action",
+                ("action_name",),
+            )
 
     # AUD-84: ML Key Detection — Modulation + Tension Spalten nachrüsten
     insp = inspect(get_raw_engine())

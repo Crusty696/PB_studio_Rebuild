@@ -1,0 +1,10 @@
+{
+  "lesson_id": "87b5771b50b64636bb1a340bc99a1b78",
+  "recorded_at": "2026-08-12T11:35:20+00:00",
+  "session_id": "db7f8b2335374ce58220401d26bf390b",
+  "head_at_start": "6b2ce85c9c8cb90872eee649d61a941617ca3377",
+  "problem": "Existing-DB-Appstart erzeugte trotz Alembic-Head 20 zusaetzliche SQLite-Indizes und liess Fresh- und Wiederholungs-Schema auseinanderlaufen.",
+  "cause": "Legacy-Migration pruefte nur historische Indexnamen per IF NOT EXISTS; semantisch gleichwertige kanonische Indizes, UniqueConstraints und sieben fehlende Base.metadata-Definitionen wurden nicht abgeglichen.",
+  "rule": "Legacy-Index-Backfills immer nach Spaltenfolge und Unique-Semantik gegen kanonisches Schema pruefen; beabsichtigte Indizes zugleich in Base.metadata und Alembic-Head abbilden und Fresh-vs-zweiter-init-Schema vergleichen.",
+  "applies_to": "database/migrations.py,database/models.py,Alembic,SQLite-Startup"
+}

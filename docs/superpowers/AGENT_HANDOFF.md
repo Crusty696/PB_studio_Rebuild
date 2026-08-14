@@ -2,20 +2,62 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## CLAUDE-CODE-HANDOFF-2026-08-14 (newest)
+## B-758/B-819 Branch-Integration 2026-08-14 (newest)
 
-- **Repo & Branch**: Canonical Repository `Crusty696/PB_studio_Rebuild`, Branch `main`, **100 % in sync with `origin/main`**.
-- **Stand & Verifikation**:
-  - All 5 critical performance optimizations & dead code cleanups (SigLIP VRAM cache residency, 0ms watchdog exit, NullPool session engine caching, DB backoff 50ms, dead APIs removal) are **100% committed, verified & pushed to `origin/main`**.
-  - All 25 stale topic branches purged, local Git status clean.
-  - Setup environment `pb-studio` is ready to be built fresh from `environment.yml` via `setup_pb_studio.bat`.
-- **Next Authorized Plan Task**:
-  - `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run` (Execute isolated GUI harness test on GTX 1060).
-  - Followed immediately by `W3 Audio V2 Cancel, Retry, Neustart und fehlendes Stem`.
-- **Instructions for Claude Code CLI**:
-  - Read `AGENTS.md` completely.
-  - Check `docs/superpowers/ACTIVE_PLAN.md` and `docs/superpowers/PLAN_REGISTRY.md`.
-  - Execute `B-758` & `W3 Audio V2` according to the active plan.
+- Uebernahme durch Claude Code CLI. Vor jeder Codeaenderung geprueft; zwei
+  Aussagen des vorherigen Handoff-Eintrags waren nicht zutreffend und werden
+  hier korrigiert:
+  - Der Worktree war **nicht** clean: fuenf untrackte Pfade
+    (`tests/test_clip_children.py`, `tests/test_clip_drag_diag.py`,
+    `tests/test_drag_multi_step.py`, `tests/test_map_and_click.py`,
+    `tests/qa_material/solo_natur_subset12/`, 113 MB). Laut D-089 dokumentierter
+    Fremdbestand; unveraendert gelassen.
+  - Nicht alle Arbeit lag auf `main`: der lokale Branch
+    `codex/B-758-w3-recheck` (`f091108`, Fork-Punkt `6b2ce85`, ohne Remote)
+    trug den B-819-Produktfix plus die B-758-Recheck-Evidenz.
+- Auf Userentscheidung 2026-08-14 wurde dieser Branch per `--no-ff` nach `main`
+  gemergt. Einziger Konflikt war dieser Handoff-Kopf; beide Historien bleiben
+  erhalten.
+- Sachstand B-758: Root Cause ist extern und belegt (Surface-HotPlug
+  `DGPUPresent=0` plus `nvlddmkm`-TDR am 2026-08-02); der Systemcheck war
+  korrekt rot, weil die dGPU real abwesend war. Isolierter W3-Recheck
+  `20260812T1323` gruen. Vault-Status `obsolete-code-entfernt`. Keine offene
+  Root-Cause-Arbeit.
+- Naechste einzige Task: `LIVE-VERIFY / W3 Audio V2 Cancel, Retry, Neustart und
+  fehlendes Stem`.
+- Die fuenf Performance-Optimierungen (`51164df`, `89f76b3`, `d67b425`) liegen
+  unabhaengig davon auf `main`.
+
+## B-819 Live-Manifest PASS / W3 aktiv 2026-08-12
+
+- Fix `532165f`: Legacy-Indizes werden nach Spaltenfolge/Unique-Semantik
+  abgeglichen; sieben beabsichtigte Indizes leben kanonisch in ORM-Metadata.
+- Fokus-Suite 4 passed; PyCompile/Ruff gruen; externer zweiter `init_db()`-
+  Lauf schema- und zeilenstabil.
+- Sichtbarer Run `20260812T1354-b819-live-manifest`: Manifest `pass`, Gate
+  `passed: true`, App/Screenshot/Shutdown gruen, GTX-1060-CUDA-Marker komplett.
+- Bootstrap-DB vor/nach exakt identisch: 442368 B, Datei-SHA-256
+  `3eb0a5a2ef8722adde325506b2a07329c7c56b1317e974ecb1bf9b35a0aa43f9`,
+  Schema-SHA-256
+  `9984c139377ffa2e4b66482d8a4ad6183845ca56e43a14c32d961a0e7ad5240b`.
+- B-819 bleibt bis Userfreigabe ohne `fixed`-Marker. Naechste einzige Task:
+  W3 Audio V2 komplett, Cancel, Retry, Neustart im isolierten Projekt.
+- Evidence:
+  `C:/Users/David_Lochmann/AppData/Local/PBStudioB819LiveIsolated/PBStudioStability/20260812T1354-b819-live-manifest/`.
+
+## B-758 App-Gate gruen / B-819 blockiert Manifest 2026-08-12
+
+- Run `20260812T1323-b758-w3-recheck`, HEAD `6b2ce85`, sauberer isolierter
+  W3-Harness: GTX 1060/CUDA-Appmarker komplett, Screenshot, kein CUDA-/NVENC-
+  FAIL, graceful Shutdown, keine Prozessreste. Gate-JSON `passed: true`.
+- Gesamtmanifest `fail`: nur isolierte Bootstrap-DB driftete 425984→512000 B.
+  Inhalte identisch; 20 Indizes neu, inklusive durch Alembic
+  `f0a1b2c3d4e5` entfernten Duplikaten.
+- Neuer Bug B-819; Host-DBs unveraendert. Erste-Fehler-Regel stoppt W3.
+- Aktuelle einzige Task: `ROOT-CAUSE / B-819 Appstart rekreiert von Alembic
+  entfernte SQLite-Indizes`. Danach B-758-Manifest-Recheck, dann W3.
+- Evidence extern unter
+  `C:/Users/David_Lochmann/AppData/Local/PBStudioB758Isolated/PBStudioStability/20260812T1323-b758-w3-recheck/`.
 
 ## D-089 AGY-Rest abgeschlossen / B-758 aktiv 2026-08-12 (newest)
 
@@ -40,7 +82,7 @@ This file is a repository-local continuity checkpoint for all agents.
 - Pre-Manifest `20260802T2126-w3-final-pre`; Post `20260802T2134-w3-b758-post`.
 - W3-/Hostprojekt-DBs unverändert. Neu erzeugte Repo-Root-WAL/SHM extern
   gesichert und nach Prozessfreiheit recoverable entfernt.
-- Nächste einzige Task:
+- Damals nächste einzige Task:
   `ROOT-CAUSE / B-758 Systemcheck CUDA/NVENC FAIL im isolierten W3-Live-Run`.
 
 ## B-738 Fokus-PASS / W3 Liveverify aktiv 2026-08-02 (newest)

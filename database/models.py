@@ -225,6 +225,8 @@ class VideoClip(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "file_path", name="uq_video_clips_project_file"),
         Index("idx_video_project", "project_id"),
+        Index("ix_video_clips_stream_sha256", "stream_sha256"),
+        Index("ix_video_clips_pipeline_status", "video_pipeline_status"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -260,6 +262,7 @@ class Scene(Base):
     __tablename__ = "scenes"
     __table_args__ = (
         Index("idx_scene_video", "video_clip_id"),
+        Index("ix_scenes_scene_index", "video_clip_id", "scene_index"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -556,6 +559,10 @@ class ModelRegistry(Base):
     Basis für Auto-Cleanup-Vorschläge (ungenutzte Modelle nach X Tagen).
     """
     __tablename__ = "model_registry"
+    __table_args__ = (
+        Index("idx_model_registry_source", "source"),
+        Index("idx_model_registry_last_used", "last_used_at"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     model_id = Column(String, nullable=False, unique=True)   # "gemma3:4b" | "google/siglip-so400m-patch14-384"
@@ -581,6 +588,10 @@ class AgentFeedback(Base):
     rating:  1 = positiv (Daumen hoch), -1 = negativ (Daumen runter), 0 = neutral
     """
     __tablename__ = "agent_feedback"
+    __table_args__ = (
+        Index("idx_agent_feedback_rating", "rating"),
+        Index("idx_agent_feedback_action", "action_name"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(DateTime, nullable=True, default=lambda: _datetime.datetime.utcnow())
