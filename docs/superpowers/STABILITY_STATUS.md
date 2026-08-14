@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 08:55 Europe/Zurich
+Letztes Update: 2026-08-14 09:45 Europe/Zurich
 
 Gesamtfortschritt: **ca. 27–29 %**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
+Aktiv: **ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -109,16 +109,27 @@ Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
   Usermarker offen.
 - B-820 gefixt und live bestätigt (`f46d2eb`): ein User-Cancel überlebt den
   Status-Reconciler. RED 3/4 → GREEN 16, breitere Gegenprobe 125 passed.
-- Neu offen: B-822 (high, Stem-Pfade zeigen aus dem Projekt heraus in einen
-  Host-Ordner) und B-821 (low, leerer Auswahlzustand wird nur ins
-  Konsolen-Widget gemeldet, nicht ins Logfile). B-821 war zunaechst als
-  "Button nach Cancel tot" erfasst; der nachgeholte Stem-Test entlastete das
-  Symptom weitgehend — die fruehen Fehlklicks waren nicht zugestellt.
+- B-822 gefixt und live bestaetigt: Stem-Pfade werden ans aktive Projekt
+  gebunden. Mit gezielt auf den Host gesetzten Spalten meldete die App
+  `stem_separation` nicht mehr als vorhanden und separierte neu in den
+  isolierten Projektordner; Host-Dateien unveraendert.
+- B-821 und B-823 gefixt: verworfene Analyse-Klicks landen jetzt per
+  `logger.warning` im Logfile; der Pacing-Vocal-Test hat einen festen RNG-Seed.
+- B-824 gefixt und live belegt: Stem-Pfade werden projektrelativ gespeichert.
+  Alembic `b4c5d6e7f8a9` zieht Bestandsdaten konservativ nach — im Livelauf
+  `4 Stem-Pfade projektrelativ gemacht, 4 ausserhalb des Projekts bewusst
+  unveraendert gelassen`. Nachzug: elf ungeschuetzte Stem-Leser gefunden und
+  nachgezogen, nachdem der erste Livelauf `[StemPlayer] 0 Stems geoeffnet`
+  zeigte.
+- Neu offen: **B-825** (high) — Alembic-Roundtrip bricht mit
+  `no such column: last_used_at` beim `CREATE INDEX idx_model_registry_last_used`.
+  Per Baseline-Lauf als vorbestehend belegt, nicht durch B-822/B-824 verursacht.
+  Herkunft vermutlich der B-819-Index aus `database/models.py:564`.
 
 ## Nächste einzige Task
 
-`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
-B-821 und B-823 bleiben als low daneben offen.
+`ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab`.
+Danach `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
 Breite/live Tests bleiben gemäß Uservorgabe gebündelt.
 
 Korrektur 2026-08-04: Diese Zeile nannte bis dahin `ROOT-CAUSE / B-738` und

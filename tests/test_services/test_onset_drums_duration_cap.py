@@ -68,6 +68,13 @@ def _fake_env(monkeypatch, *, raw_seconds: float):
     monkeypatch.setattr(_orm, "Session", _fake_session_ctx)
     monkeypatch.setattr(ors.Path, "exists", lambda self: True)
 
+    # B-824: der Drums-Stem wird jetzt ueber stem_router gegen APP_ROOT
+    # aufgeloest — "C:/fake" ist hier das Projekt, und der Router prueft
+    # is_file() statt exists().
+    import database.session as db_session
+    monkeypatch.setattr(db_session, "APP_ROOT", "C:/fake")
+    monkeypatch.setattr(ors.Path, "is_file", lambda self: True)
+
     import services.pacing_beat_grid as pbg
     monkeypatch.setattr(pbg, "_get_beat_positions", lambda track_id: [])
 

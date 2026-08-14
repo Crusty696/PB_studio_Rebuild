@@ -77,11 +77,16 @@ def test_stems_controller_also_updates_schnitt_binder(monkeypatch):
     controller = stems_mod.StemsController(window)
     controller._update_stem_workspace(7)
 
+    # B-822/B-824: die Pfade laufen jetzt durch ``resolve_stem_path``. Die
+    # Fake-Werte "vocals.wav"/"drums.wav" existieren nirgends, also loesen sie
+    # zu ``None`` auf. Entscheidend ist hier ohnehin die Verkabelung — der
+    # SchnittAudioBinder muss mit demselben Mapping gerufen werden wie das
+    # StemWorkspace — und dass alle vier Schluessel erhalten bleiben.
     expected = (
         7,
         {
-            "vocals": "vocals.wav",
-            "drums": "drums.wav",
+            "vocals": None,
+            "drums": None,
             "bass": None,
             "other": None,
         },

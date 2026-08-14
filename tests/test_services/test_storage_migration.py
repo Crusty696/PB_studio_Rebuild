@@ -3,6 +3,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import database.session as db_session
 from database.models import (
     AnalysisArtifact,
     AnalysisJob,
@@ -22,7 +23,9 @@ def _session() -> Session:
     return Session(engine)
 
 
-def test_storage_migration_registers_audio_stems_and_junction(tmp_path: Path) -> None:
+def test_storage_migration_registers_audio_stems_and_junction(tmp_path: Path, monkeypatch) -> None:
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier das Projekt.
+    monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
     source = tmp_path / "track.wav"
     source.write_bytes(b"audio-source")
     stem_dir = tmp_path / "project" / "storage" / "stems" / "1"
@@ -84,7 +87,9 @@ def test_storage_migration_registers_plan_a_video_outputs(tmp_path: Path) -> Non
         assert session.query(AnalysisArtifact).filter_by(artifact_role="proxy").one().path == "video/proxy.mp4"
 
 
-def test_storage_migration_is_idempotent(tmp_path: Path) -> None:
+def test_storage_migration_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier das Projekt.
+    monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
     source = tmp_path / "track.wav"
     source.write_bytes(b"audio-source")
     stem_dir = tmp_path / "project" / "storage" / "stems" / "1"

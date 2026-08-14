@@ -228,12 +228,16 @@ class StorageMigrationService:
         if not source.is_file():
             return None
 
-        stem_paths = {
+        # B-822/B-824: die Spalten sind projektrelativ gespeichert; Altbestand
+        # kann zudem aus dem Projekt herausfuehren. Erst aufloesen, sonst
+        # verlinkt die Storage-Migration nichts (relativ) oder Fremdmaterial.
+        from services.stem_router import resolve_stem_paths
+        stem_paths = resolve_stem_paths({
             "vocals_stem": track.stem_vocals_path,
             "drums_stem": track.stem_drums_path,
             "bass_stem": track.stem_bass_path,
             "other_stem": track.stem_other_path,
-        }
+        })
         existing_stems = {
             role: Path(path)
             for role, path in stem_paths.items()

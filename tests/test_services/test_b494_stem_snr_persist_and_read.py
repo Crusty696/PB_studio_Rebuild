@@ -74,10 +74,14 @@ def test_b494_separate_and_store_persists_real_snr_into_acoustic_metadata(
     Werte landen in AudioTrack.acoustic_metadata['stem_snr']."""
     import services.ai_audio_service as svc
     import services.pacing_beat_grid as pbg_mod
+    import database.session as db_session
     from contextlib import contextmanager as _cm
 
     svc.engine = test_engine
     monkeypatch.setattr(pbg_mod, "engine", test_engine)
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier
+    # das aktive Projekt, sonst gelten die Stem-WAVs als projektfremd.
+    monkeypatch.setattr(db_session, "APP_ROOT", str(tmp_path))
 
     @_cm
     def _test_nullpool():
@@ -121,10 +125,14 @@ def test_b494_persisted_format_matches_ui_extract_snr_reader(
     import services.ai_audio_service as svc
     import services.pacing_beat_grid as pbg_mod
     from ui.workspaces.stems_workspace import _extract_snr
+    import database.session as db_session
     from contextlib import contextmanager as _cm
 
     svc.engine = test_engine
     monkeypatch.setattr(pbg_mod, "engine", test_engine)
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier
+    # das aktive Projekt, sonst gelten die Stem-WAVs als projektfremd.
+    monkeypatch.setattr(db_session, "APP_ROOT", str(tmp_path))
 
     @_cm
     def _test_nullpool():

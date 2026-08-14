@@ -77,12 +77,21 @@ class StemsController(PBComponent):
                         self.window._stems_ws.update_analysis(None)
                     self.window.stem_player.stop()
                     return
+                # B-822/B-824: die Spalten sind projektrelativ gespeichert und
+                # koennen bei Altbestand aus dem Projekt herausfuehren. Erst
+                # aufloesen, sonst laedt der StemPlayer nichts (relativ) oder
+                # Fremdmaterial (Altbestand).
+                from services.stem_router import resolve_stem_path
                 stem_paths = {
-                    "vocals": track_row.stem_vocals_path,
-                    "drums": track_row.stem_drums_path,
-                    "bass": track_row.stem_bass_path,
-                    "other": track_row.stem_other_path,
+                    "vocals": resolve_stem_path(track_row.stem_vocals_path),
+                    "drums": resolve_stem_path(track_row.stem_drums_path),
+                    "bass": resolve_stem_path(track_row.stem_bass_path),
+                    "other": resolve_stem_path(track_row.stem_other_path),
                 }
+                # Alle vier Schluessel bleiben erhalten, nicht aufloesbare mit
+                # ``None``: StemWorkspace und SchnittAudioBinder erwarten das
+                # vollstaendige Mapping und unterscheiden "fehlt" von "gar nicht
+                # vorgesehen".
                 loaded = self.window.stem_player.load_stems(stem_paths)
                 if hasattr(self.window, "stem_workspace"):
                     self.window.stem_workspace.update_for_track(track_id, stem_paths)
@@ -260,11 +269,14 @@ class StemsController(PBComponent):
                     AudioTrack.title,
                 ).where(AudioTrack.id == track_id)
             ).first()
-            if not track or not track.stem_vocals_path or not track.stem_other_path:
+            # B-822/B-824: gespeicherte Pfade sind projektrelativ und koennen
+            # bei Altbestand herausfuehren — beides erst aufloesen.
+            from services.stem_router import resolve_stem_path
+            vocals_path = resolve_stem_path(track.stem_vocals_path) if track else None
+            other_path = resolve_stem_path(track.stem_other_path) if track else None
+            if not track or not vocals_path or not other_path:
                 self.window.console_text.append("[Ducking] Zuerst Stems separieren!")
                 return
-            vocals_path = track.stem_vocals_path
-            other_path = track.stem_other_path
             title = track.title
 
         import re

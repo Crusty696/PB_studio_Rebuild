@@ -2,7 +2,40 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-822 gefixt und live bestaetigt / W4 aktiv 2026-08-14 (newest)
+## B-821/B-823/B-824 gefixt / B-825 aktiv 2026-08-14 (newest)
+
+- **B-824**: Stem-Pfade werden jetzt PROJEKTRELATIV gespeichert
+  (`storage/stems/...`, POSIX-Trenner). Neu in `services/stem_router.py`:
+  `to_project_relative()`; `resolve_stem_path()` loest relative Werte gegen
+  `APP_ROOT` auf. Schreiber umgestellt in `audio_pipeline/stages.py`,
+  `ai_audio_service.py` und `storage_provenance/cross_project_reuse.py`.
+- **Datenmigration** Alembic `b4c5d6e7f8a9` (down_revision `a3b4c5d6e7f8`),
+  bewusst konservativ: relativiert wird nur, was unter `projects.path` des
+  eigenen Tracks liegt; Fremdpfade bleiben stehen; relative Werte und NULL
+  unangetastet; Vergleich normalisiert Trenner und Gross-/Kleinschreibung.
+  `downgrade()` macht relative Werte wieder absolut.
+- **Livebeleg** (Run `20260814T0930-b824-verify`):
+  `B-824: 4 Stem-Pfade projektrelativ gemacht, 4 ausserhalb des Projekts
+  bewusst unveraendert gelassen`. Track im Projekt wurde relativ, Track auf ein
+  fremdes Projekt blieb absolut. Alle zehn Analyse-Schritte blieben `done`,
+  Stem-Selbstheilung lief weiter.
+- **Wichtiger Nachzug**: der erste Livelauf zeigte `[StemPlayer] 0 Stems
+  geoeffnet` — eine echte Regression. Eine systematische Suche fand ELF
+  ungeschuetzte Stem-Leser (StemPlayer, Auto-Ducking, Vocal-Aktivitaet, SNR,
+  DJ-Mix-Erkennung, Drum-Onsets, Storage-Migration) plus einen Schreiber
+  (Cross-Project-Reuse). Alle nachgezogen. Wer kuenftig eine Stem-Spalte liest,
+  MUSS durch `resolve_stem_path()`.
+- **B-821**: drei `logger.warning` fuer verworfene Analyse-Klicks in
+  `ui/controllers/audio_analysis.py`. **B-823**: fester RNG-Seed im
+  Pacing-Vocal-Test.
+- **Neu offen B-825** (high): `test_full_roundtrip_empty_db` bricht mit
+  `no such column: last_used_at` beim `CREATE INDEX idx_model_registry_last_used`.
+  Per Baseline-Lauf als VORBESTEHEND belegt — nicht durch B-822/B-824
+  verursacht. Herkunft vermutlich der B-819-Index aus `database/models.py:564`
+  (Merge `22f96b8`). Nicht mitgefixt.
+- Naechste einzige Task: `ROOT-CAUSE / B-825`, danach W4.
+
+## B-822 gefixt und live bestaetigt 2026-08-14
 
 - `services/stem_router.py` bekam `resolve_stem_path()`/`resolve_stem_paths()`
   fuer Stellen mit echtem Dateizugriff und `points_outside_project()` fuer

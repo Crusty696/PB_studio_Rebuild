@@ -502,18 +502,22 @@ class StemGenStage(Stage):
             from database import AudioTrack
         except ImportError:
             return
+        # B-824: projektrelativ ablegen. Ein absoluter Pfad ueberlebt keine
+        # Projektkopie und keinen Laufwerkswechsel; der relative Wert gilt in
+        # jeder Kopie unveraendert.
+        from services.stem_router import to_project_relative
         with nullpool_session() as sess:
             track = sess.query(AudioTrack).filter(AudioTrack.id == track_id).first()
             if track is None:
                 return
             if "drums" in stem_paths:
-                track.stem_drums_path = stem_paths["drums"]
+                track.stem_drums_path = to_project_relative(stem_paths["drums"])
             if "bass" in stem_paths:
-                track.stem_bass_path = stem_paths["bass"]
+                track.stem_bass_path = to_project_relative(stem_paths["bass"])
             if "vocals" in stem_paths:
-                track.stem_vocals_path = stem_paths["vocals"]
+                track.stem_vocals_path = to_project_relative(stem_paths["vocals"])
             if "other" in stem_paths:
-                track.stem_other_path = stem_paths["other"]
+                track.stem_other_path = to_project_relative(stem_paths["other"])
             sess.commit()
 
     @staticmethod

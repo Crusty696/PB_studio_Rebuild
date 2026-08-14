@@ -3,6 +3,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import database.session as db_session
 from database.models import AnalysisArtifact, AudioTrack, Base, Project
 from services.storage_provenance.schnitt_audio_adapter import (
     default_global_storage_root,
@@ -10,7 +11,9 @@ from services.storage_provenance.schnitt_audio_adapter import (
 )
 
 
-def test_schnitt_audio_adapter_builds_missing_stem_junction(tmp_path: Path) -> None:
+def test_schnitt_audio_adapter_builds_missing_stem_junction(tmp_path: Path, monkeypatch) -> None:
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier das Projekt.
+    monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
     source = tmp_path / "track.wav"
     source.write_bytes(b"audio-source")
     stem_dir = tmp_path / "project" / "storage" / "stems" / "1"
@@ -38,7 +41,9 @@ def test_schnitt_audio_adapter_builds_missing_stem_junction(tmp_path: Path) -> N
     assert artifact.path == "audio/stems/vocals.flac"
 
 
-def test_schnitt_audio_adapter_is_idempotent(tmp_path: Path) -> None:
+def test_schnitt_audio_adapter_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    # B-824: Stem-Pfade werden gegen APP_ROOT aufgeloest — tmp_path ist hier das Projekt.
+    monkeypatch.setattr(db_session, "APP_ROOT", tmp_path)
     source = tmp_path / "track.wav"
     source.write_bytes(b"audio-source")
     stem_dir = tmp_path / "project" / "storage" / "stems" / "1"

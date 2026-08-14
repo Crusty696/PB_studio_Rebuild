@@ -938,10 +938,12 @@ class StemSeparator:
                     raise ValueError(
                         f"AudioTrack {track_id} nach Separation nicht mehr gefunden"
                     )
-                track.stem_vocals_path = stems.get("vocals")
-                track.stem_drums_path = stems.get("drums")
-                track.stem_bass_path = stems.get("bass")
-                track.stem_other_path = stems.get("other")
+                # B-824: projektrelativ ablegen, siehe stem_router.to_project_relative.
+                from services.stem_router import to_project_relative
+                track.stem_vocals_path = to_project_relative(stems.get("vocals"))
+                track.stem_drums_path = to_project_relative(stems.get("drums"))
+                track.stem_bass_path = to_project_relative(stems.get("bass"))
+                track.stem_other_path = to_project_relative(stems.get("other"))
                 try:
                     session.commit()
                 except Exception:  # broad catch intentional — SQLAlchemy commit can raise many error types

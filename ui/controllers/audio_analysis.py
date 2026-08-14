@@ -344,6 +344,11 @@ class AudioAnalysisController(PBComponent):
                 "in der Audio-Liste anklicken."
             )
             self.window.status_bar.showMessage("Kein Audio ausgewählt", 5000)
+            # B-821: verworfener Klick muss im Logfile sichtbar sein, sonst ist ein
+            # "toter Button" im Support nicht rekonstruierbar.
+            logger.warning(
+                "[Audio] Analyse-Klick verworfen — kein Audio-Track ausgewaehlt."
+            )
             return
         # OTK-018: Audio-V2 strict-sequential Pipeline als Default-Analysepfad
         # (Demucs-Stems + stem-geroutete Analyse). Reversibel via Setting
@@ -536,6 +541,11 @@ class AudioAnalysisController(PBComponent):
                     queue.append((tid, r.file_path, r.title or str(tid)))
         if not queue:
             self.window.console_text.append("[Komplett-Analyse V2] Keine gueltigen Tracks.")
+            # B-821: verworfener Klick im Logfile sichtbar machen.
+            logger.warning(
+                "[Komplett-Analyse V2] Klick verworfen — keine gueltigen Tracks "
+                "(kein DB-Treffer bzw. kein file_path)."
+            )
             return
         self._v2_queue = queue
         self._v2_total = len(queue)
@@ -658,6 +668,10 @@ class AudioAnalysisController(PBComponent):
                 )
         if not track_ids:
             self.window.console_text.append("[Komplett-Analyse] Keine Audio-Tracks im Pool.")
+            # B-821: verworfener Klick im Logfile sichtbar machen.
+            logger.warning(
+                "[Komplett-Analyse] Klick verworfen — keine Audio-Tracks im Pool."
+            )
             return
 
         # OTK-018: Audio-V2 strict-sequential Pipeline als Default-Analysepfad

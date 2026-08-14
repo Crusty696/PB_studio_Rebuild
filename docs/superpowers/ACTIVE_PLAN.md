@@ -22,60 +22,42 @@ die einzige aktive Quelle offener Arbeit.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
-Offen daneben: B-821 (low) und B-823 (low), beide ohne Produktcodebezug.
+`ROOT-CAUSE / B-825 Alembic-Roundtrip bricht an idx_model_registry_last_used ab`.
+Danach `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
 
-B-822 ist gefixt und live bestätigt. `services/stem_router.py` bekam
-`resolve_stem_path()`/`resolve_stem_paths()` für Stellen mit echtem
-Dateizugriff und `points_outside_project()` für reine Zugehörigkeitsprüfungen;
-angewandt an fünf Konsumenten. RED 6/6 → GREEN 6/6, Regressionslauf
-721 passed bei einem vorbestehenden Flake (B-823). Livebeleg: mit gezielt auf
-den Host-Ordner gesetzten Stem-Spalten meldete die App `stem_separation` nicht
-mehr als vorhanden und separierte statt eines Fremdzugriffs neu in den
-isolierten Projektordner; Host-Dateien blieben unverändert. `fixed` bleibt
+B-820, B-821, B-822, B-823 und B-824 sind gefixt; `fixed` bleibt jeweils
 Userrecht.
 
-B-820 ist gefixt und live bestätigt (Run `20260814T0530-w3-b820-verify`):
-`_ensure_status_done()` lässt einen bewussten User-Cancel jetzt stehen, der
-B-461-Reconcile-Pfad für echte Fehler bleibt erhalten. RED 3/4 → GREEN 16,
-breitere Gegenprobe 125 passed. Live: Cancel blieb `error`/`cancelled` und
-wurde erst durch den bewussten Retry auf `done` aufgelöst. `fixed` bleibt
-Userrecht.
+- **B-822/B-824** binden die Stem-Pfade ans aktive Projekt und stellen die
+  Speicherung auf projektrelativ um. `services/stem_router.py` liefert
+  `resolve_stem_path()` / `resolve_stem_paths()` für echte Dateizugriffe,
+  `points_outside_project()` für reine Zugehörigkeitsprüfungen und
+  `to_project_relative()` für Schreiber. Alembic `b4c5d6e7f8a9` zieht
+  Bestandsdaten konservativ nach: relativiert wird nur, was unter
+  `projects.path` liegt, Fremdpfade bleiben stehen.
+  Live belegt (Run `20260814T0930-b824-verify`): `4 Stem-Pfade projektrelativ
+  gemacht, 4 ausserhalb des Projekts bewusst unveraendert gelassen`; alle zehn
+  Analyse-Schritte blieben `done`, Stem-Selbstheilung funktionierte weiter.
+- **Nachzug zu B-824**: der erste Livelauf zeigte `[StemPlayer] 0 Stems
+  geöffnet` — elf ungeschützte Stem-Leser wurden gefunden und nachgezogen
+  (StemPlayer, Auto-Ducking, Vocal-Aktivität, SNR, DJ-Mix-Erkennung,
+  Drum-Onsets, Storage-Migration, Cross-Project-Reuse als Schreiber).
+- **B-821**: verworfene Analyse-Klicks landen jetzt per `logger.warning` im
+  Logfile, nicht mehr nur im Konsolen-Widget.
+- **B-823**: fester RNG-Seed im Pacing-Vocal-Test.
 
-**Alle geplanten W3-Teilschritte sind live durchlaufen**: App-Start und
-Systemcheck, Projekt-Load, Fehlerpfad bei fehlender Quelldatei,
-Cancel-Mechanik, Cancel-Persistenz nach Fix, Retry (10 Schritte `done`),
-Neustartvergleich, fehlendes Stem und Shutdown/Hostschutz. Alle drei Runs mit
-Pre-/Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch, 0
-Prozessreste.
+Neu offen: **B-825** (high). Der Alembic-Roundtrip-Test bricht mit
+`no such column: last_used_at` beim `CREATE INDEX idx_model_registry_last_used`.
+Per Baseline-Lauf belegt: **vorbestehend**, nicht durch B-822/B-824 verursacht;
+die neue Revision läuft im Roundtrip sauber up und down. Herkunft vermutlich
+der B-819-Index aus `database/models.py:564` (Merge `22f96b8`). Bewusst nicht
+mitgefixt.
 
-Fehlendes Stem (Run `20260814T0610-w3-stem-heal`): `vocals.wav` gelöscht,
-während `stem_separation` auf `done` stand. Die App erkannte das fehlende
-Artefakt und heilte sich durch vollständige Neuseparation auf `cuda:0`
-(htdemucs, 2 Chunks, VRAM 4.91/3.39 GB, alle vier Stems neu geschrieben,
-`Analysis completed ... {'stems': 4}`). Host-Stems unverändert.
-
-Der frühere Fehlschlag lag am Fensterfokus, nicht an der App: ein fremdes
-Fenster lag deckungsgleich über PB Studio und fing die Koordinatenklicks ab.
-Nach dem Minimieren kam der Klick beim ersten Versuch an.
-
-Der `pass`-Marker für W3 als Ganzes ist Userrecht.
-
-W3-Live-Session 2026-08-14, Run `20260814T0405-w3-audio-v2` auf HEAD `22f96b8`:
-App-Start, Systemcheck, Projekt-Load im isolierten Scope, Fehlerpfad bei
-fehlender Audio-Quelldatei, Cancel-Mechanik und Shutdown sind live pass.
-Pre- und Post-Manifest `pass`, alle fünf Host-/Repo-DBs byte-identisch,
-0 Prozessreste. B-758 ist damit erstmals in dieser Session selbst live belegt
-(CUDA available true, GTX 1060 6143 MB, kein FAIL-Modal); `fixed` bleibt
-Userrecht.
-
-Gestoppt nach Erste-Fehler-Regel durch neuen Bug B-820: ein per User-Cancel
-abgebrochener Analyse-Schritt wird in derselben Sekunde vom Status-Reconciler
-(`_ensure_status_done`, `services/analysis_status_service.py:750-754`) wieder
-auf `status='done'` gesetzt, `error_message` wird gelöscht. Der B-751-Cancel-
-vertrag überlebt den nächsten Status-Refresh nicht. Kein Code angefasst.
-Details: `docs/superpowers/synthesis/functional-test-w3-audio-v2-2026-08-14.md`
-und Vault `wiki/bugs/B-820-*.md`.
+**Alle geplanten W3-Teilschritte sind live durchlaufen** (drei Runs am
+2026-08-14): App-Start und Systemcheck, Projekt-Load, Fehlerpfad bei fehlender
+Quelldatei, Cancel-Mechanik, Cancel-Persistenz, Retry, Neustartvergleich,
+fehlendes Stem, Shutdown und Hostschutz. Alle Manifeste `pass`, fünf
+Host-/Repo-DBs byte-identisch. Der `pass`-Marker für W3 ist Userrecht.
 
 AGY-Rest gemaess D-089 ist mit getrennten Commits und ehrlichen Live-Grenzen
 abgeschlossen. B-817 und B-818 wurden als direkte AGY-Regressionen repariert;

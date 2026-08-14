@@ -75,6 +75,33 @@ def _active_project_root() -> Path | None:
     return Path(root) if root else None
 
 
+def to_project_relative(path: str | Path | None) -> str | None:
+    """Formatiert einen Stem-Pfad fuer die DB (B-824).
+
+    Liegt der Pfad im aktiven Projekt, wird er projektrelativ mit ``/`` als
+    Trenner zurueckgegeben — genau dieser Wert ueberlebt Kopieren, Verschieben
+    und einen Laufwerkswechsel. Alles andere bleibt unveraendert: einen Pfad
+    ausserhalb des Projekts relativ zu machen waere gelogen, und ein bereits
+    relativer Wert ist schon im Zielformat.
+
+    B-822 hat die *Auslegung* der Pfade ans Projekt gebunden; diese Funktion
+    stellt das *Speicherformat* um, damit die Bindung gar nichts mehr
+    zurechtbiegen muss.
+    """
+    if not path:
+        return None
+    p = Path(path)
+    if not p.is_absolute():
+        return Path(p).as_posix()
+    root = _active_project_root()
+    if root is None:
+        return str(p)
+    try:
+        return p.relative_to(root).as_posix()
+    except ValueError:
+        return str(p)
+
+
 def resolve_stem_path(stored_path: str | Path | None) -> str | None:
     """Bindet einen gespeicherten Stem-Pfad an das aktive Projekt (B-822).
 
@@ -87,6 +114,8 @@ def resolve_stem_path(stored_path: str | Path | None) -> str | None:
 
     Regeln:
 
+    - B-824: relativer Pfad -> gegen das aktive Projekt-Root aufgeloest. Das
+      ist das Speicherformat, in dem neue Eintraege abgelegt werden.
     - Pfad liegt im aktiven Projekt und existiert -> unveraendert zurueck.
     - Pfad liegt ausserhalb, aber dieselbe projektrelative Ablage existiert
       unterhalb des aktiven Projekts -> der projektinterne Pfad.
@@ -103,6 +132,11 @@ def resolve_stem_path(stored_path: str | Path | None) -> str | None:
     root = _active_project_root()
     if root is None:
         return str(path) if path.is_file() else None
+
+    # B-824: relativ gespeicherte Pfade sind der Normalfall fuer neue Daten.
+    if not path.is_absolute():
+        candidate = root / path
+        return str(candidate) if candidate.is_file() else None
 
     try:
         inside = path.is_relative_to(root)

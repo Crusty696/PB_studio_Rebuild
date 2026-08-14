@@ -903,7 +903,11 @@ def compute_vocal_activity(
             return [False] * len(beats)
         vocals_path = row.stem_vocals_path
 
-    if not Path(vocals_path).exists():
+    # B-822/B-824: gespeicherter Wert ist projektrelativ und kann bei
+    # Altbestand aus dem Projekt herausfuehren — erst aufloesen.
+    from services.stem_router import resolve_stem_path
+    vocals_path = resolve_stem_path(vocals_path)
+    if not vocals_path:
         return [False] * len(beats)
 
     if not beats or len(beats) < 2:
@@ -1117,7 +1121,10 @@ def compute_stem_snr(audio_id: int) -> StemSNR | None:
             "other": row.stem_other_path,
         }
 
-    available = {k: v for k, v in stem_paths.items() if v and Path(v).exists()}
+    # B-822/B-824: nur Stems des aktiven Projekts, relativ gespeicherte Werte
+    # werden dabei aufgeloest.
+    from services.stem_router import resolve_stem_paths
+    available = resolve_stem_paths(stem_paths)
     if not available:
         logger.info("Keine Stems fuer SNR-Berechnung (audio_id=%d)", audio_id)
         return None
@@ -1202,9 +1209,12 @@ def detect_dj_mix_from_stems(audio_id: int, n_segments: int = 5) -> bool:
     # Bevorzuge Drums (praeziseste Rhythmus-Information), dann Bass, dann Vocals
     chosen_stem: str | None = None
     chosen_path: str | None = None
+    # B-822/B-824: relativ gespeicherte Werte aufloesen, Fremdpfade verwerfen.
+    from services.stem_router import resolve_stem_paths
+    stem_paths = resolve_stem_paths(stem_paths)
     for stem_name in ("drums", "bass", "vocals"):
         p = stem_paths.get(stem_name)
-        if p and Path(p).exists():
+        if p:
             chosen_stem = stem_name
             chosen_path = p
             break
@@ -1320,7 +1330,10 @@ def compute_drum_onsets(
             return []
         drums_path = row.stem_drums_path
 
-    if not Path(drums_path).exists():
+    # B-822/B-824: relativ gespeicherten Wert aufloesen, Fremdpfad verwerfen.
+    from services.stem_router import resolve_stem_path
+    drums_path = resolve_stem_path(drums_path)
+    if not drums_path:
         return []
 
     try:

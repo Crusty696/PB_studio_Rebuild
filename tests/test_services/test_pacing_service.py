@@ -413,6 +413,9 @@ class TestVocalActivePacing:
         t = np.linspace(0, duration, int(sr * duration))
 
         # Erste Sekunde: leise (kein Vocal), zweite+dritte: laut (Vocal aktiv)
+        # B-823: fester Seed, sonst ist das "leise" Segment vom globalen
+        # RNG-Zustand vorheriger Tests abhaengig und der Test wird flaky.
+        np.random.seed(823)
         audio = np.concatenate([
             np.random.randn(sr) * 0.01,  # 0-1s: sehr leise
             np.random.randn(sr * 2) * 0.5,  # 1-3s: laut

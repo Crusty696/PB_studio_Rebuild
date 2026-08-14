@@ -1,0 +1,10 @@
+{
+  "lesson_id": "85409f4dbdb241faa0e59a88dc9e1fc4",
+  "recorded_at": "2026-08-14T07:25:39+00:00",
+  "session_id": "8fbd04ac2ca6408ab0982f4ec44d37f7",
+  "head_at_start": "5f252d30dff1a0f412cc407c823b82f9e00a2a95",
+  "problem": "Nach dem Umstellen der Stem-Pfade auf projektrelative Speicherung meldete der erste Livelauf sofort '[StemPlayer] 0 Stems geoeffnet, 0 Frames'. Die Unit-Tests waren dabei alle gruen.",
+  "cause": "Beim vorangegangenen B-822-Fix wurden nur die Konsumenten angefasst, die im damaligen Live-Szenario aufgefallen waren. Eine systematische Suche fand elf weitere Stellen, die dieselben DB-Spalten lesen und direkt oeffnen — StemPlayer, Auto-Ducking, Vocal-Aktivitaet, SNR, DJ-Mix-Erkennung, Drum-Onsets, Storage-Migration — plus einen Schreiber, der weiter absolute Pfade eintrug.",
+  "rule": "Wer das Format oder die Semantik einer DB-Spalte aendert, muss VORHER alle Leser und Schreiber dieser Spalte systematisch auflisten (grep ueber services/ui/workers/main, getrennt nach 'oeffnet die Datei' und 'prueft nur Truthiness') und die Liste abarbeiten. Gruene Unit-Tests beweisen nichts ueber nicht erfasste Konsumenten.",
+  "applies_to": "Schema-/Formataenderungen an DB-Spalten, Pfad-Refactorings, jede Aenderung mit zentralem Resolver"
+}

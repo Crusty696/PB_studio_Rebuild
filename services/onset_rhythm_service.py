@@ -667,7 +667,11 @@ class OnsetRhythmService:
             return None
 
         drums_y: np.ndarray | None = None
-        if drums_path and Path(drums_path).exists():
+        # B-822/B-824: gespeicherter Wert ist projektrelativ und kann bei
+        # Altbestand aus dem Projekt herausfuehren — erst aufloesen.
+        from services.stem_router import resolve_stem_path
+        drums_path = resolve_stem_path(drums_path)
+        if drums_path:
             try:
                 # B-359: Drums-Stem in voller Laenge wie das Raw-Audio; die
                 # Chunk-Analyse unten deckelt das Spektrogramm-RAM.

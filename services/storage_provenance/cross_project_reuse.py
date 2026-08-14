@@ -480,10 +480,13 @@ def _apply_audio_stem_references(
     track = session.get(AudioTrack, media_id)
     if track is None:
         raise ValueError(f"AudioTrack {media_id} nicht gefunden fuer Stem-Reuse")
-    track.stem_vocals_path = str(stem_paths["vocals"])
-    track.stem_drums_path = str(stem_paths["drums"])
-    track.stem_bass_path = str(stem_paths["bass"])
-    track.stem_other_path = str(stem_paths["other"])
+    # B-824: projektrelativ ablegen wie alle anderen Stem-Schreiber, sonst
+    # traegt ausgerechnet der Cross-Project-Reuse wieder absolute Pfade ein.
+    from services.stem_router import to_project_relative
+    track.stem_vocals_path = to_project_relative(str(stem_paths["vocals"]))
+    track.stem_drums_path = to_project_relative(str(stem_paths["drums"]))
+    track.stem_bass_path = to_project_relative(str(stem_paths["bass"]))
+    track.stem_other_path = to_project_relative(str(stem_paths["other"]))
 
 
 def _format_model_from_manifest(job: dict) -> str:

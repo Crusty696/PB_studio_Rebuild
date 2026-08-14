@@ -272,6 +272,12 @@ def calculate_drum_cuts(audio_id: int, total_duration: float = 60.0,
         if not track or not track.stem_drums_path:
             return []
         drums_path = track.stem_drums_path
+    # B-822/B-824: gespeicherter Wert ist projektrelativ und kann bei
+    # Altbestand aus dem Projekt herausfuehren — erst aufloesen.
+    from services.stem_router import resolve_stem_path
+    drums_path = resolve_stem_path(drums_path)
+    if not drums_path:
+        return []
     try:
         from services.audio_constants import DEFAULT_SR
         import librosa
