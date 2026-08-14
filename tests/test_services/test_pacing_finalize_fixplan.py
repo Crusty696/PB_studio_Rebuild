@@ -89,9 +89,24 @@ class TestSectionMinDurationAuthoritative:
         out = _enforce_minimum_durations(cuts, sections, 100.0)
         assert 2.0 in out and 4.0 in out and 6.0 in out
 
-    def test_breakdown_still_enforces_six_seconds(self):
+    def test_breakdown_bleibt_die_ruhigste_section(self):
+        """B-835: Skala gesenkt, Aussage unveraendert.
+
+        Der Test hiess ``test_breakdown_still_enforces_six_seconds`` und prueft
+        weiterhin dasselbe: BREAKDOWN erzwingt groessere Abstaende als die
+        schnellen Sections. Nur der Massstab ist ein anderer — 6,0s waren so
+        hoch, dass dort selbst die 8-Beat-Stufe (3,75s bei 128 BPM) unerreichbar
+        war und die Cut-Rate-Wahl in BREAKDOWN gar nichts mehr bewirkte. Der
+        Wert leitet sich jetzt aus SECTION_PACING_MAP ab (min 8 Beat).
+        """
+        from services.pacing_beat_grid import SECTION_MIN_DURATION
+
         sections = [_sec(0, 100, "BREAKDOWN")]
-        cuts = [0.0, 3.0, 6.0, 12.0, 100.0]
+        cuts = [0.0, 1.0, 2.62, 12.0, 100.0]
         out = _enforce_minimum_durations(cuts, sections, 100.0)
-        assert 3.0 not in out  # 3s < BREAKDOWN-Minimum 6s
-        assert 6.0 in out
+        assert 1.0 not in out, "1,0s liegt unter dem BREAKDOWN-Minimum"
+        assert 2.62 in out
+
+        assert SECTION_MIN_DURATION["BREAKDOWN"] > SECTION_MIN_DURATION["DROP"], (
+            "BREAKDOWN muss ruhiger bleiben als DROP"
+        )

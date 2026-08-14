@@ -1578,9 +1578,23 @@ def run_deferred_captioning(
             caption_failure_state=caption_failure_state,
         )
         captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
-        analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
-            "captioned_scenes": captioned_count,
-        })
+        # B-828: Vision-Fehler brechen den Lauf nicht ab — jede Szene wird
+        # einzeln uebersprungen, und nach drei Fehlern greift der
+        # Circuit-Breaker und ueberspringt den Rest ohne Versuch. Ohne diese
+        # Unterscheidung meldete der Schritt danach trotzdem "erledigt".
+        # Livebefund 2026-08-14: "Vision-Captioning abgeschlossen: 0/1 Szenen"
+        # gefolgt von "Analysis completed ... {'captioned_scenes': 0}".
+        if scenes and captioned_count == 0:
+            analysis_status_service.mark_degraded(
+                "video", video_clip_id, "ai_scene_caption",
+                "Keine Szene beschriftet (Vision-Modell nicht erreichbar oder "
+                "alle Anfragen fehlgeschlagen).",
+                {"captioned_scenes": 0},
+            )
+        else:
+            analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
+                "captioned_scenes": captioned_count,
+            })
     except Exception as e:
         analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
         raise
@@ -1803,9 +1817,22 @@ def run_full_pipeline(
             scenes = compute_motion_scores(video_path, scenes, raft_model_device=raft_model_device)
             logger.info("[PIPELINE] Motion-Analyse FERTIG")
             avg_motion = sum(s.motion_score for s in scenes if s.motion_score) / len(scenes) if scenes else 0.0
-            analysis_status_service.mark_done("video", video_clip_id, "motion_scores", {
-                "avg_motion": round(avg_motion, 3),
-            })
+            # B-828: Der Durchschnitt taugt nicht zur Leer-Erkennung — 0.0 ist
+            # bei einem statischen Video ein gueltiges Ergebnis. Gezaehlt wird
+            # deshalb, wie viele Szenen ueberhaupt einen Wert bekommen haben.
+            motion_count = sum(1 for s in scenes if s.motion_score is not None)
+            if scenes and motion_count == 0:
+                analysis_status_service.mark_degraded(
+                    "video", video_clip_id, "motion_scores",
+                    "Keine Motion-Werte berechnet (RAFT nicht geladen oder "
+                    "keine auswertbaren Frames).",
+                    {"avg_motion": 0.0, "motion_scores": 0},
+                )
+            else:
+                analysis_status_service.mark_done("video", video_clip_id, "motion_scores", {
+                    "avg_motion": round(avg_motion, 3),
+                    "motion_scores": motion_count,
+                })
         except Exception as e:
             analysis_status_service.mark_error("video", video_clip_id, "motion_scores", str(e))
             raise
@@ -1852,9 +1879,22 @@ def run_full_pipeline(
             scenes = extract_keyframes(video_path, scenes, output_dir=pipeline_keyframe_dir)
             logger.info("[PIPELINE] Keyframes FERTIG")
             keyframe_count = sum(1 for s in scenes if s.keyframe_path)
-            analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
-                "keyframes": keyframe_count,
-            })
+            # B-828: ``extract_keyframes`` kehrt bei unlesbaren Frames ohne
+            # Exception zurueck. mark_done haette den Schritt gruen gemeldet,
+            # obwohl keine einzige Datei entstanden ist — und alle
+            # nachgelagerten Schritte (SigLIP, Captioning) laufen dann auf
+            # leeren Daten.
+            if scenes and keyframe_count == 0:
+                analysis_status_service.mark_degraded(
+                    "video", video_clip_id, "keyframe_extraction",
+                    "Keine Keyframes extrahiert (kein Frame lesbar oder "
+                    "Zielverzeichnis nicht beschreibbar).",
+                    {"keyframes": 0},
+                )
+            else:
+                analysis_status_service.mark_done("video", video_clip_id, "keyframe_extraction", {
+                    "keyframes": keyframe_count,
+                })
         except Exception as e:
             analysis_status_service.mark_error("video", video_clip_id, "keyframe_extraction", str(e))
             raise
@@ -1940,9 +1980,18 @@ def run_full_pipeline(
             scenes = analyze_scene_with_caption(scenes)
             logger.info("[PIPELINE] Vision-Captioning FERTIG")
             captioned_count = sum(1 for s in scenes if hasattr(s, 'ai_caption') and s.ai_caption)
-            analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
-                "captioned_scenes": captioned_count,
-            })
+            # B-828: gleiche Unterscheidung wie im Einzelpfad — siehe dort.
+            if scenes and captioned_count == 0:
+                analysis_status_service.mark_degraded(
+                    "video", video_clip_id, "ai_scene_caption",
+                    "Keine Szene beschriftet (Vision-Modell nicht erreichbar "
+                    "oder alle Anfragen fehlgeschlagen).",
+                    {"captioned_scenes": 0},
+                )
+            else:
+                analysis_status_service.mark_done("video", video_clip_id, "ai_scene_caption", {
+                    "captioned_scenes": captioned_count,
+                })
         except Exception as e:
             analysis_status_service.mark_error("video", video_clip_id, "ai_scene_caption", str(e))
             raise

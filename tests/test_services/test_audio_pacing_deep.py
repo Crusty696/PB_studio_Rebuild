@@ -271,9 +271,12 @@ class TestSectionCrossfadeMap:
 
 class TestHardMinDuration:
     def test_hard_min_duration_positive(self):
+        # B-835: von 3.0 auf 1.0 gesenkt. Der alte Wert ueberstimmte die
+        # Cut-Rate-Wahl — bei 128 BPM sind 1/2/4 Beat 0,47/0,94/1,88 s und
+        # lagen damit alle unter dem Minimum, waren also unerreichbar.
         from services.pacing_beat_grid import HARD_MIN_DURATION
         assert HARD_MIN_DURATION > 0
-        assert HARD_MIN_DURATION == 3.0
+        assert HARD_MIN_DURATION == 1.0
 
     def test_section_min_durations_exist(self):
         from services.pacing_beat_grid import SECTION_MIN_DURATION

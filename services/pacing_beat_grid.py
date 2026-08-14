@@ -194,11 +194,48 @@ SECTION_PACING_MAP = {
     "VERSE":      {"base": 8,  "min": 4,  "max": 16},
 }
 
-HARD_MIN_DURATION = 3.0
+# B-835 (User-Anweisung 2026-08-14): Mindestabstaende deutlich gesenkt.
+#
+# Grund: Das Minimum ueberstimmte die Cut-Rate-Wahl. Bei 128 BPM entsprechen
+# 1/2/4 Beat 0,47/0,94/1,88 s — alle drei lagen unter dem alten Wert 3,0 s und
+# waren damit physisch unerreichbar. Gemessen ueber 120 s Material ohne
+# Sections lieferten 2, 4 und 8 Beat 33/33/32 Cuts, waren also nicht
+# unterscheidbar. Mit Sections war es schlimmer: BREAKDOWN und COOLDOWN
+# verlangten 6,0 s, dort fiel selbst die 8-Beat-Stufe (3,75 s) aus. Das war die
+# eigentliche Ursache des Nutzerbefunds "alles nur Attrappe" — die Fixes
+# B-829/B-830/B-831 stellten die Rechnung richtig, hier wurde ihr Ergebnis
+# anschliessend wieder eingeebnet.
+#
+# Die neuen Werte sind nicht frei gewaehlt, sondern aus SECTION_PACING_MAP
+# abgeleitet: dort steht pro Section, welche Cut-Stufen ueberhaupt vorgesehen
+# sind (`min` = schnellste erlaubte Stufe in Beats). Ein Mindestabstand, der
+# die eigene schnellste Stufe blockiert, ist genau der Fehler. Also:
+#
+#     Minimum = min-Beats x Beatlaenge bei 174 BPM, minus 5 % Toleranz
+#
+# 174 BPM als Bezug, weil das Minimum ueber den gesamten Tempobereich passen
+# muss und schnellere Musik die kuerzeren Beats hat — bei langsamerem Material
+# ist es dann erst recht nicht im Weg. Konkret (1 Beat = 0,345 s):
+#
+#     DROP/BUILDUP  min 1 Beat -> 0,33 s
+#     CHORUS        min 2 Beat -> 0,65 s
+#     TRANSITION/VERSE min 4   -> 1,31 s
+#     WARMUP/BREAKDOWN/COOLDOWN min 8 -> 2,62 s
+#
+# Die Charakteristik bleibt: DROP und BUILDUP duerfen am schnellsten schneiden,
+# BREAKDOWN, COOLDOWN und WARMUP am ruhigsten. Verschoben hat sich nur, dass
+# BUILDUP jetzt mit DROP gleichzieht statt darueber zu liegen — SECTION_PACING_MAP
+# raeumt beiden dieselbe schnellste Stufe ein, die alte Staffelung widersprach
+# dem.
+#
+# HARD_MIN_DURATION greift nur, wenn gar keine Sections erkannt wurden. 1,0 s
+# bleibt dort als Schutz vor Stotter-Schnitten stehen und duennt bei 128 BPM
+# die 1- und 2-Beat-Stufe weiterhin aus.
+HARD_MIN_DURATION = 1.0
 SECTION_MIN_DURATION = {
-    "WARMUP": 5.0, "BUILDUP": 3.0, "DROP": 2.0,
-    "BREAKDOWN": 6.0, "TRANSITION": 4.0, "COOLDOWN": 6.0,
-    "CHORUS": 3.0, "VERSE": 4.0,
+    "WARMUP": 2.62, "BUILDUP": 0.33, "DROP": 0.33,
+    "BREAKDOWN": 2.62, "TRANSITION": 1.31, "COOLDOWN": 2.62,
+    "CHORUS": 0.65, "VERSE": 1.31,
 }
 
 

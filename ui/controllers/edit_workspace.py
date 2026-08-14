@@ -51,6 +51,37 @@ _CUT_RATE_LANGSAMSTER_INDEX = 4  # 16 Beat
 _CUT_RATE_FALLBACK_INDEX = 2     # 4 Beat, die neutrale Mitte
 
 
+# B-836: Feste Filterschaerfe fuer die Vorschau. 100 ergibt in
+# `pacing_service.py:253` die Schwelle `1.0 - 100/100 = 0.0`, es wird also kein
+# berechneter Cut nachtraeglich wieder verworfen.
+_VORSCHAU_CUT_DENSITY = 100
+
+
+def vorschau_cut_density(reaktivitaet: int) -> int:
+    """Filterschaerfe fuer die Cut-Vorschau — bewusst unabhaengig vom Regler.
+
+    B-836. Frueher reichte die Vorschau den Reaktivitaets-Wert in ZWEI Felder:
+    ``energy`` (daraus wird die Cut-Staerke ``energy/100 + 0.3``) und
+    ``cut_density`` (daraus die Filterschwelle ``1.0 - cut_density/100``).
+    Gefiltert wird auf ``strength >= threshold`` — derselbe Regler stand damit
+    auf beiden Seiten des Vergleichs. Aufgeloest ergab das ``r >= 27,5``:
+    unterhalb fielen alle Cuts weg, die Timeline blieb ohne Meldung leer, und
+    die Cut-Rate-Wahl war dort ebenfalls wirkungslos.
+
+    Die Menge der Schnitte kommt aus Cut-Rate und gezeichneter Kurve; ein
+    zweiter, verdeckter Filter darauf hat keinen Zweck. Deshalb steht die
+    Schaerfe fest auf neutral.
+
+    Der Reaktivitaets-Regler behaelt seine Wirkung auf ``energy`` und damit auf
+    die Cut-Staerke. Die eigentliche Energie-Modulation des Schnitts sitzt
+    ohnehin im Auto-Edit (B-831), nicht in dieser Vorschau.
+
+    Der Parameter bleibt in der Signatur, damit die Aufrufstelle lesbar bleibt
+    und ein spaeteres eigenes Bedienelement hier andocken kann.
+    """
+    return _VORSCHAU_CUT_DENSITY
+
+
 def cut_rate_faktor_zu_beat_index(cut_rate: float | None) -> int:
     """Bildet den Preset-Faktor auf den Combo-Index des Beat-Abstands ab.
 
@@ -202,7 +233,10 @@ class EditWorkspaceController(PBComponent):
         settings = PacingSettings(
             tempo=tempo_val,
             energy=reactivity,
-            cut_density=reactivity,
+            # B-836: frueher stand hier ebenfalls `reactivity`. Damit speiste
+            # ein Regler beide Seiten desselben Vergleichs — siehe
+            # vorschau_cut_density().
+            cut_density=vorschau_cut_density(reactivity),
             vibe=self.window.vibe_input.text(),
             manual_density_curve=densities,
         )

@@ -412,6 +412,21 @@ class ProjectManagementController(PBComponent):
                 undo_stack.clear()
         except (AttributeError, RuntimeError) as e:
             logging.warning("Undo-Stack-Reset nach Projektwechsel fehlgeschlagen: %s", e)
+        # B-837: Die gezeichnete Pacing-Kurve hing an keinem Lebenszyklus —
+        # `reset_curve()` hatte im Produktivcode gar keinen Aufrufer. Eine in
+        # Projekt A gezeichnete Kurve blieb damit stehen und bestimmte im
+        # Projekt B den Schnitt, weil sie seit B-829 Vorrang vor der
+        # Cut-Rate-Wahl hat. Gleiche Begruendung wie beim Undo-Stack darueber:
+        # ein Projektwechsel ist ein neuer Ausgangszustand.
+        # Eine gezeichnete Kurve geht dabei verloren — sie wird ohnehin
+        # nirgends gespeichert (`PacingProfile.manual_density_curve` hat keinen
+        # Schreib- oder Lesepfad in die Datenbank).
+        try:
+            pacing_curve = getattr(self.window, "pacing_curve", None)
+            if pacing_curve is not None:
+                pacing_curve.reset_curve()
+        except (AttributeError, RuntimeError) as e:
+            logging.warning("Pacing-Kurven-Reset nach Projektwechsel fehlgeschlagen: %s", e)
         try:
             self.window.timeline_view.load_from_db()
         except (OSError, RuntimeError, ValueError) as e:
