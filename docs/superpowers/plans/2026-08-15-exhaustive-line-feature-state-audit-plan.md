@@ -35,13 +35,15 @@ pruefbares Verfahren, das jede nicht gepruefte Einheit sichtbar laesst.
 
 Pflichtresultate:
 
-1. Hashgebundener Snapshot aller Einheiten.
+1. Hashgebundener Snapshot aller Einheiten aus festem `audited_commit`.
 2. Lueckenloses Zwei-Pass-Zeilenledger.
 3. Nicht-Zeilen-Ledger fuer Binaer-, Leer-, generierte und Metadaten-Einheiten.
 4. Symbol-, Import-, Call-, Qt-Signal-, Config-, DB-, Worker- und Packaging-Graph.
 5. Featurekatalog aus Nutzeraktionen und automatischen Triggern.
-6. 17-Achsen-Zustandsmatrix je Feature und je alternativer Implementierung.
-7. Current-HEAD-Livebelege fuer Erfolg, Ergebnis, Fehler, Cancel, Retry,
+6. Symbol-State-Ledger fuer jede Funktion/Methode plus 17-Achsen-Zustandsmatrix
+   je Feature und je alternativer Implementierung.
+7. Content-addressed Livebelege gegen exakt `audited_commit` fuer Erfolg,
+   Ergebnis, Fehler, Cancel, Retry,
    Cleanup und Neustart, soweit Feature diese Zustaende besitzt.
 8. Adversarial validierte Findings: Defekte, tote Pfade, Attrappen,
    Doppelimplementierungen, Inkonsistenzen, unkonfigurierte Leser/Schreiber,
@@ -56,6 +58,9 @@ Verboten waehrend Audit:
 - Ein gruener Pfad als Beweis fuer alternative Pfade verwenden.
 - Agenten gleichzeitig im selben Worktree schreiben lassen.
 - unbekannte/ungetrackte Dateien still ignorieren.
+- fehlende Harnesses waehrend laufender Auditwellen nachbauen.
+- freie Runtime-Referenzen, Reviewer-Namen oder Current-HEAD-Aussagen als
+  Beweiskette akzeptieren.
 
 ---
 
@@ -110,7 +115,8 @@ Service/Worker/DB-Pfad tot ist; Doppelpfade bleiben verdeckt. Verworfen.
 
 ### Variante C — Evidence-Ledger + disjunkte Dateiowner + Cross-Layer-Tracks
 
-Ein Director besitzt Scope/Ledger/Vault. Spezialisten besitzen disjunkte Dateien.
+Ein Director besitzt Scope/Queue/Vault. Evidence Custodian besitzt Bundle und
+Masterledger. Spezialisten besitzen disjunkte Dateien.
 Jede Textzeile erhaelt zwei unabhaengige Passes. Separater Verifier besitzt
 End-to-End-Featuretracks. Adversarial Reviewer sieht Findings erst nach eigener
 Pruefung. Gewaehlt, weil nur diese Variante direkte Zeilenabdeckung und
@@ -131,7 +137,8 @@ Scope oder unabhängiger Gegenbeweis Nutzen bringt.
 
 | Rolle | Exklusiver Besitz | Aufgaben |
 |---|---|---|
-| Audit Director | Registry, Scope, Masterledger, Vault | Queue, Gates, Drift, Synthese; einziger Vault-Schreiber |
+| Audit Director | Registry, Scope, Queue | Orchestrierung; darf weder Shards manuell mergen noch allein Completion signieren |
+| Evidence Custodian | externes Bundle, Batchimport | immutable Shards, Hashmanifest, atomarer Import, Recovery |
 | Lead G Governance | docs/config/build/governance | Plaene, Handoffs, Packaging, Dependencies, Configquellen |
 | Lead R Runtime | `services/**` | Domainlogik, GPU, FFmpeg, Ollama, Pipelines, Ressourcen |
 | Lead D State | `database/**`, `workers/**`, Storage | ORM, Migration, Transaktion, Lifecycle, Restart, Cleanup |
@@ -144,8 +151,9 @@ Arbeitsregel:
 - Jeder Agent: eigener Worktree unter `.worktrees/audit-<wave>-<role>` und Branch
   `codex/audit-<wave>-<role>`.
 - Claim vor Zugriff; Heartbeat unter 15 Minuten; Handoff sauber.
-- Agenten schreiben nur eigene Ledger-Shards, nie Produktdateien.
-- Director merged nur validierte Shards. Kein `git add -A`.
+- Agenten schreiben nur eigene immutable Ledger-Shards, nie Produktdateien.
+- Evidence Custodian importiert nur vollstaendige validierte Batches atomar.
+  Director besitzt keinen manuellen Mergepfad. Kein `git add -A`.
 - Pass-B-Reviewer darf nicht Pass A derselben Datei sein.
 - Cross-Layer-Track hat einen Verifier als alleinigen Workflowowner, ohne
   Dateiownership der statischen Reviewer zu ueberschreiben.
@@ -155,6 +163,10 @@ Arbeitsregel:
 - Zusätzliche Besetzung ist Pflicht, wenn Warteschlange sonst Spezialgebiete
   vermischt, Pass-A/Pass-B-Unabhängigkeit verletzt oder Runtime-Gegenbeweis
   ohne zweiten Spezialisten bliebe.
+- Director-SPOF-Gate: Queue, Signoffs und Hashmanifest werden maschinenlesbar
+  rekonstruiert; Lead V und Adversarial Reviewer signieren Completion getrennt.
+  Director-Ausfall darf keinen Shardverlust und keine unrekonstruierbare
+  Entscheidung verursachen.
 
 ---
 
@@ -168,11 +180,15 @@ werden in separatem Abschlusscommit ins Repo uebernommen:
 
 ```text
 snapshot.json
+audit_contract.json
+delta_ledger.jsonl
+reviewer_roster.jsonl
 files.jsonl
 line_ranges_pass_a.jsonl
 line_ranges_pass_b.jsonl
 non_line_units.jsonl
 symbols.jsonl
+symbol_states.jsonl
 edges.jsonl
 config_contracts.jsonl
 db_contracts.jsonl
@@ -180,6 +196,8 @@ worker_lifecycles.jsonl
 duplicates.jsonl
 exclusions.jsonl
 features.jsonl
+requirements_universe.jsonl
+trigger_universe.jsonl
 feature_states.jsonl
 runtime_runs.jsonl
 command_runs.jsonl
@@ -187,10 +205,11 @@ findings.jsonl
 finding_challenges.jsonl
 not_checked.jsonl
 completion.json
+atomic_import.json
 report.md
 ```
 
-Jeder Record bindet mindestens `run_id`, Commit-SHA, Snapshot-ID, Dateipfad,
+Jeder Record bindet mindestens `run_id`, `audited_commit`, Snapshot-ID, Dateipfad,
 Datei-SHA, Reviewer-ID, Zeitstempel und Beleg. Zeilenranges: 100–200 Zeilen,
 exakt 1..EOF, keine Luecken/Ueberlappungen. Dateien mit weniger Zeilen bilden
 eine Range. Binaer- und Leerdateien erhalten je Pass eine Nicht-Zeilen-Einheit.
@@ -211,13 +230,20 @@ pass_b_line_rate = eindeutige_B_zeilen / direkte_textzeilen
 non_line_rate = signierte_A_B_einheiten / erwartete_A_B_einheiten
 symbol_rate = dispositionierte_symbole / extrahierte_symbole
 edge_rate = dispositionierte_kanten / extrahierte_kanten
-feature_catalog_rate = dispositionierte_trigger / gefundene_trigger
+requirements_exact_set = exakt_einmal_dispositionierte_requirements / requirements_universum
+trigger_exact_set = exakt_einmal_dispositionierte_trigger / trigger_universum
 feature_state_rate = ausgefuellte_17_achsen / erwartete_17_achsen
+runtime_verified_rate = validierte_runtime_pflichtachsen / erwartete_runtime_pflichtachsen
+unknown_rate = unknown_pflichtachsen / erwartete_pflichtachsen
+delta_clean = 1 wenn kein produktrelevantes_delta_und_ttl_gueltig sonst 0
 ```
 
-Abschluss nur wenn alle Nenner und Zaehler gespeichert, Hashes identisch,
-Raten exakt 1.0 oder genehmigte Exklusionen mathematisch getrennt ausgewiesen,
-Validatoren Exit 0 und `not_checked` sichtbar sind.
+Unqualifizierter Abschluss nur wenn alle Nenner und Zaehler gespeichert,
+Hashes identisch, Inventar-/A-/B-/Symbol-/Requirements-/Trigger-Raten exakt 1.0,
+`runtime_verified_rate=1.0`, `unknown_rate=0`, `delta_clean=1`, TTL gueltig,
+genehmigte Exklusionen mathematisch getrennt und alle Phase--1-Validatoren Exit
+0 sind. Sonst: qualifizierter Teilbericht mit exakten Raten und Restledger;
+Wort `vollstaendig` ohne Qualifikation verboten.
 
 Automatische Tools erzeugen Kandidaten und Abdeckungsbelege. Sie vergeben nie
 semantischen Signoff und nie `YES` fuer Laufzeitverhalten.
@@ -246,7 +272,7 @@ Pflichtachsen:
 | `wired` | Signal/Callback/Registry erreicht vorgesehenen Handler? |
 | `reachable` | realer Nutzer-/Systempfad erreichbar? |
 | `enabled` | reale Preconditions aktivieren Funktion? |
-| `executed` | Current-HEAD-Lauf trat in Funktion ein? |
+| `executed` | Lauf gegen exakt `audited_commit` trat in Funktion ein? |
 | `result` | erwartetes sichtbares/maschinenpruefbares Resultat entstand? |
 | `persisted` | erwarteter DB-/Datei-/Settingszustand gespeichert? |
 | `restart_safe` | Neustart/Reopen erhaelt korrekten Zustand? |
@@ -257,13 +283,22 @@ Pflichtachsen:
 | `GPU` | GTX 1060/cuda:0 oder dokumentierter CPU-Pfad korrekt? |
 | `DB` | Schema, Transaktion, Isolation, Migration, Delete/Restore korrekt? |
 | `UI` | Zustand, Progress, Fehler, Ergebnis sichtbar und ehrlich? |
-| `live_evidence` | Current-HEAD-Manifest/Log/Screenshot/Postcondition vorhanden? |
+| `live_evidence` | hashvalidiertes Runtime-Manifest/Log/Artefakt/Postcondition gegen `audited_commit` vorhanden? |
 
 Werte: `YES`, `PARTIAL`, `NO`, `N-A`, `UNKNOWN`. Jede Zelle braucht Beleg;
 `N-A` braucht Begruendung. `UNKNOWN` ist ehrliches Ergebnis, kein fehlender
-Record. `executed/result/live_evidence=YES` nur Current-HEAD-Lauf mit Input,
-sichtbarem Resultat und Postcondition. `restart_safe=YES` nur nach realem
+Record. `executed/result/live_evidence=YES` nur content-addressed Evidence-ID
+aus `runtime_runs.jsonl`, deren Command, Input, Artefakte, Exit-Code und
+Postcondition real geoeffnet/gehasht wurden und exakt `audited_commit` binden.
+`restart_safe=YES` nur nach realem
 Restart/Reopen. Error/Cancel/Retry nur nach erzwungenem realem Pfad.
+
+Feature-State und Symbol-State bleiben getrennte Universen. Jede extrahierte
+Funktion/Methode besitzt genau einen `symbol_states.jsonl`-Record mit
+Feature-/Supportzuordnung, Caller/Frameworkhook, Input/Output/Seiteneffekt-/
+Fehler-/Config-/Persistenzvertrag sowie Runtime-Evidence-ID oder begruendetem
+Non-Runtime-Vertrag. `UNKNOWN` bleibt erlaubt als ehrlicher Zustand, blockiert
+aber unqualifizierte Completion.
 
 ---
 
@@ -299,15 +334,63 @@ Registries.
 
 ## 8. Ausfuehrungsphasen
 
+### Phase -1 — Audit-Harness fertigstellen, vor Aktivierung
+
+Diese Phase ist **Planungs-/Tooling-Voraussetzung**, kein Audit. Plan bleibt
+`draft`; kein Snapshot, keine Range, kein Runtime-Lauf beginnt vorher.
+
+Alle sechs Harnesses muessen implementiert, dokumentiert und durch positive
+sowie gezielte negative Contracttests belegt sein:
+
+Grundumbau innerhalb derselben Phase: bestehende Inventory-/Line-/Feature-
+Scripts duerfen nicht mehr Current HEAD/Workingtree als Auditobjekt voraussetzen;
+sie muessen explizites `--audited-commit <full-sha>` lesen und Gitobjekte dieses
+Commits pruefen. Alter Current-HEAD-Modus darf kein revidiertes Completion-Gate
+passieren.
+
+1. Requirements-/Trigger-Enumerator + Exact-Set-Validator: unabhaengige
+   Universen, Hashbindung, fehlende/zusaetzliche/doppelte Disposition rot.
+2. Symbol-/Kanten-/Config-Contract-Validator: jede Funktion/Methode exakt
+   einmal; fehlendes Symbol, Caller oder Statevertrag rot.
+3. Content-addressed Runtime-Evidence-Validator: Manifest-/Artefaktdatei,
+   SHA256, Bytes, Command, Input, Exit-Code, Postcondition, Cleanup,
+   `audited_commit` und Snapshot werden real validiert; erfundene Ref rot.
+4. Reviewer-Roster-/Lineage-Validator: Session, Parent, Lineage, Worktree,
+   Branch, Commit und Claims; A/B gleiche Session oder Parent-Lineage rot.
+5. Delta-/TTL-Validator: exakte Git-Diff-Pfadmenge, Produktrelevanz,
+   `audited_commit`, Integrations-HEAD und Ablaufzeit; Drift/TTL rot.
+6. Completion-/Atomic-Import-Harness: alle Shardhashes und referenziellen
+   Mengen erst im temporaeren Ziel pruefen, danach atomarer Rename; Fehler
+   laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot fuer
+   unqualifizierte Completion.
+
+Pflicht-Testmatrix je Harness:
+
+- mindestens ein positiver Minimalfall;
+- fehlende ID/Zeile/Datei/Artefakt;
+- manipuliertes Hash-/Commit-/Snapshotfeld;
+- doppelte und fremde ID;
+- veraltete TTL/produktrelevantes Delta, falls anwendbar;
+- Crash/Fehler vor atomarem Swap mit Bytevergleich Altbestand;
+- gemeinsamer Parent/umbenannter Reviewer fuer Unabhaengigkeitsgate.
+
+Phase--1-Gate: alle sechs Werkzeuge existieren, komplette Contracttests gruen,
+Negativtests beweisen rote Gates, Lead V plus Adversarial Reviewer liefern
+getrennten Signoff. Erst danach darf Registrystatus auf
+`approved-for-implementation` und Planaktivierung zur Userentscheidung stehen.
+
 ### Phase 0 — Governance-, Scope- und Sicherheitsgate
 
 **Task 0.1: Aktivierungsentscheidung**
 
-- User entscheidet: aktiven W4-Plan pausieren/abschliessen oder Audit nicht
-  starten.
+- User entscheidet explizit genau eine Variante: W4 zuerst abschliessen;
+  W4 mit dokumentiertem Zwischenstand pausieren und Audit aktivieren; oder
+  Audit nicht starten. Kein Agent trifft diese Prioritaetsentscheidung.
 - Registry/ACTIVE_PLAN-Drift B-819/W3 vs W4 zuerst korrigieren.
 - Planstatus nur nach Userentscheidung aendern.
 - Gate: genau ein aktiver Plan, Vault-Mirror und Decision stimmen exakt.
+- Bei W4-Pause: letzter W4-Commit, Verificationstatus, offene Schritte und
+  sicherer Resume-Befehl in Repo/Vault-Handoff; kein implizites Superseden.
 
 **Task 0.2: Scopegrenze ohne Annahmen**
 
@@ -331,11 +414,23 @@ Kein Default-Ausschluss. Entscheidung in `exclusions.jsonl` und D-Decision.
 
 ### Phase 1 — Deterministischer Snapshot und Universum
 
+**Task 1.0: Auditcommit einfrieren**
+
+- vollstaendigen Git-SHA als `audited_commit` festlegen; niemals `HEAD` als
+  beweglichen Alias speichern.
+- `audit_contract.json` mit Snapshot-, Universums-, Roster-, Runtime- und
+  Symbolhash sowie TTL versiegeln.
+- Auditreader lesen Git-Objekte dieses Commits. Report-/Harness-/Dokumentations-
+  commits aendern Auditobjekt nicht.
+- `delta_ledger.jsonl` bildet jede Pfadaenderung bis Integrations-HEAD exakt ab.
+  Produktrelevantes Delta oder TTL-Ablauf → Reaudit/Rebase, kein Abschluss.
+
 **Task 1.1: Inventar bauen**
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
-  --root . --output <evidence-dir> --run-id <run-id>
+  --root . --output <evidence-dir> --run-id <run-id> `
+  --audited-commit <full-git-sha>
 ```
 
 - Tracked, ignored, untracked, submodule/LFS/external Einheiten getrennt.
@@ -346,7 +441,8 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
   --root . --output <evidence-dir> `
-  --scope-decisions <scope-decisions.jsonl> --run-id <run-id>
+  --scope-decisions <scope-decisions.jsonl> --run-id <run-id> `
+  --audited-commit <full-git-sha>
 ```
 
 - Included ignored/external Wurzeln werden rekursiv vollstaendig inventarisiert
@@ -360,7 +456,8 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
 - Gegenwaertiger Richtwert bei 150 Zeilen: ca. 2.300 Pakete pro Pass, ca.
   4.600 Signoffs. Exakte Zahl entsteht nur aus aktivem Snapshot.
 - Binaer-/Leerdatei-Einheiten erzeugen.
-- Gate: Vorabvalidator beweist 1..EOF ohne Luecke/Ueberlappung.
+- Gate: Vorabvalidator beweist 1..EOF ohne Luecke/Ueberlappung; Roster und
+  Lineage fuer geplante A/B-Zuteilung sind hashgebunden.
 
 **Task 1.3: Symbol- und Kantenbasis**
 
@@ -370,13 +467,29 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
   signals/slots, registries, subprocesses, file/db/config accesses.
 - Parserfehler sind Stop-Gate, nie stille Exklusion.
 
+**Task 1.4: Immutable Shards und Importprobe**
+
+- Externe Wave-Shards nach Signoff read-only/content-addressed versiegeln.
+- Vollstaendigen Batch in temporaeres Masterledger importieren; Hash-, Roster-,
+  Snapshot- und referenzielle Gates vor Swap.
+- Absichtlicher Negativfall beweist: fehlgeschlagener Import veraendert altes
+  Masterledger nicht.
+- Keine Range-/Shard-Repo-Commits. Repo erhaelt erst final Report und
+  Evidence-Bundlehash; `audited_commit` bleibt Zielobjekt.
+
 ### Phase 2 — Feature- und Vertragskatalog vor Codebewertung
 
 **Task 2.1: Triggerinventar**
 
 - alle `QAction`, `addAction`, Buttons, Tabs, Menus, Shortcuts, Signals,
   `clicked/triggered/currentChanged.connect`, CLI und Auto-Hooks.
-- Jeder Trigger genau einer Feature-/Support-/Dead-Candidate-Disposition.
+- Requirements-Universum getrennt aus autorisierten Plaenen, UI-Texten,
+  Schemas und expliziten Produktvertraegen erzeugen.
+- Trigger-Universum unabhaengig aus UI, CLI, Scripts, Timer, Startup/Shutdown,
+  DB-Callbacks und dynamischen Registries erzeugen.
+- Jeder Requirements-/Trigger-ID genau eine Feature-/Support-/Dead-Candidate-
+  Disposition. Exact-set-Validator: keine fehlende, zusaetzliche oder doppelte
+  ID. Universumshashes sind Teil des Auditvertrags.
 
 **Task 2.2: Cross-Layer-Vertraege**
 
@@ -413,8 +526,9 @@ Wellen, jeweils bis drei parallele Reviewer:
 4. V: Tests zweite Haelfte; R: Restservices; U: Restwidgets/Resources.
 5. Vendor/generated/binary/fixtures nach User-Scopeentscheidung.
 
-Nach jedem Rangepaket: Ledger-Shard, Validator, Vault-Log durch Director,
-Commit des Shards. Kein Sammellog am Wellenende.
+Nach jedem Rangepaket: immutable externe Ledger-Shard, Validator, Vault-Log
+durch Director. Kein Range-/Shard-Repo-Commit. Evidence Custodian importiert
+nur abgeschlossene Batches atomar. Kein Sammellog am Wellenende.
 
 ### Phase 4 — Pass B: unabhaengig Top-down
 
@@ -429,6 +543,7 @@ Commit des Shards. Kein Sammellog am Wellenende.
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py `
   --root . `
+  --audited-commit <full-git-sha> `
   --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --pass-a <evidence-dir>/line_ranges_pass_a.jsonl `
@@ -444,6 +559,9 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py
 
 - Jede Definition: direkte/dynamische Caller, Frameworkhook oder nachgewiesen
   unreferenziert.
+- Jede Funktion/Methode: eigener Symbol-State-Record; Feature-/Supportrolle,
+  Input/Output/Seiteneffekt/Fehler/Config/Persistenz sowie Runtime-Evidence-ID
+  oder begruendeter Non-Runtime-Vertrag.
 - Jede Qt-Verbindung: Senderlebenszeit, Slot, Signatur, Thread, Consumer.
 - `pass`, TODO, NotImplemented, leere Handler, immergleiche Returnwerte einzeln.
 
@@ -468,8 +586,9 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py
 
 **Task 5.5: Handoff- und Evidenzdrift**
 
-- Jede Claude-/Codex-/Vault-Behauptung gegen Current HEAD und reale Artefakte.
-- Historische Evidenz bleibt historisch; nicht auf Current HEAD uebertragen.
+- Jede Claude-/Codex-/Vault-Behauptung gegen `audited_commit` und reale
+  content-addressed Artefakte.
+- Historische Evidenz bleibt historisch; nicht auf `audited_commit` uebertragen.
 
 ### Phase 6 — Funktions- und Feature-Livekampagnen
 
@@ -487,10 +606,11 @@ Reihenfolge verhindert Cross-Contamination:
 
 Jeder einzelne Run:
 
-- Current Commit/Snapshot, Eingabemanifest und erwartete Postcondition.
+- Exakter `audited_commit`/Snapshot, Eingabemanifest und erwartete Postcondition.
 - UI-Klick-/Shortcut-Beleg, Logzeitraum, Task-/Worker-ID.
 - DB/Datei/Settings/GPU/Prozess Pre/Post.
-- sichtbares Ergebnis oder exakter Fehler.
+- sichtbares Ergebnis oder exakter Fehler; Command, Input, Exit-Code, Logs,
+  Artefakte und Postconditions content-addressed im Runtime-Manifest.
 - Cleanup/Post-Process-Count; Projektwechsel/Restart wo relevant.
 - geschuetzte Hostpfade unveraendert.
 
@@ -507,7 +627,7 @@ GPU-Laeufe serialisiert. Nur `cuda:0`, `-hwaccel cuda`, `h264_nvenc` oder
 Jedes Finding bekommt:
 
 1. Finderbeleg.
-2. unabhaengige Reproduktion oder Current-HEAD-Quellbeweis.
+2. unabhaengige Reproduktion oder `audited_commit`-Quellbeweis.
 3. Gegenhypothese und Suche nach dynamischem Consumer/Fallback.
 4. Auswirkung, Reichweite, Severity, Reproduzierbarkeit.
 5. Status `confirmed`, `rejected`, `needs-user-decision` oder
@@ -537,9 +657,11 @@ Director erzeugt:
 - `not_checked`-Liste und Blocker.
 - separaten, noch nicht autorisierten Fixplan-Backlog.
 
-Abschlussreview durch Lead V plus Adversarial Reviewer. Report darf
-`vollstaendig` nur sagen, wenn Completion-Gates mathematisch gruen. Sonst genaue
-Prozentwerte und Restledger.
+Abschlussreview durch Lead V plus Adversarial Reviewer, getrennte Signoffs.
+Report darf `vollstaendig` ohne Qualifikation nur sagen, wenn Completion-Gates
+mathematisch gruen, `unknown_rate=0`, `runtime_verified_rate=1`, TTL gueltig und
+`delta_clean=1` sind. Sonst genaue Teilraten und Restledger. Director allein
+darf Abschluss nicht freigeben.
 
 ---
 
@@ -567,9 +689,9 @@ Credit-Mapping. Alte Aussage „tot/uniform“ darf nicht uebernommen werden.
 
 ---
 
-## 10. Toolingplan
+## 10. Toolingplan und ehrlicher Implementierungsstand
 
-Bereits erstellt und lokal validiert:
+Bereits vorhanden, aber nur fuer alten Teilvertrag lokal validiert:
 
 - `.agents/skills/pb-exhaustive-audit-ledger/SKILL.md`
 - `scripts/build_inventory.py`
@@ -577,14 +699,30 @@ Bereits erstellt und lokal validiert:
 - `scripts/verify_feature_matrix.py`
 - `scripts/self_test.py`
 
-Bei Auditbeginn zu ergaenzen, jeweils TDD und als eigene Plan-Task:
+Diese vorhandenen Scripts beweisen **nicht** Requirements-/Trigger-Exact-Set,
+Symbol-State-Vollstaendigkeit, reale Runtime-Artefakte, Reviewer-Lineage,
+Delta/TTL oder atomaren Completion-Import. Auditstart damit verboten.
 
-1. `tools/audit_feature_inventory.py`: AST + Qt-Trigger/Signal/Handler-Katalog.
-2. `tools/audit_config_contracts.py`: Writer/Reader/Default/Migration-Mapping.
-3. `tools/audit_runtime_evidence.py`: Current-HEAD-Manifeste in Matrixzellen.
-4. `tools/audit_symbol_edges.py`: Symbol-/Import-/Call-/Dynamic-Kantenledger.
-5. `tools/audit_duplicate_candidates.py`: nur Kandidaten, kein Auto-Finding.
-6. `tools/audit_completion.py`: alle Nenner, Hashes, Exklusionen und Gates.
+In Phase -1 vor Aktivierung zu implementieren und per Positiv-/Negativtests zu
+beweisen; Dateinamen sind Planvorgabe, keine Behauptung vorhandener Dateien:
+
+1. `tools/audit_feature_inventory.py`: Requirements-/Trigger-Universen,
+   AST + Qt/CLI/Auto-Hooks und Exact-Set-Gate.
+2. `tools/audit_symbol_contracts.py`: Symbol-/Import-/Call-/Dynamic-Kanten plus
+   Symbol-State-/Config-Vertraege je Funktion/Methode.
+3. `tools/audit_runtime_evidence.py`: content-addressed Runtime-Manifeste und
+   Artefakt-/Postcondition-Validierung gegen `audited_commit`.
+4. `tools/audit_reviewer_roster.py`: Roster, Session, Parent-Lineage,
+   Worktree/Claims und A/B-Unabhaengigkeit.
+5. `tools/audit_delta_ttl.py`: exakte Delta-Pfadmenge, Produktrelevanz,
+   Auditbasis und TTL.
+6. `tools/audit_completion.py`: immutable Shardhashes, alle Nenner,
+   referenzielle Integritaet, UNKNOWN-Gate und atomarer Batchimport.
+
+Duplicate-, DB-, Worker- und Packaging-Kandidaten werden von obigen
+Universums-/Symbolharnesses als spezialisierte Parsermodule geliefert oder
+explizit als zusaetzliche Phase--1-Abhaengigkeit dokumentiert. Kein fehlendes
+Modul darf erst waehrend Pass A/B erfunden werden.
 
 Ruff, Pyright/Mypy, Bandit, Vulture, Radon, pip-audit und Duplikatscanner sind
 nur ergaenzende Kandidatengeneratoren. Versionen werden vor Installation
@@ -597,6 +735,10 @@ festgeschrieben. Kein Tool ersetzt direkte Zeilenpruefung.
 Audit ist nur abgeschlossen, wenn:
 
 - [ ] User hat Plan aktiviert; genau ein Plan aktiv.
+- [ ] Phase -1: sechs Harnesses implementiert; Positiv-/Negativtests gruen und
+      zwei unabhaengige Signoffs vorhanden.
+- [ ] `audited_commit` als voller SHA eingefroren; Audit liest dessen Gitobjekte.
+- [ ] TTL gueltig; Delta-Ledger exakt; kein produktrelevantes offenes Delta.
 - [ ] Scope jeder tracked/untracked/ignored/external Einheit entschieden.
 - [ ] Snapshot clean/erklaert und unveraendert.
 - [ ] Inventarzaehler durch unabhaengige Methode identisch.
@@ -606,16 +748,22 @@ Audit ist nur abgeschlossen, wenn:
 - [ ] Jede Binaer-/Leerdatei A+B direkt dispositioniert.
 - [ ] Jede Exklusion einzeln vom User genehmigt.
 - [ ] Jedes Symbol und jede Kante dispositioniert.
-- [ ] Jeder Trigger einer Feature-ID/Disposition zugeordnet.
+- [ ] Jede Funktion/Methode besitzt Symbol-State-Record mit Runtimebeleg oder
+      begruendetem Non-Runtime-Vertrag.
+- [ ] Requirements-/Trigger-Universen unabhaengig gehasht; Exact-set je ID.
 - [ ] Alternative Pfade getrennte Pfad-IDs besitzen.
 - [ ] Jede Feature-ID alle 17 Achsen mit Beleg/Begruendung besitzt.
-- [ ] Current-HEAD-Livekampagnen Erfolg/Fehler/Cancel/Retry/Restart abdecken
-      oder Zellen ehrlich UNKNOWN/N-A bleiben.
+- [ ] Runtime-Evidence-IDs oeffnen/hashpruefen Command, Input, Exit-Code,
+      Artefakte, Postconditions und binden `audited_commit`.
+- [ ] Livekampagnen Erfolg/Fehler/Cancel/Retry/Restart gegen `audited_commit`
+      abdecken; keine Pflichtachse bleibt UNKNOWN fuer unqualifizierte Completion.
 - [ ] GPU-/DB-/UI-/Prozess-/Datei-Postconditions gespeichert.
 - [ ] Jedes Finding unabhaengig challenged.
 - [ ] Keine Produktdatei im Auditplan geaendert.
 - [ ] `not_checked` explizit und vollstaendig.
 - [ ] Completion-Validator Exit 0.
+- [ ] Reviewer-Roster beweist A/B-Unabhaengigkeit ueber Session und Lineage.
+- [ ] Immutable Shards atomar importiert; Negativtest bewahrt Altledger bytegleich.
 - [ ] Repo-Report, Vault-Synthese, `log.md`, `index.md` synchron.
 - [ ] Handoff sauber, commits gepusht, mindestens eine belegte Lektion.
 - [ ] User entscheidet spaeter separat ueber Findings/Fixplan und `fixed`.
@@ -624,6 +772,8 @@ Audit ist nur abgeschlossen, wenn:
 
 ## 12. Naechste erlaubte Aktion
 
-Solange Status `draft`: nur Planreview und Userentscheidung. Keine Audit-
-Ausfuehrung. Fuer Start muss User explizit entscheiden, ob W4 pausiert/ersetzt
-wird und welche Scopeantwort fuer untracked/ignored/external Einheiten gilt.
+Solange Status `draft`: nur Planreview und Phase--1-Tooling nach eigener
+Autorisierung. Keine Audit-Ausfuehrung. Vor Aktivierung muessen sechs Harnesses
+plus Contracttests belegt sein. Danach entscheidet User explizit, ob W4 zuerst
+endet, dokumentiert pausiert oder Audit nicht startet; ferner Scopeantwort fuer
+untracked/ignored/external Einheiten. Keine dieser Entscheidungen trifft Agent.

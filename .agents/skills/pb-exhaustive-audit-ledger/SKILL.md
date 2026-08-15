@@ -11,21 +11,34 @@ description: Build and validate a hash-bound, line-complete, two-pass PB Studio 
 - `audit-plan`/`audit-execution` strikt von Fixes trennen.
 - AGENTS.md, Plan Registry, Active Plan, Decision und Vault zuerst pruefen.
 - Nie `fixed`, `verified`, `works` aus Source, Test oder Ledger ableiten.
-- Ein Snapshot-HEAD. Drift invalidiert betroffene Signoffs.
+- Ein unveraenderliches `audited_commit`. Workingtree-/Branch-HEAD ist keine
+  Auditidentitaet. Delta nach Freeze wird separat bilanziert und darf alte
+  Signoffs nie still aktualisieren.
 
 ## Ablauf
 
 1. Gitstatus, Remote, Worktrees, Sessions pruefen.
 2. Governance-Widerspruch → STOP; nur Draft/Recon erlaubt.
-3. Evidence-Verzeichnis ausserhalb Produkt-Worktree anlegen. In-Repo-Ausgabe
-   macht Clean-Gate selbst rot und ist verboten. Snapshot erzeugen:
+3. **Vor Aktivierung** Phase -1 des autorisierten Plans abschliessen: alle
+   benoetigten Generatoren, Validatoren, Schemas sowie positive und negative
+   Contracttests muessen real existieren und gruen sein. Der aktuelle Skill
+   liefert diese Vollkette noch nicht; vorhandene drei Scripts sind nur
+   Teilbausteine und koennen keinen Abschluss nach revidiertem Vertrag
+   bescheinigen.
+4. Evidence-Verzeichnis ausserhalb Produkt-Worktree anlegen. In-Repo-Ausgabe
+   macht Clean-Gate selbst rot und ist verboten. Nach Phase--1-Umbau Snapshot
+   mit explizitem Zielcommit erzeugen:
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
-  --root . --output <evidence-dir> --run-id <run-id>
+  --root . --output <evidence-dir> --run-id <run-id> `
+  --audited-commit <full-git-sha>
 ```
 
-4. Erster Lauf ist Discovery. Dirty State oder offene Scopewurzel erzeugt
+   Achtung: aktuelles Script unterstuetzt `--audited-commit` noch nicht. Dieser
+   Aufruf ist Zielvertrag, nicht aktuell ausfuehrbarer Befehl.
+
+5. Erster Lauf ist Discovery. Dirty State oder offene Scopewurzel erzeugt
    Scope-Artefakte und Exit 2; kein signierbarer Snapshot. `snapshot.json`,
    `files.jsonl` und `workspace_units.jsonl` kontrollieren. Untracked Dateien
    und ignored Wurzeln einzeln entscheiden. Jede aufgenommene ignored/externe
@@ -35,18 +48,32 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
   --root . --output <evidence-dir> `
-  --scope-decisions <scope-decisions.jsonl> --run-id <run-id>
+  --scope-decisions <scope-decisions.jsonl> --run-id <run-id> `
+  --audited-commit <full-git-sha>
 ```
 
    Keine implizite Exklusion.
-5. Textdateien in disjunkte 100-200-Zeilen-Ranges teilen. Pass A und B durch
-   verschiedene Reviewer. Reviewer B sieht A-Findings erst nach eigenem Signoff.
-6. Ranges nach `references/ledger-schema.md` schreiben.
-7. Beide Passes pruefen:
+6. `audited_commit` aus Git-Objekten einfrieren. Snapshot, Inventar und jede
+   Evidenz binden genau diesen Commit. Spaetere Branch-Aenderungen kommen in
+   `delta_ledger.jsonl`; abgelaufene TTL oder produktrelevantes Delta blockiert
+   Abschluss bis Rebase/Neuaudit. Reportcommit bleibt ausserhalb Auditobjekt.
+7. Requirements-/Trigger-Universum unabhaengig erzeugen, hashen und gegen
+   Featurekatalog per exakter Mengengleichheit pruefen. Fehlender, zusaetzlicher
+   oder doppelt dispositionierter Trigger blockiert.
+8. Textdateien in disjunkte 100-200-Zeilen-Ranges teilen. Pass A und B durch
+   Reviewer aus hashgebundenem Roster. Verschiedene Namen reichen nicht:
+   Session, Parent-Lineage, Worktree und Claims muessen Unabhaengigkeit belegen.
+   Reviewer B sieht A-Findings erst nach eigenem Signoff.
+9. Ranges nach `references/ledger-schema.md` schreiben. Shards bleiben
+   immutable im externen Evidence-Verzeichnis. Keine Range-Repo-Commits.
+   Masterledger nur per validiertem, atomarem Batchimport austauschen.
+10. Beide Passes pruefen. Folgender existierender Validator deckt nur bisherigen
+    Teilvertrag; er ist bis Phase -1 kein Abschlussgate fuer revidierten Audit:
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py `
-  --root . --snapshot <evidence-dir>/snapshot.json `
+  --root . --audited-commit <full-git-sha> `
+  --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --pass-a <evidence-dir>/line_ranges_pass_a.jsonl `
   --pass-b <evidence-dir>/line_ranges_pass_b.jsonl `
@@ -55,25 +82,37 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py
   --workspace-units <evidence-dir>/workspace_units.jsonl
 ```
 
-8. Feature-IDs aus UI-Aktionen, Shortcuts, automatischen Triggern, CLI-/Script-
+11. Feature-IDs aus UI-Aktionen, Shortcuts, automatischen Triggern, CLI-/Script-
    Entrypoints und Backend-Aktionen bilden. Nicht eine Feature-ID pro Datei erfinden.
-9. Pro Feature UI → Controller → Service → Worker/Task → DB/Datei/Config →
+12. Jede Funktion/Methode in `symbol_states.jsonl` dispositionieren:
+    Feature-/Supportzuordnung, Caller/Frameworkhook, Konfig-/Statevertrag sowie
+    Runtimebeleg oder begruendeter Non-Runtime-Vertrag. Featurematrix ersetzt
+    Symbol-State-Ledger nicht.
+13. Pro Feature UI → Controller → Service → Worker/Task → DB/Datei/Config →
    Callback/UI-Ergebnis → Cleanup verfolgen. Alternative Pfade separat halten.
-10. Matrix pruefen:
+14. Runtimebelege ausschliesslich ueber content-addressed Records in
+    `runtime_runs.jsonl`: Command/Input/Artefakte/Postconditions werden geoeffnet,
+    gehasht und an `audited_commit`, Snapshot und Run gebunden. Matrixzellen
+    referenzieren `evidence_id`; freie Ref-Strings sind kein Beleg.
+15. Matrix pruefen. Folgender existierender Validator deckt nur bisherigen
+    Teilvertrag; Abschluss erst nach Phase--1-Erweiterung und deren Contracttests:
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_feature_matrix.py `
-  --root . --snapshot <evidence-dir>/snapshot.json `
+  --root . --audited-commit <full-git-sha> `
+  --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --workspace-units <evidence-dir>/workspace_units.jsonl `
   --matrix <evidence-dir>/feature_states.jsonl
 ```
 
-11. Findings getrennt challengen. Automatische Kandidaten sind kein Befund.
-12. Abschluss nur bei Validator Exit 0, clean/identischem Snapshot, genehmigten
-    Exklusionen, signierten Binaer-/Leerdatei-Einheiten und sichtbaren
-    UNKNOWN-/Not-checked-Zellen. Validatoren sind notwendige, nie allein
-    hinreichende Evidenz fuer semantische Korrektheit.
+16. Findings getrennt challengen. Automatische Kandidaten sind kein Befund.
+17. Abschluss nur bei allen Phase--1-Validatoren Exit 0, identischem
+    `audited_commit`, genehmigten Exklusionen, exakten Universumsmengen,
+    signierten Nicht-Zeilen-/Symbol-Einheiten und validierten Runtimebelegen.
+    `UNKNOWN` auf einer Pflichtachse blockiert unqualifizierte Aussage
+    `Audit vollstaendig`; erlaubt sind nur getrennte Raten plus Restledger.
+    Validatoren sind notwendige, nie allein hinreichende Evidenz.
 
 ## Pflichtpruefungen pro Zeilenrange
 
@@ -96,7 +135,8 @@ Werte: `YES`, `PARTIAL`, `NO`, `N-A`, `UNKNOWN`.
 
 - Jede Zelle braucht objektbasierte, Commit- und Zeit-gebundene Evidenz;
   `N-A` braucht `kind=n-a` plus Begruendung.
-- `executed`, `result`, `live_evidence` = `YES` nur Current-HEAD-Lauf.
+- `executed`, `result`, `live_evidence` = `YES` nur Lauf gegen exakt
+  `audited_commit` mit validierter `evidence_id`.
 - `restart_safe` = `YES` nur Persistenz + Appneustart/Reopen.
 - Error/Cancel/Retry = `YES` nur erzwungener realer Pfad.
 - Unit/Integration nie als GUI-Livebeweis verkaufen.
@@ -110,7 +150,7 @@ Werte: `YES`, `PARTIAL`, `NO`, `N-A`, `UNKNOWN`.
 
 ## Stop-Gates
 
-Stoppen bei Governance-/HEAD-/Blob-Drift, unbekanntem Dirty State, falscher DB,
+Stoppen bei Governance-/Auditcommit-/Blob-Drift, unbekanntem Dirty State, falscher DB,
 nicht zugestelltem GUI-Klick, Crash, fremdem GPU-Backend, fehlender Fixture,
 widerspruechlicher Evidenz, notwendigem Codefix oder Produktentscheid.
 
@@ -121,3 +161,13 @@ widerspruechlicher Evidenz, notwendigem Codefix oder Produktentscheid.
   ignored Scopewurzeln; Dirty-State fail-closed.
 - `scripts/verify_line_coverage.py`: Zwei-Pass-Zeilen- und Nicht-Zeilen-Validator.
 - `scripts/verify_feature_matrix.py`: Feature-Achsen-/Evidenzvalidator.
+
+## Noch fehlende Phase--1-Werkzeuge
+
+Nicht als vorhanden behandeln: Requirements-/Trigger-Exact-Set-Validator,
+Symbol-State-Validator, content-addressed Runtime-Evidence-Validator,
+Reviewer-Roster-/Lineage-Validator, Delta-/TTL-Validator und atomarer
+Completion-Importer. Plan darf erst aktiviert werden, nachdem Implementierung
+plus positive/negative Contracttests dieser sechs Harnesses belegt sind.
+Ebenfalls Teil Phase -1: vorhandene Inventory-/Line-/Feature-Scripts auf
+explizites `audited_commit` statt beweglichem HEAD/Workspace umstellen.
