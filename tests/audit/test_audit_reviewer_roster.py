@@ -491,6 +491,35 @@ class GateContractTests(unittest.TestCase):
             )
         self.assertFalse(any(self.attestations.glob("*")))
 
+    def test_signoff_half_orphan_is_quarantined_then_retried(self) -> None:
+        self._enroll_all()
+        self.attestations.mkdir()
+        orphan = self.attestations / f"lead-v-{self.lead['id']}.json"
+        orphan.write_text("partial", encoding="utf-8")
+        result = roster.finalize_signoff(
+            root=self.repo, session_id=self.lead["id"], role="lead-v",
+            basis_sha256="a" * 64, verdict="pass", roster_path=self.roster_path,
+            receipts_dir=self.receipts, attestations_dir=self.attestations,
+            signing_key=self.keys["lead-v"], **self._trust_args(),
+        )
+        self.assertTrue(result.is_file())
+        quarantined = list((self.attestations / "quarantine").iterdir())
+        self.assertEqual(1, len(quarantined))
+        self.assertIn(".orphan", quarantined[0].name)
+
+    def test_complete_exact_signoff_recovers_but_mismatched_pair_fails_closed(self) -> None:
+        self._enroll_all()
+        args = dict(
+            root=self.repo, session_id=self.lead["id"], role="lead-v",
+            basis_sha256="a" * 64, verdict="pass", roster_path=self.roster_path,
+            receipts_dir=self.receipts, attestations_dir=self.attestations,
+            signing_key=self.keys["lead-v"], **self._trust_args(),
+        )
+        first = roster.finalize_signoff(**args)
+        self.assertEqual(first, roster.finalize_signoff(**args))
+        with self.assertRaisesRegex(roster.ContractError, "existierende Signoff"):
+            roster.finalize_signoff(**{**args, "basis_sha256": "b" * 64})
+
     def test_receipt_extra_field_and_naive_timestamp_rejected(self) -> None:
         lead = self._enroll(self.lead)
         receipt = self.receipts / lead["session_receipt_ref"]

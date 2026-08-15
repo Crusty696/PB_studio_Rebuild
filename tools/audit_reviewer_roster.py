@@ -927,13 +927,30 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
         attestations_dir.mkdir(parents=True, exist_ok=True)
         path = attestations_dir / f"{role}-{session_id}.json"
         signature = attestations_dir / f"{role}-{session_id}.json.sig"
-        if path.exists() or signature.exists():
-            raise ContractError("immutable Signoff-Attestierung existiert bereits")
+        identity = policy["identities"][role]
+        role_key = lead_v_public_key_path if role == "lead-v" else adversarial_public_key_path
+        if path.exists() != signature.exists():
+            quarantine = attestations_dir / "quarantine"
+            quarantine.mkdir(exist_ok=True)
+            orphan = path if path.exists() else signature
+            suffix = f".{int(time.time())}.{uuid.uuid4().hex}.orphan"
+            os.replace(orphan, quarantine / (orphan.name + suffix))
+        if path.exists() and signature.exists():
+            recovered, _recovered_sha = _load_signed_json(
+                path, signature, role_key, identity["public_key_sha256"],
+                SIGNOFF_NAMESPACE, identity["openssh_identity"],
+            )
+            fields = set(attestation)
+            if set(recovered) != fields:
+                raise ContractError("existierende Signoff-Attestierung hat falsches Schema")
+            _valid_timestamp(recovered["signed_at"], "signed_at")
+            fixed = {key: value for key, value in attestation.items() if key != "signed_at"}
+            if any(recovered.get(key) != value for key, value in fixed.items()):
+                raise ContractError("existierende Signoff-Attestierung passt nicht exakt")
+            return path
         path.write_bytes(_canonical(attestation) + b"\n")
         try:
             sign_file(path, signature, signing_key, SIGNOFF_NAMESPACE)
-            identity = policy["identities"][role]
-            role_key = lead_v_public_key_path if role == "lead-v" else adversarial_public_key_path
             verify_signature(
                 path, signature, role_key, identity["public_key_sha256"],
                 SIGNOFF_NAMESPACE, identity["openssh_identity"],
