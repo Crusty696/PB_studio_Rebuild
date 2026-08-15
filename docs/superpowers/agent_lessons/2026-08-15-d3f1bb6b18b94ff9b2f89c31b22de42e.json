@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d3f1bb6b18b94ff9b2f89c31b22de42e",
+  "recorded_at": "2026-08-15T22:38:37+00:00",
+  "session_id": "d145876e6d35436281a44065ca7defc9",
+  "head_at_start": "46d5735bf0118b2739631f8e6137fc7f12ec1c35",
+  "problem": "Atomic-Import validierte Artifact- und Contractbytes, las dieselben Pfade vor dem Publish aber erneut; ein Dateitausch zwischen Validierung und Kopie konnte ungepruefte Bytes importieren.",
+  "cause": "Validierung und atomare Staging-Kopie verwendeten getrennte Dateilesevorgaenge ohne Rehash des final publizierten Bytebuffers.",
+  "rule": "Content-addressed Imports muessen Contractbytes einmal erfassen und genau diese validierten Bytes publizieren; mutable Artifacts beim finalen Read erneut Hash/Bytes/Count pruefen und denselben Buffer ohne weiteren Read kopieren.",
+  "applies_to": "Audit-Completion, atomare Bundle-Imports, Evidence-Attachments, content-addressed Contracts"
+}

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Validate frozen-audit TTL and exact Git delta disposition."""
+"""Validate Global Contract V1 TTL and exact Git delta disposition."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -11,11 +12,25 @@ from pathlib import Path
 from typing import Any
 
 
+PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
-REQUIRED_CONTRACT = {
-    "schema_version", "run_id", "audited_commit", "integration_head",
-    "snapshot_id", "frozen_at", "max_age_seconds",
+FULL_SHA256 = re.compile(r"[0-9a-f]{64}")
+AUDIT_FIELDS = {
+    "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
 }
+AUDIT_ARTIFACT_KEYS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract",
+    "reviewer-readiness-binding", "reviewer-spawn-journal",
+}
+
+
+def _canonical(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
 
 def _git(root: Path, *args: str) -> bytes:
@@ -63,9 +78,8 @@ def expected_delta(
             old_path, path = None, fields[index]
             index += 1
         row: dict[str, Any] = {
-            "run_id": run_id, "snapshot_id": snapshot_id,
-            "base_commit": base, "head_commit": head,
-            "status": status, "path": path,
+            "run_id": run_id, "snapshot_id": snapshot_id, "base_commit": base,
+            "head_commit": head, "status": status, "path": path,
         }
         if old_path is not None:
             row["old_path"] = old_path
@@ -77,41 +91,65 @@ def _key(row: dict[str, Any]) -> tuple[str, str, str]:
     return (str(row.get("status", "")), str(row.get("old_path", "")), str(row.get("path", "")))
 
 
+def _time(value: Any, label: str, errors: list[str]) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("timezone fehlt")
+        return parsed
+    except ValueError as exc:
+        errors.append(f"{label} ungueltig: {exc}")
+        return None
+
+
 def verify_delta_ttl(
-    root: Path, contract: dict[str, Any], rows: list[dict[str, Any]], *,
+    root: Path,
+    audit_contract: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    integration_head: str,
+    expected_audit_contract_sha256: str,
     now: datetime | None = None,
 ) -> list[str]:
     root = root.resolve()
     errors: list[str] = []
-    missing = sorted(REQUIRED_CONTRACT - set(contract))
-    if missing:
-        errors.append(f"Auditvertrag Pflichtfelder fehlen: {missing}")
-    if contract.get("schema_version") != 1:
-        errors.append("schema_version muss 1 sein")
-    run_id = str(contract.get("run_id", "")).strip()
-    snapshot_id = str(contract.get("snapshot_id", "")).strip()
-    if not run_id:
-        errors.append("run_id fehlt/leer")
-    if not snapshot_id:
-        errors.append("snapshot_id fehlt/leer")
-    base = _resolve_commit(root, contract.get("audited_commit"), "audited_commit", errors)
-    head = _resolve_commit(root, contract.get("integration_head"), "integration_head", errors)
+    if set(audit_contract) != AUDIT_FIELDS:
+        errors.append("Auditcontract-Feldmenge ist nicht Global Contract V1")
+    if audit_contract.get("schema_version") != 1 or audit_contract.get("plan_id") != PLAN_ID:
+        errors.append("Auditcontract Schema/plan_id falsch")
+    artifacts = audit_contract.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != AUDIT_ARTIFACT_KEYS:
+        errors.append("Auditcontract Artifactmenge ist nicht exakte 14er-Union")
+    expected_pin = str(expected_audit_contract_sha256)
+    body = {key: value for key, value in audit_contract.items() if key != "contract_sha256"}
+    body_sha = hashlib.sha256(_canonical(body)).hexdigest()
+    if not FULL_SHA256.fullmatch(expected_pin):
+        errors.append("Externer Auditcontract-Body-SHA muss lowercase SHA256 sein")
+    elif audit_contract.get("contract_sha256") != expected_pin or body_sha != expected_pin:
+        errors.append("Auditcontract-Body-SHA stimmt nicht mit externem Pin")
 
-    try:
-        frozen = datetime.fromisoformat(str(contract.get("frozen_at", "")).replace("Z", "+00:00"))
-        if frozen.tzinfo is None:
-            raise ValueError("timezone fehlt")
-    except ValueError as exc:
-        frozen = None
-        errors.append(f"frozen_at ungueltig: {exc}")
-    max_age = contract.get("max_age_seconds")
-    if type(max_age) is not int or max_age <= 0:
-        errors.append("max_age_seconds muss positiver Integer sein")
-    elif frozen is not None:
-        checked_at = now or datetime.now(timezone.utc)
-        if checked_at.tzinfo is None:
-            errors.append("now muss timezone-aware sein")
-        elif (checked_at - frozen).total_seconds() > max_age:
+    run_id = audit_contract.get("run_id")
+    snapshot_id = audit_contract.get("snapshot_id")
+    if not isinstance(run_id, str) or not run_id:
+        errors.append("run_id fehlt/leer")
+        run_id = ""
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        errors.append("snapshot_id fehlt/leer")
+        snapshot_id = ""
+    base = _resolve_commit(root, audit_contract.get("audited_commit"), "audited_commit", errors)
+    head = _resolve_commit(root, integration_head, "integration_head", errors)
+
+    frozen = _time(audit_contract.get("frozen_at"), "frozen_at", errors)
+    expires = _time(audit_contract.get("expires_at"), "expires_at", errors)
+    checked_at = now or datetime.now(timezone.utc)
+    if checked_at.tzinfo is None:
+        errors.append("now muss timezone-aware sein")
+    elif frozen is not None and expires is not None:
+        if expires <= frozen:
+            errors.append("expires_at muss nach frozen_at liegen")
+        if checked_at < frozen:
+            errors.append("Audit-Zeitpunkt liegt vor frozen_at")
+        if checked_at > expires:
             errors.append("Audit-TTL ist abgelaufen")
 
     expected: list[dict[str, Any]] = []
@@ -154,7 +192,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
-            continue
+            raise ValueError(f"Zeile {number}: Leerzeile unzulaessig")
         value = json.loads(line)
         if not isinstance(value, dict):
             raise ValueError(f"Zeile {number}: Objekt erwartet")
@@ -165,15 +203,22 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--contract", type=Path, required=True)
+    parser.add_argument("--audit-contract", type=Path, required=True)
+    parser.add_argument("--audit-contract-sha256", required=True)
+    parser.add_argument("--integration-head", required=True)
     parser.add_argument("--delta-ledger", type=Path, required=True)
     parser.add_argument("--now", help="timezone-aware ISO-8601 fuer reproduzierbare Revalidierung")
     args = parser.parse_args()
     try:
-        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+        if not isinstance(contract, dict):
+            raise ValueError("Auditcontract muss Objekt sein")
         rows = _load_jsonl(args.delta_ledger)
         checked_at = datetime.fromisoformat(args.now.replace("Z", "+00:00")) if args.now else None
-        errors = verify_delta_ttl(args.root, contract, rows, now=checked_at)
+        errors = verify_delta_ttl(
+            args.root, contract, rows, integration_head=args.integration_head,
+            expected_audit_contract_sha256=args.audit_contract_sha256, now=checked_at,
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         errors = [f"Eingabe unlesbar: {exc}"]
     print(json.dumps({"ok": not errors, "error_count": len(errors), "errors": errors}, ensure_ascii=False, indent=2))
