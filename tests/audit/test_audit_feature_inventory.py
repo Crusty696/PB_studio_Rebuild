@@ -211,6 +211,36 @@ class GateContractTests(unittest.TestCase):
         self.assertEqual(before, after, "Enumerator darf Dirty-Workingtree nicht lesen")
         self.assertEqual([], self.errors(self.dispositions()))
 
+    def test_resealed_feature_disposition_type_matrix_rejected(self) -> None:
+        base_contract = copy.deepcopy(self.evidence_contract)
+        for value in ([], {}, [["feature"]], [None], True, 1, None, "", " ", "foreign"):
+            rows = self.dispositions()
+            rows[0]["disposition"] = value
+            contract = copy.deepcopy(base_contract)
+            contract["artifacts"]["feature-state"] = HARNESS.artifact_contract_entry(
+                rows, "evidence/feature-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: item for key, item in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            errors = HARNESS.validate_exact_set(
+                self.requirements, self.triggers, rows, run_id=self.RUN,
+                audited_commit=self.commit, snapshot_id=self.SNAPSHOT,
+                tooling_commit=self.TOOLING, feature_catalog=self.feature_catalog,
+                feature_catalog_manifest=self.feature_manifest,
+                evidence_records=self.evidence, evidence_manifest=self.evidence_manifest,
+                reviewer_records=self.reviewers, reviewer_manifest=self.reviewer_manifest,
+                audit_contract=self.audit_contract,
+                expected_contract_sha256=self.contract_sha,
+                evidence_contract=contract,
+                expected_evidence_contract_sha256=contract["evidence_contract_sha256"],
+                evidence_root=self.repo,
+            )
+            self.assertTrue(
+                any("disposition ungueltig" in error for error in errors), repr(value)
+            )
+
     def test_proof_binding_negative_repros(self) -> None:
         def validate(rows, contract=None):
             contract = contract or self.evidence_contract

@@ -25,6 +25,19 @@ CONTRACT_KEYS = ("inputs", "outputs", "side_effects", "errors", "config", "persi
 EDGE_DISPOSITIONS = {"resolved", "dynamic", "framework", "unreferenced", "unknown"}
 SYMBOL_DISPOSITIONS = {"runtime", "non-runtime", "unknown"}
 NON_RUNTIME_CONTRACT_KINDS = {"static-contract"}
+TRIGGER_SOURCE_KINDS = {
+    "batch-entrypoint", "batch-label", "callback", "cli", "db-callback",
+    "decorator-hook", "entrypoint", "main-guard", "powershell-entrypoint",
+    "powershell-function", "powershell-parameter", "qt-action", "qt-button",
+    "qt-connect", "qt-shortcut", "qt-signal-emit", "qt-ui-signal",
+    "qt-ui-surface", "qt-ui-widget", "registry", "shutdown", "sql-trigger",
+    "startup", "timer",
+}
+TRIGGER_ROW_FIELDS = {
+    "source_id", "source_kind", "path", "line", "column", "detail",
+    "source_blob_sha256", "run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "signed_at", "record_sha256",
+}
 PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
 SUPPORTED_SQL_DIALECT = "sqlite"
 
@@ -903,6 +916,11 @@ def validate_contracts(
     reviewer_ids = set(artifact_indexes[2])
     evidence_ids = set(artifact_indexes[3])
     canonical_triggers = list(artifact_indexes[4].values())
+    for number, row in enumerate(trigger_records, 1):
+        if set(row) != TRIGGER_ROW_FIELDS:
+            errors.append(f"Triggeruniversum Zeile {number}: Schemafelder nicht exakt")
+        if not _enum_value(row.get("source_kind"), TRIGGER_SOURCE_KINDS):
+            errors.append(f"Triggeruniversum Zeile {number}: source_kind ungueltig")
     if not known_feature_ids:
         errors.append("Featureuniversum ist leer")
     if not reviewer_ids:
