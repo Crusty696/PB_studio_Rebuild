@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c8b8199e38a14e839c149f873ae58291",
+  "recorded_at": "2026-08-15T10:45:56+00:00",
+  "session_id": "14e10a99c5154a1ea6757e7400d735a0",
+  "head_at_start": "862c9a75789f504f6c457c07b1272a0357d23fdd",
+  "problem": "Uebergabe behauptete fuer B-826 bis B-844 einheitlich pending-live und aktuellen Vault-Handoff, waehrend B-828/B-832 sowie index.md abwichen.",
+  "cause": "Uebergabe wurde nach Codecommits aktualisiert, einzelne Vault-Bugdatei und zentraler Vault-index aber nicht synchron fortgeschrieben.",
+  "rule": "Bei Agenten-Uebergaben Git-Patch, Bug-Frontmatter, Active Plan, Vault-index und Livebeleg getrennt pruefen; zusammenfassende Statusaussage nie als alleinige Quelle verwenden.",
+  "applies_to": "Agenten-Handoffs, Vault-Synchronisation, Verifikationsstatus"
+}
