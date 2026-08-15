@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4b5ceffca5f54440b951f4d558a2af55",
+  "recorded_at": "2026-08-15T18:02:46+00:00",
+  "session_id": "687ad784313943d88b37569920d2df8e",
+  "head_at_start": "688779ab982c31b035d39fdd2d3b3aed7b6a798c",
+  "problem": "Selbstkonsistente Record- und Manifesthashes konnten gleichzeitig ersetzt werden; Zeit- und Parserbelege waren ohne externe Authority oder echte Sprachparser nicht beweiskräftig.",
+  "cause": "Validatoren hatten keinen extern gepinnten Audit-/Evidence-Contract, keine durchgängigen signed_at-Grenzen und leiteten PowerShell-Calls per Regex statt AST ab.",
+  "rule": "Inputuniversen durch extern erwartete audit_contract_sha256, Outputstates durch extern erwartete evidence_contract_sha256 binden; jeden Record direkt an Run/Audit/Tooling/Snapshot/Zeitfenster binden; Sprachkanten aus echtem Parser-AST ableiten und unsupported fail-closed stoppen.",
+  "applies_to": "Audit-Harnesses, Evidence-Contracts, Zeit-/TTL-Gates, PowerShell-/SQL-Parser"
+}
