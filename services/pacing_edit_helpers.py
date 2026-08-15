@@ -408,6 +408,68 @@ def _enforce_minimum_durations(
     return result
 
 
+def _mindestdauer_durchsetzen(
+    cuts: list[float], pflicht: set | frozenset, sections: list | None
+) -> list[float]:
+    """B-838: zu kurze Segmente aufloesen, ohne Section-Grenzen zu opfern.
+
+    Laeuft von vorn durch und verwirft jeden Cut, der zu dicht auf seinem
+    Vorgaenger sitzt — es sei denn, er ist ein Pflicht-Cut. Dann weicht
+    stattdessen der Vorgaenger, sofern der selbst keiner ist. Sind beide
+    Pflicht-Cuts, bleiben beide stehen; die Struktur des Stuecks wiegt schwerer
+    als die Mindestdauer.
+
+    Das Minimum ist section-abhaengig (``SECTION_MIN_DURATION``), damit ein
+    DROP weiterhin dichter schneiden darf als ein BREAKDOWN.
+    """
+    if len(cuts) < 3:
+        return cuts
+
+    def _minimum_bei(zeit: float) -> float:
+        if sections:
+            sec = get_section_at_time(sections, zeit)
+            if sec is not None:
+                return SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION)
+        return HARD_MIN_DURATION
+
+    # Der Abgleich laeuft ueber eine Toleranz statt ueber Mengen-Zugehoerigkeit:
+    # die Pflicht-Zeiten wurden gesnappt und gerundet, ein exakter
+    # Float-Vergleich schlaegt dabei fehl.
+    pflicht_zeiten = sorted(float(p) for p in (pflicht or ()))
+
+    def _ist_pflicht(zeit: float) -> bool:
+        return any(abs(zeit - p) < 0.02 for p in pflicht_zeiten)
+
+    ergebnis = [cuts[0]]
+    for t in cuts[1:-1]:
+        # Ein Pflicht-Cut verdraengt so viele Nicht-Pflicht-Vorgaenger, wie
+        # noetig — nach jedem Entfernen erneut pruefen, sonst bleibt ein zu
+        # kurzer Abstand zum naechstfrueheren stehen.
+        while (len(ergebnis) > 1
+               and _ist_pflicht(t)
+               and not _ist_pflicht(ergebnis[-1])
+               and (t - ergebnis[-1]) < _minimum_bei(ergebnis[-1]) - 1e-9):
+            ergebnis.pop()
+
+        if (t - ergebnis[-1]) >= _minimum_bei(ergebnis[-1]) - 1e-9:
+            ergebnis.append(t)
+        elif _ist_pflicht(t):
+            # Zu dicht, aber verpflichtend: die Struktur des Stuecks wiegt
+            # schwerer als die Mindestdauer.
+            ergebnis.append(t)
+        # sonst: t faellt weg
+
+    # Letzter Cut ist das Timeline-Ende und bleibt immer stehen. Wird der
+    # Rest dadurch zu kurz, weicht der davorliegende Nicht-Pflicht-Cut.
+    ende = cuts[-1]
+    while (len(ergebnis) >= 2
+           and (ende - ergebnis[-1]) < _minimum_bei(ergebnis[-1]) - 1e-9
+           and not _ist_pflicht(ergebnis[-1])):
+        ergebnis.pop()
+    ergebnis.append(ende)
+    return ergebnis
+
+
 def finalize_cut_beats(
     cut_beats: list[float],
     beats: list[float],
@@ -480,6 +542,23 @@ def finalize_cut_beats(
     result.append(round(total_duration, 4))
     while len(result) >= 3 and (result[-1] - result[-2]) < HARD_MIN_DURATION:
         result.pop(-2)
+
+    # 4b. B-838: Mindestdauer erneut durchsetzen.
+    #
+    # ``_enforce_minimum_durations`` laeuft VOR dieser Funktion. Die oben
+    # eingefuegten Pflicht-Cuts an Section-Grenzen unterlaufen sie danach: am
+    # echten Projekt gemessen lagen anschliessend 37 von 78 Segmenten unter
+    # 3,0 s, das kuerzeste bei 0,90 s.
+    #
+    # Die Schutzzone in Schritt 3 (``HARD_MIN_DURATION * 0.6``) reicht dafuer
+    # nicht mehr: seit B-835 steht HARD_MIN_DURATION auf 1,0 statt 3,0, die
+    # Zone schrumpfte damit von 1,8 s auf 0,6 s.
+    #
+    # Entfernt werden ausschliesslich Nicht-Pflicht-Cuts — eine Section-Grenze
+    # ist der Sinn der ganzen Uebung und bleibt stehen, auch wenn dadurch ein
+    # kurzes Segment entsteht. Liegen zwei Pflicht-Cuts zu dicht beieinander,
+    # gewinnt die Struktur.
+    result = _mindestdauer_durchsetzen(result, mandatory, sections)
 
     # 5. Max-Segment-Laenge: kein Intervall darf laenger sein als der
     #    laengste verfuegbare Clip. Sonst klemmt apply_auto_edit_segments
@@ -1214,6 +1293,11 @@ def _match_video_for_segment(
     cut_beat_idx: int | None = None,
     boundary_distance_sec: float | None = None,
     prev_mood: str | None = None,
+    # Roter Faden (2026-08-15). Alle drei optional; ohne sie bleibt das
+    # Verhalten unveraendert.
+    track_position: float | None = None,
+    motiv_gruppe: int | None = None,
+    motiv_gedaechtnis: "object | None" = None,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
@@ -1354,6 +1438,21 @@ def _match_video_for_segment(
                     video_id=vid,
                     usage_count=_usage,
                     ai_mood=_ai_mood,
+                )
+
+            # Roter Faden (User-Anweisung 2026-08-15): Spannungsbogen ueber die
+            # volle Laenge und wiederkehrende Bildwelten je Section-Art. Ohne
+            # die neuen Parameter ist der Term exakt 0 — Alt-Aufrufer und Tests
+            # verhalten sich unveraendert.
+            if track_position is not None:
+                from services.pacing.roter_faden import roter_faden_bonus
+
+                score += roter_faden_bonus(
+                    track_position=track_position,
+                    clip_intensitaet=motion,
+                    motiv_gruppe=motiv_gruppe,
+                    style_bucket=meta.get("style_bucket_id"),
+                    gedaechtnis=motiv_gedaechtnis,
                 )
 
             # NEUBAU-VOLLINTEGRATION T2.5.2 (FR-S1-5 + FR-S3-4):

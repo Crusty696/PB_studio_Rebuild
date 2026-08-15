@@ -1295,6 +1295,28 @@ def _auto_edit_phase3_inner(
         for vid, offset in rows:
             clip_offsets[vid] = offset or 0.0
     used_recently: list[int] = []
+    # Roter Faden (User-Anweisung 2026-08-15): Motiv-Gedaechtnis und
+    # Section-Zuordnung einmal je Lauf aufbauen. Ist der rote Faden aus,
+    # bleiben beide None und die Clip-Auswahl verhaelt sich unveraendert.
+    _motiv_gedaechtnis = None
+    _motiv_zuordnung: dict[str, int] = {}
+    if getattr(settings, "roter_faden", False):
+        from services.pacing.roter_faden import (
+            MotivGedaechtnis,
+            motiv_gruppe_fuer_zeit as _motiv_gruppe_fuer_zeit_impl,
+            motiv_zuordnung as _motiv_zuordnung_impl,
+        )
+        _motiv_gedaechtnis = MotivGedaechtnis()
+        _motiv_zuordnung = _motiv_zuordnung_impl(sections)
+        _motiv_gruppe_fuer_zeit = _motiv_gruppe_fuer_zeit_impl
+        logger.info(
+            "Roter Faden aktiv: %d Motivgruppen aus den Sections (%s)",
+            len(_motiv_zuordnung), ", ".join(sorted(_motiv_zuordnung)),
+        )
+    else:
+        def _motiv_gruppe_fuer_zeit(_zeit, _sections, _zuordnung):
+            return None
+
     # Fixplan 2026-07-07 Schritt 3: globale Nutzungs-Zaehlung + Cap + Sampling.
     # Cap-Formel siehe berechne_max_uses (B-834).
     # B-778: gelockte Bestands-Segmente (User-Anker) belegen bereits Slots
@@ -1720,8 +1742,25 @@ def _auto_edit_phase3_inner(
                     cut_beat_idx=_t252_beat_idx,
                     boundary_distance_sec=_t252_bdist,
                     prev_mood=_prev_clip_mood,
+                    # Roter Faden: Position im Track fuer den Spannungsbogen,
+                    # Motivgruppe fuer die Wiedererkennung je Section-Art.
+                    track_position=(
+                        seg_start / total_duration if total_duration > 0 else 0.0
+                    ),
+                    motiv_gruppe=_motiv_gruppe_fuer_zeit(
+                        seg_start, sections, _motiv_zuordnung
+                    ),
+                    motiv_gedaechtnis=_motiv_gedaechtnis,
                 )
             prev_clip_idx = _clip_idx
+            # Roter Faden: die gewaehlte Bildwelt fuer diese Section-Art
+            # merken, damit sie bei ihrer Wiederkehr bevorzugt wird.
+            if (_motiv_gedaechtnis is not None and _clip_idx is not None
+                    and clip_metadata_list and _clip_idx < len(clip_metadata_list)):
+                _motiv_gedaechtnis.merken(
+                    _motiv_gruppe_fuer_zeit(seg_start, sections, _motiv_zuordnung),
+                    clip_metadata_list[_clip_idx].get("style_bucket_id"),
+                )
             # T2.5.2: Mood des gewaehlten Clips fuer den Phrase-Constraint
             # des naechsten Segments merken.
             if (_clip_idx is not None and clip_metadata_list

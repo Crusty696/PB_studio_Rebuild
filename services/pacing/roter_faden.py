@@ -442,3 +442,75 @@ def motiv_gruppe_fuer_zeit(zeit: float, sections: list | None, zuordnung: dict[s
             typ = str(getattr(sec, "section_type", "") or "").upper()
             return zuordnung.get(typ)
     return None
+
+
+# ── Anwendung auf die Clip-Auswahl ──────────────────────────────────────────
+
+# Wie stark Bogen und Motiv den Score verschieben dürfen. Bewusst klein: sie
+# sollen die Auswahl färben, nicht bestimmen. Rollenpassung, Energie und
+# Stilkohärenz bleiben die tragenden Kriterien.
+BOGEN_GEWICHT = 0.12
+MOTIV_GEWICHT = 0.10
+
+
+class MotivGedaechtnis:
+    """Merkt sich, welche Bildwelt in welcher Motivgruppe schon lief.
+
+    Gespeichert wird nicht der Clip, sondern sein ``style_bucket`` — der
+    Recherche-Befund dazu war eindeutig: wörtlich dasselbe Material im zweiten
+    Refrain wirkt wie Materialmangel. Wiedererkennbar soll die *Bildwelt* sein,
+    das Material darf variieren.
+    """
+
+    def __init__(self) -> None:
+        self._buckets: dict[int, dict[int, int]] = {}
+
+    def merken(self, gruppe: int | None, style_bucket: int | None) -> None:
+        if gruppe is None or style_bucket is None:
+            return
+        zaehler = self._buckets.setdefault(int(gruppe), {})
+        zaehler[int(style_bucket)] = zaehler.get(int(style_bucket), 0) + 1
+
+    def passt_zur_gruppe(self, gruppe: int | None, style_bucket: int | None) -> float:
+        """0.0 = unbekannt oder fremd, bis 1.0 = prägend für diese Gruppe."""
+        if gruppe is None or style_bucket is None:
+            return 0.0
+        zaehler = self._buckets.get(int(gruppe))
+        if not zaehler:
+            return 0.0
+        gesamt = sum(zaehler.values())
+        if gesamt <= 0:
+            return 0.0
+        return zaehler.get(int(style_bucket), 0) / gesamt
+
+
+def roter_faden_bonus(
+    track_position: float,
+    clip_intensitaet: float | None,
+    motiv_gruppe: int | None = None,
+    style_bucket: int | None = None,
+    gedaechtnis: "MotivGedaechtnis | None" = None,
+) -> float:
+    """Score-Verschiebung aus Spannungsbogen und Motiv-Wiedererkennung.
+
+    Rückgabe liegt etwa zwischen ``-BOGEN_GEWICHT`` und
+    ``+(BOGEN_GEWICHT + MOTIV_GEWICHT)`` und wird auf den Fitness-Score
+    addiert.
+
+    * **Bogen** — je näher die Intensität des Clips am Ziel der Stelle liegt,
+      desto besser. Am Höhepunkt gewinnen kräftige Bilder, im Intro ruhige.
+    * **Motiv** — ein Clip aus der Bildwelt, die in dieser Section-Art schon
+      lief, bekommt einen Bonus. Nie einen Malus: sonst würde die erste Wahl
+      in einer Gruppe alle späteren blockieren.
+    """
+    bonus = 0.0
+
+    if clip_intensitaet is not None:
+        # Abweichung 0.0 -> voller Bonus, 1.0 -> voller Malus.
+        abweichung = bogen_abweichung(track_position, clip_intensitaet)
+        bonus += BOGEN_GEWICHT * (1.0 - 2.0 * abweichung)
+
+    if gedaechtnis is not None:
+        bonus += MOTIV_GEWICHT * gedaechtnis.passt_zur_gruppe(motiv_gruppe, style_bucket)
+
+    return bonus

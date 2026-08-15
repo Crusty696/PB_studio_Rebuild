@@ -24,6 +24,40 @@ from services.ollama_client import _normalize_ollama_host
 
 logger = logging.getLogger(__name__)
 
+# Wie viele Zeichen des Antwort-Bodys in die Fehlermeldung wandern. Genug fuer
+# Ollamas Fehlertexte, kurz genug fuer eine Logzeile.
+_FEHLER_BODY_MAX = 300
+
+
+def _fehlertext(response, endpunkt: str, model: str) -> str:
+    """Statuscode UND Begruendung aus einer fehlgeschlagenen Ollama-Antwort.
+
+    Vorher stand hier nur ``f"Fehler: {response.status_code}"`` — der Body
+    wurde verworfen. Bei den HTTP-500-Fehlern der Nacht vom 14.08. war deshalb
+    nicht feststellbar, WARUM Ollama ablehnte; die Ursache (eine
+    Ollama-Version, die das Modell nicht laden konnte) liess sich erst durch
+    manuelle Nachstellung finden. Das hat Stunden gekostet, die diese eine
+    Zeile gespart haette.
+    """
+    grund = ""
+    try:
+        daten = response.json()
+        if isinstance(daten, dict):
+            grund = str(daten.get("error") or daten.get("message") or "")
+    except Exception:
+        try:
+            grund = (response.text or "")[:_FEHLER_BODY_MAX]
+        except Exception:
+            grund = ""
+    grund = grund.strip()[:_FEHLER_BODY_MAX]
+
+    logger.error(
+        "Ollama %s antwortete %s fuer Modell '%s'%s",
+        endpunkt, response.status_code, model,
+        f": {grund}" if grund else " (ohne Begruendung im Body)",
+    )
+    return f"{response.status_code}{f' — {grund}' if grund else ''}"
+
 # B-760: localhost -> 127.0.0.1 (IPv6-::1-Falle unter Windows; fremde
 # Ollama-Instanz auf ::1 zog Vision am 2026-08-04 auf CPU).
 OLLAMA_BASE = _normalize_ollama_host("http://localhost:11434")
@@ -772,8 +806,8 @@ class OllamaService:
                     })
                     if generate_response.status_code == 200:
                         return generate_response.json().get("response", "")
-                    return f"Fehler: {generate_response.status_code}"
-                return f"Fehler: {response.status_code}"
+                    return f"Fehler: {_fehlertext(generate_response, '/api/generate', model)}"
+                return f"Fehler: {_fehlertext(response, '/api/chat', model)}"
             except Exception as e:
                 logger.error("Ollama Vision Fehler: %s", e)
                 return f"Fehler: {e}"
