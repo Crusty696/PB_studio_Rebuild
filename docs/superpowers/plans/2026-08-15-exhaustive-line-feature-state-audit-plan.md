@@ -1,7 +1,8 @@
 # PB Studio Exhaustive Line + Feature-State Audit Execution Plan
 
-> **Status:** `draft` — Planung dokumentiert; keine Audit-Ausfuehrung, kein Fix,
-> kein ACTIVE_PLAN-Wechsel autorisiert.
+> **Status:** `phase-minus-1-in-progress` — User autorisierte am 2026-08-15
+> ausschliesslich Harness-/Contracttest-Implementierung. Produktaudit, Snapshot,
+> Produktcodefix und `fixed`-Marker bleiben verboten.
 >
 > **REQUIRED SUB-SKILL:** `pb-exhaustive-audit-ledger`
 >
@@ -17,9 +18,8 @@ aendern. Fixes brauchen spaeter eigenen autorisierten Fixplan.
 **Kanonischer Workspace:**
 `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 **Hardware-Grenze:** ausschliesslich NVIDIA GTX 1060 / `cuda:0`; sonst CPU.
-**Aktueller Governance-Blocker:** `ACTIVE_PLAN.md` nennt W4 Videoanalyse als
-naechste Task; Registry-Zeile nennt noch B-819/W3. Audit darf erst nach expliziter
-Userwahl und Governance-Abgleich aktiv werden.
+**Governance:** Phase -1 ist aktiv; Masterplan/W4 dokumentiert pausiert.
+Auditaktivierung bleibt bis Readiness-PASS und neuer Userentscheidung verboten.
 
 ---
 
