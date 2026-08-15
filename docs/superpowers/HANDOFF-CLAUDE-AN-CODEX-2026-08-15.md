@@ -4,7 +4,7 @@
 > Es beschreibt, was in dieser Sitzung passiert ist, was gilt, was noch offen
 > ist — und welche Fehler ich gemacht habe, damit du sie nicht wiederholst.
 
-**Stand:** Commit `b98010a` auf `main`, synchron mit `origin/main`.
+**Stand:** Commit `45ecaad` auf `main`, synchron mit `origin/main`.
 **Vorgänger-Checkpoint dieser Sitzung:** `dd5d228`.
 
 ---
@@ -149,6 +149,9 @@ Spitzenreiter wechselt nicht. Der Term färbt, er bestimmt nicht.
 | `5a31173` | **B-840/B-841** Kurve+Breakdown wirksam, Crossfade-Clamp, drei eigene Fehlbehauptungen korrigiert |
 | `fd3782e` | **B-842** roter Faden im Studio-Brain-Pfad |
 | `b98010a` | **B-843** Videospur endete 7,1 s vor der Musik |
+| `58abd38` | Übergabe an Codex |
+| `13daf78` | Brain-Bestandsaufnahme |
+| `45ecaad` | **B-844** leere Ergebnisse in zwei Workern, falsche Dauermeldung |
 
 Jede Commit-Message enthält Messwerte und Begründung. **Lies sie**, bevor du
 an den betroffenen Stellen arbeitest — sie erklären, warum etwas so ist.
@@ -294,10 +297,11 @@ mit diesem Material strukturell unmöglich — kein Codefehler.
   `services/pacing/cut_density_modulator.py:70-73` löscht Cuts im 4-Takt-Fenster
   nach jedem Drop, nach `finalize_cut_beats`. Gemessen: 7,97 s → 9,38 s bei
   einem Limit von 8,0 s.
-* **`mark_done` ohne Leer-Prüfung** (B-828-Muster) besteht weiter in
-  `workers/audio_pipeline_v2_worker.py:141-178` und
-  `workers/audio_analysis.py:80-83`. Ich habe nur die vier Stellen in
-  `services/video_analysis_service.py` behoben.
+* ~~`mark_done` ohne Leer-Prüfung in den Audio-Workern~~ — **behoben in
+  `45ecaad` (B-844)**. `_leeres_ergebnis()` im V2-Worker, `_track_vorhanden()`
+  im BaseAnalysisWorker. Auch die falsche Dauermeldung aus B-843 ist dort
+  korrigiert: `pacing_service` leitet die Länge jetzt aus den erzeugten
+  Segmenten ab statt aus der Audiodauer.
 * **Preset-Felder ohne Leser:** `beat_weight`, `kick_weight`, `snare_weight`,
   `hihat_weight`, `min_clip_duration`, `max_clip_duration`.
 * **`global_min_duration = 3.0`** in `services/pacing_strategist.py:115,177`
