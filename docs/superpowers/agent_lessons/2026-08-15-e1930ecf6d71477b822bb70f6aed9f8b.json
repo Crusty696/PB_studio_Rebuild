@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e1930ecf6d71477b822bb70f6aed9f8b",
+  "recorded_at": "2026-08-15T16:53:19+00:00",
+  "session_id": "c174bee7be2b4c5c96f373a06fc1d114",
+  "head_at_start": "20a071cfe52b6506315f32fe6a280fa116c730e0",
+  "problem": "Selbst gehashte Referenz-ID-Sets und strukturblinde Regex-Scanner konnten manipulierte Audit-Contracts oder syntaktisch ungueltige Nicht-Python-Dateien akzeptieren.",
+  "cause": "Validatoren prueften zuvor nur caller-provided IDs/Truthy-Evidence; PowerShell-, Batch-, SQL- und Config-Flaechen hatten keine fail-closed Parsergrenze.",
+  "rule": "Audit-Referenzen als record- und manifest-gehashte, commit/snapshot/tooling-gebundene Artefakte validieren; kanonische Kanten selbst ableiten; jede strukturierte Sprache echt parsen oder bei nicht unterstuetzter Grammatik mit parser_error stoppen.",
+  "applies_to": "Audit-Harnesses, Featurekataloge, Symbol-/Kantenvertraege, Nicht-Python-Enumeratoren"
+}
