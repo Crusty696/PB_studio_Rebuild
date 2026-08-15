@@ -224,10 +224,13 @@ def enumerate_contract_universe(
             continue
         if suffix in {".ps1", ".psm1"}:
             matches = list(re.finditer(r"(?im)^\s*(?:function|filter)\s+([\w:-]+)", text))
+            total_lines = max(1, len(text.splitlines()))
             for index, match in enumerate(matches):
                 start = text.count("\n", 0, match.start()) + 1
-                end_offset = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-                end = max(start, text.count("\n", 0, end_offset) + (0 if end_offset == len(text) and text.endswith("\n") else 1))
+                end = (
+                    text.count("\n", 0, matches[index + 1].start())
+                    if index + 1 < len(matches) else total_lines
+                )
                 name = match.group(1)
                 symbols.append({
                     "symbol_id": _id("SYM", path, name, start, end, "powershell-function"),
@@ -238,10 +241,13 @@ def enumerate_contract_universe(
         if suffix in {".bat", ".cmd"}:
             matches = list(re.finditer(r"(?im)^\s*:([^:\s]+)", text))
             label_ids: dict[str, str] = {}
+            total_lines = max(1, len(text.splitlines()))
             for index, match in enumerate(matches):
                 start = text.count("\n", 0, match.start()) + 1
-                end_offset = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-                end = max(start, text.count("\n", 0, end_offset) + 1)
+                end = (
+                    text.count("\n", 0, matches[index + 1].start())
+                    if index + 1 < len(matches) else total_lines
+                )
                 name = match.group(1)
                 symbol_id = _id("SYM", path, name, start, end, "batch-label")
                 label_ids[name.lower()] = symbol_id

@@ -184,6 +184,10 @@ class GateContractTests(unittest.TestCase):
         self.assertEqual("batch-label", by_path["launch.cmd"])
         self.assertEqual("schema-unit", by_path["schema.sql"])
         self.assertEqual("config-unit", by_path["config.toml"])
+        self.assertLessEqual(
+            next(row["line_end"] for row in symbols if row["path"] == "launch.cmd"),
+            len(files["launch.cmd"].splitlines()),
+        )
 
     def test_state_foreign_feature_runtime_reviewer_evidence_rejected(self) -> None:
         states = self.states()
