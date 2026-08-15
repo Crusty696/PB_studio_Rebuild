@@ -13,7 +13,9 @@ from PySide6.QtCore import QObject, Signal
 
 from .base import CancellableMixin, format_user_error
 from services.audio_constants import clamp_confidence
-from services.analysis_status_service import mark_started, mark_done, mark_error, mark_cancelled
+from services.analysis_status_service import (
+    mark_started, mark_done, mark_error, mark_cancelled, mark_degraded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +82,21 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
             self._save_to_db(result)
             if self._cancel_if_requested():
                 return
-            mark_done("audio", self.audio_track_id, self._step_key(), self._value_summary(result))
+            # B-844: `_save_to_db` ist bei vier Sub-Workern ein No-op, wenn die
+            # Track-Zeile fehlt oder soft-deleted ist (`if track:` ohne else).
+            # Ohne diese Pruefung meldete der Schritt danach trotzdem "fertig",
+            # obwohl kein einziger Wert in der Datenbank landete — dasselbe
+            # Muster wie B-828 im Video-Pfad. Der B-066-Guard weiter oben faengt
+            # nur GERATENE Werte ab, nicht nicht-persistierte.
+            if not self._track_vorhanden():
+                mark_degraded(
+                    "audio", self.audio_track_id, self._step_key(),
+                    "Ergebnis wurde nicht gespeichert — der Audio-Track "
+                    "existiert nicht mehr oder wurde geloescht.",
+                    self._value_summary(result),
+                )
+            else:
+                mark_done("audio", self.audio_track_id, self._step_key(), self._value_summary(result))
             self.progress.emit(100, "Fertig")
             self.finished.emit(self.audio_track_id, self._result_to_dict(result))
             _ok = True
@@ -142,6 +158,34 @@ class BaseAnalysisWorker(QObject, CancellableMixin):
             if isinstance(v, str) and v.strip():
                 return v
         return "kein Grund verfuegbar"
+
+    def _track_vorhanden(self) -> bool:
+        """B-844: Existiert die Track-Zeile ueberhaupt noch?
+
+        ``_save_to_db`` der Sub-Worker ist als ``if track:`` ohne ``else``
+        geschrieben — fehlt die Zeile oder ist sie soft-deleted, passiert
+        stillschweigend nichts. Ohne diese Pruefung meldete der Schritt danach
+        trotzdem "fertig".
+
+        Bei einem Fehler in der Abfrage wird ``True`` zurueckgegeben: ein
+        Statusproblem darf den Worker nicht haerter treffen als das eigentliche
+        Ergebnis. Lieber ein ``done`` zu viel als ein Absturz im Abschluss.
+        """
+        try:
+            from database import AudioTrack, nullpool_session
+
+            with nullpool_session() as session:
+                return session.query(
+                    session.query(AudioTrack)
+                    .filter(
+                        AudioTrack.id == self.audio_track_id,
+                        AudioTrack.deleted_at.is_(None),
+                    )
+                    .exists()
+                ).scalar() is True
+        except Exception as exc:
+            logger.debug("B-844: Track-Pruefung nicht moeglich: %s", exc)
+            return True
 
     @abstractmethod
     def _step_key(self) -> str: ...

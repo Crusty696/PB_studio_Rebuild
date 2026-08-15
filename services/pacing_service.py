@@ -1916,10 +1916,25 @@ def _auto_edit_phase3_inner(
 
     if progress_cb:
         progress_cb(100, "Timeline fertig")
+    # B-844: die gemeldete Dauer muss aus den TATSAECHLICH erzeugten Segmenten
+    # kommen, nicht aus der Audio-Laenge. Im Livelauf vom 15.08. meldete diese
+    # Zeile "64 Segmente, 337.1s Gesamtdauer", waehrend die geschriebene
+    # Timeline bei 330,015s endete — die fehlenden 7,1s (B-843) blieben damit
+    # unsichtbar, obwohl der Export sie korrekt bemerkte.
+    _segment_ende = max((float(s.end) for s in segments), default=0.0)
+    _fehlt = total_duration - _segment_ende
     logger.info(
-        "Phase 3: %d Segmente, %d CutPoints, %.1fs Gesamtdauer",
-        len(segments), len(cut_points), total_duration,
+        "Phase 3: %d Segmente, %d CutPoints, %.1fs Video (Audio %.1fs)",
+        len(segments), len(cut_points), _segment_ende, total_duration,
     )
+    if _fehlt > 0.05:
+        logger.warning(
+            "Phase 3: die Videospur endet %.3fs vor dem Audio (%.3fs statt "
+            "%.3fs). repair_timeline_integrity versucht das zu schliessen "
+            "(B-843); bleibt es bestehen, wird das Rendering kuerzer als der "
+            "Track.",
+            _fehlt, _segment_ende, total_duration,
+        )
     if _studio_brain_run_id is not None:
         try:
             _complete_mem_pacing_run(_studio_brain_run_id, len(cut_points))

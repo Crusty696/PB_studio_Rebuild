@@ -39,6 +39,46 @@ _RETRY_STEP_TO_STAGE = {
     "av_pacing_curves": "av_pacing",
 }
 
+# B-844: Woran man erkennt, dass eine Stage zwar durchgelaufen ist, aber nichts
+# erzeugt hat. Schluessel ist der Stage-Name, Wert ein Paar aus Payload-Feld und
+# Begruendung fuer den Nutzer.
+#
+# Hintergrund: `_on_done` markierte bisher JEDE Stage gruen; die einzige
+# Ausnahme war `ctx.degraded[name]`, das nur vier Stages setzen. Damit meldete
+# etwa `av_pacing` mit `stored_samples: 0` oder `structure` mit
+# `segments_count: 0` ein sattes "fertig" — dasselbe Muster wie B-828 im
+# Video-Pfad, nur an anderer Stelle.
+_LEER_KRITERIEN: dict[str, tuple[str, str]] = {
+    "beat_grid": ("bpm", "Kein BPM erkannt — Beatgrid unbrauchbar."),
+    "key": ("key", "Keine Tonart erkannt."),
+    "lufs": ("integrated_lufs", "Keine Lautheit gemessen."),
+    "waveform": ("num_samples", "Keine Wellenform-Punkte erzeugt."),
+    "structure": ("segments_count", "Keine Song-Struktur erkannt (0 Sections)."),
+    "av_pacing": ("stored_samples", "Keine AV-Pacing-Kurven gespeichert."),
+    "onset": ("ok", "Onset-Erkennung meldet kein verwertbares Ergebnis."),
+}
+
+
+def _leeres_ergebnis(name: str, payload) -> str | None:
+    """Begruendung, wenn eine Stage nichts erzeugt hat — sonst ``None``.
+
+    Bewusst konservativ: Stages ohne Eintrag in ``_LEER_KRITERIEN`` und
+    Payloads, die kein Dict sind, gelten als nicht beurteilbar und werden
+    durchgelassen. Lieber ein ``done`` zu viel als ein faelschliches
+    ``degraded``, das den Nutzer zu einer unnoetigen Neuanalyse treibt.
+    """
+    kriterium = _LEER_KRITERIEN.get(name)
+    if not kriterium or not isinstance(payload, dict):
+        return None
+    feld, begruendung = kriterium
+    if feld not in payload:
+        # Feld gar nicht geliefert -> die Stage hat es nicht befuellt.
+        return begruendung
+    wert = payload.get(feld)
+    if wert is None or wert is False or wert == 0:
+        return begruendung
+    return None
+
 _RETRY_PREREQUISITES = {
     "onset": ("stem_gen",),
     "av_pacing": (),
@@ -167,6 +207,12 @@ class AudioPipelineV2Worker(QObject, CancellableMixin):
                     # Dann darf der Schritt nicht als fertig gruen werden.
                     _ctx = ctx_box.get("ctx")
                     reason = getattr(_ctx, "degraded", {}).get(name) if _ctx else None
+                    # B-844: zusaetzlich pruefen, ob die Stage ueberhaupt etwas
+                    # erzeugt hat. `degraded` deckt nur geratene Werte ab, nicht
+                    # leere Ergebnisse — av_pacing mit 0 gespeicherten Samples
+                    # oder structure mit 0 Sections meldete bisher "fertig".
+                    if not reason:
+                        reason = _leeres_ergebnis(name, _payload)
                     if reason:
                         from services.analysis_status_service import mark_degraded
                         mark_degraded(
