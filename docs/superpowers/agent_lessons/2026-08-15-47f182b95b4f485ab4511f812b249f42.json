@@ -1,0 +1,10 @@
+{
+  "lesson_id": "47f182b95b4f485ab4511f812b249f42",
+  "recorded_at": "2026-08-15T23:20:38+00:00",
+  "session_id": "b688660d42d84516a47ac2df7efbe53a",
+  "head_at_start": "d610cb9de2ca191a23eabc0325ef0a2fd995dcda",
+  "problem": "Readiness konnte benannte No-op-Tests und einen mutable Workingtree-Reviewer als PASS-Quelle ausfuehren; malformed Manifest-/Importpfade konnten crashen.",
+  "cause": "Gate-Matrix band nur Pfade und selbstbehaupteten tooling_commit, nicht extern autorisierte Gitblobs; Reviewer lief in-process aus Workingtreebytes und Authority-Objektzeiger hatte keinen separaten externen Erwartungs-Pin.",
+  "rule": "Readiness muss vor Policyzugriff raw authority_commit gegen separat verwahrten expected_authority_commit pruefen, feste Gate-Matrix plus Tool/Test/Validator/Dependency-Blobs extern binden und Reviewer/Tests ausschliesslich aus replacement-freier Commitmaterialisierung in isolierten Prozessen ausfuehren; gemeinsame Pin-Kompromittierung bleibt offen dokumentierte externe Grenze.",
+  "applies_to": "Phase-minus-1 Readiness, selbsttestende Harnesses, Reviewer-Attestation, Supply-Chain-Trust"
+}

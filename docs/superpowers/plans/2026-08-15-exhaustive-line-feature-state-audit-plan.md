@@ -417,6 +417,18 @@ passieren.
    unter ihren sicheren relativen Refs importieren, danach atomarer Rename;
    Fehler laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot
    fuer unqualifizierte Completion.
+7. Readiness-Authority-Gate: separater, extern gepinnter `authority_commit`
+   enthaelt am festen Pfad `config/audit_readiness_authority_policy.json` die
+   exakte Gate-Matrix sowie Gitblob-OID/Bytes/SHA-256 aller zwoelf Harness-/
+   Testartefakte, des Readiness-Validators, des Reviewer-Validators und von
+   `tools/agent_session.py`. Aufruf erhaelt beweglichen `authority_commit` und
+   unabhaengigen `expected_authority_commit`; Ungleichheit blockiert vor
+   Policy-Lesen. Reviewer-Pfade laufen ausschliesslich aus commitgebundener
+   Temp-Materialisierung im isolierten Prozess. Policy wird erst nach
+   `tooling_commit` gebaut und danach in separatem Authoritycommit versiegelt;
+   kein `$SELF` und kein Self-Hash-Zyklus. Gemeinsame Kompromittierung beider
+   Caller-Pins bleibt externe, offen dokumentierte Trust-Grenze. Ohne reale
+   provisionierte Signaturschluessel kein operationaler Readiness-GO.
 
 Pflicht-Testmatrix je Harness:
 

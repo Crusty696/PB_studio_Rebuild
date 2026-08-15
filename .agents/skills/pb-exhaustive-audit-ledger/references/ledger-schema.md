@@ -243,23 +243,54 @@ Runtimewerte referenzieren ausschliesslich existierende, hashvalidierte
 ## phase_minus_1_readiness.json
 
 ```json
-{"schema_version":3,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","integration_head":"same-full-40-char-sha","matrix_version":1,"artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"reviewer_roster_path":"absolute-external-path","reviewer_roster_sha256":"sha256","attestation_bundle_path":"absolute-external-path"}
+{"schema_version":3,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","integration_head":"same-full-40-char-sha","matrix_version":1,"artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"reviewer_roster_path":"absolute-external-path","reviewer_roster_sha256":"sha256","attestation_bundle_path":"absolute-external-path","attestation_bundle_sha256":"sha256"}
 ```
 
 Artefaktmenge entspricht exakt sechs Plan-Harnesses plus deren sechs
 Contracttest-Dateien. Bytes/Hashes werden aus `tooling_commit`-Gitobjekten
 berechnet. Validator ignoriert Manifest-Commands und fuehrt feste stdlib-
-`unittest`-Node-IDs selbst im detached tooling_commit-Worktree aus. Readiness
+`unittest`-Node-IDs aus einer commitgebundenen Blobmaterialisierung aus.
+
+Readiness besitzt eigene externe Authority-Domaene. Aufruf verlangt gleichzeitig
+`--authority-commit <raw>` und `--expected-authority-commit <extern-pin>`;
+Ungleichheit blockiert vor jedem Policy-Objektzugriff. Fester Policy-Pfad ist
+`config/audit_readiness_authority_policy.json` im separaten Authoritycommit.
+Policy enthaelt exakt `schema_version`, `plan_id`, `tooling_commit`, feste
+`gate_matrix` und `artifacts`. `artifacts` bindet Gitblob-OID, Bytezahl und
+SHA-256 fuer alle zwoelf Harness-/Testpfade, den Readiness-Validator sowie
+`tools/audit_reviewer_roster.py` und `tools/agent_session.py`. Policy enthaelt
+ihren eigenen Authoritycommit absichtlich nicht: Erzeugungsfolge ist
+`tooling_commit` -> Policybytes -> separater `authority_commit` -> externer Pin.
+Kein `$SELF`, keine Selbsthash-Zirkularitaet.
+
+```json
+{"schema_version":1,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","tooling_commit":"full-40-char-sha","gate_matrix":{"completion":{"tool":"tools/audit_completion.py","test":"tests/audit/test_audit_completion.py","nodes":["test_positive_minimal","test_missing_required_rejected","test_tampered_binding_rejected","test_duplicate_or_foreign_id_rejected","test_unknown_blocks_completion"]}},"artifacts":[{"path":"tools/audit_completion.py","blob_oid":"git-blob-oid","bytes":123,"sha256":"64-lowercase-hex"}]}
+```
+
+Beispiel kuerzt `gate_matrix` und `artifacts` nur typografisch. Reale Policy
+enthaelt exakte sechs Gates und exakte gebundene Pfadmenge; Verkuerzung ist als
+Input ungueltig.
+
+Reviewer-Validator und `agent_session` werden aus den autorisierten
+Toolingcommit-Blobs in ein isoliertes Temp-Root materialisiert und in separatem
+Python-Prozess ausgefuehrt. PEP-420-Namespace `tools` braucht kein erfundenes
+`tools/__init__.py`. Mutable Workingtreebytes und bereits importierte
+`sys.modules` duerfen den Prozess nicht beeinflussen. Readiness
 berechnet/zeigt zuerst dieselbe deterministische Basis aus Matrix, Artefakten,
-Commit und Rosterhash. Danach signieren Lead V und Adversarial diese Basis ueber
+Commit, Rosterhash, Authoritycommit, Policy-Pfad, Policy-Blob-OID und
+Policybytes-SHA. Danach signieren Lead V und Adversarial diese Basis ueber
 `audit_reviewer_roster.py finalize`; Readiness ruft den kryptographisch
 gepinnten Attestation-Bundle-Validator auf. Inline-Signoffs oder frei gelieferte
 Reviewer-JSONs sind unzulaessig. Fehlendes/extra Artefakt, falscher Hash, alter
 Commit, fehlender Test-Node, falsche Basis/Signatur oder nicht unabhaengiger
 Signoff macht Readiness rot. Repo-eigene
-Tests bleiben ohne externen Trust Anchor nicht kryptographisch unverfaelschbar;
-deshalb sind Validator-PASS und dualer Review beide notwendig, nie allein
-hinreichend.
+Tests bleiben ohne korrekt verwahrten externen `expected_authority_commit`
+nicht kryptographisch unverfaelschbar. Gemeinsame Substitution von Raw-Pin und
+externem Pin ist innerhalb des Programms prinzipiell nicht erkennbar. Externe
+Pin-Verwahrung, Validator-PASS und dualer Review sind deshalb gemeinsam
+notwendig, nie allein hinreichend. Ohne real provisionierte Reviewer-Schluessel
+bleibt normaler Readiness-Lauf operational NO-GO; Mock-Positivtests ersetzen
+keinen signierten E2E-Lauf.
 
 ## Completion
 
