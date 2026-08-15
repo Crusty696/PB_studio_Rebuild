@@ -90,6 +90,31 @@ def test_claim_allows_disjoint_paths():
     assert len(ag.status()) == 2
 
 
+def test_claim_captures_transitive_parent_lineage():
+    director, _ = ag.claim("director", "coordinate", [])
+    reviewer, _ = ag.claim(
+        "reviewer", "pass-a", [], parent_session_id=director["id"]
+    )
+    child, _ = ag.claim(
+        "child", "challenge", [], parent_session_id=reviewer["id"]
+    )
+
+    assert reviewer["parent_session_id"] == director["id"]
+    assert reviewer["ancestor_session_ids"] == [director["id"]]
+    assert child["ancestor_session_ids"] == [director["id"], reviewer["id"]]
+
+
+def test_claim_rejects_missing_parent_and_marks_force():
+    session, conflicts = ag.claim(
+        "orphan", "audit", [], parent_session_id="not-live"
+    )
+    assert not session
+    assert conflicts and conflicts[0]["_reason"] == "parent-session-not-live"
+
+    forced, _ = ag.claim("forced", "audit", [], force=True)
+    assert forced["forced"] is True
+
+
 def test_glob_claims_conflict():
     """Globs muessen in BEIDE Richtungen greifen."""
     ag.claim("agent-a", "tests", ["tests/**"])
