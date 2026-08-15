@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,12 +32,14 @@ CONTRACT_NAMESPACE = "pb-audit-contract-v1"
 SPAWN_NAMESPACE = "pb-audit-spawn-journal-v1"
 ENROLLMENT_NAMESPACE = "pb-audit-enrollment-v1"
 SIGNOFF_NAMESPACE = "pb-audit-signoff-v1"
-SSH_IDENTITY = "pb-audit-trust-anchor"
+READINESS_NAMESPACE = "pb-audit-readiness-binding-v1"
+AUDIT_CONTRACT_NAMESPACE = "pb-audit-preflight-contract-v1"
 LOCK_TIMEOUT_SECONDS = 10.0
-LOCK_STALE_SECONDS = 30.0
+LOCK_STALE_SECONDS = 120.0
+TRUST_POLICY_PATH = "config/phase_minus_1_trust_policy.json"
 SESSION_RE = re.compile(r"^[0-9a-f]{32}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-ROLE_SET = {"pass-a", "pass-b", "lead-v", "adversarial"}
+ROLE_SET = {"lead-v", "adversarial"}
 SPAWN_ROLE_SET = ROLE_SET | {"neutral-director"}
 SHARD_RE = re.compile(r"^@audit/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(?:[A-Za-z0-9._-]+/)*\*\*$")
 SCOPE_RE = re.compile(r"^(?:[A-Za-z0-9._-]+/)+(?:[A-Za-z0-9._-]+/)*\*\*$")
@@ -95,6 +98,51 @@ def public_key_sha256(public_key_path: Path) -> str:
     return _sha(public_key_path.read_bytes())
 
 
+def load_trust_policy(
+    root: Path, tooling_commit: str
+) -> tuple[dict[str, Any], str, str]:
+    """Read policy only from fixed tooling_commit Git blob, never workspace/CLI."""
+    commit = _resolve_commit(root.resolve(), tooling_commit)
+    try:
+        raw = _run(
+            root.resolve(), "git", "show", f"{commit}:{TRUST_POLICY_PATH}"
+        ).stdout
+        blob_id = _git(root.resolve(), "rev-parse", f"{commit}:{TRUST_POLICY_PATH}")
+        policy = json.loads(raw.decode("utf-8"))
+    except (ContractError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("Trustpolicy fehlt/ist unlesbar im tooling_commit") from exc
+    required_roles = {"authority", "spawn", "lead-v", "adversarial"}
+    if (
+        not isinstance(policy, dict)
+        or set(policy) != {"schema_version", "status", "identities"}
+        or policy.get("schema_version") != 1
+        or policy.get("status") != "provisioned"
+        or not isinstance(policy.get("identities"), dict)
+        or set(policy["identities"]) != required_roles
+    ):
+        raise ContractError("Trustpolicy im tooling_commit ist nicht provisioned/exakt")
+    identities: set[str] = set()
+    pins: set[str] = set()
+    for role, entry in policy["identities"].items():
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"openssh_identity", "public_key_sha256"}
+            or not isinstance(entry["openssh_identity"], str)
+            or not entry["openssh_identity"]
+            or not isinstance(entry["public_key_sha256"], str)
+            or not SHA_RE.fullmatch(entry["public_key_sha256"])
+        ):
+            raise ContractError(f"Trustpolicy Identity {role} ungueltig")
+        identities.add(entry["openssh_identity"])
+        pins.add(entry["public_key_sha256"])
+    if len(identities) != 4 or len(pins) != 4:
+        raise ContractError("Trustpolicy braucht vier getrennte Identities/Public-Keys")
+    canonical = _canonical(policy) + b"\n"
+    if raw != canonical:
+        raise ContractError("Trustpolicy-Git-Blob ist nicht kanonisch")
+    return policy, _sha(raw), blob_id
+
+
 def _ssh_available() -> None:
     if shutil.which("ssh-keygen") is None:
         raise ContractError("OpenSSH ssh-keygen fehlt; kryptographische Attestierung blockiert")
@@ -116,7 +164,8 @@ def sign_file(payload_path: Path, signature_path: Path, signing_key: Path, names
 
 
 def verify_signature(payload_path: Path, signature_path: Path, public_key_path: Path,
-                     expected_public_key_sha256: str, namespace: str) -> None:
+                     expected_public_key_sha256: str, namespace: str,
+                     identity: str) -> None:
     _ssh_available()
     if not SHA_RE.fullmatch(expected_public_key_sha256):
         raise ContractError("Public-Key-Pin fehlt/ist ungueltig")
@@ -129,15 +178,15 @@ def verify_signature(payload_path: Path, signature_path: Path, public_key_path: 
         raise ContractError("ungueltiger OpenSSH Public-Key")
     with tempfile.TemporaryDirectory(prefix="pb-audit-allowed-") as temp:
         allowed = Path(temp) / "allowed_signers"
-        allowed.write_text(f"{SSH_IDENTITY} {public_line}\n", encoding="utf-8")
+        allowed.write_text(f"{identity} {public_line}\n", encoding="utf-8")
         _run(payload_path.parent, "ssh-keygen", "-Y", "verify", "-f", str(allowed),
-             "-I", SSH_IDENTITY, "-n", namespace, "-s", str(signature_path),
+             "-I", identity, "-n", namespace, "-s", str(signature_path),
              input_bytes=payload_path.read_bytes())
 
 
 def _load_signed_json(path: Path, signature: Path, public_key: Path, pin: str,
-                      namespace: str) -> tuple[dict[str, Any], str]:
-    verify_signature(path, signature, public_key, pin, namespace)
+                      namespace: str, identity: str) -> tuple[dict[str, Any], str]:
+    verify_signature(path, signature, public_key, pin, namespace, identity)
     try:
         raw = path.read_bytes()
         value = json.loads(raw.decode("utf-8"))
@@ -148,24 +197,127 @@ def _load_signed_json(path: Path, signature: Path, public_key: Path, pin: str,
     return value, _sha(raw)
 
 
+def _valid_timestamp(value: Any, label: str) -> None:
+    if not isinstance(value, str):
+        raise ContractError(f"{label} fehlt")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ContractError(f"{label} ist kein ISO-8601-Zeitstempel") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ContractError(f"{label} braucht Zeitzone")
+
+
+def _stable_session(session: dict[str, Any]) -> dict[str, Any]:
+    keys = {
+        "id", "agent", "task", "pid", "host", "branch", "worktree",
+        "started_at", "claims", "parent_session_id", "ancestor_session_ids",
+        "forced", "forced_lineage",
+    }
+    if not keys <= set(session):
+        raise ContractError("Registry-Session hat kein exaktes Stable-Lineage-Schema")
+    return {key: session[key] for key in sorted(keys)}
+
+
+def _record_count(raw: bytes) -> int:
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return sum(bool(line.strip()) for line in raw.splitlines())
+    if isinstance(value, dict) and isinstance(value.get("records"), list):
+        return len(value["records"])
+    return 1
+
+
+def _load_audit_contract(
+    root: Path, path: Path, signature: Path, expected_sha256: str,
+    authority_key: Path, authority_pin: str, authority_identity: str,
+    tooling_commit: str, policy_raw: bytes,
+    reviewer_contract_path: Path, readiness_path: Path, spawn_path: Path,
+) -> tuple[dict[str, Any], str]:
+    value, file_sha = _load_signed_json(
+        path, signature, authority_key, authority_pin,
+        AUDIT_CONTRACT_NAMESPACE, authority_identity,
+    )
+    fields = {"schema_version", "plan_id", "run_id", "audited_commit",
+              "tooling_commit", "snapshot_id", "frozen_at", "expires_at",
+              "artifacts", "contract_sha256"}
+    if set(value) != fields or value.get("schema_version") != 1:
+        raise ContractError("audit_contract Schema/Feldmenge falsch")
+    _valid_timestamp(value["frozen_at"], "frozen_at")
+    _valid_timestamp(value["expires_at"], "expires_at")
+    if datetime.fromisoformat(value["expires_at"]) <= datetime.fromisoformat(value["frozen_at"]):
+        raise ContractError("audit_contract expires_at ist nicht nach frozen_at")
+    body = {key: item for key, item in value.items() if key != "contract_sha256"}
+    if value["contract_sha256"] != _sha(_canonical(body)):
+        raise ContractError("audit_contract Self-Hash falsch")
+    if not SHA_RE.fullmatch(expected_sha256) or file_sha != expected_sha256:
+        raise ContractError("audit_contract weicht von extern erwarteter SHA ab")
+    expected_keys = {"reviewer-trust-policy", "reviewer-contract",
+                     "reviewer-readiness-binding", "reviewer-spawn-journal"}
+    artifacts = value.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != expected_keys:
+        raise ContractError("audit_contract Preflight-Artefaktmenge falsch")
+    sources = {
+        "reviewer-trust-policy": policy_raw,
+        "reviewer-contract": reviewer_contract_path.read_bytes(),
+        "reviewer-readiness-binding": readiness_path.read_bytes(),
+        "reviewer-spawn-journal": spawn_path.read_bytes(),
+    }
+    for key, item in artifacts.items():
+        descriptor_fields = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
+        if not isinstance(item, dict) or set(item) != descriptor_fields:
+            raise ContractError(f"audit_contract Artifactdescriptor {key} falsch")
+        ref = item["ref"]
+        if (not isinstance(ref, str) or not ref or Path(ref).is_absolute()
+                or ".." in Path(ref).parts or "\\" in ref):
+            raise ContractError(f"audit_contract Ref {key} ist nicht safe-relative")
+        raw = sources[key]
+        digest = _sha(raw)
+        if (item["artifact_id"] != f"sha256:{digest}" or item["sha256"] != digest
+                or item["bytes"] != len(raw) or item["record_count"] != _record_count(raw)):
+            raise ContractError(f"audit_contract Artifact-FK {key} falsch")
+    if value["tooling_commit"] != tooling_commit:
+        raise ContractError("audit_contract tooling_commit falsch")
+    return value, file_sha
+
+
 class _FileLock:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.fd: int | None = None
+        self.token = uuid.uuid4().hex
+
+    def _payload(self) -> bytes:
+        return _canonical(
+            {"token": self.token, "pid": os.getpid(), "heartbeat": time.time()}
+        ) + b"\n"
+
+    def _owner(self) -> bool:
+        try:
+            value = json.loads(self.path.read_text(encoding="utf-8"))
+            return value.get("token") == self.token and value.get("pid") == os.getpid()
+        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+            return False
 
     def __enter__(self) -> "_FileLock":
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
         while True:
             try:
                 self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self.fd, str(os.getpid()).encode("ascii"))
+                os.write(self.fd, self._payload())
                 return self
             except FileExistsError:
                 try:
-                    if time.time() - self.path.stat().st_mtime > LOCK_STALE_SECONDS:
-                        self.path.unlink(missing_ok=True)
+                    value = json.loads(self.path.read_text(encoding="utf-8"))
+                    heartbeat = float(value.get("heartbeat", 0.0))
+                    if time.time() - heartbeat > LOCK_STALE_SECONDS:
+                        quarantine = self.path.with_name(
+                            self.path.name + f".stale.{int(time.time())}.{uuid.uuid4().hex}"
+                        )
+                        os.replace(self.path, quarantine)
                         continue
-                except OSError:
+                except (OSError, ValueError, TypeError, json.JSONDecodeError, AttributeError):
                     pass
                 if time.monotonic() >= deadline:
                     raise ContractError(f"Lock nicht erhalten: {self.path}")
@@ -174,13 +326,15 @@ class _FileLock:
     def __exit__(self, *_exc: object) -> None:
         if self.fd is not None:
             os.close(self.fd)
-        self.path.unlink(missing_ok=True)
+        if not self._owner():
+            raise ContractError(f"Lock-Ownership verloren; fremden Lock nicht entfernt: {self.path}")
+        self.path.unlink()
 
     def heartbeat(self) -> None:
         """Keep a legitimately long enrollment lock from looking orphaned."""
-        if self.fd is None or not self.path.exists():
+        if self.fd is None or not self.path.exists() or not self._owner():
             raise ContractError(f"Lock ging waehrend Operation verloren: {self.path}")
-        os.utime(self.path, None)
+        self.path.write_bytes(self._payload())
 
 
 def _read_registry_locked(common_dir: Path) -> dict[str, dict[str, Any]]:
@@ -244,6 +398,11 @@ def _validate_spawn_journal(journal: dict[str, Any]) -> tuple[dict[str, dict[str
     for index, row in enumerate(records, 1):
         if not isinstance(row, dict):
             raise ContractError("Spawn-Journal-Record muss Objekt sein")
+        record_fields = {"seq", "session_id", "parent_session_id", "role", "forced",
+                         "spawned_at", "previous_record_sha256", "record_sha256"}
+        if set(row) != record_fields:
+            raise ContractError("Spawn-Journal-Record Feldmenge falsch")
+        _valid_timestamp(row["spawned_at"], "spawned_at")
         body = {key: row.get(key) for key in ("seq", "session_id", "parent_session_id", "role", "forced", "spawned_at", "previous_record_sha256")}
         if row.get("record_sha256") != _sha(_canonical(body)):
             raise ContractError("Spawn-Journal-Recordhash falsch")
@@ -263,19 +422,24 @@ def _validate_spawn_journal(journal: dict[str, Any]) -> tuple[dict[str, dict[str
 
 
 def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
-                       spawn_sha: str, public_pin: str) -> tuple[str, dict[str, dict[str, Any]]]:
+                       spawn_sha: str, tooling_commit: str, policy_sha: str,
+                       policy_blob_id: str) -> tuple[str, dict[str, dict[str, Any]]]:
     required = {"schema_version", "run_id", "audited_commit", "snapshot_id",
-                "public_key_sha256", "spawn_journal_sha256", "reviewers",
-                "reviewer_pairs", "assignments", "required_signoffs"}
+                "tooling_commit", "trust_policy_blob_sha256", "trust_policy_blob_id",
+                "spawn_journal_sha256", "reviewers", "reviewer_pairs", "assignments",
+                "required_signoffs"}
     if set(contract) != required or contract.get("schema_version") != 1:
         raise ContractError("Reviewer-Contract Schema/Feldmenge falsch")
     commit = _resolve_commit(root, str(contract["audited_commit"]))
-    if contract["public_key_sha256"] != public_pin or contract["spawn_journal_sha256"] != spawn_sha:
+    if (contract["tooling_commit"] != tooling_commit
+            or contract["trust_policy_blob_sha256"] != policy_sha
+            or contract["trust_policy_blob_id"] != policy_blob_id
+            or contract["spawn_journal_sha256"] != spawn_sha):
         raise ContractError("Reviewer-Contract Trust-/Spawn-Bindung falsch")
     if not contract_sha or not contract.get("run_id") or not contract.get("snapshot_id"):
         raise ContractError("Reviewer-Contract Run/Snapshot fehlt")
     reviewers = contract["reviewers"]
-    if not isinstance(reviewers, list) or len(reviewers) < 2:
+    if not isinstance(reviewers, list) or len(reviewers) != 2:
         raise ContractError("exakte required reviewers fehlen")
     by_id: dict[str, dict[str, Any]] = {}
     sessions: set[str] = set()
@@ -289,10 +453,14 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
             raise ContractError("Reviewer-Spec Rolle/ID fehlt/doppelt")
         if rid != deterministic_reviewer_id(contract["run_id"], sid, commit, contract["snapshot_id"]):
             raise ContractError("Reviewer-ID nicht deterministisch")
-        _validate_patterns(spec["output_claims"], SHARD_RE, "output_claims")
-        _validate_patterns(spec["review_scope"], SCOPE_RE, "review_scope")
+        if len(_validate_patterns(spec["output_claims"], SHARD_RE, "output_claims")) != 1:
+            raise ContractError("Reviewer braucht exakt einen output_claim")
+        if len(_validate_patterns(spec["review_scope"], SCOPE_RE, "review_scope")) != 1:
+            raise ContractError("Reviewer braucht exakt einen review_scope")
         sessions.add(sid)
         by_id[rid] = spec
+    if {spec["role"] for spec in by_id.values()} != ROLE_SET:
+        raise ContractError("Reviewerrollen muessen exakt lead-v/adversarial sein")
     claimed_prefixes: list[tuple[str, str]] = []
     for rid, spec in by_id.items():
         for claim in spec["output_claims"]:
@@ -304,33 +472,59 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
                     )
             claimed_prefixes.append((rid, prefix))
     pairs = contract["reviewer_pairs"]
-    if not isinstance(pairs, list) or not pairs:
+    if not isinstance(pairs, list) or len(pairs) != 1:
         raise ContractError("reviewer_pairs ist mandatory und nichtleer")
-    normalized_pairs: set[tuple[str, str]] = set()
+    pair_ids: set[str] = set()
+    pair_reviewers: set[str] = set()
     for pair in pairs:
-        if not isinstance(pair, list) or len(pair) != 2 or pair[0] not in by_id or pair[1] not in by_id or pair[0] == pair[1]:
+        fields = {"pair_id", "reviewer_a", "reviewer_b", "output_claim_a",
+                  "output_claim_b", "review_scope"}
+        if not isinstance(pair, dict) or set(pair) != fields:
+            raise ContractError("reviewer_pair Feldmenge falsch")
+        a, b = pair["reviewer_a"], pair["reviewer_b"]
+        if a not in by_id or b not in by_id or a == b:
             raise ContractError("fremdes/ungueltiges reviewer_pair")
-        key = tuple(sorted(pair))
-        if key in normalized_pairs:
+        if by_id[a]["role"] != "lead-v" or by_id[b]["role"] != "adversarial":
+            raise ContractError("reviewer_pair Rollenrichtung falsch")
+        if pair["pair_id"] in pair_ids or a in pair_reviewers or b in pair_reviewers:
             raise ContractError("doppeltes reviewer_pair")
-        normalized_pairs.add(key)
+        if (pair["output_claim_a"] != by_id[a]["output_claims"][0]
+                or pair["output_claim_b"] != by_id[b]["output_claims"][0]
+                or pair["review_scope"] != by_id[a]["review_scope"][0]
+                or pair["review_scope"] != by_id[b]["review_scope"][0]):
+            raise ContractError("reviewer_pair Claim/Scope nicht exakt")
+        pair_ids.add(pair["pair_id"])
+        pair_reviewers |= {a, b}
+    if pair_reviewers != set(by_id):
+        raise ContractError("reviewer_pairs sind keine exakte Reviewer-Bijektion")
     assignments = contract["assignments"]
     if not isinstance(assignments, list) or not assignments:
         raise ContractError("exakte assignments fehlen")
     assignment_ids: set[str] = set()
     assigned_reviewers: set[str] = set()
     for item in assignments:
-        keys = {"assignment_id", "reviewer_id", "role", "pass", "output_claim", "review_scope"}
+        keys = {"assignment_id", "pair_id", "reviewer_id", "role", "pass",
+                "output_claim", "review_scope"}
         if not isinstance(item, dict) or set(item) != keys or item["assignment_id"] in assignment_ids:
             raise ContractError("Assignment Feldmenge/ID falsch")
         spec = by_id.get(item["reviewer_id"])
         if spec is None or item["role"] != spec["role"]:
             raise ContractError("Assignment Reviewer/Rolle falsch")
-        if item["output_claim"] not in spec["output_claims"] or item["review_scope"] not in spec["review_scope"]:
+        if (item["pair_id"] not in pair_ids
+                or item["output_claim"] != spec["output_claims"][0]
+                or item["review_scope"] != spec["review_scope"][0]):
             raise ContractError("Assignment Claim/Scope nicht exakt im Reviewer-Vertrag")
         if item["pass"] not in {"A", "B", "completion"}:
             raise ContractError("Assignment Pass ungueltig")
+        expected_pass = "A" if item["role"] == "lead-v" else "B"
+        if item["pass"] != expected_pass:
+            raise ContractError("Assignment Pass/Rolle falsch")
         assignment_ids.add(item["assignment_id"])
+        if item["reviewer_id"] in assigned_reviewers:
+            raise ContractError("Assignment Reviewer doppelt")
+        pair = next(value for value in pairs if value["pair_id"] == item["pair_id"])
+        if item["reviewer_id"] not in {pair["reviewer_a"], pair["reviewer_b"]}:
+            raise ContractError("Assignment Pair/Reviewer falsch")
         assigned_reviewers.add(item["reviewer_id"])
     if assigned_reviewers != set(by_id):
         raise ContractError("Assignments decken required reviewers nicht exakt")
@@ -352,17 +546,62 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
 
 def _load_trust(root: Path, contract_path: Path, contract_signature: Path,
                 spawn_journal_path: Path, spawn_journal_signature: Path,
-                public_key_path: Path, expected_public_key_sha256: str
+                readiness_binding_path: Path, readiness_binding_signature: Path,
+                expected_readiness_binding_sha256: str, tooling_commit: str,
+                audit_contract_path: Path, audit_contract_signature: Path,
+                expected_audit_contract_sha256: str,
+                authority_public_key_path: Path, spawn_public_key_path: Path,
+                lead_v_public_key_path: Path, adversarial_public_key_path: Path,
                 ) -> tuple[dict[str, Any], str, dict[str, dict[str, Any]], dict[str, list[str]], str, dict[str, dict[str, Any]]]:
+    policy, policy_sha, policy_blob_id = load_trust_policy(root, tooling_commit)
+    keys = {"authority": authority_public_key_path, "spawn": spawn_public_key_path,
+            "lead-v": lead_v_public_key_path, "adversarial": adversarial_public_key_path}
+    for role, path in keys.items():
+        if public_key_sha256(path) != policy["identities"][role]["public_key_sha256"]:
+            raise ContractError(f"{role} Public-Key passt nicht zur Git-Blob-Policy")
+    authority = policy["identities"]["authority"]
+    spawn_identity = policy["identities"]["spawn"]
     contract, contract_sha = _load_signed_json(contract_path, contract_signature,
-                                               public_key_path, expected_public_key_sha256,
-                                               CONTRACT_NAMESPACE)
+                                               authority_public_key_path,
+                                               authority["public_key_sha256"],
+                                               CONTRACT_NAMESPACE,
+                                               authority["openssh_identity"])
     journal, spawn_sha = _load_signed_json(spawn_journal_path, spawn_journal_signature,
-                                           public_key_path, expected_public_key_sha256,
-                                           SPAWN_NAMESPACE)
+                                           spawn_public_key_path,
+                                           spawn_identity["public_key_sha256"],
+                                           SPAWN_NAMESPACE,
+                                           spawn_identity["openssh_identity"])
     spawn, lineage = _validate_spawn_journal(journal)
     commit, reviewers = _validate_contract(root, contract, contract_sha, spawn_sha,
-                                           expected_public_key_sha256)
+                                           tooling_commit, policy_sha, policy_blob_id)
+    binding, binding_sha = _load_signed_json(
+        readiness_binding_path, readiness_binding_signature,
+        authority_public_key_path, authority["public_key_sha256"],
+        READINESS_NAMESPACE, authority["openssh_identity"])
+    binding_fields = {"schema_version", "tooling_commit", "trust_policy_blob_sha256",
+                      "contract_sha256", "run_id", "audited_commit", "snapshot_id"}
+    if (not SHA_RE.fullmatch(expected_readiness_binding_sha256)
+            or binding_sha != expected_readiness_binding_sha256
+            or set(binding) != binding_fields or binding.get("schema_version") != 1
+            or binding.get("tooling_commit") != tooling_commit
+            or binding.get("trust_policy_blob_sha256") != policy_sha
+            or binding.get("contract_sha256") != contract_sha
+            or binding.get("run_id") != contract["run_id"]
+            or binding.get("audited_commit") != commit
+            or binding.get("snapshot_id") != contract["snapshot_id"]):
+        raise ContractError("Readiness-Binding/Contract-Hash falsch")
+    audit_contract, _audit_sha = _load_audit_contract(
+        root, audit_contract_path, audit_contract_signature,
+        expected_audit_contract_sha256, authority_public_key_path,
+        authority["public_key_sha256"], authority["openssh_identity"],
+        tooling_commit,
+        _run(root, "git", "show", f"{tooling_commit}:{TRUST_POLICY_PATH}").stdout,
+        contract_path, readiness_binding_path, spawn_journal_path,
+    )
+    if (audit_contract["run_id"] != contract["run_id"]
+            or audit_contract["audited_commit"] != commit
+            or audit_contract["snapshot_id"] != contract["snapshot_id"]):
+        raise ContractError("audit_contract Reviewer-FK falsch")
     for spec in reviewers.values():
         record = spawn.get(spec["session_id"])
         if record is None or record["role"] != spec["role"]:
@@ -416,19 +655,33 @@ def _row_from_receipt(receipt: dict[str, Any], receipt_ref: str, receipt_sha: st
             "session_receipt_signature_ref": signature_ref,
             "contract_sha256": receipt["contract_sha256"],
             "spawn_journal_sha256": receipt["spawn_journal_sha256"],
-            "public_key_sha256": receipt["public_key_sha256"],
+            "tooling_commit": receipt["tooling_commit"],
+            "trust_policy_blob_sha256": receipt["trust_policy_blob_sha256"],
+            "readiness_binding_sha256": receipt["readiness_binding_sha256"],
             "roster_signed_at": receipt["enrolled_at"]}
 
 
 def enroll(*, root: Path, session_id: str, contract_path: Path,
            contract_signature: Path, spawn_journal_path: Path,
-           spawn_journal_signature: Path, public_key_path: Path,
-           expected_public_key_sha256: str, receipts_dir: Path,
+           spawn_journal_signature: Path, readiness_binding_path: Path,
+           readiness_binding_signature: Path,
+           expected_readiness_binding_sha256: str, tooling_commit: str,
+           audit_contract_path: Path, audit_contract_signature: Path,
+           expected_audit_contract_sha256: str,
+           authority_public_key_path: Path, spawn_public_key_path: Path,
+           lead_v_public_key_path: Path, adversarial_public_key_path: Path,
+           receipts_dir: Path,
            roster_path: Path, signing_key: Path) -> dict[str, Any]:
     root = root.resolve()
     contract, contract_sha, spawn, lineage, commit, reviewers = _load_trust(
         root, contract_path, contract_signature, spawn_journal_path,
-        spawn_journal_signature, public_key_path, expected_public_key_sha256)
+        spawn_journal_signature, readiness_binding_path,
+        readiness_binding_signature, expected_readiness_binding_sha256,
+        tooling_commit, audit_contract_path, audit_contract_signature,
+        expected_audit_contract_sha256,
+        authority_public_key_path, spawn_public_key_path,
+        lead_v_public_key_path, adversarial_public_key_path)
+    policy, policy_sha, _blob = load_trust_policy(root, tooling_commit)
     spec = next((value for value in reviewers.values() if value["session_id"] == session_id), None)
     if spec is None:
         raise ContractError("Session ist kein exakt required reviewer")
@@ -441,8 +694,8 @@ def enroll(*, root: Path, session_id: str, contract_path: Path,
         record = spawn[session_id]
         if session["parent_session_id"] != record["parent_session_id"] or session["ancestor_session_ids"] != lineage[session_id]:
             raise ContractError("Registry-Lineage weicht von signiertem Spawn-Journal ab")
-        if session["claims"] != spec["output_claims"]:
-            raise ContractError("output_claims muessen exakt Registry-Claims entsprechen")
+        if not set(spec["output_claims"]) <= set(session["claims"]):
+            raise ContractError("output_claims muessen Registry-Claims entsprechen/Teilmenge sein")
         registry_guard.heartbeat()
         state = _worktree_state(root, session, commit)
         registry_guard.heartbeat()
@@ -459,14 +712,25 @@ def enroll(*, root: Path, session_id: str, contract_path: Path,
                    "role": spec["role"], "parent_session_id": record["parent_session_id"],
                    "ancestor_session_ids": lineage[session_id],
                    "output_claims": spec["output_claims"], "review_scope": spec["review_scope"],
-                   "worktree": state, "registry_session_sha256": _sha(_canonical(session)),
+                   "worktree": state,
+                   "registry_session_stable_sha256": _sha(_canonical(_stable_session(session))),
                    "contract_sha256": contract_sha,
                    "spawn_journal_sha256": contract["spawn_journal_sha256"],
-                   "public_key_sha256": expected_public_key_sha256,
+                   "tooling_commit": tooling_commit,
+                   "trust_policy_blob_sha256": policy_sha,
+                   "readiness_binding_sha256": expected_readiness_binding_sha256,
                    "enrolled_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-        if receipt_path.exists() or signature_path.exists():
-            verify_signature(receipt_path, signature_path, public_key_path,
-                             expected_public_key_sha256, ENROLLMENT_NAMESPACE)
+        if receipt_path.exists() != signature_path.exists():
+            quarantine = receipts_dir / "quarantine"
+            quarantine.mkdir(exist_ok=True)
+            orphan = receipt_path if receipt_path.exists() else signature_path
+            suffix = f".{int(time.time())}.{uuid.uuid4().hex}.orphan"
+            os.replace(orphan, quarantine / (orphan.name + suffix))
+        if receipt_path.exists() and signature_path.exists():
+            identity = policy["identities"]["spawn"]
+            verify_signature(receipt_path, signature_path, spawn_public_key_path,
+                             identity["public_key_sha256"], ENROLLMENT_NAMESPACE,
+                             identity["openssh_identity"])
             recovered = json.loads(receipt_path.read_text(encoding="utf-8"))
             fixed = {key: receipt[key] for key in receipt if key != "enrolled_at"}
             if {key: recovered.get(key) for key in fixed} != fixed:
@@ -476,10 +740,10 @@ def enroll(*, root: Path, session_id: str, contract_path: Path,
             receipt_path.write_bytes(_canonical(receipt) + b"\n")
             try:
                 sign_file(receipt_path, signature_path, signing_key, ENROLLMENT_NAMESPACE)
-                verify_signature(
-                    receipt_path, signature_path, public_key_path,
-                    expected_public_key_sha256, ENROLLMENT_NAMESPACE,
-                )
+                identity = policy["identities"]["spawn"]
+                verify_signature(receipt_path, signature_path, spawn_public_key_path,
+                                 identity["public_key_sha256"], ENROLLMENT_NAMESPACE,
+                                 identity["openssh_identity"])
                 registry_guard.heartbeat()
             except Exception:
                 receipt_path.unlink(missing_ok=True)
@@ -495,12 +759,24 @@ def enroll(*, root: Path, session_id: str, contract_path: Path,
 def verify_roster(root: Path, roster_path: Path, receipts_dir: Path, *,
                   contract_path: Path, contract_signature: Path,
                   spawn_journal_path: Path, spawn_journal_signature: Path,
-                  public_key_path: Path, expected_public_key_sha256: str) -> list[str]:
+                  readiness_binding_path: Path, readiness_binding_signature: Path,
+                  expected_readiness_binding_sha256: str, tooling_commit: str,
+                  audit_contract_path: Path, audit_contract_signature: Path,
+                  expected_audit_contract_sha256: str,
+                  authority_public_key_path: Path, spawn_public_key_path: Path,
+                  lead_v_public_key_path: Path,
+                  adversarial_public_key_path: Path) -> list[str]:
     try:
         root = root.resolve()
         contract, contract_sha, spawn, lineage, commit, reviewers = _load_trust(
             root, contract_path, contract_signature, spawn_journal_path,
-            spawn_journal_signature, public_key_path, expected_public_key_sha256)
+            spawn_journal_signature, readiness_binding_path,
+            readiness_binding_signature, expected_readiness_binding_sha256,
+            tooling_commit, audit_contract_path, audit_contract_signature,
+            expected_audit_contract_sha256,
+            authority_public_key_path, spawn_public_key_path,
+            lead_v_public_key_path, adversarial_public_key_path)
+        policy, policy_sha, _blob = load_trust_policy(root, tooling_commit)
         rows = _read_roster(roster_path)
         by_id = {str(row.get("reviewer_id")): row for row in rows}
         if len(by_id) != len(rows) or set(by_id) != set(reviewers):
@@ -518,23 +794,38 @@ def verify_roster(root: Path, roster_path: Path, receipts_dir: Path, *,
                         "claims": spec["output_claims"], "review_scope": spec["review_scope"],
                         "contract_sha256": contract_sha,
                         "spawn_journal_sha256": contract["spawn_journal_sha256"],
-                        "public_key_sha256": expected_public_key_sha256}
+                        "tooling_commit": tooling_commit,
+                        "trust_policy_blob_sha256": policy_sha,
+                        "readiness_binding_sha256": expected_readiness_binding_sha256}
             if any(row.get(key) != value for key, value in expected.items()):
                 raise ContractError(f"{rid}: Roster weicht von signiertem exakten Vertrag ab")
             receipt_ref, sig_ref = row.get("session_receipt_ref"), row.get("session_receipt_signature_ref")
             if receipt_ref != f"{sid}.json" or sig_ref != f"{sid}.json.sig":
                 raise ContractError(f"{rid}: unsicherer Receipt-Dateiname")
             receipt_path, sig_path = receipts_dir / receipt_ref, receipts_dir / sig_ref
-            verify_signature(receipt_path, sig_path, public_key_path,
-                             expected_public_key_sha256, ENROLLMENT_NAMESPACE)
+            identity = policy["identities"]["spawn"]
+            verify_signature(receipt_path, sig_path, spawn_public_key_path,
+                             identity["public_key_sha256"], ENROLLMENT_NAMESPACE,
+                             identity["openssh_identity"])
             if _sha(receipt_path.read_bytes()) != row.get("session_receipt_sha256"):
                 raise ContractError(f"{rid}: Receipt-Hash falsch")
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt_fields = {"schema_version", "run_id", "audited_commit", "snapshot_id",
+                              "reviewer_id", "session_id", "role", "parent_session_id",
+                              "ancestor_session_ids", "output_claims", "review_scope",
+                              "worktree", "registry_session_stable_sha256", "contract_sha256",
+                              "spawn_journal_sha256", "tooling_commit",
+                              "trust_policy_blob_sha256", "readiness_binding_sha256",
+                              "enrolled_at"}
+            if set(receipt) != receipt_fields or receipt.get("schema_version") != SCHEMA_VERSION:
+                raise ContractError(f"{rid}: Receipt-Schema/Feldmenge falsch")
+            _valid_timestamp(receipt["enrolled_at"], "enrolled_at")
             if _canonical(receipt) + b"\n" != receipt_path.read_bytes():
                 raise ContractError(f"{rid}: Receipt nicht kanonisch")
             if _row_from_receipt(receipt, receipt_ref, row["session_receipt_sha256"], sig_ref) != row:
                 raise ContractError(f"{rid}: Receipt/Roster-Projektion weicht ab")
-        for a_id, b_id in contract["reviewer_pairs"]:
+        for pair in contract["reviewer_pairs"]:
+            a_id, b_id = pair["reviewer_a"], pair["reviewer_b"]
             a, b = by_id[a_id], by_id[b_id]
             if a["session_id"] in b["ancestor_session_ids"] or b["session_id"] in a["ancestor_session_ids"]:
                 raise ContractError("Reviewer-Paar ist Vorfahr/Nachfahre")
@@ -554,7 +845,15 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
                      receipts_dir: Path, attestations_dir: Path,
                      contract_path: Path, contract_signature: Path,
                      spawn_journal_path: Path, spawn_journal_signature: Path,
-                     public_key_path: Path, expected_public_key_sha256: str,
+                     readiness_binding_path: Path,
+                     readiness_binding_signature: Path,
+                     expected_readiness_binding_sha256: str,
+                     tooling_commit: str, audit_contract_path: Path,
+                     audit_contract_signature: Path,
+                     expected_audit_contract_sha256: str,
+                     authority_public_key_path: Path,
+                     spawn_public_key_path: Path, lead_v_public_key_path: Path,
+                     adversarial_public_key_path: Path,
                      signing_key: Path) -> Path:
     if not SHA_RE.fullmatch(basis_sha256) or verdict not in {"pass", "fail"}:
         raise ContractError("basis_sha256/verdict ungueltig")
@@ -568,17 +867,31 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
             contract_signature=contract_signature,
             spawn_journal_path=spawn_journal_path,
             spawn_journal_signature=spawn_journal_signature,
-            public_key_path=public_key_path,
-            expected_public_key_sha256=expected_public_key_sha256,
+            readiness_binding_path=readiness_binding_path,
+            readiness_binding_signature=readiness_binding_signature,
+            expected_readiness_binding_sha256=expected_readiness_binding_sha256,
+            tooling_commit=tooling_commit,
+            audit_contract_path=audit_contract_path,
+            audit_contract_signature=audit_contract_signature,
+            expected_audit_contract_sha256=expected_audit_contract_sha256,
+            authority_public_key_path=authority_public_key_path,
+            spawn_public_key_path=spawn_public_key_path,
+            lead_v_public_key_path=lead_v_public_key_path,
+            adversarial_public_key_path=adversarial_public_key_path,
         )
         if errors:
             raise ContractError("Roster vor Signoff rot: " + "; ".join(errors))
         registry_guard.heartbeat()
         contract, contract_sha, _spawn, _lineage, _commit, reviewers = _load_trust(
             root, contract_path, contract_signature, spawn_journal_path,
-            spawn_journal_signature, public_key_path,
-            expected_public_key_sha256,
+            spawn_journal_signature, readiness_binding_path,
+            readiness_binding_signature, expected_readiness_binding_sha256,
+            tooling_commit, audit_contract_path, audit_contract_signature,
+            expected_audit_contract_sha256,
+            authority_public_key_path, spawn_public_key_path,
+            lead_v_public_key_path, adversarial_public_key_path,
         )
+        policy, _policy_sha, _blob = load_trust_policy(root, tooling_commit)
         spec = next(
             (value for value in reviewers.values() if value["session_id"] == session_id),
             None,
@@ -595,9 +908,16 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
             raise ContractError("Session/Rolle ist kein exakt required signoff")
         session = _live_session(_read_registry_locked(common), session_id)
         row = next(row for row in _read_roster(roster_path) if row["session_id"] == session_id)
-        if session["claims"] != row["claims"]:
-            raise ContractError("aktive Session/Receipt-Claims drifteten")
         receipt_path = receipts_dir / row["session_receipt_ref"]
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        current_state = _worktree_state(root, session, contract["audited_commit"])
+        if (not set(row["claims"]) <= set(session["claims"])
+                or session["parent_session_id"] != receipt["parent_session_id"]
+                or session["ancestor_session_ids"] != receipt["ancestor_session_ids"]
+                or _sha(_canonical(_stable_session(session)))
+                    != receipt["registry_session_stable_sha256"]
+                or current_state != receipt["worktree"]):
+            raise ContractError("aktive Session/Lineage/Claims/Worktree drifteten seit Enrollment")
         attestation = {"schema_version": 1, "run_id": contract["run_id"],
                        "reviewer_id": spec["reviewer_id"], "session_id": session_id,
                        "role": role, "basis_sha256": basis_sha256, "verdict": verdict,
@@ -612,9 +932,11 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
         path.write_bytes(_canonical(attestation) + b"\n")
         try:
             sign_file(path, signature, signing_key, SIGNOFF_NAMESPACE)
+            identity = policy["identities"][role]
+            role_key = lead_v_public_key_path if role == "lead-v" else adversarial_public_key_path
             verify_signature(
-                path, signature, public_key_path,
-                expected_public_key_sha256, SIGNOFF_NAMESPACE,
+                path, signature, role_key, identity["public_key_sha256"],
+                SIGNOFF_NAMESPACE, identity["openssh_identity"],
             )
             registry_guard.heartbeat()
         except Exception:
@@ -628,14 +950,32 @@ def verify_attestation_bundle(root: Path, roster_path: Path, receipts_dir: Path,
                               attestations_dir: Path, *, basis_sha256: str,
                               contract_path: Path, contract_signature: Path,
                               spawn_journal_path: Path, spawn_journal_signature: Path,
-                              public_key_path: Path,
-                              expected_public_key_sha256: str) -> list[str]:
+                              readiness_binding_path: Path,
+                              readiness_binding_signature: Path,
+                              expected_readiness_binding_sha256: str,
+                              tooling_commit: str,
+                              audit_contract_path: Path,
+                              audit_contract_signature: Path,
+                              expected_audit_contract_sha256: str,
+                              authority_public_key_path: Path,
+                              spawn_public_key_path: Path,
+                              lead_v_public_key_path: Path,
+                              adversarial_public_key_path: Path) -> list[str]:
     errors = verify_roster(root, roster_path, receipts_dir,
                            contract_path=contract_path, contract_signature=contract_signature,
                            spawn_journal_path=spawn_journal_path,
                            spawn_journal_signature=spawn_journal_signature,
-                           public_key_path=public_key_path,
-                           expected_public_key_sha256=expected_public_key_sha256)
+                           readiness_binding_path=readiness_binding_path,
+                           readiness_binding_signature=readiness_binding_signature,
+                           expected_readiness_binding_sha256=expected_readiness_binding_sha256,
+                           tooling_commit=tooling_commit,
+                           audit_contract_path=audit_contract_path,
+                           audit_contract_signature=audit_contract_signature,
+                           expected_audit_contract_sha256=expected_audit_contract_sha256,
+                           authority_public_key_path=authority_public_key_path,
+                           spawn_public_key_path=spawn_public_key_path,
+                           lead_v_public_key_path=lead_v_public_key_path,
+                           adversarial_public_key_path=adversarial_public_key_path)
     if errors:
         return errors
     try:
@@ -643,7 +983,13 @@ def verify_attestation_bundle(root: Path, roster_path: Path, receipts_dir: Path,
             raise ContractError("basis_sha256 ungueltig")
         contract, contract_sha, _spawn, _lineage, _commit, reviewers = _load_trust(
             root.resolve(), contract_path, contract_signature, spawn_journal_path,
-            spawn_journal_signature, public_key_path, expected_public_key_sha256)
+            spawn_journal_signature, readiness_binding_path,
+            readiness_binding_signature, expected_readiness_binding_sha256,
+            tooling_commit, audit_contract_path, audit_contract_signature,
+            expected_audit_contract_sha256,
+            authority_public_key_path, spawn_public_key_path,
+            lead_v_public_key_path, adversarial_public_key_path)
+        policy, _policy_sha, _blob = load_trust_policy(root.resolve(), tooling_commit)
         rows = {row["reviewer_id"]: row for row in _read_roster(roster_path)}
         expected_files: set[str] = set()
         for required in contract["required_signoffs"]:
@@ -652,16 +998,21 @@ def verify_attestation_bundle(root: Path, roster_path: Path, receipts_dir: Path,
             name = f"{role}-{spec['session_id']}.json"
             expected_files |= {name, name + ".sig"}
             path, signature = attestations_dir / name, attestations_dir / (name + ".sig")
-            verify_signature(path, signature, public_key_path,
-                             expected_public_key_sha256, SIGNOFF_NAMESPACE)
+            identity = policy["identities"][role]
+            role_key = lead_v_public_key_path if role == "lead-v" else adversarial_public_key_path
+            verify_signature(path, signature, role_key, identity["public_key_sha256"],
+                             SIGNOFF_NAMESPACE, identity["openssh_identity"])
             value = json.loads(path.read_text(encoding="utf-8"))
             expected = {"schema_version": 1, "run_id": contract["run_id"],
                         "reviewer_id": rid, "session_id": spec["session_id"],
                         "role": role, "basis_sha256": basis_sha256, "verdict": "pass",
                         "contract_sha256": contract_sha,
                         "enrollment_receipt_sha256": row["session_receipt_sha256"]}
-            if any(value.get(key) != expected_value for key, expected_value in expected.items()):
+            signoff_fields = {*expected, "signed_at"}
+            if set(value) != signoff_fields or any(
+                    value.get(key) != expected_value for key, expected_value in expected.items()):
                 raise ContractError("Signoff-Attestierung Bindung/Verdict falsch")
+            _valid_timestamp(value["signed_at"], "signed_at")
         actual = {path.name for path in attestations_dir.iterdir() if path.is_file()}
         if actual != expected_files:
             raise ContractError("Attestation-Bundle Dateimenge nicht exakt")
@@ -673,7 +1024,9 @@ def verify_attestation_bundle(root: Path, roster_path: Path, receipts_dir: Path,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("self-check")
+    self_check = sub.add_parser("self-check")
+    self_check.add_argument("--root", type=Path, required=True)
+    self_check.add_argument("--tooling-commit", required=True)
 
     def add_trust(command: argparse.ArgumentParser) -> None:
         command.add_argument("--root", type=Path, required=True)
@@ -681,8 +1034,17 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--contract-signature", type=Path, required=True)
         command.add_argument("--spawn-journal", type=Path, required=True)
         command.add_argument("--spawn-journal-signature", type=Path, required=True)
-        command.add_argument("--public-key", type=Path, required=True)
-        command.add_argument("--public-key-sha256", required=True)
+        command.add_argument("--readiness-binding", type=Path, required=True)
+        command.add_argument("--readiness-binding-signature", type=Path, required=True)
+        command.add_argument("--readiness-binding-sha256", required=True)
+        command.add_argument("--tooling-commit", required=True)
+        command.add_argument("--audit-contract", type=Path, required=True)
+        command.add_argument("--audit-contract-signature", type=Path, required=True)
+        command.add_argument("--audit-contract-sha256", required=True)
+        command.add_argument("--authority-public-key", type=Path, required=True)
+        command.add_argument("--spawn-public-key", type=Path, required=True)
+        command.add_argument("--lead-v-public-key", type=Path, required=True)
+        command.add_argument("--adversarial-public-key", type=Path, required=True)
         command.add_argument("--roster", type=Path, required=True)
         command.add_argument("--receipts-dir", type=Path, required=True)
 
@@ -711,7 +1073,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "self-check":
         try:
             _ssh_available()
-            print(json.dumps({"ok": True, "trust": "external-openssh-signature-required"}))
+            _policy, policy_sha, blob_id = load_trust_policy(args.root, args.tooling_commit)
+            print(json.dumps({"ok": True, "trust_policy_blob_sha256": policy_sha,
+                              "trust_policy_blob_id": blob_id}))
             return 0
         except ContractError as exc:
             print(json.dumps({"ok": False, "errors": [str(exc)]}))
@@ -721,8 +1085,17 @@ def main(argv: list[str] | None = None) -> int:
         "contract_signature": args.contract_signature,
         "spawn_journal_path": args.spawn_journal,
         "spawn_journal_signature": args.spawn_journal_signature,
-        "public_key_path": args.public_key,
-        "expected_public_key_sha256": args.public_key_sha256,
+        "readiness_binding_path": args.readiness_binding,
+        "readiness_binding_signature": args.readiness_binding_signature,
+        "expected_readiness_binding_sha256": args.readiness_binding_sha256,
+        "tooling_commit": args.tooling_commit,
+        "audit_contract_path": args.audit_contract,
+        "audit_contract_signature": args.audit_contract_signature,
+        "expected_audit_contract_sha256": args.audit_contract_sha256,
+        "authority_public_key_path": args.authority_public_key,
+        "spawn_public_key_path": args.spawn_public_key,
+        "lead_v_public_key_path": args.lead_v_public_key,
+        "adversarial_public_key_path": args.adversarial_public_key,
     }
     try:
         if args.command == "enroll":

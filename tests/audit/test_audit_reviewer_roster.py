@@ -24,6 +24,29 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 class GateContractTests(unittest.TestCase):
+    def test_tooling_commit_policy_is_mandatory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _git(root, "init", "-b", "main")
+            _git(root, "config", "user.email", "audit@example.invalid")
+            _git(root, "config", "user.name", "Audit Test")
+            (root / "seed").write_text("x", encoding="utf-8")
+            _git(root, "add", "seed")
+            _git(root, "commit", "-m", "seed")
+            with self.assertRaises(roster.ContractError):
+                roster.load_trust_policy(root, _git(root, "rev-parse", "HEAD"))
+
+    def test_lock_exit_never_removes_foreign_owner_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "owned.lock"
+            guard = roster._FileLock(path)
+            guard.__enter__()
+            foreign = {"token": "foreign", "pid": 1, "heartbeat": time.time()}
+            path.write_bytes(roster._canonical(foreign) + b"\n")
+            with self.assertRaises(roster.ContractError):
+                guard.__exit__(None, None, None)
+            self.assertTrue(path.exists())
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)
@@ -33,21 +56,42 @@ class GateContractTests(unittest.TestCase):
         _git(self.repo, "config", "user.email", "audit@example.invalid")
         _git(self.repo, "config", "user.name", "Audit Test")
         (self.repo / "seed.txt").write_text("seed\n", encoding="utf-8")
-        _git(self.repo, "add", "seed.txt")
-        _git(self.repo, "commit", "-m", "seed")
-        self.commit = _git(self.repo, "rev-parse", "HEAD")
+        self.keys: dict[str, Path] = {}
+        self.public_keys: dict[str, Path] = {}
+        for role in ("authority", "spawn", "lead-v", "adversarial"):
+            key = self.base / f"key-{role}"
+            subprocess.run(
+                ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+                check=True, capture_output=True,
+            )
+            self.keys[role] = key
+            self.public_keys[role] = key.with_suffix(".pub")
+        policy = {
+            "schema_version": 1,
+            "status": "provisioned",
+            "identities": {
+                role: {
+                    "openssh_identity": f"pb-audit-{role}",
+                    "public_key_sha256": roster.public_key_sha256(self.public_keys[role]),
+                }
+                for role in ("authority", "spawn", "lead-v", "adversarial")
+            },
+        }
+        policy_path = self.repo / roster.TRUST_POLICY_PATH
+        policy_path.parent.mkdir(parents=True)
+        policy_path.write_bytes(roster._canonical(policy) + b"\n")
+        _git(self.repo, "add", "seed.txt", roster.TRUST_POLICY_PATH)
+        _git(self.repo, "commit", "-m", "seed trust policy")
+        self.tooling_commit = _git(self.repo, "rev-parse", "HEAD")
+        self.commit = self.tooling_commit
+        self.policy, self.policy_sha, self.policy_blob_id = roster.load_trust_policy(
+            self.repo, self.tooling_commit
+        )
         self.common = self.repo / ".git"
         self.registry_patch = mock.patch.object(
             agent_session, "_git_common_dir", return_value=self.common
         )
         self.registry_patch.start()
-        self.key = self.base / "anchor"
-        subprocess.run(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.key)],
-            check=True, capture_output=True,
-        )
-        self.public_key = self.key.with_suffix(".pub")
-        self.pin = roster.public_key_sha256(self.public_key)
         self.receipts = self.base / "receipts"
         self.attestations = self.base / "attestations"
         self.roster_path = self.base / "reviewer_roster.jsonl"
@@ -55,6 +99,10 @@ class GateContractTests(unittest.TestCase):
         self.contract_sig = self.base / "contract.json.sig"
         self.spawn_path = self.base / "spawn.json"
         self.spawn_sig = self.base / "spawn.json.sig"
+        self.binding_path = self.base / "readiness-binding.json"
+        self.binding_sig = self.base / "readiness-binding.json.sig"
+        self.audit_contract_path = self.base / "audit-contract.json"
+        self.audit_contract_sig = self.base / "audit-contract.json.sig"
         self.director = self._claim("director", [])
         self.lead = self._claim(
             "lead", ["@audit/RUN-1/lead/**"], parent=self.director["id"]
@@ -99,15 +147,15 @@ class GateContractTests(unittest.TestCase):
         }
         return {**body, "record_sha256": roster._sha(roster._canonical(body))}
 
-    def _signed(self, path: Path, value: dict, namespace: str) -> None:
+    def _signed(self, path: Path, value: dict, namespace: str, role: str) -> None:
         path.write_bytes(roster._canonical(value) + b"\n")
         signature = path.with_name(path.name + ".sig")
         signature.unlink(missing_ok=True)
-        roster.sign_file(path, signature, self.key, namespace)
+        roster.sign_file(path, signature, self.keys[role], namespace)
 
     def _write_trust(
         self, *, direct_ancestor: bool = False, forced_director: bool = False,
-        pairs: list[list[str]] | None = None,
+        pairs: list[dict[str, str]] | None = None,
     ) -> None:
         if direct_ancestor:
             raw = json.loads((self.common / "pb-agent-sessions.json").read_text(encoding="utf-8"))
@@ -137,7 +185,7 @@ class GateContractTests(unittest.TestCase):
             previous = record["record_sha256"]
         self._signed(
             self.spawn_path, {"schema_version": 1, "records": records},
-            roster.SPAWN_NAMESPACE,
+            roster.SPAWN_NAMESPACE, "spawn",
         )
         lead_id = roster.deterministic_reviewer_id(
             "RUN-1", self.lead["id"], self.commit, "snapshot-1"
@@ -166,13 +214,22 @@ class GateContractTests(unittest.TestCase):
             "run_id": "RUN-1",
             "audited_commit": self.commit,
             "snapshot_id": "snapshot-1",
-            "public_key_sha256": self.pin,
+            "tooling_commit": self.tooling_commit,
+            "trust_policy_blob_sha256": self.policy_sha,
+            "trust_policy_blob_id": self.policy_blob_id,
             "spawn_journal_sha256": roster._sha(self.spawn_path.read_bytes()),
             "reviewers": reviewers,
-            "reviewer_pairs": pairs if pairs is not None else [[lead_id, adversarial_id]],
+            "reviewer_pairs": pairs if pairs is not None else [{
+                "pair_id": "P-services", "reviewer_a": lead_id,
+                "reviewer_b": adversarial_id,
+                "output_claim_a": "@audit/RUN-1/lead/**",
+                "output_claim_b": "@audit/RUN-1/adversarial/**",
+                "review_scope": "services/**",
+            }],
             "assignments": [
                 {
                     "assignment_id": "A-services",
+                    "pair_id": "P-services",
                     "reviewer_id": lead_id,
                     "role": "lead-v",
                     "pass": "A",
@@ -181,6 +238,7 @@ class GateContractTests(unittest.TestCase):
                 },
                 {
                     "assignment_id": "B-services",
+                    "pair_id": "P-services",
                     "reviewer_id": adversarial_id,
                     "role": "adversarial",
                     "pass": "B",
@@ -193,7 +251,48 @@ class GateContractTests(unittest.TestCase):
                 {"reviewer_id": adversarial_id, "role": "adversarial"},
             ],
         }
-        self._signed(self.contract_path, contract, roster.CONTRACT_NAMESPACE)
+        self._resign_contract(contract)
+
+    def _resign_contract(self, contract: dict) -> None:
+        self._signed(self.contract_path, contract, roster.CONTRACT_NAMESPACE, "authority")
+        binding = {
+            "schema_version": 1, "tooling_commit": self.tooling_commit,
+            "trust_policy_blob_sha256": self.policy_sha,
+            "contract_sha256": roster._sha(self.contract_path.read_bytes()),
+            "run_id": "RUN-1", "audited_commit": self.commit,
+            "snapshot_id": "snapshot-1",
+        }
+        self._signed(self.binding_path, binding, roster.READINESS_NAMESPACE, "authority")
+        self.binding_sha = roster._sha(self.binding_path.read_bytes())
+        policy_raw = roster._canonical(self.policy) + b"\n"
+        sources = {
+            "reviewer-trust-policy": (roster.TRUST_POLICY_PATH, policy_raw),
+            "reviewer-contract": ("reviewer-contract.json", self.contract_path.read_bytes()),
+            "reviewer-readiness-binding": (
+                "reviewer-readiness-binding.json", self.binding_path.read_bytes()
+            ),
+            "reviewer-spawn-journal": ("reviewer-spawn-journal.json", self.spawn_path.read_bytes()),
+        }
+        artifacts = {}
+        for key, (ref, raw) in sources.items():
+            digest = roster._sha(raw)
+            artifacts[key] = {
+                "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
+                "bytes": len(raw), "record_count": roster._record_count(raw),
+            }
+        audit_contract = {
+            "schema_version": 1, "plan_id": "PB-STUDIO-AUDIT-PHASE-MINUS-1",
+            "run_id": "RUN-1", "audited_commit": self.commit,
+            "tooling_commit": self.tooling_commit, "snapshot_id": "snapshot-1",
+            "frozen_at": "2026-08-15T00:00:00+00:00",
+            "expires_at": "2026-08-16T00:00:00+00:00", "artifacts": artifacts,
+        }
+        audit_contract["contract_sha256"] = roster._sha(roster._canonical(audit_contract))
+        self._signed(
+            self.audit_contract_path, audit_contract,
+            roster.AUDIT_CONTRACT_NAMESPACE, "authority",
+        )
+        self.audit_contract_sha = roster._sha(self.audit_contract_path.read_bytes())
 
     def _trust_args(self) -> dict:
         return {
@@ -201,14 +300,24 @@ class GateContractTests(unittest.TestCase):
             "contract_signature": self.contract_sig,
             "spawn_journal_path": self.spawn_path,
             "spawn_journal_signature": self.spawn_sig,
-            "public_key_path": self.public_key,
-            "expected_public_key_sha256": self.pin,
+            "readiness_binding_path": self.binding_path,
+            "readiness_binding_signature": self.binding_sig,
+            "expected_readiness_binding_sha256": self.binding_sha,
+            "tooling_commit": self.tooling_commit,
+            "audit_contract_path": self.audit_contract_path,
+            "audit_contract_signature": self.audit_contract_sig,
+            "expected_audit_contract_sha256": self.audit_contract_sha,
+            "authority_public_key_path": self.public_keys["authority"],
+            "spawn_public_key_path": self.public_keys["spawn"],
+            "lead_v_public_key_path": self.public_keys["lead-v"],
+            "adversarial_public_key_path": self.public_keys["adversarial"],
         }
 
     def _enroll(self, session: dict) -> dict:
         return roster.enroll(
             root=self.repo, session_id=session["id"], receipts_dir=self.receipts,
-            roster_path=self.roster_path, signing_key=self.key, **self._trust_args()
+            roster_path=self.roster_path, signing_key=self.keys["spawn"],
+            **self._trust_args()
         )
 
     def _enroll_all(self) -> tuple[dict, dict]:
@@ -292,7 +401,7 @@ class GateContractTests(unittest.TestCase):
     def test_role_assignment_claim_scope_contract_is_exact(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
         contract["assignments"][0]["review_scope"] = "ui/**"
-        self._signed(self.contract_path, contract, roster.CONTRACT_NAMESPACE)
+        self._resign_contract(contract)
         errors = self._verify()
         self.assertTrue(any("Claim/Scope" in error for error in errors), errors)
 
@@ -301,7 +410,7 @@ class GateContractTests(unittest.TestCase):
         nested = "@audit/RUN-1/lead/sub/**"
         contract["reviewers"][1]["output_claims"] = [nested]
         contract["assignments"][1]["output_claim"] = nested
-        self._signed(self.contract_path, contract, roster.CONTRACT_NAMESPACE)
+        self._resign_contract(contract)
         errors = self._verify()
         self.assertTrue(any("ueberlappen" in error for error in errors), errors)
 
@@ -309,11 +418,91 @@ class GateContractTests(unittest.TestCase):
         lead = self._enroll(self.lead)
         self.roster_path.unlink()
         lock = self.roster_path.with_name(self.roster_path.name + ".lock")
-        lock.write_text("stale", encoding="utf-8")
-        old = time.time() - roster.LOCK_STALE_SECONDS - 5
-        os.utime(lock, (old, old))
+        lock.write_bytes(roster._canonical({
+            "token": "dead", "pid": 999999,
+            "heartbeat": time.time() - roster.LOCK_STALE_SECONDS - 5,
+        }) + b"\n")
         recovered = self._enroll(self.lead)
         self.assertEqual(lead["session_receipt_sha256"], recovered["session_receipt_sha256"])
+
+    def test_half_orphan_is_quarantined_then_retried(self) -> None:
+        self.receipts.mkdir()
+        orphan = self.receipts / f"{self.lead['id']}.json"
+        orphan.write_text("partial", encoding="utf-8")
+        enrolled = self._enroll(self.lead)
+        self.assertTrue((self.receipts / enrolled["session_receipt_ref"]).is_file())
+        quarantined = list((self.receipts / "quarantine").iterdir())
+        self.assertEqual(1, len(quarantined))
+        self.assertIn(".orphan", quarantined[0].name)
+
+    def test_workspace_policy_cannot_replace_tooling_commit_blob(self) -> None:
+        workspace_policy = self.repo / roster.TRUST_POLICY_PATH
+        workspace_policy.write_text("{}\n", encoding="utf-8")
+        self._enroll_all()
+        self.assertEqual([], self._verify())
+
+    def test_preflight_audit_contract_external_sha_and_artifact_fk_are_exact(self) -> None:
+        bad_args = self._trust_args()
+        bad_args["expected_audit_contract_sha256"] = "0" * 64
+        with self.assertRaisesRegex(roster.ContractError, "extern erwarteter SHA"):
+            roster.enroll(
+                root=self.repo, session_id=self.lead["id"], receipts_dir=self.receipts,
+                roster_path=self.roster_path, signing_key=self.keys["spawn"], **bad_args,
+            )
+        value = json.loads(self.audit_contract_path.read_text(encoding="utf-8"))
+        value["artifacts"]["reviewer-contract"]["bytes"] += 1
+        body = {key: item for key, item in value.items() if key != "contract_sha256"}
+        value["contract_sha256"] = roster._sha(roster._canonical(body))
+        self._signed(
+            self.audit_contract_path, value, roster.AUDIT_CONTRACT_NAMESPACE, "authority"
+        )
+        self.audit_contract_sha = roster._sha(self.audit_contract_path.read_bytes())
+        self.assertTrue(self._verify())
+
+    def test_exact_pair_assignment_bijection_rejects_duplicate_reviewer(self) -> None:
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        contract["assignments"].append(dict(contract["assignments"][0], assignment_id="dup"))
+        self._resign_contract(contract)
+        self.assertTrue(any("doppelt" in error for error in self._verify()))
+
+    def test_finalize_rechecks_stable_registry_and_worktree(self) -> None:
+        self._enroll_all()
+        raw = json.loads((self.common / "pb-agent-sessions.json").read_text(encoding="utf-8"))
+        for session in raw["sessions"]:
+            if session["id"] == self.lead["id"]:
+                session["task"] = "drifted"
+        (self.common / "pb-agent-sessions.json").write_text(json.dumps(raw), encoding="utf-8")
+        with self.assertRaisesRegex(roster.ContractError, "drifteten"):
+            roster.finalize_signoff(
+                root=self.repo, session_id=self.lead["id"], role="lead-v",
+                basis_sha256="a" * 64, verdict="pass", roster_path=self.roster_path,
+                receipts_dir=self.receipts, attestations_dir=self.attestations,
+                signing_key=self.keys["lead-v"], **self._trust_args(),
+            )
+
+    def test_role_signoff_key_is_not_interchangeable(self) -> None:
+        self._enroll_all()
+        with self.assertRaises(roster.ContractError):
+            roster.finalize_signoff(
+                root=self.repo, session_id=self.lead["id"], role="lead-v",
+                basis_sha256="a" * 64, verdict="pass", roster_path=self.roster_path,
+                receipts_dir=self.receipts, attestations_dir=self.attestations,
+                signing_key=self.keys["adversarial"], **self._trust_args(),
+            )
+        self.assertFalse(any(self.attestations.glob("*")))
+
+    def test_receipt_extra_field_and_naive_timestamp_rejected(self) -> None:
+        lead = self._enroll(self.lead)
+        receipt = self.receipts / lead["session_receipt_ref"]
+        signature = receipt.with_name(receipt.name + ".sig")
+        value = json.loads(receipt.read_text(encoding="utf-8"))
+        value["enrolled_at"] = "2026-08-15T12:00:00"
+        value["extra"] = True
+        signature.unlink()
+        receipt.write_bytes(roster._canonical(value) + b"\n")
+        roster.sign_file(receipt, signature, self.keys["spawn"], roster.ENROLLMENT_NAMESPACE)
+        self._enroll(self.adversarial)
+        self.assertTrue(self._verify())
 
     def test_final_verify_after_session_and_worktree_deleted(self) -> None:
         self._enroll_all()
@@ -330,14 +519,14 @@ class GateContractTests(unittest.TestCase):
                 root=self.repo, session_id=self.lead["id"], role="adversarial",
                 basis_sha256=basis, verdict="pass", roster_path=self.roster_path,
                 receipts_dir=self.receipts, attestations_dir=self.attestations,
-                signing_key=self.key, **self._trust_args(),
+                signing_key=self.keys["lead-v"], **self._trust_args(),
             )
         for session, role in ((self.lead, "lead-v"), (self.adversarial, "adversarial")):
             roster.finalize_signoff(
                 root=self.repo, session_id=session["id"], role=role,
                 basis_sha256=basis, verdict="pass", roster_path=self.roster_path,
                 receipts_dir=self.receipts, attestations_dir=self.attestations,
-                signing_key=self.key, **self._trust_args(),
+                signing_key=self.keys[role], **self._trust_args(),
             )
         self.assertEqual([], roster.verify_attestation_bundle(
             self.repo, self.roster_path, self.receipts, self.attestations,
