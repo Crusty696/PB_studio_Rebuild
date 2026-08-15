@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import argparse
 import ast
+import configparser
 import hashlib
 import io
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tokenize
+import tomllib
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
@@ -71,6 +75,222 @@ def _canonical(value: Any) -> bytes:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _without(row: dict[str, Any], *fields: str) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key not in fields}
+
+
+def seal_record(row: dict[str, Any]) -> dict[str, Any]:
+    sealed = dict(row)
+    sealed["record_sha256"] = _sha(_canonical(_without(sealed, "record_sha256")))
+    return sealed
+
+
+def make_artifact_manifest(
+    kind: str, records: list[dict[str, Any]], *, run_id: str,
+    audited_commit: str, tooling_commit: str, snapshot_id: str,
+) -> dict[str, Any]:
+    records_sha = _sha(b"\n".join(_canonical(row) for row in records))
+    manifest = {
+        "schema_version": 1, "kind": kind, "run_id": run_id,
+        "audited_commit": audited_commit, "tooling_commit": tooling_commit,
+        "snapshot_id": snapshot_id, "record_count": len(records),
+        "records_sha256": records_sha,
+    }
+    manifest["artifact_id"] = "sha256:" + _sha(_canonical(manifest))
+    return manifest
+
+
+def validate_artifact(
+    records: list[dict[str, Any]], manifest: dict[str, Any], kind: str,
+    id_field: str, *, run_id: str, audited_commit: str, tooling_commit: str,
+    snapshot_id: str,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    errors: list[str] = []
+    expected = make_artifact_manifest(
+        kind, records, run_id=run_id, audited_commit=audited_commit,
+        tooling_commit=tooling_commit, snapshot_id=snapshot_id,
+    )
+    if manifest != expected:
+        errors.append(f"{kind}: Artefaktmanifest/Hashbindung falsch")
+    indexed: dict[str, dict[str, Any]] = {}
+    for number, row in enumerate(records, 1):
+        item_id = row.get(id_field)
+        label = f"{kind} Zeile {number}"
+        if not isinstance(item_id, str) or not item_id or item_id in indexed:
+            errors.append(f"{label}: {id_field} fehlt/doppelt")
+        else:
+            indexed[item_id] = row
+        if row.get("record_sha256") != _sha(_canonical(_without(row, "record_sha256"))):
+            errors.append(f"{label}: record_sha256 falsch")
+        if kind == "feature-catalog":
+            expected_id = "sha256:" + _sha(
+                _canonical(_without(row, "catalog_id", "record_sha256"))
+            )
+            if item_id != expected_id:
+                errors.append(f"{label}: catalog_id nicht inhaltsadressiert")
+        if kind == "feature-evidence":
+            expected_id = "sha256:" + _sha(
+                _canonical(_without(row, "evidence_id", "record_sha256"))
+            )
+            if item_id != expected_id:
+                errors.append(f"{label}: evidence_id nicht inhaltsadressiert")
+        for field, value in (
+            ("run_id", run_id), ("audited_commit", audited_commit),
+            ("tooling_commit", tooling_commit), ("snapshot_id", snapshot_id),
+        ):
+            if row.get(field) != value:
+                errors.append(f"{label}: {field} falsch")
+    if not records:
+        errors.append(f"{kind}: Artefakt ist leer")
+    return indexed, errors
+
+
+def _aware_timestamp(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _validate_balanced(text: str, path: str, *, braces: bool = False) -> None:
+    stack: list[str] = []
+    pairs = {')': '(', ']': '[', '}': '{'}
+    quote: str | None = None
+    escaped = False
+    comment = False
+    for char in text:
+        if comment:
+            if char == "\n":
+                comment = False
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if char in {"`", "\\"} and quote is not None:
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char == "#" and braces:
+            comment = True
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in "([" + ("{" if braces else ""):
+            stack.append(char)
+        elif char in ")]" + ("}" if braces else ""):
+            if not stack or stack.pop() != pairs[char]:
+                raise ContractError(f"parser_error:{path}: unbalanciertes Token {char}")
+    if quote or stack:
+        raise ContractError(f"parser_error:{path}: unbalancierte Quotes/Klammern")
+
+
+def _sql_statements(text: str, path: str) -> list[str]:
+    _validate_balanced(text, path)
+    statements: list[str] = []
+    start = 0
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                if index + 1 < len(text) and text[index + 1] == quote:
+                    index += 1
+                else:
+                    quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == ";":
+            if statement := text[start:index].strip():
+                statements.append(statement)
+            start = index + 1
+        index += 1
+    if statement := text[start:].strip():
+        statements.append(statement)
+    return statements
+
+
+def _parse_sql(text: str, path: str) -> None:
+    statements = _sql_statements(text, path)
+    allowed = re.compile(
+        r"^(?:--[^\n]*\n\s*)*(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|PRAGMA|WITH|BEGIN|END|COMMIT|ROLLBACK)\b",
+        re.IGNORECASE,
+    )
+    if not statements or any(not allowed.match(statement) for statement in statements):
+        raise ContractError(f"parser_error:{path}: nicht unterstuetzte SQL-Grammatik")
+
+
+def _parse_xml(text: str, path: str) -> ET.Element:
+    try:
+        return ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ContractError(f"parser_error:{path}: {exc}") from exc
+
+
+def _parse_batch(text: str, path: str) -> None:
+    _validate_balanced(text, path)
+    labels: set[str] = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        if match := re.match(r"\s*:([^:\s]+)", line):
+            label = match.group(1).lower()
+            if label in labels:
+                raise ContractError(f"parser_error:{path}:{number}: doppeltes Label {label}")
+            labels.add(label)
+    for number, line in enumerate(text.splitlines(), 1):
+        if match := re.match(r"\s*call\s+:([^\s]+)", line, re.IGNORECASE):
+            if match.group(1).lower() not in labels:
+                raise ContractError(
+                    f"parser_error:{path}:{number}: unbekanntes Batch-Label {match.group(1)}"
+                )
+
+
+def _parse_powershell(text: str, path: str) -> None:
+    executable = shutil.which("pwsh") or shutil.which("powershell")
+    if executable is None:
+        raise ContractError(f"parser_error:{path}: PowerShell-AST-Parser fehlt")
+    parser_script = (
+        "$tokens=$null;$errors=$null;"
+        "[void][System.Management.Automation.Language.Parser]::ParseInput("
+        "[Console]::In.ReadToEnd(),[ref]$tokens,[ref]$errors);"
+        "if($errors.Count){$errors|ForEach-Object{$_.Message}|Write-Error;exit 2}"
+    )
+    try:
+        result = subprocess.run(
+            [executable, "-NoProfile", "-NonInteractive", "-Command", parser_script],
+            input=text, text=True, encoding="utf-8", capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ContractError(f"parser_error:{path}: PowerShell-Parser nicht verfuegbar: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().replace("\n", " | ")[-500:]
+        raise ContractError(f"parser_error:{path}: {detail or 'PowerShell-Syntaxfehler'}")
+
+
+def _parse_config(text: str, suffix: str, path: str) -> None:
+    try:
+        if suffix == ".json":
+            json.loads(text)
+        elif suffix == ".toml":
+            tomllib.loads(text)
+        elif suffix in {".ini", ".cfg"}:
+            parser = configparser.ConfigParser()
+            parser.read_string(text)
+        elif suffix in {".yaml", ".yml"}:
+            try:
+                import yaml  # type: ignore[import-untyped]
+            except ImportError as exc:
+                raise ContractError(f"parser_error:{path}: YAML-Parser fehlt") from exc
+            yaml.safe_load(text)
+    except ContractError:
+        raise
+    except Exception as exc:
+        raise ContractError(f"parser_error:{path}: {exc}") from exc
 
 
 def _git(root: Path, *args: str) -> bytes:
@@ -182,6 +402,7 @@ def enumerate_universes(
 
         if suffix in TEXT_SUFFIXES | CONFIG_SUFFIXES:
             if suffix in CONFIG_SUFFIXES:
+                _parse_config(text, suffix, path)
                 append_row(
                     requirements, "REQ", "structured-config-unit", path, 1, 0,
                     f"config:{suffix}:{blob_sha}", blob_sha,
@@ -200,6 +421,7 @@ def enumerate_universes(
                 continue
 
         if suffix in {".ps1", ".psm1"}:
+            _parse_powershell(text, path)
             append_row(
                 triggers, "TRIG", "powershell-entrypoint", path, 1, 0,
                 f"script:{path}", blob_sha,
@@ -219,6 +441,7 @@ def enumerate_universes(
             continue
 
         if suffix in {".bat", ".cmd"}:
+            _parse_batch(text, path)
             append_row(
                 triggers, "TRIG", "batch-entrypoint", path, 1, 0,
                 f"script:{path}", blob_sha,
@@ -233,6 +456,7 @@ def enumerate_universes(
             continue
 
         if suffix == ".sql":
+            _parse_sql(text, path)
             found = False
             for match in re.finditer(r"\bCREATE\s+TRIGGER\s+([\w.\[\]`\"]+)", text, re.IGNORECASE):
                 found = True
@@ -249,10 +473,7 @@ def enumerate_universes(
             continue
 
         if suffix in {".ui", ".ts"}:
-            try:
-                xml_root = ET.fromstring(text)
-            except ET.ParseError as exc:
-                raise ContractError(f"XML-Parserfehler in {path}: {exc}") from exc
+            xml_root = _parse_xml(text, path)
             if suffix == ".ui":
                 for index, connection in enumerate(xml_root.findall(".//connection"), 1):
                     detail = ":".join(
@@ -372,12 +593,37 @@ def universe_digest(rows: Iterable[dict[str, Any]]) -> str:
 def validate_exact_set(
     expected_requirements: list[dict[str, Any]], expected_triggers: list[dict[str, Any]],
     dispositions: list[dict[str, Any]], *, run_id: str, audited_commit: str,
-    snapshot_id: str,
+    snapshot_id: str, tooling_commit: str,
+    feature_catalog: list[dict[str, Any]], feature_catalog_manifest: dict[str, Any],
+    evidence_records: list[dict[str, Any]], evidence_manifest: dict[str, Any],
+    reviewer_records: list[dict[str, Any]], reviewer_manifest: dict[str, Any],
 ) -> list[str]:
     errors: list[str] = []
     universes = {"requirement": expected_requirements, "trigger": expected_triggers}
     expected: dict[tuple[str, str], dict[str, Any]] = {}
     digests = {kind: universe_digest(rows) for kind, rows in universes.items()}
+    features_by_id, feature_errors = validate_artifact(
+        feature_catalog, feature_catalog_manifest, "feature-catalog", "catalog_id",
+        run_id=run_id, audited_commit=audited_commit, tooling_commit=tooling_commit,
+        snapshot_id=snapshot_id,
+    )
+    evidence_by_id, evidence_errors = validate_artifact(
+        evidence_records, evidence_manifest, "feature-evidence", "evidence_id",
+        run_id=run_id, audited_commit=audited_commit, tooling_commit=tooling_commit,
+        snapshot_id=snapshot_id,
+    )
+    reviewers_by_id, reviewer_errors = validate_artifact(
+        reviewer_records, reviewer_manifest, "reviewer-roster", "reviewer_id",
+        run_id=run_id, audited_commit=audited_commit, tooling_commit=tooling_commit,
+        snapshot_id=snapshot_id,
+    )
+    errors.extend(feature_errors + evidence_errors + reviewer_errors)
+    feature_pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in features_by_id.values():
+        pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
+        if not all(pair) or pair in feature_pairs:
+            errors.append("Featurekatalog: Feature-/Pfad-ID fehlt/doppelt")
+        feature_pairs[pair] = row
     if not expected_requirements:
         errors.append("Requirements-Universum ist leer")
     if not expected_triggers:
@@ -407,9 +653,35 @@ def validate_exact_set(
             errors.append(f"Disposition Zeile {number}: Universumshash falsch")
         if row.get("disposition") not in DISPOSITIONS:
             errors.append(f"Disposition Zeile {number}: disposition ungueltig")
-        for field in ("feature_id", "path_id", "evidence"):
+        for field in ("feature_id", "path_id", "evidence_id", "reviewer_id", "signed_at", "source_blob_sha256"):
             if not row.get(field):
                 errors.append(f"Disposition Zeile {number}: {field} fehlt")
+        pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
+        catalog = feature_pairs.get(pair)
+        if catalog is None:
+            errors.append(f"Disposition Zeile {number}: Featurekatalog-FK fehlt")
+        elif source_id not in (catalog.get("source_ids") or []):
+            errors.append(f"Disposition Zeile {number}: Source fehlt im Featurekatalog")
+        source = expected.get(key)
+        if source is not None and row.get("source_blob_sha256") != source.get("source_blob_sha256"):
+            errors.append(f"Disposition Zeile {number}: Source-Blob falsch")
+        evidence = evidence_by_id.get(str(row.get("evidence_id", "")))
+        reviewer = reviewers_by_id.get(str(row.get("reviewer_id", "")))
+        if reviewer is None:
+            errors.append(f"Disposition Zeile {number}: Reviewer-FK fehlt")
+        if evidence is None:
+            errors.append(f"Disposition Zeile {number}: Evidence-FK fehlt")
+        else:
+            for field, value in (
+                ("source_id", source_id), ("feature_id", pair[0]), ("path_id", pair[1]),
+                ("reviewer_id", row.get("reviewer_id")),
+                ("source_blob_sha256", row.get("source_blob_sha256")),
+                ("timestamp", row.get("signed_at")),
+            ):
+                if evidence.get(field) != value:
+                    errors.append(f"Disposition Zeile {number}: Evidence-{field} falsch")
+        if not _aware_timestamp(row.get("signed_at")):
+            errors.append(f"Disposition Zeile {number}: signed_at ungueltig")
     if set(expected) != seen:
         errors.append(
             "Requirements-/Trigger-Exact-Set verletzt: "
@@ -453,6 +725,13 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--requirements", type=Path, required=True)
     verify.add_argument("--triggers", type=Path, required=True)
     verify.add_argument("--dispositions", type=Path, required=True)
+    verify.add_argument("--tooling-commit", required=True)
+    verify.add_argument("--feature-catalog", type=Path, required=True)
+    verify.add_argument("--feature-catalog-manifest", type=Path, required=True)
+    verify.add_argument("--evidence-records", type=Path, required=True)
+    verify.add_argument("--evidence-manifest", type=Path, required=True)
+    verify.add_argument("--reviewer-records", type=Path, required=True)
+    verify.add_argument("--reviewer-manifest", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         requirements, triggers = enumerate_universes(
@@ -477,7 +756,13 @@ def main(argv: list[str] | None = None) -> int:
         errors.extend(validate_exact_set(
             requirements, triggers, _read_jsonl(args.dispositions), run_id=args.run_id,
             audited_commit=resolve_commit(args.root.resolve(), args.audited_commit),
-            snapshot_id=args.snapshot_id,
+            snapshot_id=args.snapshot_id, tooling_commit=args.tooling_commit,
+            feature_catalog=_read_jsonl(args.feature_catalog),
+            feature_catalog_manifest=json.loads(args.feature_catalog_manifest.read_text(encoding="utf-8")),
+            evidence_records=_read_jsonl(args.evidence_records),
+            evidence_manifest=json.loads(args.evidence_manifest.read_text(encoding="utf-8")),
+            reviewer_records=_read_jsonl(args.reviewer_records),
+            reviewer_manifest=json.loads(args.reviewer_manifest.read_text(encoding="utf-8")),
         ))
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
         return 0 if not errors else 2

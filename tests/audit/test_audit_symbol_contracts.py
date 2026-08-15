@@ -22,10 +22,7 @@ SPEC.loader.exec_module(HARNESS)
 class GateContractTests(unittest.TestCase):
     RUN = "RUN-SYMBOL"
     SNAPSHOT = "SNAPSHOT-SYMBOL"
-    FEATURES = {"FEAT-CONTRACT"}
-    RUNTIME = {"RUNTIME-EVIDENCE"}
-    REVIEWERS = {"REV-A"}
-    EVIDENCE = {"E-SOURCE", "E-CALLER", "E-CONTRACT", "E-EDGE", "E-NONRUNTIME"}
+    TOOLING = "TOOLING-SYMBOL"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="pb-symbol-contract-")
@@ -39,7 +36,7 @@ class GateContractTests(unittest.TestCase):
             "def deco(fn):\n    return fn\n"
             "@deco\n"
             "def helper(value: dict = dict()) -> str:\n    return json.dumps(value)\n"
-            "class Controller:\n"
+            "class Controller(metaclass=type):\n"
             "    def execute(self, signal):\n"
             "        signal.connect(helper)\n"
             "        import_module('plugin')\n"
@@ -54,6 +51,39 @@ class GateContractTests(unittest.TestCase):
         )
         self.assertEqual(4, len(self.symbols))
         self.assertTrue(self.edges)
+        binding = {
+            "run_id": self.RUN, "audited_commit": self.commit,
+            "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+        }
+        self.feature_records = [HARNESS.seal_record({
+            "catalog_id": "CATALOG-1", "feature_id": "FEAT-CONTRACT",
+            "path_id": "primary", **binding,
+        })]
+        self.runtime_records = [HARNESS.seal_record({
+            "evidence_id": "RUNTIME-EVIDENCE", **binding,
+        })]
+        self.reviewer_records = [HARNESS.seal_record({"reviewer_id": "REV-A", **binding})]
+        self.evidence_records = [
+            HARNESS.seal_record({"evidence_id": evidence_id, **binding})
+            for evidence_id in ("E-SOURCE", "E-CALLER", "E-CONTRACT", "E-EDGE", "E-NONRUNTIME")
+        ]
+        self.trigger_records = [HARNESS.seal_record({
+            "source_id": "TRIG-DUMMY", "source_kind": "support",
+            "path": "unrelated.py", "detail": "unrelated", **binding,
+        })]
+        self.manifests = {
+            kind: HARNESS.make_artifact_manifest(
+                kind, records, run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+            )
+            for kind, records in (
+                ("feature-catalog", self.feature_records),
+                ("runtime-evidence", self.runtime_records),
+                ("reviewer-roster", self.reviewer_records),
+                ("symbol-evidence", self.evidence_records),
+                ("trigger-catalog", self.trigger_records),
+            )
+        }
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -63,6 +93,10 @@ class GateContractTests(unittest.TestCase):
         edge_hash = HARNESS.universe_digest(self.edges, "edge_id")
         rows = []
         for symbol in self.symbols:
+            incoming = [
+                edge["edge_id"] for edge in self.edges
+                if edge.get("target_symbol_id") == symbol["symbol_id"]
+            ]
             contracts = {
                 key: {"status": "reviewed", "evidence_ids": ["E-CONTRACT"]}
                 for key in HARNESS.CONTRACT_KEYS
@@ -75,8 +109,8 @@ class GateContractTests(unittest.TestCase):
                 "feature_ids": ["FEAT-CONTRACT"],
                 "reviewer_id": "REV-A",
                 "caller_contract": {
-                    "kind": "entrypoint",
-                    "edge_ids": [],
+                    "kind": "incoming-edges" if incoming else "unreferenced",
+                    "edge_ids": incoming,
                     "evidence_ids": ["E-CALLER"],
                 },
                 "contracts": contracts,
@@ -105,9 +139,18 @@ class GateContractTests(unittest.TestCase):
     def errors(self, states: list[dict], edges: list[dict]) -> list[str]:
         return HARNESS.validate_contracts(
             self.symbols, self.edges, states, edges, run_id=self.RUN,
-            audited_commit=self.commit, snapshot_id=self.SNAPSHOT,
-            known_feature_ids=self.FEATURES, runtime_evidence_ids=self.RUNTIME,
-            reviewer_ids=self.REVIEWERS, evidence_ids=self.EVIDENCE,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+            feature_records=self.feature_records,
+            feature_manifest=self.manifests["feature-catalog"],
+            runtime_records=self.runtime_records,
+            runtime_manifest=self.manifests["runtime-evidence"],
+            reviewer_records=self.reviewer_records,
+            reviewer_manifest=self.manifests["reviewer-roster"],
+            evidence_records=self.evidence_records,
+            evidence_manifest=self.manifests["symbol-evidence"],
+            trigger_records=self.trigger_records,
+            trigger_manifest=self.manifests["trigger-catalog"],
         )
 
     def test_positive_minimal(self) -> None:
@@ -163,6 +206,18 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any(row["edge_kind"] == "decorator" for row in self.edges))
         self.assertTrue(any(row["edge_kind"] == "default" for row in self.edges))
         self.assertTrue(any(row["edge_kind"] == "annotation" for row in self.edges))
+        self.assertIn(("class-keyword", "type"), targets)
+        collector = HARNESS.Collector("meta.py", "blob", {
+            "run_id": self.RUN, "audited_commit": self.commit,
+            "snapshot_id": self.SNAPSHOT,
+        })
+        collector.visit(HARNESS.ast.parse("class C(metaclass=make_meta()):\n    pass\n"))
+        self.assertIn(("class-keyword", "make_meta"), {
+            (row["edge_kind"], row["target"]) for row in collector.edges
+        })
+        self.assertIn(("call", "make_meta"), {
+            (row["edge_kind"], row["target"]) for row in collector.edges
+        })
 
     def test_non_python_functions_and_schema_units_are_exact_set(self) -> None:
         files = {
@@ -212,7 +267,7 @@ class GateContractTests(unittest.TestCase):
             "evidence_ids": ["E-CALLER"],
         }
         errors = self.errors(states, self.edge_states())
-        self.assertTrue(any("Zielsymbol" in error for error in errors))
+        self.assertTrue(any("Incoming" in error for error in errors))
 
     def test_pep263_python_decoding(self) -> None:
         source = "# -*- coding: latin-1 -*-\ndef grüssen(name: str = 'Welt') -> str:\n    return 'Hallo ' + name\n"
@@ -226,25 +281,87 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any(row["qualified_name"] == "grüssen" for row in symbols))
         self.assertTrue(any(row["edge_kind"] == "annotation" for row in edges if row["path"] == "latin.py"))
 
-    def test_supplied_universe_binding_and_duplicates_rejected(self) -> None:
-        rows = [{
-            "feature_id": "FEAT-CONTRACT", "run_id": self.RUN,
-            "audited_commit": self.commit, "snapshot_id": self.SNAPSHOT,
-        }]
-        valid_ids, valid_errors = HARNESS.validate_reference_universe(
-            rows, "feature_id", "Featureuniversum", run_id=self.RUN,
-            audited_commit=self.commit, snapshot_id=self.SNAPSHOT,
+    def test_supplied_universe_laundering_rejected(self) -> None:
+        rows = copy.deepcopy(self.feature_records)
+        rows[0]["feature_id"] = "LAUNDERED"
+        _, errors = HARNESS.validate_artifact_universe(
+            rows, self.manifests["feature-catalog"], "feature-catalog", "catalog_id",
+            run_id=self.RUN, audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
         )
-        self.assertEqual({"FEAT-CONTRACT"}, valid_ids)
-        self.assertEqual([], valid_errors)
-        invalid = [copy.deepcopy(rows[0]), copy.deepcopy(rows[0])]
-        invalid[0]["audited_commit"] = "0" * 40
-        _, errors = HARNESS.validate_reference_universe(
-            invalid, "feature_id", "Featureuniversum", run_id=self.RUN,
-            audited_commit=self.commit, snapshot_id=self.SNAPSHOT,
+        self.assertTrue(any("Artefaktmanifest" in error for error in errors))
+        self.assertTrue(any("record_sha256" in error for error in errors))
+
+    def test_actual_incoming_edges_forbid_fake_entrypoint(self) -> None:
+        states = self.states()
+        target = next(row for row in states if row["qualified_name"] == "helper")
+        target["caller_contract"] = {
+            "kind": "entrypoint", "edge_ids": [], "evidence_ids": ["E-CALLER"],
+        }
+        errors = self.errors(states, self.edge_states())
+        self.assertTrue(any("kanonische Incoming" in error for error in errors))
+
+    def test_entrypoint_requires_explicit_canonical_trigger(self) -> None:
+        states = self.states()
+        target = next(
+            row for row in states
+            if not any(edge.get("target_symbol_id") == row["symbol_id"] for edge in self.edges)
         )
-        self.assertTrue(any("doppelt" in error for error in errors))
-        self.assertTrue(any("commit" in error for error in errors))
+        target["caller_contract"] = {
+            "kind": "entrypoint", "edge_ids": [], "evidence_ids": ["E-CALLER"],
+        }
+        self.assertTrue(any("ohne kanonischen Trigger" in error for error in self.errors(states, self.edge_states())))
+        trigger = HARNESS.seal_record({
+            "source_id": "TRIG-EXPLICIT", "source_kind": "entrypoint",
+            "path": target["path"], "detail": target["qualified_name"],
+            "target_symbol_id": target["symbol_id"], "run_id": self.RUN,
+            "audited_commit": self.commit, "tooling_commit": self.TOOLING,
+            "snapshot_id": self.SNAPSHOT,
+        })
+        self.trigger_records = [trigger]
+        self.manifests["trigger-catalog"] = HARNESS.make_artifact_manifest(
+            "trigger-catalog", self.trigger_records, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.assertEqual([], self.errors(states, self.edge_states()))
+
+    def test_powershell_calls_and_batch_call_source_are_canonical(self) -> None:
+        (self.repo / "ops.ps1").write_text(
+            "function B { if ($true) { Write-Output ok } }\n"
+            "function A { B }\nA\n",
+            encoding="utf-8",
+        )
+        (self.repo / "launch.cmd").write_text(
+            "@echo off\n:one\ncall :two\nexit /b\n:two\necho ok\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "ops.ps1", "launch.cmd"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "script calls"], cwd=self.repo, check=True)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        symbols, edges = HARNESS.enumerate_contract_universe(
+            self.repo, commit, self.RUN, self.SNAPSHOT
+        )
+        by_name = {row["qualified_name"]: row for row in symbols if row["path"] in {"ops.ps1", "launch.cmd"}}
+        ps_edge = next(row for row in edges if row["edge_kind"] == "powershell-call")
+        self.assertEqual(by_name["A"]["symbol_id"], ps_edge["source_symbol_id"])
+        self.assertEqual(by_name["B"]["symbol_id"], ps_edge["target_symbol_id"])
+        batch_edge = next(row for row in edges if row["edge_kind"] == "batch-call")
+        self.assertEqual(by_name["one"]["symbol_id"], batch_edge["source_symbol_id"])
+        self.assertEqual(by_name["two"]["symbol_id"], batch_edge["target_symbol_id"])
+
+    def test_invalid_structured_inputs_and_missing_batch_label_parse_stop(self) -> None:
+        cases = (
+            ("<ui>", ".ui", "broken.ui"),
+            ("THIS IS NOT SQL;", ".sql", "broken.sql"),
+        )
+        for text, suffix, path in cases:
+            with self.subTest(path=path), self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
+                HARNESS._parse_structured(text, suffix, path)
+        with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
+            HARNESS._parse_batch_units("@echo off\ncall :missing\n", "broken.cmd")
+        with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
+            HARNESS._parse_powershell("function Broken { if () { } }", "broken.ps1")
 
 
 if __name__ == "__main__":
