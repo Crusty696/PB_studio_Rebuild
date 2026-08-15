@@ -357,6 +357,12 @@ passieren.
    Kontext aus, erfasst Exit/Output/Postcondition/Trace und leitet Coverage aus
    Singleton-Featuretarget plus beobachteten Symbolen ab. Gehashte,
    selbstgeschriebene PASS-Dateien oder `covered_*`-Arrays sind kein Beleg.
+   Runtime-Autoritaet folgt Userentscheidung vom 2026-08-16: ein separater,
+   extern gepinnter `authority_commit` enthaelt den festen Policy-Gitblob und
+   autorisiert literal Auditcontract-Body-SHA, Plan-, Run-, Snapshot-, Audit-
+   und Toolingcommit-ID. Erzeugungsfolge ist `audited_commit` →
+   `tooling_commit` → Auditcontract → `authority_commit`; Policy im
+   `tooling_commit` mit Selbstreferenz oder `$SELF`-Sentinel ist verboten.
 4. `tools/audit_reviewer_roster.py`: Live-Enrollment gegen aktuelle
    Session-Registry und reale Worktrees vor deren Release; hashgebundene
    Session-Receipts fuer Finalgate. A/B gleiche Session oder direkte/indirekte
@@ -426,6 +432,13 @@ Kein Default-Ausschluss. Entscheidung in `exclusions.jsonl` und D-Decision.
   beweglichen Alias speichern.
 - `audit_contract.json` mit Snapshot-, Universums-, Roster-, Runtime- und
   Symbolhash sowie TTL versiegeln.
+- Auditcontract-Hash ist SHA-256 des kanonischen JSON-Bodys ohne Self-Hashfeld;
+  ein roher Datei-SHA wird, falls benoetigt, als getrennt benanntes Feld
+  behandelt und nie mit dem Body-SHA vermischt.
+- Runtime-Policy wird erst nach Toolingcommit und Auditcontract in einem
+  separaten `authority_commit` versiegelt. Runner/CLI erhalten diesen Commit
+  als externen Pin und lesen den festen Policy-Pfad ausschliesslich aus dessen
+  Gitobjekt. Contract oder CLI duerfen autorisierte IDs nicht selbst ersetzen.
 - Auditreader lesen Git-Objekte dieses Commits. Report-/Harness-/Dokumentations-
   commits aendern Auditobjekt nicht.
 - `delta_ledger.jsonl` bildet jede Pfadaenderung bis Integrations-HEAD exakt ab.

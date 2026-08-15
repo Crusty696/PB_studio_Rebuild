@@ -27,6 +27,36 @@ zwischen `audited_commit` und Integrations-HEAD steht in `delta_ledger.jsonl`.
 Produktrelevantes Delta oder abgelaufene TTL blockiert unqualifizierte
 Completion, bis neues Freeze/Rebase plus betroffene Revalidierung erfolgt.
 
+### Runtime authority policy (Userentscheidung 2026-08-16)
+
+Runtime-Commands duerfen den Auditcontract nicht durch ein frei mitgeliefertes
+CLI-Feld autorisieren. Ein separater, extern gepinnter `authority_commit`
+enthaelt am festen relativen Policy-Pfad exakt folgenden kanonischen Gitblob:
+
+```json
+{"schema_version":1,"audit_contract_sha256":"canonical-body-sha256","plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"RUN-001","snapshot_id":"sha256","audited_commit":"full-40-char-sha","tooling_commit":"full-40-char-sha","allow_same_audited_tooling_commit":false}
+```
+
+`audit_contract_sha256` ist immer SHA-256 des kanonischen Contractbodys ohne
+dessen Self-Hashfeld. Ein Hash der rohen Datei heisst ausdrücklich
+`audit_contract_file_sha256` und ist kein Ersatz fuer den Body-SHA.
+
+Erzeugungs- und Vertrauenskette:
+
+1. `audited_commit` einfrieren;
+2. `tooling_commit` mit Runner/Harnesses einfrieren;
+3. Auditcontract mit beiden IDs versiegeln;
+4. Policy mit Contract-Body-SHA und allen obigen IDs erzeugen;
+5. Policy in separatem `authority_commit` committen und dessen vollen SHA
+   ausserhalb von Contract/CLI als erwarteten Pin uebergeben.
+
+Der Policyblob enthaelt absichtlich nicht seinen eigenen `authority_commit`.
+Runner loest den extern erwarteten Commit kanonisch auf, liest nur
+`authority_commit:<fixed-policy-path>` und bindet Receipt an
+`authority_commit`, Policy-Gitblob-OID, Policybytes-SHA und Policy-Pfad.
+Policy im `tooling_commit`, `$SELF`-Sentinel oder vom Contract/CLI selbst
+gesetzte Autoritaetswerte sind unzulaessig und muessen fail-closed rot werden.
+
 ## delta_ledger.jsonl
 
 ```json
