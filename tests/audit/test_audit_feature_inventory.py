@@ -25,6 +25,10 @@ class GateContractTests(unittest.TestCase):
     RUN = "RUN-CONTRACT"
     SNAPSHOT = "SNAPSHOT-CONTRACT"
     TOOLING = "TOOLING-CONTRACT"
+    PLAN = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+    FROZEN = "2026-08-15T00:00:00+00:00"
+    SIGNED = "2026-08-15T12:00:00+00:00"
+    EXPIRES = "2099-08-16T00:00:00+00:00"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="pb-feature-contract-")
@@ -48,7 +52,8 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=self.repo, check=True)
         self.commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         self.requirements, self.triggers = HARNESS.enumerate_universes(
-            self.repo, self.commit, self.RUN, self.SNAPSHOT
+            self.repo, self.commit, self.RUN, self.SNAPSHOT,
+            tooling_commit=self.TOOLING, signed_at=self.FROZEN,
         )
         self.assertTrue(self.requirements)
         self.assertTrue(self.triggers)
@@ -57,6 +62,7 @@ class GateContractTests(unittest.TestCase):
             "feature_id": "FEAT-EXPORT", "path_id": "primary", "name": "Export",
             "source_ids": source_ids, "run_id": self.RUN, "audited_commit": self.commit,
             "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+            "signed_at": self.SIGNED,
         }
         catalog_core["catalog_id"] = "sha256:" + hashlib.sha256(
             json.dumps(catalog_core, sort_keys=True, separators=(",", ":")).encode()
@@ -66,14 +72,17 @@ class GateContractTests(unittest.TestCase):
             "reviewer_id": "REV-A", "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
             "snapshot_id": self.SNAPSHOT,
+            "signed_at": self.SIGNED,
         })]
         self.evidence = []
         for source in self.requirements + self.triggers:
             core = {
                 "source_id": source["source_id"], "feature_id": "FEAT-EXPORT",
                 "path_id": "primary", "reviewer_id": "REV-A",
+                "path": source["path"],
                 "source_blob_sha256": source["source_blob_sha256"],
-                "timestamp": "2026-08-15T12:00:00+00:00", "run_id": self.RUN,
+                "evidence_kind": "source-review", "proof_ref": f"proof/{source['source_id']}.json",
+                "signed_at": self.SIGNED, "run_id": self.RUN,
                 "audited_commit": self.commit, "tooling_commit": self.TOOLING,
                 "snapshot_id": self.SNAPSHOT,
             }
@@ -92,10 +101,49 @@ class GateContractTests(unittest.TestCase):
             snapshot_id=self.SNAPSHOT,
         )
         self.evidence_manifest = HARNESS.make_artifact_manifest(
-            "feature-evidence", self.evidence, run_id=self.RUN,
+            "feature-state-evidence", self.evidence, run_id=self.RUN,
             audited_commit=self.commit, tooling_commit=self.TOOLING,
             snapshot_id=self.SNAPSHOT,
         )
+        audit_artifacts = {
+            "requirements-universe": HARNESS.artifact_contract_entry(
+                self.requirements, "evidence/requirements.jsonl"
+            ),
+            "trigger-universe": HARNESS.artifact_contract_entry(
+                self.triggers, "evidence/triggers.jsonl"
+            ),
+            "feature-catalog": HARNESS.artifact_contract_entry(
+                self.feature_catalog, "evidence/features.jsonl"
+            ),
+        }
+        core = {
+            "schema_version": 1, "plan_id": self.PLAN, "run_id": self.RUN,
+            "audited_commit": self.commit, "tooling_commit": self.TOOLING,
+            "snapshot_id": self.SNAPSHOT, "frozen_at": self.FROZEN,
+            "expires_at": self.EXPIRES, "artifacts": audit_artifacts,
+        }
+        self.audit_contract = HARNESS.seal_audit_contract(core)
+        self.contract_sha = self.audit_contract["contract_sha256"]
+        evidence_core = {
+            "schema_version": 1, "plan_id": self.PLAN, "run_id": self.RUN,
+            "audited_commit": self.commit, "tooling_commit": self.TOOLING,
+            "snapshot_id": self.SNAPSHOT,
+            "audit_contract_sha256": self.contract_sha,
+            "completed_at": self.SIGNED,
+            "artifacts": {
+                "feature-state": HARNESS.artifact_contract_entry(
+                    self.dispositions(), "evidence/feature-state.jsonl"
+                ),
+                "feature-state-evidence": HARNESS.artifact_contract_entry(
+                    self.evidence, "evidence/feature-state-evidence.jsonl"
+                ),
+                "reviewer-roster": HARNESS.artifact_contract_entry(
+                    self.reviewers, "evidence/reviewers.jsonl"
+                ),
+            },
+        }
+        self.evidence_contract = HARNESS.seal_evidence_contract(evidence_core)
+        self.evidence_contract_sha = self.evidence_contract["evidence_contract_sha256"]
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -111,13 +159,14 @@ class GateContractTests(unittest.TestCase):
                     "source_id": item["source_id"],
                     "run_id": self.RUN,
                     "audited_commit": self.commit,
+                    "tooling_commit": self.TOOLING,
                     "snapshot_id": self.SNAPSHOT,
                     "universe_sha256": digest,
                     "disposition": "feature",
                     "feature_id": "FEAT-EXPORT",
                     "path_id": "primary",
                     "evidence_id": evidence[item["source_id"]]["evidence_id"],
-                    "reviewer_id": "REV-A", "signed_at": "2026-08-15T12:00:00+00:00",
+                    "reviewer_id": "REV-A", "signed_at": self.SIGNED,
                     "source_blob_sha256": item["source_blob_sha256"],
                 })
         return rows
@@ -130,12 +179,19 @@ class GateContractTests(unittest.TestCase):
             feature_catalog_manifest=self.feature_manifest,
             evidence_records=self.evidence, evidence_manifest=self.evidence_manifest,
             reviewer_records=self.reviewers, reviewer_manifest=self.reviewer_manifest,
+            audit_contract=self.audit_contract,
+            expected_contract_sha256=self.contract_sha,
+            evidence_contract=self.evidence_contract,
+            expected_evidence_contract_sha256=self.evidence_contract_sha,
         )
 
     def test_positive_minimal(self) -> None:
         before = (self.requirements, self.triggers)
         (self.repo / "app.py").write_text("raise RuntimeError('dirty')\n", encoding="utf-8")
-        after = HARNESS.enumerate_universes(self.repo, self.commit, self.RUN, self.SNAPSHOT)
+        after = HARNESS.enumerate_universes(
+            self.repo, self.commit, self.RUN, self.SNAPSHOT,
+            tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+        )
         self.assertEqual(before, after, "Enumerator darf Dirty-Workingtree nicht lesen")
         self.assertEqual([], self.errors(self.dispositions()))
 
@@ -151,7 +207,10 @@ class GateContractTests(unittest.TestCase):
             ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
         ).strip()
         with self.assertRaises(HARNESS.ContractError):
-            HARNESS.enumerate_universes(self.repo, bad_commit, self.RUN, self.SNAPSHOT)
+            HARNESS.enumerate_universes(
+                self.repo, bad_commit, self.RUN, self.SNAPSHOT,
+                tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+            )
 
     def test_tampered_binding_rejected(self) -> None:
         rows = self.dispositions()
@@ -190,6 +249,10 @@ class GateContractTests(unittest.TestCase):
             feature_catalog_manifest=self.feature_manifest,
             evidence_records=self.evidence, evidence_manifest=self.evidence_manifest,
             reviewer_records=self.reviewers, reviewer_manifest=self.reviewer_manifest,
+            audit_contract=self.audit_contract,
+            expected_contract_sha256=self.contract_sha,
+            evidence_contract=self.evidence_contract,
+            expected_evidence_contract_sha256=self.evidence_contract_sha,
         )
         self.assertTrue(any("leer" in error for error in errors))
 
@@ -197,7 +260,12 @@ class GateContractTests(unittest.TestCase):
         files = {
             "ops.ps1": "param([switch]$Force)\nfunction Invoke-Audit { Write-Output ok }\nInvoke-Audit\n",
             "launch.bat": "@echo off\ncall :run\n:run\necho ok\n",
-            "schema.sql": "CREATE TRIGGER audit_insert AFTER INSERT ON audit BEGIN SELECT 1; END;\n",
+            "schema.sql": (
+                "-- representative SQLite migration\n"
+                "CREATE TABLE audit(id INTEGER PRIMARY KEY);\n"
+                "CREATE INDEX ix_audit_id ON audit(id);\n"
+                "CREATE TRIGGER audit_insert AFTER INSERT ON audit BEGIN SELECT 1; END;\n"
+            ),
             "panel.ui": "<ui><widget class='QPushButton' name='runButton'><property name='text'><string>Run</string></property></widget><connections><connection><sender>runButton</sender><signal>clicked()</signal><receiver>window</receiver><slot>run()</slot></connection></connections></ui>",
             "de.ts": "<TS><context><message><source>Run export</source><translation>Export starten</translation></message></context></TS>",
             "config.json": '{"feature": {"enabled": true}}\n',
@@ -210,7 +278,8 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "non-python surfaces"], cwd=self.repo, check=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         requirements, triggers = HARNESS.enumerate_universes(
-            self.repo, commit, self.RUN, self.SNAPSHOT
+            self.repo, commit, self.RUN, self.SNAPSHOT,
+            tooling_commit=self.TOOLING, signed_at=self.FROZEN,
         )
         covered = {row["path"] for row in requirements + triggers}
         self.assertEqual(set(files), set(files) & covered)
@@ -226,7 +295,10 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "add", "latin.py"], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "pep263"], cwd=self.repo, check=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
-        requirements, _ = HARNESS.enumerate_universes(self.repo, commit, self.RUN, self.SNAPSHOT)
+        requirements, _ = HARNESS.enumerate_universes(
+            self.repo, commit, self.RUN, self.SNAPSHOT,
+            tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+        )
         self.assertTrue(any(row["path"] == "latin.py" and "Über" in row["detail"] for row in requirements))
 
     def test_foreign_feature_and_truthy_evidence_rejected(self) -> None:
@@ -258,7 +330,10 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "broken json"], cwd=self.repo, check=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
-            HARNESS.enumerate_universes(self.repo, commit, self.RUN, self.SNAPSHOT)
+            HARNESS.enumerate_universes(
+                self.repo, commit, self.RUN, self.SNAPSHOT,
+                tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+            )
 
     def test_unbalanced_powershell_is_parse_stop(self) -> None:
         (self.repo / "broken.ps1").write_text("function Broken { if ($true) {\n", encoding="utf-8")
@@ -266,7 +341,68 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "broken ps"], cwd=self.repo, check=True)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
-            HARNESS.enumerate_universes(self.repo, commit, self.RUN, self.SNAPSHOT)
+            HARNESS.enumerate_universes(
+                self.repo, commit, self.RUN, self.SNAPSHOT,
+                tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+            )
+
+    def test_contract_pin_future_ttl_and_evidence_schema_rejected(self) -> None:
+        evidence = copy.deepcopy(self.evidence)
+        evidence[0].pop("proof_ref")
+        evidence[0] = HARNESS.seal_record(evidence[0])
+        manifest = HARNESS.make_artifact_manifest(
+            "feature-state-evidence", evidence, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        errors = HARNESS.validate_exact_set(
+            self.requirements, self.triggers, self.dispositions(), run_id=self.RUN,
+            audited_commit=self.commit, snapshot_id=self.SNAPSHOT,
+            tooling_commit=self.TOOLING, feature_catalog=self.feature_catalog,
+            feature_catalog_manifest=self.feature_manifest, evidence_records=evidence,
+            evidence_manifest=manifest, reviewer_records=self.reviewers,
+            reviewer_manifest=self.reviewer_manifest, audit_contract=self.audit_contract,
+            expected_contract_sha256=self.contract_sha,
+            evidence_contract=self.evidence_contract,
+            expected_evidence_contract_sha256=self.evidence_contract_sha,
+        )
+        self.assertTrue(any("proof_ref" in error for error in errors))
+        future = self.dispositions()
+        future[0]["signed_at"] = "2100-01-01T00:00:00+00:00"
+        self.assertTrue(any("Zeitgrenze" in error for error in self.errors(future)))
+        expired = copy.deepcopy(self.audit_contract)
+        expired["frozen_at"] = "1999-01-01T00:00:00+00:00"
+        expired["expires_at"] = "2000-01-01T00:00:00+00:00"
+        expired = HARNESS.seal_audit_contract({
+            key: value for key, value in expired.items() if key != "contract_sha256"
+        })
+        contract_errors = HARNESS.validate_audit_contract(
+            expired, expired["contract_sha256"], plan_id=self.PLAN,
+            run_id=self.RUN, audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.assertTrue(any("abgelaufen" in error for error in contract_errors))
+
+    def test_simultaneous_records_manifest_and_contract_substitution_rejected(self) -> None:
+        catalog = copy.deepcopy(self.feature_catalog)
+        catalog[0]["name"] = "Substituted"
+        catalog[0]["catalog_id"] = "sha256:" + hashlib.sha256(HARNESS._canonical(
+            {key: value for key, value in catalog[0].items() if key not in {"catalog_id", "record_sha256"}}
+        )).hexdigest()
+        catalog[0] = HARNESS.seal_record(catalog[0])
+        contract = copy.deepcopy(self.audit_contract)
+        contract["artifacts"]["feature-catalog"] = HARNESS.artifact_contract_entry(
+            catalog, "evidence/features.jsonl"
+        )
+        contract = HARNESS.seal_audit_contract({
+            key: value for key, value in contract.items() if key != "contract_sha256"
+        })
+        errors = HARNESS.validate_audit_contract(
+            contract, self.contract_sha, plan_id=self.PLAN, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.assertTrue(any("externe Contract-SHA" in error for error in errors))
 
     def test_invalid_xml_and_sql_are_parse_stops(self) -> None:
         with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
@@ -287,6 +423,48 @@ class GateContractTests(unittest.TestCase):
     def test_balanced_but_invalid_powershell_is_parse_stop(self) -> None:
         with self.assertRaisesRegex(HARNESS.ContractError, "parser_error"):
             HARNESS._parse_powershell("function Broken { if () { } }", "broken.ps1")
+
+    def test_cli_requires_externally_pinned_contracts(self) -> None:
+        files = {
+            "requirements": self.requirements, "triggers": self.triggers,
+            "dispositions": self.dispositions(), "features": self.feature_catalog,
+            "evidence": self.evidence, "reviewers": self.reviewers,
+        }
+        paths = {name: self.repo / f"{name}.jsonl" for name in files}
+        for name, rows in files.items():
+            HARNESS._write_jsonl(paths[name], rows)
+        json_files = {
+            "feature-manifest": self.feature_manifest,
+            "evidence-manifest": self.evidence_manifest,
+            "reviewer-manifest": self.reviewer_manifest,
+            "audit-contract": self.audit_contract,
+            "evidence-contract": self.evidence_contract,
+        }
+        json_paths = {name: self.repo / f"{name}.json" for name in json_files}
+        for name, value in json_files.items():
+            json_paths[name].write_text(json.dumps(value), encoding="utf-8")
+        args = [
+            "validate", "--root", str(self.repo), "--audited-commit", self.commit,
+            "--run-id", self.RUN, "--snapshot-id", self.SNAPSHOT,
+            "--requirements", str(paths["requirements"]), "--triggers", str(paths["triggers"]),
+            "--dispositions", str(paths["dispositions"]), "--tooling-commit", self.TOOLING,
+            "--feature-catalog", str(paths["features"]),
+            "--feature-catalog-manifest", str(json_paths["feature-manifest"]),
+            "--evidence-records", str(paths["evidence"]),
+            "--evidence-manifest", str(json_paths["evidence-manifest"]),
+            "--reviewer-records", str(paths["reviewers"]),
+            "--reviewer-manifest", str(json_paths["reviewer-manifest"]),
+            "--audit-contract", str(json_paths["audit-contract"]),
+            "--expected-audit-contract-sha256", self.contract_sha,
+            "--evidence-contract", str(json_paths["evidence-contract"]),
+            "--expected-evidence-contract-sha256", self.evidence_contract_sha,
+        ]
+        self.assertEqual(0, HARNESS.main(args))
+        missing_external_pin = args.copy()
+        index = missing_external_pin.index("--expected-audit-contract-sha256")
+        del missing_external_pin[index:index + 2]
+        with self.assertRaises(SystemExit):
+            HARNESS.main(missing_external_pin)
 
 
 if __name__ == "__main__":

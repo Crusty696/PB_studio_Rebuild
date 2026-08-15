@@ -16,17 +16,20 @@ import io
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tokenize
 import tomllib
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
 DISPOSITIONS = {"feature", "support", "dead-candidate"}
+PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+SUPPORTED_SQL_DIALECT = "sqlite"
 NORMATIVE = re.compile(
     r"\b(muss|muessen|müssen|pflicht|required|must|shall|darf\s+nicht|forbidden)\b",
     re.IGNORECASE,
@@ -91,15 +94,187 @@ def make_artifact_manifest(
     kind: str, records: list[dict[str, Any]], *, run_id: str,
     audited_commit: str, tooling_commit: str, snapshot_id: str,
 ) -> dict[str, Any]:
-    records_sha = _sha(b"\n".join(_canonical(row) for row in records))
+    records_sha = _sha(b"".join(_canonical(row) + b"\n" for row in records))
     manifest = {
         "schema_version": 1, "kind": kind, "run_id": run_id,
         "audited_commit": audited_commit, "tooling_commit": tooling_commit,
         "snapshot_id": snapshot_id, "record_count": len(records),
         "records_sha256": records_sha,
     }
-    manifest["artifact_id"] = "sha256:" + _sha(_canonical(manifest))
+    manifest["artifact_id"] = "sha256:" + records_sha
     return manifest
+
+
+def _jsonl_bytes(records: list[dict[str, Any]]) -> bytes:
+    return b"".join(_canonical(row) + b"\n" for row in records)
+
+
+def artifact_contract_entry(records: list[dict[str, Any]], ref: str) -> dict[str, Any]:
+    data = _jsonl_bytes(records)
+    digest = _sha(data)
+    return {
+        "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
+        "bytes": len(data), "record_count": len(records),
+    }
+
+
+def seal_audit_contract(core: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(core)
+    contract["contract_sha256"] = _sha(_canonical(_without(contract, "contract_sha256")))
+    return contract
+
+
+def seal_evidence_contract(core: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(core)
+    contract["evidence_contract_sha256"] = _sha(
+        _canonical(_without(contract, "evidence_contract_sha256"))
+    )
+    return contract
+
+
+def _timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _safe_ref(value: object) -> bool:
+    if not isinstance(value, str) or not value or "\\" in value:
+        return False
+    path = PurePosixPath(value)
+    return not path.is_absolute() and ".." not in path.parts
+
+
+def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
+    if not isinstance(artifacts, dict) or not artifacts:
+        return [f"{label}: artifacts fehlt/leer"]
+    errors: list[str] = []
+    for key, entry in artifacts.items():
+        row_label = f"{label}/{key}"
+        if not isinstance(key, str) or not key or not isinstance(entry, dict):
+            errors.append(f"{row_label}: Artifacteintrag ungueltig")
+            continue
+        expected_fields = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
+        if set(entry) != expected_fields:
+            errors.append(f"{row_label}: Artifactfelder nicht exakt")
+        digest = entry.get("sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            errors.append(f"{row_label}: sha256 ungueltig")
+        if entry.get("artifact_id") != f"sha256:{digest}":
+            errors.append(f"{row_label}: artifact_id ungueltig")
+        if not _safe_ref(entry.get("ref")):
+            errors.append(f"{row_label}: ref nicht sicher/relativ")
+        if not isinstance(entry.get("bytes"), int) or entry.get("bytes", -1) < 0:
+            errors.append(f"{row_label}: bytes ungueltig")
+        if not isinstance(entry.get("record_count"), int) or entry.get("record_count", -1) < 0:
+            errors.append(f"{row_label}: record_count ungueltig")
+    return errors
+
+
+def validate_audit_contract(
+    contract: dict[str, Any], expected_contract_sha256: str, *, plan_id: str,
+    run_id: str, audited_commit: str, tooling_commit: str, snapshot_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    expected_fields = {
+        "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+        "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
+    }
+    if set(contract) != expected_fields:
+        errors.append("audit_contract: Felder nicht exakt")
+    actual = _sha(_canonical(_without(contract, "contract_sha256")))
+    if contract.get("contract_sha256") != actual:
+        errors.append("audit_contract: self contract_sha256 falsch")
+    if expected_contract_sha256 != actual:
+        errors.append("audit_contract: externe Contract-SHA weicht ab")
+    for field, value in (
+        ("schema_version", 1), ("plan_id", plan_id), ("run_id", run_id),
+        ("audited_commit", audited_commit), ("tooling_commit", tooling_commit),
+        ("snapshot_id", snapshot_id),
+    ):
+        if contract.get(field) != value:
+            errors.append(f"audit_contract: {field} falsch")
+    frozen = _timestamp(contract.get("frozen_at"))
+    expires = _timestamp(contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    if frozen is None or expires is None or frozen >= expires:
+        errors.append("audit_contract: frozen_at/expires_at ungueltig")
+    elif frozen > now:
+        errors.append("audit_contract: frozen_at liegt in Zukunft")
+    elif now > expires:
+        errors.append("audit_contract: TTL abgelaufen")
+    errors.extend(_validate_artifact_entries(contract.get("artifacts"), "audit_contract"))
+    return errors
+
+
+def validate_evidence_contract(
+    contract: dict[str, Any], expected_sha256: str, audit_contract: dict[str, Any], *,
+    plan_id: str, run_id: str, audited_commit: str, tooling_commit: str,
+    snapshot_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    expected_fields = {
+        "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+        "snapshot_id", "audit_contract_sha256", "completed_at", "artifacts",
+        "evidence_contract_sha256",
+    }
+    if set(contract) != expected_fields:
+        errors.append("evidence_contract: Felder nicht exakt")
+    actual = _sha(_canonical(_without(contract, "evidence_contract_sha256")))
+    if contract.get("evidence_contract_sha256") != actual:
+        errors.append("evidence_contract: self evidence_contract_sha256 falsch")
+    if expected_sha256 != actual:
+        errors.append("evidence_contract: externe Contract-SHA weicht ab")
+    for field, value in (
+        ("schema_version", 1), ("plan_id", plan_id), ("run_id", run_id),
+        ("audited_commit", audited_commit), ("tooling_commit", tooling_commit),
+        ("snapshot_id", snapshot_id),
+        ("audit_contract_sha256", audit_contract.get("contract_sha256")),
+    ):
+        if contract.get(field) != value:
+            errors.append(f"evidence_contract: {field} falsch")
+    completed = _timestamp(contract.get("completed_at"))
+    frozen = _timestamp(audit_contract.get("frozen_at"))
+    expires = _timestamp(audit_contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    if completed is None or frozen is None or expires is None or not (frozen <= completed <= expires and completed <= now):
+        errors.append("evidence_contract: completed_at ausser Zeitgrenze")
+    errors.extend(_validate_artifact_entries(contract.get("artifacts"), "evidence_contract"))
+    return errors
+
+
+def _artifact_binding_errors(
+    records: list[dict[str, Any]], contract: dict[str, Any], key: str, label: str,
+) -> list[str]:
+    artifacts = contract.get("artifacts")
+    expected = artifacts.get(key) if isinstance(artifacts, dict) else None
+    if expected != artifact_contract_entry(records, str(expected.get("ref", "")) if isinstance(expected, dict) else ""):
+        return [f"{label}: Contract-Artefaktbindung falsch"]
+    return []
+
+
+def _record_time_errors(
+    records: list[dict[str, Any]], audit_contract: dict[str, Any], label: str,
+    completed_at: object | None = None,
+) -> list[str]:
+    frozen = _timestamp(audit_contract.get("frozen_at"))
+    expires = _timestamp(audit_contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    completed = _timestamp(completed_at) if completed_at is not None else None
+    errors: list[str] = []
+    for number, row in enumerate(records, 1):
+        signed = _timestamp(row.get("signed_at"))
+        if (
+            signed is None or frozen is None or expires is None
+            or not (frozen <= signed <= expires and signed <= now)
+            or (completed_at is not None and (completed is None or signed > completed))
+        ):
+            errors.append(f"{label} Zeile {number}: signed_at ausser Zeitgrenze")
+    return errors
 
 
 def validate_artifact(
@@ -130,7 +305,7 @@ def validate_artifact(
             )
             if item_id != expected_id:
                 errors.append(f"{label}: catalog_id nicht inhaltsadressiert")
-        if kind == "feature-evidence":
+        if kind == "feature-state-evidence":
             expected_id = "sha256:" + _sha(
                 _canonical(_without(row, "evidence_id", "record_sha256"))
             )
@@ -217,13 +392,16 @@ def _sql_statements(text: str, path: str) -> list[str]:
 
 
 def _parse_sql(text: str, path: str) -> None:
-    statements = _sql_statements(text, path)
-    allowed = re.compile(
-        r"^(?:--[^\n]*\n\s*)*(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|PRAGMA|WITH|BEGIN|END|COMMIT|ROLLBACK)\b",
-        re.IGNORECASE,
-    )
-    if not statements or any(not allowed.match(statement) for statement in statements):
-        raise ContractError(f"parser_error:{path}: nicht unterstuetzte SQL-Grammatik")
+    meaningful = re.sub(r"--[^\n]*(?:\n|$)|/\*.*?\*/", "", text, flags=re.DOTALL).strip()
+    if not meaningful:
+        raise ContractError(f"parser_error:{path}: leeres SQLite-Skript")
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(text)
+    except sqlite3.Error as exc:
+        raise ContractError(f"parser_error:{path}: sqlite: {exc}") from exc
+    finally:
+        connection.close()
 
 
 def _parse_xml(text: str, path: str) -> ET.Element:
@@ -251,7 +429,7 @@ def _parse_batch(text: str, path: str) -> None:
 
 
 def _parse_powershell(text: str, path: str) -> None:
-    executable = shutil.which("pwsh") or shutil.which("powershell")
+    executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
         raise ContractError(f"parser_error:{path}: PowerShell-AST-Parser fehlt")
     parser_script = (
@@ -345,6 +523,7 @@ def _locator_id(prefix: str, kind: str, path: str, line: int, column: int, detai
 def _bound_row(
     *, source_id: str, source_kind: str, path: str, line: int, column: int,
     detail: str, blob_sha: str, run_id: str, audited_commit: str, snapshot_id: str,
+    tooling_commit: str, signed_at: str,
 ) -> dict[str, Any]:
     return {
         "source_id": source_id,
@@ -356,12 +535,15 @@ def _bound_row(
         "source_blob_sha256": blob_sha,
         "run_id": run_id,
         "audited_commit": audited_commit,
+        "tooling_commit": tooling_commit,
         "snapshot_id": snapshot_id,
+        "signed_at": signed_at,
     }
 
 
 def enumerate_universes(
-    root: Path, audited_commit: str, run_id: str, snapshot_id: str,
+    root: Path, audited_commit: str, run_id: str, snapshot_id: str, *,
+    tooling_commit: str, signed_at: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read Git blobs, never working-tree content."""
     root = root.resolve()
@@ -377,7 +559,8 @@ def enumerate_universes(
             source_id=_locator_id(prefix, kind, path, line, column, detail),
             source_kind=kind, path=path, line=line, column=column, detail=detail,
             blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
-            snapshot_id=snapshot_id,
+            snapshot_id=snapshot_id, tooling_commit=tooling_commit,
+            signed_at=signed_at,
         ))
 
     for path in _tracked_paths(root, commit):
@@ -416,6 +599,7 @@ def enumerate_universes(
                         source_id=source_id, source_kind=source_kind, path=path,
                         line=number, column=0, detail=normalized, blob_sha=blob_sha,
                         run_id=run_id, audited_commit=commit, snapshot_id=snapshot_id,
+                        tooling_commit=tooling_commit, signed_at=signed_at,
                     ))
             if suffix != ".py":
                 continue
@@ -468,7 +652,7 @@ def enumerate_universes(
             if not found:
                 append_row(
                     requirements, "REQ", "sql-schema-unit", path, 1, 0,
-                    f"schema:{blob_sha}", blob_sha,
+                    f"schema:{SUPPORTED_SQL_DIALECT}:{blob_sha}", blob_sha,
                 )
             continue
 
@@ -523,7 +707,8 @@ def enumerate_universes(
                         source_id=source_id, source_kind=kind, path=path,
                         line=node.lineno, column=node.col_offset, detail=f"{name}:{label}",
                         blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
-                        snapshot_id=snapshot_id,
+                        snapshot_id=snapshot_id, tooling_commit=tooling_commit,
+                        signed_at=signed_at,
                     ))
                 if name in INTERACTIVE_UI_CALLS:
                     kind = "qt-ui-surface"
@@ -546,7 +731,8 @@ def enumerate_universes(
                         source_id=source_id, source_kind=kind, path=path,
                         line=node.lineno, column=node.col_offset, detail=detail,
                         blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
-                        snapshot_id=snapshot_id,
+                        snapshot_id=snapshot_id, tooling_commit=tooling_commit,
+                        signed_at=signed_at,
                     ))
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name in LIFECYCLE_NAMES:
@@ -556,7 +742,8 @@ def enumerate_universes(
                         source_id=source_id, source_kind=kind, path=path,
                         line=node.lineno, column=node.col_offset, detail=node.name,
                         blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
-                        snapshot_id=snapshot_id,
+                        snapshot_id=snapshot_id, tooling_commit=tooling_commit,
+                        signed_at=signed_at,
                     ))
                 for decorator in node.decorator_list:
                     rendered = ast.unparse(decorator) if hasattr(ast, "unparse") else ast.dump(decorator)
@@ -567,7 +754,8 @@ def enumerate_universes(
                             source_id=source_id, source_kind=kind, path=path,
                             line=node.lineno, column=node.col_offset, detail=rendered,
                             blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
-                            snapshot_id=snapshot_id,
+                            snapshot_id=snapshot_id, tooling_commit=tooling_commit,
+                            signed_at=signed_at,
                         ))
         if re.search(r"^\s*if\s+__name__\s*==\s*['\"]__main__['\"]\s*:", text, re.MULTILINE):
             for number, line in enumerate(text.splitlines(), 1):
@@ -578,6 +766,7 @@ def enumerate_universes(
                         source_id=source_id, source_kind=kind, path=path, line=number,
                         column=0, detail="__main__", blob_sha=blob_sha, run_id=run_id,
                         audited_commit=commit, snapshot_id=snapshot_id,
+                        tooling_commit=tooling_commit, signed_at=signed_at,
                     ))
                     break
     return (
@@ -597,8 +786,33 @@ def validate_exact_set(
     feature_catalog: list[dict[str, Any]], feature_catalog_manifest: dict[str, Any],
     evidence_records: list[dict[str, Any]], evidence_manifest: dict[str, Any],
     reviewer_records: list[dict[str, Any]], reviewer_manifest: dict[str, Any],
+    audit_contract: dict[str, Any], expected_contract_sha256: str,
+    evidence_contract: dict[str, Any], expected_evidence_contract_sha256: str,
 ) -> list[str]:
     errors: list[str] = []
+    errors.extend(validate_audit_contract(
+        audit_contract, expected_contract_sha256, plan_id=PLAN_ID, run_id=run_id,
+        audited_commit=audited_commit, tooling_commit=tooling_commit,
+        snapshot_id=snapshot_id,
+    ))
+    errors.extend(validate_evidence_contract(
+        evidence_contract, expected_evidence_contract_sha256, audit_contract,
+        plan_id=PLAN_ID, run_id=run_id, audited_commit=audited_commit,
+        tooling_commit=tooling_commit, snapshot_id=snapshot_id,
+    ))
+    for records, contract, key, label, is_output in (
+        (expected_requirements, audit_contract, "requirements-universe", "Requirements", False),
+        (expected_triggers, audit_contract, "trigger-universe", "Trigger", False),
+        (feature_catalog, audit_contract, "feature-catalog", "Featurekatalog", False),
+        (dispositions, evidence_contract, "feature-state", "Feature-State", True),
+        (evidence_records, evidence_contract, "feature-state-evidence", "Feature-Evidence", True),
+        (reviewer_records, evidence_contract, "reviewer-roster", "Reviewer-Roster", True),
+    ):
+        errors.extend(_artifact_binding_errors(records, contract, key, label))
+        errors.extend(_record_time_errors(
+            records, audit_contract, label,
+            evidence_contract.get("completed_at") if is_output else None,
+        ))
     universes = {"requirement": expected_requirements, "trigger": expected_triggers}
     expected: dict[tuple[str, str], dict[str, Any]] = {}
     digests = {kind: universe_digest(rows) for kind, rows in universes.items()}
@@ -608,7 +822,7 @@ def validate_exact_set(
         snapshot_id=snapshot_id,
     )
     evidence_by_id, evidence_errors = validate_artifact(
-        evidence_records, evidence_manifest, "feature-evidence", "evidence_id",
+        evidence_records, evidence_manifest, "feature-state-evidence", "evidence_id",
         run_id=run_id, audited_commit=audited_commit, tooling_commit=tooling_commit,
         snapshot_id=snapshot_id,
     )
@@ -618,6 +832,26 @@ def validate_exact_set(
         snapshot_id=snapshot_id,
     )
     errors.extend(feature_errors + evidence_errors + reviewer_errors)
+    for number, row in enumerate(evidence_records, 1):
+        allowed = {
+            "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
+            "reviewer_id", "path", "source_blob_sha256", "signed_at", "proof_ref",
+            "artifact_ref", "run_id", "audited_commit", "tooling_commit", "snapshot_id",
+            "record_sha256",
+        }
+        if set(row) - allowed or len({"proof_ref", "artifact_ref"} & set(row)) != 1:
+            errors.append(f"Feature-Evidence Zeile {number}: Schemafelder nicht exakt")
+        for field in (
+            "evidence_kind", "source_id", "feature_id", "path_id", "reviewer_id",
+            "path", "source_blob_sha256", "signed_at",
+        ):
+            if not row.get(field):
+                errors.append(f"Feature-Evidence Zeile {number}: {field} fehlt")
+        proof_ref = row.get("proof_ref") or row.get("artifact_ref")
+        if not _safe_ref(proof_ref):
+            errors.append(f"Feature-Evidence Zeile {number}: proof_ref/artifact_ref ungueltig")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("source_blob_sha256", ""))):
+            errors.append(f"Feature-Evidence Zeile {number}: source_blob_sha256 ungueltig")
     feature_pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for row in features_by_id.values():
         pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
@@ -634,7 +868,12 @@ def validate_exact_set(
             if not key[1] or key in expected:
                 errors.append(f"{kind}-Universum enthaelt fehlende/doppelte source_id")
             expected[key] = row
-            if row.get("run_id") != run_id or row.get("audited_commit") != audited_commit or row.get("snapshot_id") != snapshot_id:
+            if (
+                row.get("run_id") != run_id
+                or row.get("audited_commit") != audited_commit
+                or row.get("tooling_commit") != tooling_commit
+                or row.get("snapshot_id") != snapshot_id
+            ):
                 errors.append(f"{kind}/{key[1]}: Universumsbindung manipuliert")
 
     seen: set[tuple[str, str]] = set()
@@ -647,7 +886,12 @@ def validate_exact_set(
         seen.add(key)
         if key not in expected:
             errors.append(f"Disposition Zeile {number}: fremde ID {key!r}")
-        if row.get("run_id") != run_id or row.get("audited_commit") != audited_commit or row.get("snapshot_id") != snapshot_id:
+        if (
+            row.get("run_id") != run_id
+            or row.get("audited_commit") != audited_commit
+            or row.get("tooling_commit") != tooling_commit
+            or row.get("snapshot_id") != snapshot_id
+        ):
             errors.append(f"Disposition Zeile {number}: Run-/Commit-/Snapshotbindung falsch")
         if row.get("universe_sha256") != digests.get(kind):
             errors.append(f"Disposition Zeile {number}: Universumshash falsch")
@@ -675,8 +919,9 @@ def validate_exact_set(
             for field, value in (
                 ("source_id", source_id), ("feature_id", pair[0]), ("path_id", pair[1]),
                 ("reviewer_id", row.get("reviewer_id")),
+                ("path", source.get("path") if source is not None else None),
                 ("source_blob_sha256", row.get("source_blob_sha256")),
-                ("timestamp", row.get("signed_at")),
+                ("signed_at", row.get("signed_at")),
             ):
                 if evidence.get(field) != value:
                     errors.append(f"Disposition Zeile {number}: Evidence-{field} falsch")
@@ -715,6 +960,8 @@ def main(argv: list[str] | None = None) -> int:
     enum.add_argument("--audited-commit", required=True)
     enum.add_argument("--run-id", required=True)
     enum.add_argument("--snapshot-id", required=True)
+    enum.add_argument("--signed-at", required=True)
+    enum.add_argument("--tooling-commit", required=True)
     enum.add_argument("--requirements-out", type=Path, required=True)
     enum.add_argument("--triggers-out", type=Path, required=True)
     verify = sub.add_parser("validate")
@@ -732,10 +979,20 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--evidence-manifest", type=Path, required=True)
     verify.add_argument("--reviewer-records", type=Path, required=True)
     verify.add_argument("--reviewer-manifest", type=Path, required=True)
+    verify.add_argument("--audit-contract", type=Path, required=True)
+    verify.add_argument("--expected-audit-contract-sha256", required=True)
+    verify.add_argument("--evidence-contract", type=Path, required=True)
+    verify.add_argument("--expected-evidence-contract-sha256", required=True)
     args = parser.parse_args(argv)
     try:
+        signed_at = args.signed_at if args.command == "enumerate" else json.loads(
+            args.audit_contract.read_text(encoding="utf-8")
+        ).get("frozen_at")
+        if not isinstance(signed_at, str):
+            raise ContractError("audit_contract.frozen_at fehlt")
         requirements, triggers = enumerate_universes(
             args.root, args.audited_commit, args.run_id, args.snapshot_id,
+            tooling_commit=args.tooling_commit, signed_at=signed_at,
         )
         if args.command == "enumerate":
             _write_jsonl(args.requirements_out, requirements)
@@ -753,6 +1010,8 @@ def main(argv: list[str] | None = None) -> int:
             errors.append("Requirements-Universum weicht von kanonischer Gitobjekt-Enumeration ab")
         if supplied_triggers != triggers:
             errors.append("Trigger-Universum weicht von kanonischer Gitobjekt-Enumeration ab")
+        audit_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+        evidence_contract = json.loads(args.evidence_contract.read_text(encoding="utf-8"))
         errors.extend(validate_exact_set(
             requirements, triggers, _read_jsonl(args.dispositions), run_id=args.run_id,
             audited_commit=resolve_commit(args.root.resolve(), args.audited_commit),
@@ -763,6 +1022,10 @@ def main(argv: list[str] | None = None) -> int:
             evidence_manifest=json.loads(args.evidence_manifest.read_text(encoding="utf-8")),
             reviewer_records=_read_jsonl(args.reviewer_records),
             reviewer_manifest=json.loads(args.reviewer_manifest.read_text(encoding="utf-8")),
+            audit_contract=audit_contract,
+            expected_contract_sha256=args.expected_audit_contract_sha256,
+            evidence_contract=evidence_contract,
+            expected_evidence_contract_sha256=args.expected_evidence_contract_sha256,
         ))
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
         return 0 if not errors else 2

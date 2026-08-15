@@ -10,18 +10,22 @@ import io
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tokenize
 import tomllib
 import xml.etree.ElementTree as ET
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
 CONTRACT_KEYS = ("inputs", "outputs", "side_effects", "errors", "config", "persistence")
 EDGE_DISPOSITIONS = {"resolved", "dynamic", "framework", "unreferenced", "unknown"}
 SYMBOL_DISPOSITIONS = {"runtime", "non-runtime", "unknown"}
+PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+SUPPORTED_SQL_DIALECT = "sqlite"
 
 
 class ContractError(RuntimeError):
@@ -54,10 +58,182 @@ def make_artifact_manifest(
         "schema_version": 1, "kind": kind, "run_id": run_id,
         "audited_commit": audited_commit, "tooling_commit": tooling_commit,
         "snapshot_id": snapshot_id, "record_count": len(records),
-        "records_sha256": _sha(b"\n".join(_canonical(row) for row in records)),
+        "records_sha256": _sha(b"".join(_canonical(row) + b"\n" for row in records)),
     }
-    manifest["artifact_id"] = "sha256:" + _sha(_canonical(manifest))
+    manifest["artifact_id"] = "sha256:" + manifest["records_sha256"]
     return manifest
+
+
+def _jsonl_bytes(records: list[dict[str, Any]]) -> bytes:
+    return b"".join(_canonical(row) + b"\n" for row in records)
+
+
+def artifact_contract_entry(records: list[dict[str, Any]], ref: str) -> dict[str, Any]:
+    data = _jsonl_bytes(records)
+    digest = _sha(data)
+    return {
+        "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
+        "bytes": len(data), "record_count": len(records),
+    }
+
+
+def seal_audit_contract(core: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(core)
+    contract["contract_sha256"] = _sha(_canonical(_without(contract, "contract_sha256")))
+    return contract
+
+
+def seal_evidence_contract(core: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(core)
+    contract["evidence_contract_sha256"] = _sha(
+        _canonical(_without(contract, "evidence_contract_sha256"))
+    )
+    return contract
+
+
+def _timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _safe_ref(value: object) -> bool:
+    if not isinstance(value, str) or not value or "\\" in value:
+        return False
+    path = PurePosixPath(value)
+    return not path.is_absolute() and ".." not in path.parts
+
+
+def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
+    if not isinstance(artifacts, dict) or not artifacts:
+        return [f"{label}: artifacts fehlt/leer"]
+    errors: list[str] = []
+    for key, entry in artifacts.items():
+        row_label = f"{label}/{key}"
+        if not isinstance(key, str) or not key or not isinstance(entry, dict):
+            errors.append(f"{row_label}: Artifacteintrag ungueltig")
+            continue
+        if set(entry) != {"artifact_id", "ref", "sha256", "bytes", "record_count"}:
+            errors.append(f"{row_label}: Artifactfelder nicht exakt")
+        digest = entry.get("sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            errors.append(f"{row_label}: sha256 ungueltig")
+        if entry.get("artifact_id") != f"sha256:{digest}":
+            errors.append(f"{row_label}: artifact_id ungueltig")
+        if not _safe_ref(entry.get("ref")):
+            errors.append(f"{row_label}: ref nicht sicher/relativ")
+        if not isinstance(entry.get("bytes"), int) or entry.get("bytes", -1) < 0:
+            errors.append(f"{row_label}: bytes ungueltig")
+        if not isinstance(entry.get("record_count"), int) or entry.get("record_count", -1) < 0:
+            errors.append(f"{row_label}: record_count ungueltig")
+    return errors
+
+
+def validate_audit_contract(
+    contract: dict[str, Any], expected_contract_sha256: str, *, plan_id: str,
+    run_id: str, audited_commit: str, tooling_commit: str, snapshot_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    expected_fields = {
+        "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+        "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
+    }
+    if set(contract) != expected_fields:
+        errors.append("audit_contract: Felder nicht exakt")
+    actual = _sha(_canonical(_without(contract, "contract_sha256")))
+    if contract.get("contract_sha256") != actual:
+        errors.append("audit_contract: self contract_sha256 falsch")
+    if expected_contract_sha256 != actual:
+        errors.append("audit_contract: externe Contract-SHA weicht ab")
+    for field, value in (
+        ("schema_version", 1), ("plan_id", plan_id), ("run_id", run_id),
+        ("audited_commit", audited_commit), ("tooling_commit", tooling_commit),
+        ("snapshot_id", snapshot_id),
+    ):
+        if contract.get(field) != value:
+            errors.append(f"audit_contract: {field} falsch")
+    frozen = _timestamp(contract.get("frozen_at"))
+    expires = _timestamp(contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    if frozen is None or expires is None or frozen >= expires:
+        errors.append("audit_contract: frozen_at/expires_at ungueltig")
+    elif frozen > now:
+        errors.append("audit_contract: frozen_at liegt in Zukunft")
+    elif now > expires:
+        errors.append("audit_contract: TTL abgelaufen")
+    errors.extend(_validate_artifact_entries(contract.get("artifacts"), "audit_contract"))
+    return errors
+
+
+def validate_evidence_contract(
+    contract: dict[str, Any], expected_sha256: str, audit_contract: dict[str, Any], *,
+    plan_id: str, run_id: str, audited_commit: str, tooling_commit: str,
+    snapshot_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    expected_fields = {
+        "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+        "snapshot_id", "audit_contract_sha256", "completed_at", "artifacts",
+        "evidence_contract_sha256",
+    }
+    if set(contract) != expected_fields:
+        errors.append("evidence_contract: Felder nicht exakt")
+    actual = _sha(_canonical(_without(contract, "evidence_contract_sha256")))
+    if contract.get("evidence_contract_sha256") != actual:
+        errors.append("evidence_contract: self evidence_contract_sha256 falsch")
+    if expected_sha256 != actual:
+        errors.append("evidence_contract: externe Contract-SHA weicht ab")
+    for field, value in (
+        ("schema_version", 1), ("plan_id", plan_id), ("run_id", run_id),
+        ("audited_commit", audited_commit), ("tooling_commit", tooling_commit),
+        ("snapshot_id", snapshot_id),
+        ("audit_contract_sha256", audit_contract.get("contract_sha256")),
+    ):
+        if contract.get(field) != value:
+            errors.append(f"evidence_contract: {field} falsch")
+    completed = _timestamp(contract.get("completed_at"))
+    frozen = _timestamp(audit_contract.get("frozen_at"))
+    expires = _timestamp(audit_contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    if completed is None or frozen is None or expires is None or not (frozen <= completed <= expires and completed <= now):
+        errors.append("evidence_contract: completed_at ausser Zeitgrenze")
+    errors.extend(_validate_artifact_entries(contract.get("artifacts"), "evidence_contract"))
+    return errors
+
+
+def _artifact_binding_errors(
+    records: list[dict[str, Any]], contract: dict[str, Any], key: str, label: str,
+) -> list[str]:
+    artifacts = contract.get("artifacts")
+    expected = artifacts.get(key) if isinstance(artifacts, dict) else None
+    actual = artifact_contract_entry(
+        records, str(expected.get("ref", "")) if isinstance(expected, dict) else ""
+    )
+    return [] if expected == actual else [f"{label}: Contract-Artefaktbindung falsch"]
+
+
+def _record_time_errors(
+    records: list[dict[str, Any]], audit_contract: dict[str, Any], label: str,
+    completed_at: object | None = None,
+) -> list[str]:
+    frozen = _timestamp(audit_contract.get("frozen_at"))
+    expires = _timestamp(audit_contract.get("expires_at"))
+    now = datetime.now(timezone.utc)
+    completed = _timestamp(completed_at) if completed_at is not None else None
+    errors: list[str] = []
+    for number, row in enumerate(records, 1):
+        signed = _timestamp(row.get("signed_at"))
+        if (
+            signed is None or frozen is None or expires is None
+            or not (frozen <= signed <= expires and signed <= now)
+            or (completed_at is not None and (completed is None or signed > completed))
+        ):
+            errors.append(f"{label} Zeile {number}: signed_at ausser Zeitgrenze")
+    return errors
 
 
 def validate_artifact_universe(
@@ -208,10 +384,16 @@ def _parse_structured(text: str, suffix: str, path: str) -> None:
                 raise ContractError(f"parser_error:{path}: YAML-Parser fehlt") from exc
             yaml.safe_load(text)
         elif suffix == ".sql":
-            statements = _sql_statements(text, path)
-            allowed = re.compile(r"^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|PRAGMA|WITH|BEGIN|END|COMMIT|ROLLBACK)\b", re.I)
-            if not statements or any(not allowed.match(item) for item in statements):
-                raise ContractError(f"parser_error:{path}: nicht unterstuetzte SQL-Grammatik")
+            meaningful = re.sub(
+                r"--[^\n]*(?:\n|$)|/\*.*?\*/", "", text, flags=re.DOTALL
+            ).strip()
+            if not meaningful:
+                raise ContractError(f"parser_error:{path}: leeres SQLite-Skript")
+            connection = sqlite3.connect(":memory:")
+            try:
+                connection.executescript(text)
+            finally:
+                connection.close()
     except ContractError:
         raise
     except Exception as exc:
@@ -261,15 +443,27 @@ def _parse_batch_units(text: str, path: str) -> None:
                 )
 
 
-def _parse_powershell(text: str, path: str) -> None:
-    executable = shutil.which("pwsh") or shutil.which("powershell")
+def _parse_powershell(text: str, path: str) -> dict[str, list[dict[str, Any]]]:
+    executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
         raise ContractError(f"parser_error:{path}: PowerShell-AST-Parser fehlt")
     parser_script = (
         "$tokens=$null;$errors=$null;"
-        "[void][System.Management.Automation.Language.Parser]::ParseInput("
+        "$ast=[System.Management.Automation.Language.Parser]::ParseInput("
         "[Console]::In.ReadToEnd(),[ref]$tokens,[ref]$errors);"
-        "if($errors.Count){$errors|ForEach-Object{$_.Message}|Write-Error;exit 2}"
+        "if($errors.Count){$errors|ForEach-Object{$_.Message}|Write-Error;exit 2};"
+        "$functions=@($ast.FindAll({param($n)$n -is "
+        "[System.Management.Automation.Language.FunctionDefinitionAst]},$true)|ForEach-Object{"
+        "[pscustomobject]@{name=$_.Name;start_offset=$_.Extent.StartOffset;"
+        "end_offset=$_.Extent.EndOffset;start_line=$_.Extent.StartLineNumber;"
+        "end_line=$_.Extent.EndLineNumber}});"
+        "$commands=@($ast.FindAll({param($n)$n -is "
+        "[System.Management.Automation.Language.CommandAst]},$true)|ForEach-Object{"
+        "[pscustomobject]@{name=$_.GetCommandName();start_offset=$_.Extent.StartOffset;"
+        "end_offset=$_.Extent.EndOffset;line=$_.Extent.StartLineNumber;"
+        "column=$_.Extent.StartColumnNumber}});"
+        "[pscustomobject]@{functions=$functions;commands=$commands}|"
+        "ConvertTo-Json -Depth 4 -Compress"
     )
     try:
         result = subprocess.run(
@@ -281,6 +475,13 @@ def _parse_powershell(text: str, path: str) -> None:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().replace("\n", " | ")[-500:]
         raise ContractError(f"parser_error:{path}: {detail or 'PowerShell-Syntaxfehler'}")
+    try:
+        parsed = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ContractError(f"parser_error:{path}: PowerShell-AST-Ausgabe ungueltig") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("functions"), list) or not isinstance(parsed.get("commands"), list):
+        raise ContractError(f"parser_error:{path}: PowerShell-AST-Schema ungueltig")
+    return parsed
 
 
 class Collector(ast.NodeVisitor):
@@ -407,7 +608,8 @@ class Collector(ast.NodeVisitor):
 
 
 def enumerate_contract_universe(
-    root: Path, audited_commit: str, run_id: str, snapshot_id: str,
+    root: Path, audited_commit: str, run_id: str, snapshot_id: str, *,
+    tooling_commit: str, signed_at: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     root = root.resolve()
     commit = resolve_commit(root, audited_commit)
@@ -432,7 +634,8 @@ def enumerate_contract_universe(
             raise ContractError(f"Encoding-/Decodefehler in {path}: {exc}") from exc
         binding = {
             "run_id": run_id, "audited_commit": commit, "snapshot_id": snapshot_id,
-            "source_blob_sha256": _sha(data),
+            "tooling_commit": tooling_commit, "source_blob_sha256": _sha(data),
+            "signed_at": signed_at,
         }
         if suffix == ".py":
             try:
@@ -441,24 +644,24 @@ def enumerate_contract_universe(
                 raise ContractError(f"Python-Parserfehler in {path}: {exc}") from exc
             collector = Collector(path, _sha(data), {
                 "run_id": run_id, "audited_commit": commit, "snapshot_id": snapshot_id,
+                "tooling_commit": tooling_commit, "signed_at": signed_at,
             })
             collector.visit(tree)
             symbols.extend(collector.symbols)
             edges.extend(collector.edges)
             continue
         if suffix in {".ps1", ".psm1"}:
-            _parse_powershell(text, path)
-            matches = list(re.finditer(r"(?im)^\s*(?:function|filter)\s+([\w:-]+)", text))
+            ps_ast = _parse_powershell(text, path)
             ps_symbols: dict[str, dict[str, Any]] = {}
-            ps_bodies: dict[str, tuple[int, int]] = {}
-            for match in matches:
-                start = text.count("\n", 0, match.start()) + 1
-                opening = text.find("{", match.end())
-                if opening < 0:
-                    raise ContractError(f"parser_error:{path}:{start}: Function ohne Block")
-                closing = _matching_brace(text, opening, path)
-                end = text.count("\n", 0, closing) + 1
-                name = match.group(1)
+            ps_ranges: dict[str, tuple[int, int]] = {}
+            for function in ps_ast["functions"]:
+                name = str(function.get("name", ""))
+                start = int(function.get("start_line", 0))
+                end = int(function.get("end_line", 0))
+                start_offset = int(function.get("start_offset", -1))
+                end_offset = int(function.get("end_offset", -1))
+                if not name or start < 1 or end < start or start_offset < 0 or end_offset <= start_offset:
+                    raise ContractError(f"parser_error:{path}: PowerShell-Function-AST ungueltig")
                 row = {
                     "symbol_id": _id("SYM", path, name, start, end, "powershell-function"),
                     "path": path, "qualified_name": name, "kind": "powershell-function",
@@ -466,21 +669,27 @@ def enumerate_contract_universe(
                 }
                 symbols.append(row)
                 ps_symbols[name.lower()] = row
-                ps_bodies[name.lower()] = (opening + 1, closing)
-            for source_name, (opening, closing) in ps_bodies.items():
-                body = text[opening:closing]
-                source = ps_symbols[source_name]
-                for target_name, target in ps_symbols.items():
-                    pattern = re.compile(rf"(?im)(?:^|[;{{}}|])\s*&?\s*{re.escape(target['qualified_name'])}\b")
-                    for call in pattern.finditer(body):
-                        absolute = opening + call.start()
-                        line = text.count("\n", 0, absolute) + 1
-                        edges.append({
-                            "edge_id": _id("EDGE", path, line, 0, "powershell-call", source["symbol_id"], target["qualified_name"]),
-                            "path": path, "line": line, "column": 0,
-                            "edge_kind": "powershell-call", "source_symbol_id": source["symbol_id"],
-                            "target": target["qualified_name"], "target_symbol_id": target["symbol_id"], **binding,
-                        })
+                ps_ranges[name.lower()] = (start_offset, end_offset)
+            for command in ps_ast["commands"]:
+                target_name = str(command.get("name") or "")
+                target = ps_symbols.get(target_name.lower())
+                offset = int(command.get("start_offset", -1))
+                if target is None or offset < 0:
+                    continue
+                containing = [
+                    (end - start, name) for name, (start, end) in ps_ranges.items()
+                    if start <= offset < end
+                ]
+                source = ps_symbols[min(containing)[1]] if containing else None
+                line = int(command.get("line", 0))
+                column = max(0, int(command.get("column", 1)) - 1)
+                source_id = source["symbol_id"] if source else f"MODULE:{path}"
+                edges.append({
+                    "edge_id": _id("EDGE", path, line, column, "powershell-call", source_id, target["qualified_name"]),
+                    "path": path, "line": line, "column": column,
+                    "edge_kind": "powershell-call", "source_symbol_id": source_id,
+                    "target": target["qualified_name"], "target_symbol_id": target["symbol_id"], **binding,
+                })
             continue
         if suffix in {".bat", ".cmd"}:
             _parse_batch_units(text, path)
@@ -521,11 +730,14 @@ def enumerate_contract_universe(
             "ui-unit" if suffix == ".ui" else "translation-unit" if suffix == ".ts" else "config-unit"
         )
         line_end = max(1, len(text.splitlines()))
-        symbols.append({
+        unit = {
             "symbol_id": _id("SYM", path, path, 1, line_end, kind),
             "path": path, "qualified_name": path, "kind": kind,
             "line_start": 1, "line_end": line_end, **binding,
-        })
+        }
+        if suffix == ".sql":
+            unit["parser_dialect"] = SUPPORTED_SQL_DIALECT
+        symbols.append(unit)
 
     name_index: dict[str, list[str]] = {}
     for symbol in symbols:
@@ -549,9 +761,16 @@ def universe_digest(rows: Iterable[dict[str, Any]], id_field: str) -> str:
     return _sha(b"\n".join(_canonical(row) for row in sorted(rows, key=lambda item: item[id_field])))
 
 
-def _validate_binding(row: dict[str, Any], label: str, run_id: str, commit: str, snapshot: str, errors: list[str]) -> None:
-    if row.get("run_id") != run_id or row.get("audited_commit") != commit or row.get("snapshot_id") != snapshot:
-        errors.append(f"{label}: Run-/Commit-/Snapshotbindung falsch")
+def _validate_binding(
+    row: dict[str, Any], label: str, run_id: str, commit: str,
+    tooling_commit: str, snapshot: str, errors: list[str],
+) -> None:
+    if (
+        row.get("run_id") != run_id or row.get("audited_commit") != commit
+        or row.get("tooling_commit") != tooling_commit
+        or row.get("snapshot_id") != snapshot
+    ):
+        errors.append(f"{label}: Run-/Commit-/Tooling-/Snapshotbindung falsch")
 
 
 def validate_contracts(
@@ -563,8 +782,36 @@ def validate_contracts(
     reviewer_records: list[dict[str, Any]], reviewer_manifest: dict[str, Any],
     evidence_records: list[dict[str, Any]], evidence_manifest: dict[str, Any],
     trigger_records: list[dict[str, Any]], trigger_manifest: dict[str, Any],
+    audit_contract: dict[str, Any], expected_contract_sha256: str,
+    evidence_contract: dict[str, Any], expected_evidence_contract_sha256: str,
 ) -> list[str]:
     errors: list[str] = []
+    errors.extend(validate_audit_contract(
+        audit_contract, expected_contract_sha256, plan_id=PLAN_ID, run_id=run_id,
+        audited_commit=audited_commit, tooling_commit=tooling_commit,
+        snapshot_id=snapshot_id,
+    ))
+    errors.extend(validate_evidence_contract(
+        evidence_contract, expected_evidence_contract_sha256, audit_contract,
+        plan_id=PLAN_ID, run_id=run_id, audited_commit=audited_commit,
+        tooling_commit=tooling_commit, snapshot_id=snapshot_id,
+    ))
+    for records, contract, key, label, is_output in (
+        (expected_symbols, audit_contract, "symbol-catalog", "Symbolkatalog", False),
+        (expected_edges, audit_contract, "edge-catalog", "Kantenkatalog", False),
+        (feature_records, audit_contract, "feature-catalog", "Featurekatalog", False),
+        (trigger_records, audit_contract, "trigger-universe", "Triggeruniversum", False),
+        (states, evidence_contract, "symbol-state", "Symbol-State", True),
+        (edge_states, evidence_contract, "edge-state", "Kanten-State", True),
+        (evidence_records, evidence_contract, "symbol-state-evidence", "Symbol-Evidence", True),
+        (reviewer_records, evidence_contract, "reviewer-roster", "Reviewer-Roster", True),
+        (runtime_records, evidence_contract, "runtime-evidence", "Runtime-Evidence", True),
+    ):
+        errors.extend(_artifact_binding_errors(records, contract, key, label))
+        errors.extend(_record_time_errors(
+            records, audit_contract, label,
+            evidence_contract.get("completed_at") if is_output else None,
+        ))
     symbol_map = {row["symbol_id"]: row for row in expected_symbols}
     edge_map = {row["edge_id"]: row for row in expected_edges}
     if len(symbol_map) != len(expected_symbols):
@@ -604,11 +851,54 @@ def validate_contracts(
     if not evidence_ids:
         errors.append("Evidence-Universum ist leer")
 
-    def validate_evidence(values: object, label: str) -> None:
+    for number, evidence in enumerate(evidence_records, 1):
+        label = f"Symbol-Evidence Zeile {number}"
+        allowed = {
+            "evidence_id", "evidence_kind", "symbol_id", "edge_id", "reviewer_id",
+            "path", "source_blob_sha256", "signed_at", "proof_ref", "artifact_ref",
+            "run_id", "audited_commit", "tooling_commit", "snapshot_id",
+            "record_sha256",
+        }
+        if set(evidence) - allowed or len({"proof_ref", "artifact_ref"} & set(evidence)) != 1:
+            errors.append(f"{label}: Schemafelder nicht exakt")
+        for field in (
+            "evidence_kind", "reviewer_id", "path", "source_blob_sha256",
+            "signed_at",
+        ):
+            if not evidence.get(field):
+                errors.append(f"{label}: {field} fehlt")
+        has_symbol = bool(evidence.get("symbol_id"))
+        has_edge = bool(evidence.get("edge_id"))
+        if has_symbol == has_edge:
+            errors.append(f"{label}: exakt symbol_id oder edge_id erforderlich")
+        source = symbol_map.get(str(evidence.get("symbol_id", ""))) if has_symbol else edge_map.get(str(evidence.get("edge_id", "")))
+        if source is None:
+            errors.append(f"{label}: fremdes Ziel")
+        elif evidence.get("path") != source.get("path") or evidence.get("source_blob_sha256") != source.get("source_blob_sha256"):
+            errors.append(f"{label}: Source-Pfad/Blob falsch")
+        if evidence.get("reviewer_id") not in reviewer_ids:
+            errors.append(f"{label}: Reviewer-FK fehlt")
+        proof_ref = evidence.get("proof_ref") or evidence.get("artifact_ref")
+        if not _safe_ref(proof_ref):
+            errors.append(f"{label}: proof_ref/artifact_ref ungueltig")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("source_blob_sha256", ""))):
+            errors.append(f"{label}: source_blob_sha256 ungueltig")
+
+    def validate_evidence(
+        values: object, label: str, *, symbol_id: str | None = None,
+        edge_id: str | None = None,
+    ) -> None:
         if not isinstance(values, list) or not values:
             errors.append(f"{label}: Evidence-IDs fehlen")
         elif any(not isinstance(value, str) or value not in evidence_ids for value in values):
             errors.append(f"{label}: unbekannte Evidence-ID")
+        else:
+            for value in values:
+                evidence = artifact_indexes[3][value]
+                if symbol_id is not None and evidence.get("symbol_id") != symbol_id:
+                    errors.append(f"{label}: Evidence-Symbol-FK falsch")
+                if edge_id is not None and evidence.get("edge_id") != edge_id:
+                    errors.append(f"{label}: Evidence-Kanten-FK falsch")
 
     seen_symbols: set[str] = set()
     for number, row in enumerate(states, 1):
@@ -624,7 +914,9 @@ def validate_contracts(
             for field in ("path", "qualified_name", "kind", "line_start", "line_end", "source_blob_sha256"):
                 if row.get(field) != source.get(field):
                     errors.append(f"{label}: {field} weicht vom Universum ab")
-        _validate_binding(row, label, run_id, audited_commit, snapshot_id, errors)
+        _validate_binding(
+            row, label, run_id, audited_commit, tooling_commit, snapshot_id, errors,
+        )
         if row.get("symbols_sha256") != symbol_hash or row.get("edges_sha256") != edge_hash:
             errors.append(f"{label}: Universumshash falsch")
         role = row.get("role")
@@ -641,7 +933,7 @@ def validate_contracts(
         if not isinstance(caller, dict) or caller.get("kind") not in {"incoming-edges", "framework-hook", "entrypoint", "unreferenced"}:
             errors.append(f"{label}: Caller-/Frameworkvertrag fehlt")
         else:
-            validate_evidence(caller.get("evidence_ids"), f"{label}/Caller")
+            validate_evidence(caller.get("evidence_ids"), f"{label}/Caller", symbol_id=symbol_id)
             caller_edges = caller.get("edge_ids")
             incoming = {
                 edge_id for edge_id, edge in edge_map.items()
@@ -679,7 +971,10 @@ def validate_contracts(
                 if not isinstance(cell, dict) or cell.get("status") not in {"reviewed", "n-a", "unknown"}:
                     errors.append(f"{label}: Vertrag {key} fehlt/ungueltig")
                 else:
-                    validate_evidence(cell.get("evidence_ids"), f"{label}/Vertrag {key}")
+                    validate_evidence(
+                        cell.get("evidence_ids"), f"{label}/Vertrag {key}",
+                        symbol_id=symbol_id,
+                    )
         disposition = row.get("disposition")
         if disposition not in SYMBOL_DISPOSITIONS:
             errors.append(f"{label}: disposition ungueltig")
@@ -689,6 +984,11 @@ def validate_contracts(
             evidence_id not in runtime_evidence_ids for evidence_id in row.get("runtime_evidence_ids", [])
         ):
             errors.append(f"{label}: unbekannte Runtime-Evidence-ID")
+        elif disposition == "runtime" and any(
+            artifact_indexes[1][evidence_id].get("symbol_id") != symbol_id
+            for evidence_id in row.get("runtime_evidence_ids", [])
+        ):
+            errors.append(f"{label}: Runtime-Evidence-Symbol-FK falsch")
         if disposition == "non-runtime":
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
@@ -697,6 +997,8 @@ def validate_contracts(
                 errors.append(f"{label}: Non-Runtime-Vertrag fehlt")
             elif contract["evidence_id"] not in evidence_ids:
                 errors.append(f"{label}: Non-Runtime-Vertrag referenziert unbekannte Evidence-ID")
+            elif artifact_indexes[3][contract["evidence_id"]].get("symbol_id") != symbol_id:
+                errors.append(f"{label}: Non-Runtime-Evidence-Symbol-FK falsch")
         if disposition == "unknown" and not row.get("unknown_reason"):
             errors.append(f"{label}: UNKNOWN ohne Grund")
 
@@ -717,7 +1019,9 @@ def validate_contracts(
             ):
                 if row.get(field) != source.get(field):
                     errors.append(f"{label}: {field} weicht vom Universum ab")
-        _validate_binding(row, label, run_id, audited_commit, snapshot_id, errors)
+        _validate_binding(
+            row, label, run_id, audited_commit, tooling_commit, snapshot_id, errors,
+        )
         if row.get("symbols_sha256") != symbol_hash or row.get("edges_sha256") != edge_hash:
             errors.append(f"{label}: Universumshash falsch")
         if row.get("disposition") not in EDGE_DISPOSITIONS:
@@ -726,7 +1030,7 @@ def validate_contracts(
             errors.append(f"{label}: UNKNOWN-Kante ohne Grund")
         if row.get("reviewer_id") not in reviewer_ids:
             errors.append(f"{label}: unbekannter Reviewer")
-        validate_evidence(row.get("evidence_ids"), label)
+        validate_evidence(row.get("evidence_ids"), label, edge_id=edge_id)
 
     if set(symbol_map) != seen_symbols:
         errors.append(
@@ -770,6 +1074,8 @@ def main(argv: list[str] | None = None) -> int:
         item.add_argument("--audited-commit", required=True)
         item.add_argument("--run-id", required=True)
         item.add_argument("--snapshot-id", required=True)
+    enum.add_argument("--signed-at", required=True)
+    enum.add_argument("--tooling-commit", required=True)
     enum.add_argument("--symbols-out", type=Path, required=True)
     enum.add_argument("--edges-out", type=Path, required=True)
     verify.add_argument("--symbols", type=Path, required=True)
@@ -787,10 +1093,20 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--evidence-manifest", type=Path, required=True)
     verify.add_argument("--trigger-manifest", type=Path, required=True)
     verify.add_argument("--tooling-commit", required=True)
+    verify.add_argument("--audit-contract", type=Path, required=True)
+    verify.add_argument("--expected-audit-contract-sha256", required=True)
+    verify.add_argument("--evidence-contract", type=Path, required=True)
+    verify.add_argument("--expected-evidence-contract-sha256", required=True)
     args = parser.parse_args(argv)
     try:
+        signed_at = args.signed_at if args.command == "enumerate" else json.loads(
+            args.audit_contract.read_text(encoding="utf-8")
+        ).get("frozen_at")
+        if not isinstance(signed_at, str):
+            raise ContractError("audit_contract.frozen_at fehlt")
         symbols, edges = enumerate_contract_universe(
             args.root, args.audited_commit, args.run_id, args.snapshot_id,
+            tooling_commit=args.tooling_commit, signed_at=signed_at,
         )
         if args.command == "enumerate":
             _write_jsonl(args.symbols_out, symbols)
@@ -806,6 +1122,8 @@ def main(argv: list[str] | None = None) -> int:
             errors.append("Symboluniversum weicht von kanonischer Gitobjekt-Enumeration ab")
         if _read_jsonl(args.edges) != edges:
             errors.append("Kantenuniversum weicht von kanonischer Gitobjekt-Enumeration ab")
+        audit_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+        evidence_contract = json.loads(args.evidence_contract.read_text(encoding="utf-8"))
         errors.extend(validate_contracts(
             symbols, edges, _read_jsonl(args.symbol_states), _read_jsonl(args.edge_states),
             run_id=args.run_id, audited_commit=resolve_commit(args.root.resolve(), args.audited_commit),
@@ -820,6 +1138,10 @@ def main(argv: list[str] | None = None) -> int:
             evidence_manifest=json.loads(args.evidence_manifest.read_text(encoding="utf-8")),
             trigger_records=_read_jsonl(args.trigger_universe),
             trigger_manifest=json.loads(args.trigger_manifest.read_text(encoding="utf-8")),
+            audit_contract=audit_contract,
+            expected_contract_sha256=args.expected_audit_contract_sha256,
+            evidence_contract=evidence_contract,
+            expected_evidence_contract_sha256=args.expected_evidence_contract_sha256,
         ))
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
         return 0 if not errors else 2
