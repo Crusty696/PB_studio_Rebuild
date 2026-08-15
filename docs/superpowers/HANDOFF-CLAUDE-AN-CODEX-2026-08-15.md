@@ -382,3 +382,155 @@ Insbesondere ungeprüft:
 
 Die App läuft mit Aufzeichnung; ein Auto-Edit plus Render würde alle vier
 Punkte in einem Durchgang klären.
+
+---
+
+## 9. Das Brain — Bestandsaufnahme vom 15.08.2026
+
+Der Nutzer verstand das Brain-Fenster nicht und fragte, warum es „Brain" und
+„Brain V3" gibt und ob beide je gewirkt haben. Zwei Prüfagenten, danach von mir
+an den echten Datenbanken nachgemessen.
+
+### 9.1 Es gibt DREI Dinge, die „Brain" heißen
+
+| Name | Ort | Was es ist |
+|---|---|---|
+| **Studio Brain** (Knopf oben, Ctrl+B) | `ui/studio_brain_window.py`, 6 Tabs | Protokoll- und Steuerfenster. Liest `mem_*` und `struct_*` aus der Projekt-DB |
+| **Brain V3** (Tab in der Seitenleiste) | `ui/widgets/brain_v3_stats_panel.py` | Lern-Mechanismus mit **eigener** Datenbank unter `%APPDATA%\PB_Studio\brain_v3\` |
+| **Brain im Chat** (`brain_recall`, `brain_note`) | `services/actions/brain_actions.py` | Notiz-Gedächtnis des Assistenten, drittes System |
+
+**V3 ist kein Nachfolger.** Wörtlich im Architekturplan
+(`docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/01_ARCHITECTURE.md:5-6`):
+*„Brain V3 ist ein Layer ÜBER dem bestehenden Pacing-Code — kein Ersatz."*
+
+Die Trennung war eine ausdrückliche Nutzer-Anweisung (Entscheidung #24,
+`02_DECISIONS.md:249-254`): *„UI: neuer Tab/Window in Phase 5 (NICHT
+studio_brain_window.py umbauen)"*.
+
+Die Namensgebung ist trotzdem irreführend — „V3" klingt nach Generation, ist
+aber ein paralleler Zusatz. Die Verwirrung des Nutzers ist berechtigt.
+
+### 9.2 Haben sie gewirkt? Ja — auf die Timeline, nicht aufs Rendering
+
+Gemessen an `projects/123454321/pb_studio.db`:
+
+```
+struct_clip_tags       147      mem_pacing_run           6
+struct_style_bucket    129      mem_decision           899
+struct_compat_edge     282      mem_learned_pattern      0
+                                mem_user_feedback_event  0
+```
+
+**Der Studio-Brain hat die Timeline real geformt:** Run 6 zeigt 280 von 280
+`chosen_clip_id` exakt deckungsgleich mit `timeline_entries.media_id` bei
+identischer `start_time`, null Abweichungen. 280 der 282 Segmente der aktuellen
+Timeline sind Brain-gewählt.
+
+**Der Brain-V3-Reranker lief mit:** 13 Aktivierungen im Log, Blending-Anteil
+30 % gegen 70 % klassisches Pacing (`services/pacing/pipeline.py:51`),
+`brain_v3_scores` in 280 von 280 Rationales.
+
+**Aufs Rendering wirkt keiner von beiden.** `services/export_service.py:341-424`
+liest ausschließlich `timeline_entries`-Spalten; ein Grep über zwölf
+Export-Dateien nach `reranker|weight_store|brain_v3|mem_decision|select_best`
+liefert null Treffer. Der Einfluss endet bei der Clip-Auswahl.
+
+### 9.3 Das Lernen ist mathematisch wirkungslos — selbst nachgemessen
+
+`%APPDATA%\PB_Studio\brain_v3\weights.db`, Tabelle `axis_weights`, Ebene 0:
+
+```
+beat_weight              198 / 282
+brightness_match_weight  198 / 282
+color_temp_match_weight  198 / 282
+energy_threshold         198 / 282
+...  (17 Achsen exakt gleich)  ...
+role_match_weight          2 /   1   <- einzige Ausnahme
+```
+
+**18 Achsen, davon 2 verschiedene Wertepaare.** Ursache:
+`services/brain/feedback_logger.py:70-85` schreibt bei jedem Klick allen Achsen
+dieselbe Gutschrift (`mode=uniform`). Gleiche Gewichte über alle Achsen heißt:
+der gewichtete Mittelwert wird zum einfachen Durchschnitt
+(`services/brain/scorer.py:52`) — **Nutzerklicks können die Clip-Reihenfolge
+nicht verändern.**
+
+Dazu kommt: Es existieren genau **drei** Feedback-Events überhaupt (alle
+2026-08-14, 03:26–03:27). `user_verdict`, `user_rating` und `reward` sind in
+**allen 899** Entscheidungen NULL. `mem_learned_pattern` hat 0 Zeilen.
+
+Die einzige achsen-spezifische Schreib-API `WeightStore.update()`
+(`services/brain/weight_store.py:135`) hat **null Aufrufer**.
+
+**Zusammengefasst: das Brain wirkt, aber es lernt nicht.**
+
+### 9.4 Was im Brain-Fenster wirkt und was Attrappe ist
+
+Das Fenster hat sechs Tabs: Struktur, Gedächtnis, Audit, Steer,
+Pacing-Explorer, Graph-Cockpit.
+
+**Wirkt:**
+
+* **Boost / Exclude** im Struktur-Tab. `services/steer_override_queue.py:79` →
+  `services/pacing_service.py:1692-1702` (Exclude wirft den Clip raus) und
+  `services/pacing/pipeline.py:571-575` (Boost, +0,5 Punkte). **Nur im
+  Arbeitsspeicher** — geht bei App-Ende, Projektwechsel und nach einem Lauf
+  verloren.
+* **„Mit diesen Einstellungen starten"** im Steer-Tab → echter Auto-Edit,
+  überschreibt die Timeline.
+* **Daumen** im Pacing-Explorer → `mem_decision.user_verdict` →
+  `services/pacing/pattern_lookup.py:65-102` → Scorer.
+* **„Gelerntes zurücksetzen"** im Gedächtnis-Tab.
+
+**Attrappe:**
+
+* Steer-Tab: **Gewichtsprofil-Auswahl** (die Pipeline setzt hart
+  `weights_profile="default"`, `pacing_service.py:1424`) und **Pins** (gehen
+  nur ins Log, `main.py:797`).
+* Gedächtnis-Tab: **Sterne-Bewertung** — `mem_pacing_run.user_rating` wird
+  nirgends im Produktivpfad geschrieben.
+* Audit-Tab und Graph-Cockpit: reine Leseansichten ohne Schreibpfad.
+
+**Toter Code:**
+
+* `mem_user_feedback_event` — beschrieben, nie gelesen
+* `services/pacing/rl_memory_v2.py` — beschrieben, nie gelesen
+* Brain-V3-Embedding-Cache — 554 Dateien auf Platte, `embedding_cache.py:44,150`
+  ohne Aufrufer; der Scheduler belegt trotzdem bei jedem Start GPU
+  (`main.py:859-873`)
+* `WeightStore.update()`, `GraphView.set_active_scene`, Signale
+  `verdictChanged` und `statsRefreshed`
+
+**Der Daumen umgeht den offiziellen Feedback-Dienst**
+(`services/feedback_service.py:153-228`): kein `mem_user_feedback_event`, kein
+Brain-V3-Lernsignal, und ein hier gesetztes Urteil blockiert späteres
+Timeline-Feedback zur selben Entscheidung (`feedback_service.py:216`).
+
+### 9.5 Wichtige Warnung für dich
+
+Einer der beiden Prüfagenten hat die **falsche Datenbank** gelesen — die
+Repo-Root-`pb_studio.db` statt der Projekt-DB — und daraus geschlossen, alle
+`struct_*`-Tabellen seien leer. **Sie sind es nicht:**
+
+```
+Repo-Root:  struct_clip_tags   0   mem_decision    5
+Projekt:    struct_clip_tags 147   mem_decision  899
+```
+
+**Immer gegen `projects/<id>/pb_studio.db` messen**, nicht gegen die Datei im
+Repository-Wurzelverzeichnis.
+
+### 9.6 Offen — Entscheidungen des Nutzers
+
+Der Nutzer hält die Aufteilung für unlogisch und versteht die Funktionen nicht.
+Das ist nach dieser Bestandsaufnahme nachvollziehbar. Zu klären, **bevor**
+jemand daran baut:
+
+1. Sollen Studio Brain und Brain V3 zusammengeführt werden? Die Trennung geht
+   auf seine eigene frühere Anweisung zurück (Entscheidung #24).
+2. Soll das Lernen repariert werden? Der Kern ist `mode=uniform` in
+   `feedback_logger.py:70-85` — ohne Credit-Assignment auf einzelne Achsen
+   bleibt jedes Feedback richtungsloses Rauschen.
+3. Sollen die Attrappen (Gewichtsprofil, Pins, Sterne) verdrahtet oder entfernt
+   werden?
+4. Soll der tote Code raus?
