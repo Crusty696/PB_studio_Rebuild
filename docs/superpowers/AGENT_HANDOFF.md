@@ -13,7 +13,8 @@ This file is a repository-local continuity checkpoint for all agents.
 > Messwerten, die offenen Entscheidungen des Nutzers — und einen Abschnitt mit
 > den Fehlern, die ich selbst gemacht habe, damit sie sich nicht wiederholen.
 >
-> Kopf-Stand: `b98010a` auf `main`, synchron mit `origin/main`.
+> Kopf-Stand: `d242987` auf `main`, synchron mit `origin/main` (26 Commits
+> dieser Sitzung, inkl. B-844 nach einem Bluescreen — nichts verloren).
 > Die fünf untrackten Pfade im Worktree gehören einer fremden Sitzung (D-089)
 > und wurden bewusst nicht angefasst.
 

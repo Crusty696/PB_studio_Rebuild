@@ -4,8 +4,14 @@
 > Es beschreibt, was in dieser Sitzung passiert ist, was gilt, was noch offen
 > ist — und welche Fehler ich gemacht habe, damit du sie nicht wiederholst.
 
-**Stand:** Commit `45ecaad` auf `main`, synchron mit `origin/main`.
-**Vorgänger-Checkpoint dieser Sitzung:** `dd5d228`.
+**Stand:** Commit `d242987` auf `main`, synchron mit `origin/main`.
+**Vorgänger-Checkpoint dieser Sitzung:** `dd5d228`. Insgesamt **26 Commits**.
+
+> **Sitzungsende:** Diese Sitzung endete am 15.08.2026 nach einem
+> **Bluescreen** des Rechners (gegen 12:00). Es ging nichts verloren — alle
+> Änderungen wurden danach geprüft, committet und gepusht (Details in
+> Abschnitt 10). Die App läuft seitdem **nicht** mehr. Der Nutzer wechselt
+> jetzt zu dir.
 
 ---
 
@@ -34,8 +40,10 @@ aufnehmen oder löschen. Frag ihn, bevor du daran etwas änderst.
 Alles andere ist sauber. Keine unpushed Commits, kein Stash von mir.
 
 Aktive Session-Claims prüfen mit `python tools\agent_session.py status`.
-Meine letzte Session (`B-843-timeline-schwanz`) darfst du übernehmen oder
-auslaufen lassen — sie hält nur `services/timeline_service.py`.
+Meine letzten Sessions (`B-843-timeline-schwanz`, `B-844-mark-done-leer`)
+darfst du auslaufen lassen — sie halten nur bereits committete Pfade. Vor
+eigenen Edits selbst claimen (`claim --agent codex --task <id> --files ...`);
+Exit-Code 2 heißt, eine fremde lebende Session hält die Pfade.
 
 ---
 
@@ -152,6 +160,7 @@ Spitzenreiter wechselt nicht. Der Term färbt, er bestimmt nicht.
 | `58abd38` | Übergabe an Codex |
 | `13daf78` | Brain-Bestandsaufnahme |
 | `45ecaad` | **B-844** leere Ergebnisse in zwei Workern, falsche Dauermeldung |
+| `d242987` | Übergabe final: Stand, B-844 als erledigt markiert |
 
 Jede Commit-Message enthält Messwerte und Begründung. **Lies sie**, bevor du
 an den betroffenen Stellen arbeitest — sie erklären, warum etwas so ist.
@@ -358,7 +367,7 @@ immer mit `-k` filtern.
 
 Pfad: `C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\bugs\`
 
-Neu: B-826, B-827, B-828 (behoben), B-829 bis B-843.
+Neu: B-826, B-827, B-828 (behoben), B-829 bis B-844 — jeder mit eigenem File.
 `log.md` enthält für jeden Schritt einen datierten Eintrag mit Messwerten.
 
 **`status: fixed` setzt ausschließlich der Nutzer** — nie du, nie ich.
@@ -384,8 +393,11 @@ Insbesondere ungeprüft:
 * ob die Videospur jetzt bis ans Audio-Ende reicht (B-843)
 * ob der rote Faden im Studio-Brain-Pfad sichtbar etwas ändert (B-842)
 
-Die App läuft mit Aufzeichnung; ein Auto-Edit plus Render würde alle vier
-Punkte in einem Durchgang klären.
+**Die App läuft NICHT mehr** — der Bluescreen hat sie beendet. Für die
+Verifikation mit Aufzeichnung neu starten (Anleitung in 6.1), dann ein
+Auto-Edit plus Render: das klärt alle vier Punkte in einem Durchgang. B-844
+kommt als fünfter ungeprüfter Punkt dazu (leere Analyse-Schritte melden jetzt
+`degraded` statt `done`).
 
 ---
 
@@ -538,3 +550,104 @@ jemand daran baut:
 3. Sollen die Attrappen (Gewichtsprofil, Pins, Sterne) verdrahtet oder entfernt
    werden?
 4. Soll der tote Code raus?
+
+---
+
+## 10. Schlusszustand und erste Schritte für dich
+
+### 10.1 Wie die Sitzung endete
+
+Am 15.08. gegen 12:00 gab es einen **Bluescreen** des Rechners, mitten in der
+Arbeit an B-844 (uncommittet). Nach dem Neustart wurde geprüft und nichts ging
+verloren:
+
+* alle vier geänderten Dateien syntaktisch intakt (`py_compile` OK)
+* Tests neu gefahren: 23/23, danach Regression 608 passed
+* committet als `45ecaad`, Übergabe als `d242987`
+* der erste Push scheiterte an fehlendem DNS (Netz nach Neustart noch nicht
+  da) — nachgeholt, beide Repos synchron
+
+**Die Bluescreen-Ursache ist unbekannt und wurde nicht untersucht.** Zeitlich
+fiel er in eine Phase ohne laufende App und ohne GPU-Last durch uns. Falls es
+wieder passiert: Windows-Ereignisanzeige und Minidump prüfen, bevor jemand die
+App verdächtigt.
+
+### 10.2 Zustand beim Wechsel
+
+| Was | Zustand |
+|---|---|
+| `main` | `d242987`, synchron mit `origin/main`, 0 unpushed |
+| Vault | sauber, gepusht; `log.md` lückenlos bis 12:10 |
+| Bugfiles | B-826 bis B-844 vollständig, alle `code-fix-pending-live-verification` |
+| App | **läuft nicht** (Bluescreen) |
+| Worktree | nur die fünf fremden D-089-Pfade untrackt (nicht anfassen, Nutzer entscheidet) |
+| Session-Claims | meine dürfen auslaufen; vor Edits selbst claimen |
+| Ollama | 0.21.2 muss laufen (Port 11434). Achtung: startet der alte Tray (0.32.6) zuerst, ist der PTX-Fehler zurück |
+
+### 10.3 Alle offenen Entscheidungen des Nutzers — an einem Ort
+
+**Nichts davon ohne seine Antwort bauen.** Er kennt jede dieser Fragen bereits.
+
+1. **LLM-Modellwahl (dringlichster Punkt):** B-770 erzwingt `qwen3-vl:4b` für
+   ALLE Aufgaben. Das Vision-Modell läuft im Text-Pacing-EDL **jedes Mal** in
+   den 300-s-Timeout — fünf verlorene Minuten pro Auto-Edit, Ergebnis kommt
+   nie an. Drei vorgelegte Wege: (a) Modell pro Aufgabe in den Einstellungen,
+   (b) B-770 auf Vision-Pfade beschränken, (c) nur EDL bei Vision-Modellen
+   überspringen.
+2. **Multi-Modell-Pacing (sein Wunsch, wörtlich):** „gemma4, das Audio
+   verarbeiten kann, mit qwen3, das sehen kann, zusammenarbeiten und
+   miteinander reden." Inhaltlich berechtigt — Text-Ähnlichkeit sagt nichts
+   darüber, ob ein Clip an dieser Stelle zur Musik passt. Randbedingung: 6 GB
+   VRAM, App belegt ~2,8 GB, `gemma4:e4b` allein ist 8,95 GB. Zwei Modelle
+   gleichzeitig sind unrealistisch; sequentiell kostet jeder Wechsel ~20 s
+   (`keep_alive=0`). Feature-Entwurf mit ihm klären, bevor Code entsteht.
+3. **Brain zusammenführen?** Er hält Studio Brain + Brain V3 + Chat-Brain für
+   unverständlich. Die Trennung war seine eigene frühere Anweisung
+   (Entscheidung #24) — das muss er auflösen, nicht du.
+4. **Brain-Lernen reparieren?** `mode=uniform` in `feedback_logger.py:70-85`
+   macht jedes Feedback zu richtungslosem Rauschen (17 von 18 Achsen
+   identisch). Ohne Credit-Assignment lernt nichts.
+5. **Brain-Attrappen:** Gewichtsprofil, Pins, Sterne — verdrahten oder
+   entfernen?
+6. **B-832 Vibe-Feld:** Notnagel (dann UI ehrlich machen) oder ins Scoring?
+7. **„Timeline generieren":** Vorschau belassen (und umbenennen) oder echten
+   Schreibpfad geben?
+8. **D-089-Dateien:** die fünf untrackten Test-Pfade — committen, ignorieren
+   oder löschen?
+9. **Raster-Pfad-UI:** `musikgetriebener_schnitt=False` existiert, aber keine
+   UI setzt es. Schalter anbieten oder Altpfad irgendwann entfernen?
+10. **Toter Code** (Embedding-Cache belegt GPU bei jedem Start,
+    `rl_memory_v2`, `mem_user_feedback_event`, `global_min_duration`):
+    aufräumen ja/nein?
+
+### 10.4 Sinnvoller Einstieg (Vorschlag, keine Pflicht)
+
+1. `AGENTS.md` vollständig lesen, dann dieses Dokument, dann
+   `tools\agent_start.ps1` laufen lassen (meldet BLOCKED wegen D-089 — bekannt).
+2. Den Nutzer nach der **LLM-Entscheidung** (10.3 Punkt 1) fragen — das ist
+   der größte sofort behebbare Zeitfresser.
+3. App mit Aufzeichnung starten (6.1) und die **Live-Verifikation** fahren:
+   ein Auto-Edit (klärt B-840/B-842/B-843/B-844) plus ein Render (klärt
+   B-843 endgültig: Videodauer == 337,1 s?). Ergebnisse in die Bugfiles,
+   `status: fixed` setzt der Nutzer.
+4. Erst danach neue Baustellen.
+
+### 10.5 Arbeitsregeln, die hier wirklich gelten
+
+Kurzfassung der Regeln, an denen diese Sitzung gemessen wurde — Details in
+`AGENTS.md` und `CLAUDE.md`:
+
+* **Nur explizit Beauftragtes.** Keine While-I'm-here-Fixes. Befunde melden,
+  auf Auftrag warten.
+* **Vault nach jedem Sub-Schritt** (`log.md` mit Zeitstempel, Bugs als eigene
+  Files). Max. 1 Turn ungeloggt.
+* **`status: fixed` setzt nur der Nutzer.** „Verified"/„fixed"/„works" sind
+  reservierte Wörter — Code-Edit ist kein Fix, erst der Live-Beleg zählt.
+* **GPU: ausschließlich die GTX 1060** (`cuda:0`, NVENC). Keine iGPU, kein
+  anderes Backend, sonst CPU.
+* **Nie `git add -A`.** Nur eigene, beanspruchte Pfade stagen.
+* **Deutsch antworten.** Caveman-Kompression ist Stilvorgabe des Nutzers.
+* **Messungen mit echten Projektdaten** (Abschnitt 4.1 und 6.3) — synthetische
+  Eingaben haben diese Sitzung zweimal in die Irre geführt.
+
+Damit ist alles übergeben, was ich weiß. Viel Erfolg.
