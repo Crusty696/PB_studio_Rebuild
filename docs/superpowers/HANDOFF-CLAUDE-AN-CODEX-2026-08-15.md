@@ -4,8 +4,12 @@
 > Es beschreibt, was in dieser Sitzung passiert ist, was gilt, was noch offen
 > ist — und welche Fehler ich gemacht habe, damit du sie nicht wiederholst.
 
-**Stand:** Commit `d242987` auf `main`, synchron mit `origin/main`.
-**Vorgänger-Checkpoint dieser Sitzung:** `dd5d228`. Insgesamt **26 Commits**.
+**Code-Stand:** `45ecaad` — der letzte Commit, der Code ändert (B-844).
+Alles danach sind ausschließlich Doku-Commits an dieser Übergabe selbst; die
+jeweils **letzte Fassung dieses Dokuments ist der HEAD von `main`**. Verlass
+dich auf `git log`, nicht auf eine hier eingefrorene Hash-Angabe — ein
+Dokument kann seinen eigenen Commit nicht kennen.
+**Vorgänger-Checkpoint dieser Sitzung:** `dd5d228`.
 
 > **Sitzungsende:** Diese Sitzung endete am 15.08.2026 nach einem
 > **Bluescreen** des Rechners (gegen 12:00). Es ging nichts verloren — alle
