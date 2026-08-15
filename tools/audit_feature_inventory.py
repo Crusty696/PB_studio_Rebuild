@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import tokenize
+import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
@@ -31,6 +32,11 @@ UI_TEXT_CALLS = {
     "setText", "setTitle", "setWindowTitle", "addAction", "addButton",
     "addTab", "addMenu", "setPlaceholderText",
 }
+INTERACTIVE_UI_CALLS = {
+    "QAction", "QPushButton", "QToolButton", "QCheckBox", "QRadioButton",
+    "addAction", "addButton", "addTab", "addMenu",
+}
+CONFIG_ACCESS_CALLS = {"value", "setValue", "getenv", "getboolean", "getint", "getfloat"}
 TRIGGER_CALLS = {
     "connect": "qt-connect",
     "addAction": "qt-action",
@@ -41,11 +47,18 @@ TRIGGER_CALLS = {
     "add_argument": "cli",
     "register": "registry",
     "subscribe": "callback",
+    "emit": "qt-signal-emit",
+    "listen": "db-callback",
+    "add_listener": "db-callback",
 }
 LIFECYCLE_NAMES = {
     "main": "entrypoint", "startup": "startup", "shutdown": "shutdown",
     "closeEvent": "shutdown", "showEvent": "startup", "timerEvent": "timer",
 }
+TEXT_SUFFIXES = {".md", ".rst", ".txt"}
+CONFIG_SUFFIXES = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+SCRIPT_SUFFIXES = {".ps1", ".psm1", ".bat", ".cmd"}
+RELEVANT_SUFFIXES = {".py", ".sql", ".ui", ".ts", *TEXT_SUFFIXES, *CONFIG_SUFFIXES, *SCRIPT_SUFFIXES}
 
 
 class ContractError(RuntimeError):
@@ -135,9 +148,21 @@ def enumerate_universes(
     commit = resolve_commit(root, audited_commit)
     requirements: list[dict[str, Any]] = []
     triggers: list[dict[str, Any]] = []
+
+    def append_row(
+        target: list[dict[str, Any]], prefix: str, kind: str, path: str,
+        line: int, column: int, detail: str, blob_sha: str,
+    ) -> None:
+        target.append(_bound_row(
+            source_id=_locator_id(prefix, kind, path, line, column, detail),
+            source_kind=kind, path=path, line=line, column=column, detail=detail,
+            blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
+            snapshot_id=snapshot_id,
+        ))
+
     for path in _tracked_paths(root, commit):
         suffix = PurePosixPath(path).suffix.lower()
-        if suffix not in {".py", ".md", ".rst", ".txt", ".toml", ".yaml", ".yml", ".json"}:
+        if suffix not in RELEVANT_SUFFIXES:
             continue
         data = _blob(root, commit, path)
         blob_sha = _sha(data)
@@ -150,7 +175,17 @@ def enumerate_universes(
         except (LookupError, SyntaxError, UnicodeDecodeError) as exc:
             raise ContractError(f"Encoding-/Decodefehler in {path}: {exc}") from exc
 
-        if suffix in {".md", ".rst", ".txt", ".toml", ".yaml", ".yml", ".json"}:
+        append_row(
+            requirements, "REQ", "source-coverage-unit", path, 1, 0,
+            f"tracked-source:{suffix}:{blob_sha}", blob_sha,
+        )
+
+        if suffix in TEXT_SUFFIXES | CONFIG_SUFFIXES:
+            if suffix in CONFIG_SUFFIXES:
+                append_row(
+                    requirements, "REQ", "structured-config-unit", path, 1, 0,
+                    f"config:{suffix}:{blob_sha}", blob_sha,
+                )
             for number, line in enumerate(text.splitlines(), 1):
                 normalized = " ".join(line.strip().split())
                 if normalized and NORMATIVE.search(normalized):
@@ -161,6 +196,95 @@ def enumerate_universes(
                         line=number, column=0, detail=normalized, blob_sha=blob_sha,
                         run_id=run_id, audited_commit=commit, snapshot_id=snapshot_id,
                     ))
+            if suffix != ".py":
+                continue
+
+        if suffix in {".ps1", ".psm1"}:
+            append_row(
+                triggers, "TRIG", "powershell-entrypoint", path, 1, 0,
+                f"script:{path}", blob_sha,
+            )
+            for number, line in enumerate(text.splitlines(), 1):
+                match = re.match(r"\s*(?:function|filter)\s+([\w:-]+)", line, re.IGNORECASE)
+                if match:
+                    append_row(
+                        triggers, "TRIG", "powershell-function", path, number, 0,
+                        match.group(1), blob_sha,
+                    )
+                for parameter in re.findall(r"\[\w+(?:\([^)]*\))?\]\s*\$([\w]+)", line):
+                    append_row(
+                        triggers, "TRIG", "powershell-parameter", path, number, 0,
+                        parameter, blob_sha,
+                    )
+            continue
+
+        if suffix in {".bat", ".cmd"}:
+            append_row(
+                triggers, "TRIG", "batch-entrypoint", path, 1, 0,
+                f"script:{path}", blob_sha,
+            )
+            for number, line in enumerate(text.splitlines(), 1):
+                match = re.match(r"\s*:([^:\s]+)", line)
+                if match:
+                    append_row(
+                        triggers, "TRIG", "batch-label", path, number, 0,
+                        match.group(1), blob_sha,
+                    )
+            continue
+
+        if suffix == ".sql":
+            found = False
+            for match in re.finditer(r"\bCREATE\s+TRIGGER\s+([\w.\[\]`\"]+)", text, re.IGNORECASE):
+                found = True
+                line = text.count("\n", 0, match.start()) + 1
+                append_row(
+                    triggers, "TRIG", "sql-trigger", path, line, 0,
+                    match.group(1), blob_sha,
+                )
+            if not found:
+                append_row(
+                    requirements, "REQ", "sql-schema-unit", path, 1, 0,
+                    f"schema:{blob_sha}", blob_sha,
+                )
+            continue
+
+        if suffix in {".ui", ".ts"}:
+            try:
+                xml_root = ET.fromstring(text)
+            except ET.ParseError as exc:
+                raise ContractError(f"XML-Parserfehler in {path}: {exc}") from exc
+            if suffix == ".ui":
+                for index, connection in enumerate(xml_root.findall(".//connection"), 1):
+                    detail = ":".join(
+                        (connection.findtext(name) or "").strip()
+                        for name in ("sender", "signal", "receiver", "slot")
+                    )
+                    append_row(
+                        triggers, "TRIG", "qt-ui-signal", path, 1, index,
+                        f"{index}:{detail}", blob_sha,
+                    )
+                for index, widget in enumerate(xml_root.findall(".//widget"), 1):
+                    widget_class = widget.get("class", "")
+                    widget_name = widget.get("name", "")
+                    if widget_class in {"QPushButton", "QToolButton", "QCheckBox", "QRadioButton", "QComboBox"}:
+                        append_row(
+                            triggers, "TRIG", "qt-ui-widget", path, 1, index,
+                            f"{index}:{widget_class}:{widget_name}", blob_sha,
+                        )
+                    for string_index, string in enumerate(widget.findall(".//string"), 1):
+                        if (string.text or "").strip():
+                            append_row(
+                                requirements, "REQ", "qt-ui-contract", path, 1, index,
+                                f"{index}:{string_index}:{' '.join(string.text.split())}", blob_sha,
+                            )
+            else:
+                for index, message in enumerate(xml_root.findall(".//message"), 1):
+                    source = " ".join((message.findtext("source") or "").split())
+                    translation = " ".join((message.findtext("translation") or "").split())
+                    append_row(
+                        requirements, "REQ", "translation-contract", path, 1, index,
+                        f"{index}:{source}:{translation}", blob_sha,
+                    )
             continue
 
         try:
@@ -180,6 +304,19 @@ def enumerate_universes(
                         blob_sha=blob_sha, run_id=run_id, audited_commit=commit,
                         snapshot_id=snapshot_id,
                     ))
+                if name in INTERACTIVE_UI_CALLS:
+                    kind = "qt-ui-surface"
+                    detail = f"{name}:{label or ast.dump(node.func, include_attributes=False)}"
+                    append_row(
+                        triggers, "TRIG", kind, path, node.lineno, node.col_offset,
+                        detail, blob_sha,
+                    )
+                if name in CONFIG_ACCESS_CALLS:
+                    detail = f"{name}:{label or ast.dump(node, include_attributes=False)}"
+                    append_row(
+                        requirements, "REQ", "config-access", path, node.lineno,
+                        node.col_offset, detail, blob_sha,
+                    )
                 if name in TRIGGER_CALLS:
                     kind = TRIGGER_CALLS[name]
                     detail = f"{name}:{label or ast.dump(node.func, include_attributes=False)}"
@@ -241,6 +378,10 @@ def validate_exact_set(
     universes = {"requirement": expected_requirements, "trigger": expected_triggers}
     expected: dict[tuple[str, str], dict[str, Any]] = {}
     digests = {kind: universe_digest(rows) for kind, rows in universes.items()}
+    if not expected_requirements:
+        errors.append("Requirements-Universum ist leer")
+    if not expected_triggers:
+        errors.append("Trigger-Universum ist leer")
     for kind, rows in universes.items():
         for row in rows:
             key = (kind, str(row.get("source_id", "")))

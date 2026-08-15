@@ -128,6 +128,49 @@ class GateContractTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertNotEqual([], self.errors(rows))
 
+    def test_empty_universes_rejected(self) -> None:
+        errors = HARNESS.validate_exact_set(
+            [], [], [], run_id=self.RUN, audited_commit=self.commit,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.assertTrue(any("leer" in error for error in errors))
+
+    def test_relevant_non_python_surfaces_cannot_be_skipped(self) -> None:
+        files = {
+            "ops.ps1": "param([switch]$Force)\nfunction Invoke-Audit { Write-Output ok }\nInvoke-Audit\n",
+            "launch.bat": "@echo off\ncall :run\n:run\necho ok\n",
+            "schema.sql": "CREATE TRIGGER audit_insert AFTER INSERT ON audit BEGIN SELECT 1; END;\n",
+            "panel.ui": "<ui><widget class='QPushButton' name='runButton'><property name='text'><string>Run</string></property></widget><connections><connection><sender>runButton</sender><signal>clicked()</signal><receiver>window</receiver><slot>run()</slot></connection></connections></ui>",
+            "de.ts": "<TS><context><message><source>Run export</source><translation>Export starten</translation></message></context></TS>",
+            "config.json": '{"feature": {"enabled": true}}\n',
+            "config.yaml": "feature:\n  enabled: true\n",
+            "config.toml": "[feature]\nenabled = true\n",
+        }
+        for name, text in files.items():
+            (self.repo / name).write_text(text, encoding="utf-8")
+        subprocess.run(["git", "add", *files], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "non-python surfaces"], cwd=self.repo, check=True)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        requirements, triggers = HARNESS.enumerate_universes(
+            self.repo, commit, self.RUN, self.SNAPSHOT
+        )
+        covered = {row["path"] for row in requirements + triggers}
+        self.assertEqual(set(files), set(files) & covered)
+        kinds = {row["source_kind"] for row in requirements + triggers}
+        self.assertTrue({
+            "powershell-entrypoint", "batch-entrypoint", "sql-trigger", "qt-ui-signal",
+            "translation-contract", "structured-config-unit",
+        }.issubset(kinds))
+
+    def test_pep263_python_decoding(self) -> None:
+        source = "# -*- coding: latin-1 -*-\nfrom PyQt6.QtWidgets import QPushButton\nbutton = QPushButton('Über')\n"
+        (self.repo / "latin.py").write_bytes(source.encode("latin-1"))
+        subprocess.run(["git", "add", "latin.py"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "pep263"], cwd=self.repo, check=True)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        requirements, _ = HARNESS.enumerate_universes(self.repo, commit, self.RUN, self.SNAPSHOT)
+        self.assertTrue(any(row["path"] == "latin.py" and "Über" in row["detail"] for row in requirements))
+
 
 if __name__ == "__main__":
     unittest.main()
