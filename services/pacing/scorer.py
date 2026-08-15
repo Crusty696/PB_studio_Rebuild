@@ -472,7 +472,12 @@ CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
 # by weight sum (the previous failed attempt did that incorrectly).
 DEFAULT_WEIGHTS: dict[str, float] = {
     "w_role": 0.25,
-    "w_style": 0.15,
+    # Roter Faden (User-Anweisung 2026-08-15): "weiche Uebergaenge statt
+    # Spruenge". style_compat vergleicht den Kandidaten mit dem VORGAENGER —
+    # der Term entscheidet also, wie gut zwei benachbarte Clips zusammenpassen.
+    # Bei 0.15 ging er neben w_role (0.25) und w_energy (0.15) unter, sichtbare
+    # Brueche zwischen aufeinanderfolgenden Schnitten waren die Folge.
+    "w_style": 0.30,
     "w_mood_video": 0.10,
     "w_mood_audio": 0.10,
     "w_genre": 0.15,
@@ -485,8 +490,14 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     # konstant 0.5 fuer jeden Kandidaten -> reiner Offset, kein Ranking-Effekt.
     "w_pacing": 0.08,
     "w_memory": 0.20,
-    "w_collision": 0.10,  # penalty
-    "w_freshness": 0.05,  # penalty
+    # Roter Faden: collision_penalty bestraft harte Brueche zum Vorgaenger
+    # (Stil-Kollision). Gegenstueck zu w_style — angehoben, damit ein Bruch
+    # nicht mehr durch einen guten Rollen-Score aufgewogen wird.
+    "w_collision": 0.20,  # penalty
+    # Roter Faden: "weniger Clip-Wiederholungen". freshness bestraft Clips, die
+    # schon liefen. Bei 0.05 war die Strafe so klein, dass ein Topscorer
+    # trotzdem gewann — im Lauf vom 15.08. kamen 102 von 110 Clips doppelt vor.
+    "w_freshness": 0.15,  # penalty
     # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Klasse<->Shot-Klasse-Bonus
     # (compute_stem_class_bonus liefert bereits 0.0/0.15)
     "w_stem_class": 1.0,

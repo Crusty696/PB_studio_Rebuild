@@ -164,6 +164,17 @@ class AdvancedPacingSettings:
     use_llm_pacing: bool = False       # Hybrid-Pipeline: Direktes Ollama EDL-Reasoning
     user_preferences: str = ""         # Natuerliche Sprache fuer LLM ("ruhigere Breakdowns")
     transition_type: str = "cut"  # "cut" (hart, Standard) oder "crossfade" (experimentell, B9)
+    # User-Anweisung 2026-08-15: "immer versuchen, die maximale Laenge eines
+    # Clips zu verwenden, solange es passt". Bei True bestimmt nicht mehr das
+    # Beat-Raster die Schnitte, sondern die Musik: Section-Wechsel, Drops,
+    # Energiespruenge — und eine Notbremse nach acht Takten. Siehe
+    # services/pacing/roter_faden.py.
+    # Der Raster-Pfad (_select_cut_beats_advanced) bleibt vollstaendig
+    # erhalten und wird mit False weiterhin genutzt.
+    musikgetriebener_schnitt: bool = True
+    # Der rote Faden: gleiche Section-Typen bekommen dieselbe Bildwelt, und die
+    # Auswahl folgt einem Spannungsbogen ueber die volle Laenge.
+    roter_faden: bool = True
 
 
 @dataclass

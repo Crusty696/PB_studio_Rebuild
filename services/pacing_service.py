@@ -911,15 +911,30 @@ def _auto_edit_phase3_inner(
         logger.info("DJ-Uebergaenge erkannt: %s",
                     [(f"{s:.0f}-{e:.0f}s") for s, e in transition_ranges])
 
-    # 5. Cut-Beats berechnen (Phase 3+4 mit Section-Awareness + Beat-Hierarchie)
-    cut_beats = _select_cut_beats_advanced(
-        beats, total_duration, settings, energy_per_beat,
-        avg_motion=avg_motion,
-        vocal_activity=vocal_activity,
-        sections=sections,
-        downbeats=downbeats,
-        pacing_map=_pacing_map_override,
-    )
+    # 5. Cut-Beats berechnen
+    if getattr(settings, "musikgetriebener_schnitt", False):
+        # User-Anweisung 2026-08-15: lange Einstellungen, die nur enden, wenn
+        # die Musik einen Grund liefert. Der Raster-Pfad darunter bleibt
+        # unveraendert erhalten und greift, sobald der Schalter aus ist.
+        from services.pacing.roter_faden import schnitt_anlaesse
+
+        _anlaesse = schnitt_anlaesse(
+            beats, total_duration,
+            sections=sections,
+            energy_per_beat=energy_per_beat,
+            downbeats=downbeats,
+        )
+        cut_beats = [a.zeit for a in _anlaesse]
+    else:
+        # Phase 3+4 mit Section-Awareness + Beat-Hierarchie
+        cut_beats = _select_cut_beats_advanced(
+            beats, total_duration, settings, energy_per_beat,
+            avg_motion=avg_motion,
+            vocal_activity=vocal_activity,
+            sections=sections,
+            downbeats=downbeats,
+            pacing_map=_pacing_map_override,
+        )
 
     # Start immer bei 0
     if not cut_beats or cut_beats[0] > 0.01:
