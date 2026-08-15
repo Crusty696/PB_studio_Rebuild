@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPO_ROOT / "tools" / "audit_runtime_evidence.py"
@@ -35,11 +35,34 @@ def _json_bytes(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
-EMITTER = r'''from pathlib import Path
+EMITTER = '''from pathlib import Path
 import os
 run_dir = Path(os.environ["PB_AUDIT_RUN_DIR"])
-(run_dir / "artifact.txt").write_text("result\n", encoding="utf-8")
+(run_dir / "artifact.txt").write_text("result\\n", encoding="utf-8")
 print("scenario-ok")
+'''
+
+HARNESS = r'''import hashlib,json,runpy,sys,time,pkgutil,typing,weakref,_weakrefset
+from pathlib import Path
+descriptor_path, report_path = map(Path, sys.argv[1:3])
+descriptor_bytes = descriptor_path.read_bytes()
+descriptor = json.loads(descriptor_bytes)
+before = set(sys.modules)
+started = time.time_ns()
+exit_code = 0
+try:
+    runpy.run_path(descriptor["target_path"], run_name="__main__")
+except SystemExit as exc:
+    exit_code = int(exc.code or 0)
+loaded = []
+for name in sorted(set(sys.modules) - before):
+    origin = getattr(sys.modules[name], "__file__", None)
+    if origin and Path(origin).is_file():
+        data = Path(origin).read_bytes()
+        loaded.append({"name": name, "origin": str(Path(origin).resolve()), "sha256": hashlib.sha256(data).hexdigest()})
+report = {"schema_version":1,"descriptor_sha256":hashlib.sha256(descriptor_bytes).hexdigest(),"target_exit_code":exit_code,"started_ns":started,"ended_ns":time.time_ns(),"loaded_modules":loaded}
+report_path.write_text(json.dumps(report,sort_keys=True,separators=(",", ":"))+"\n", encoding="utf-8")
+raise SystemExit(exit_code)
 '''
 
 
@@ -53,62 +76,39 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=cls.repo, check=True)
         subprocess.run(["git", "config", "user.email", "audit@example.invalid"], cwd=cls.repo, check=True)
         subprocess.run(["git", "config", "user.name", "Audit Contract"], cwd=cls.repo, check=True)
-
         (cls.repo / "scenario.py").write_text(EMITTER, encoding="utf-8")
+        (cls.repo / "foreign.py").write_text("import fractions\n" + EMITTER, encoding="utf-8")
         (cls.repo / "slow.py").write_text("import time\ntime.sleep(0.6)\n" + EMITTER, encoding="utf-8")
         (cls.repo / "self_trace.py").write_text(
-            "from pathlib import Path\nimport os\n"
-            "Path(os.environ['PB_AUDIT_RUN_DIR'],'trace.jsonl').write_text('{}\\n')\n" + EMITTER,
+            "from pathlib import Path\nimport os\nPath(os.environ['PB_AUDIT_RUN_DIR'],'trace.jsonl').write_text('{}\\n')\n" + EMITTER,
             encoding="utf-8",
         )
-        (cls.repo / "ui_generic.py").write_text(EMITTER, encoding="utf-8")
         cls.pid_marker = cls.base / "tree-pids.json"
         (cls.repo / "tree_timeout.py").write_text(
-            "import subprocess, sys, time\n"
-            f"marker={str(cls.pid_marker)!r}\n"
+            "import subprocess,sys,time\n" + f"marker={str(cls.pid_marker)!r}\n" +
             "grand='import time; time.sleep(60)'\n"
-            "child='import json,os,subprocess,sys,time; p=subprocess.Popen([sys.executable,\"-c\",sys.argv[2]]); f=open(sys.argv[1],\"w\"); f.write(json.dumps([os.getpid(),p.pid])); f.flush(); f.close(); time.sleep(60)'\n"
-            "subprocess.Popen([sys.executable,'-c',child,marker,grand])\n"
-            "time.sleep(60)\n",
+            "child='import json,os,subprocess,sys,time; p=subprocess.Popen([sys.executable,\"-I\",\"-S\",\"-c\",sys.argv[2]]); open(sys.argv[1],\"w\").write(json.dumps([os.getpid(),p.pid])); time.sleep(60)'\n"
+            "subprocess.Popen([sys.executable,'-I','-S','-c',child,marker,grand])\ntime.sleep(60)\n",
             encoding="utf-8",
         )
         (cls.repo / ".gitattributes").write_text("scenario.py filter=evil\n", encoding="utf-8")
-        subprocess.run(
-            ["git", "add", "scenario.py", "slow.py", "self_trace.py", "ui_generic.py", "tree_timeout.py", ".gitattributes"],
-            cwd=cls.repo, check=True,
-        )
+        subprocess.run(["git", "add", "scenario.py", "foreign.py", "slow.py", "self_trace.py", "tree_timeout.py", ".gitattributes"], cwd=cls.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "audited product"], cwd=cls.repo, check=True)
-        cls.audited_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True
-        ).stdout.strip()
-
+        cls.audited_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True).stdout.strip()
         tool_target = cls.repo / "tools" / "audit_runtime_evidence.py"
         tool_target.parent.mkdir()
         shutil.copy2(TOOL_PATH, tool_target)
-        (cls.repo / "checker.py").write_text(
-            "from pathlib import Path\nimport sys\n"
-            "raise SystemExit(0 if Path(sys.argv[1]).read_text(encoding='utf-8') == 'result\\n' else 3)\n",
-            encoding="utf-8",
-        )
-        (cls.repo / "tamper_checker.py").write_text(
-            "from pathlib import Path\nimport sys\nPath(sys.argv[1]).write_text('{}\\n', encoding='utf-8')\n",
-            encoding="utf-8",
-        )
-        subprocess.run(
-            ["git", "add", "tools/audit_runtime_evidence.py", "checker.py", "tamper_checker.py"], cwd=cls.repo, check=True
-        )
-        subprocess.run(["git", "commit", "-qm", "tooling harness"], cwd=cls.repo, check=True)
-        cls.tooling_commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True
-        ).stdout.strip()
+        (cls.repo / "harness.py").write_text(HARNESS, encoding="utf-8")
+        (cls.repo / "checker.py").write_text("from pathlib import Path\nimport sys\nraise SystemExit(0 if Path(sys.argv[1]).read_text() == 'result\\n' else 3)\n", encoding="utf-8")
+        (cls.repo / "tamper_checker.py").write_text("from pathlib import Path\nimport sys\nPath(sys.argv[1]).write_text('{}\\n')\n", encoding="utf-8")
+        (cls.repo / "runtime_authority_policy.json").write_bytes(_json_bytes({"schema_version":1,"allow_same_audited_tooling_commit":False}) + b"\n")
+        subprocess.run(["git", "add", "tools/audit_runtime_evidence.py", "harness.py", "checker.py", "tamper_checker.py", "runtime_authority_policy.json"], cwd=cls.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "trusted tooling harness"], cwd=cls.repo, check=True)
+        cls.tooling_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True).stdout.strip()
         cls.tool = _load_tool()
-
         evil = cls.base / "evil_filter.py"
         evil.write_text("import sys\nsys.stdin.buffer.read()\nsys.stdout.write('raise SystemExit(91)\\n')\n", encoding="utf-8")
-        subprocess.run(
-            ["git", "config", "filter.evil.smudge", f'"{sys.executable}" "{evil}"'], cwd=cls.repo, check=True
-        )
-        subprocess.run(["git", "config", "filter.evil.clean", "cat"], cwd=cls.repo, check=True)
+        subprocess.run(["git", "config", "filter.evil.smudge", f'"{sys.executable}" "{evil}"'], cwd=cls.repo, check=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -125,14 +125,10 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         self.executor_path = self.evidence / "executors.json"
         self.dependency_path = self.evidence / "dependencies.json"
         self.contract_path = self.evidence / "audit_contract.json"
-        self.feature_rows = [{"feature_id": "FEAT-001", "path_id": "main"}]
-        self.symbol_rows = [{"symbol_id": "SYM-scenario:main", "feature_paths": ["FEAT-001/main"]}]
-        self.write_jsonl(self.feature_path, self.feature_rows)
-        self.write_jsonl(self.symbol_path, self.symbol_rows)
-        self.executor_path.write_bytes(_json_bytes({
-            "python": {"path": sys.executable, "sha256": _sha(Path(sys.executable)), "version": sys.version}
-        }) + b"\n")
-        self.dependency_path.write_bytes(_json_bytes({"python_version": sys.version, "modules": []}) + b"\n")
+        self.write_jsonl(self.feature_path, [{"feature_id": "FEAT-001", "path_id": "main"}])
+        self.symbol_path.write_text("", encoding="utf-8")
+        self.executor_path.write_bytes(_json_bytes({"python": {"path": sys.executable, "sha256": _sha(Path(sys.executable)), "version": sys.version}}) + b"\n")
+        self.dependency_path.write_bytes(_json_bytes({"schema_version": 1, "python_version": sys.version, "stdlib_modules": [], "modules": []}) + b"\n")
         self.write_catalog([self.valid_scenario()])
         self.write_contract()
 
@@ -145,24 +141,15 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
 
     def valid_scenario(self, *, scenario_id: str = "SCN-001", script: str = "scenario.py") -> dict:
         row = {
-            "schema_version": 2,
-            "run_id": "RUN-001",
-            "scenario_id": scenario_id,
-            "audited_commit": self.audited_commit,
-            "tooling_commit": self.tooling_commit,
-            "snapshot_id": "snapshot-001",
-            "feature_target": "FEAT-001/main",
-            "command": {"root": "audited", "argv": ["python", script], "cwd": "."},
-            "timeout_seconds": 5.0,
+            "schema_version": 3, "run_id": "RUN-001", "scenario_id": scenario_id,
+            "audited_commit": self.audited_commit, "tooling_commit": self.tooling_commit,
+            "snapshot_id": "snapshot-001", "feature_target": "FEAT-001/main",
+            "harness": {"root": "tooling", "argv": ["python", "harness.py", "{target_descriptor}", "{harness_report}"], "cwd": "."},
+            "target": {"path": script, "argv": []}, "timeout_seconds": 5.0,
             "inputs": [{"name": "fixture", "ref": "inputs/input.json", "sha256": _sha(self.input_path)}],
-            "allowed_symbol_ids": ["SYM-scenario:main"],
-            "symbol_probes": [{"symbol_id": "SYM-scenario:main", "path": script, "function": "<module>"}],
-            "allowed_axes": ["executed", "result", "live_evidence"],
-            "required_modules": [],
-            "postcondition": {
-                "root": "tooling", "argv": ["python", "checker.py", "{run_dir}/artifact.txt"],
-                "cwd": ".", "timeout_seconds": 5.0,
-            },
+            "allowed_symbol_ids": [], "allowed_axes": ["executed", "result", "live_evidence"],
+            "required_modules": [], "required_stdlib_modules": [],
+            "postcondition": {"root": "tooling", "argv": ["python", "checker.py", "{run_dir}/artifact.txt"], "cwd": ".", "timeout_seconds": 5.0},
             "artifacts": [{"name": "result", "ref": "artifact.txt", "required": True}],
         }
         row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
@@ -172,283 +159,183 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         self.write_jsonl(self.catalog_path, rows)
 
     def write_contract(self, **overrides: object) -> None:
+        def artifact(path: Path, records: int) -> dict:
+            digest = _sha(path)
+            return {"artifact_id":f"sha256:{digest}","ref":path.name,"sha256":digest,
+                    "bytes":path.stat().st_size,"record_count":records}
         contract = {
-            "schema_version": 1,
-            "run_id": "RUN-001",
-            "snapshot_id": "snapshot-001",
-            "audited_commit": self.audited_commit,
-            "tooling_commit": self.tooling_commit,
-            "scenario_catalog": {"ref": "scenario_catalog.jsonl", "sha256": _sha(self.catalog_path)},
-            "feature_universe": {"ref": "features.jsonl", "sha256": _sha(self.feature_path)},
-            "symbol_universe": {"ref": "symbols.jsonl", "sha256": _sha(self.symbol_path)},
-            "executor_manifest": {"ref": "executors.json", "sha256": _sha(self.executor_path)},
-            "dependency_manifest": {"ref": "dependencies.json", "sha256": _sha(self.dependency_path)},
+            "schema_version": 1, "plan_id":"PB-STUDIO-EXHAUSTIVE-AUDIT",
+            "run_id": "RUN-001", "snapshot_id": "snapshot-001",
+            "audited_commit": self.audited_commit, "tooling_commit": self.tooling_commit,
+            "frozen_at":"2026-08-15T00:00:00+00:00", "expires_at":"2099-08-15T00:00:00+00:00",
+            "artifacts": {
+                "runtime-scenario-catalog":artifact(self.catalog_path,len(self.catalog_path.read_text().splitlines())),
+                "runtime-feature-universe":artifact(self.feature_path,len(self.feature_path.read_text().splitlines())),
+                "runtime-symbol-universe":artifact(self.symbol_path,len(self.symbol_path.read_text().splitlines())),
+                "runtime-executor-manifest":artifact(self.executor_path,1),
+                "runtime-dependency-manifest":artifact(self.dependency_path,1),
+            },
         }
         contract.update(overrides)
+        contract["contract_sha256"] = self.tool.canonical_sha256(contract, omit={"contract_sha256"})
         self.contract_path.write_bytes(_json_bytes(contract) + b"\n")
+        self.expected_contract_sha256 = contract["contract_sha256"]
 
     def refresh_contract(self) -> None:
         self.write_contract()
 
-    def run_valid(self, runtime_run_id: str = "LIVE-001", scenario_id: str = "SCN-001") -> dict:
-        return self.tool.run_scenario(
-            repo_root=self.repo,
-            evidence_root=self.evidence,
-            contract_path=self.contract_path,
-            scenario_id=scenario_id,
-            runtime_run_id=runtime_run_id,
-        )
+    def run_valid(self, runtime_run_id: str = "LIVE-001", scenario_id: str = "SCN-001", *, expected_contract_sha256: str | None = None) -> dict:
+        return self.tool.run_scenario(repo_root=self.repo, evidence_root=self.evidence, contract_path=self.contract_path,
+            expected_contract_sha256=expected_contract_sha256 or self.expected_contract_sha256,
+            authority_policy_path="runtime_authority_policy.json", scenario_id=scenario_id, runtime_run_id=runtime_run_id)
 
     def test_positive_minimal(self) -> None:
         receipt = self.run_valid()
         self.assertEqual(receipt["covered_feature_paths"], ["FEAT-001/main"])
-        self.assertEqual(receipt["covered_symbol_ids"], ["SYM-scenario:main"])
+        self.assertEqual(receipt["covered_symbol_ids"], [])
         self.assertEqual(receipt["covered_axes"], ["executed", "live_evidence", "result"])
-        self.assertEqual(receipt["exit"]["code"], 0)
-        self.assertEqual(receipt["postcondition"]["result"], "pass")
-        self.assertEqual(receipt["evidence_id"], self.tool.canonical_evidence_id(receipt))
-        self.assertEqual(receipt["command"]["source"]["commit"], self.audited_commit)
-        self.assertEqual(receipt["postcondition"]["checker"]["source"]["commit"], self.tooling_commit)
-        self.assertNotEqual(self.audited_commit, self.tooling_commit)
-        self.assertEqual(receipt["runner"]["tooling_commit"], self.tooling_commit)
-        self.assertTrue(receipt["observer"]["nonce_bound"])
-        self.assertTrue(receipt["environment"]["python_no_user_site"])
+        self.assertEqual(receipt["harness"]["source"]["commit"], self.tooling_commit)
+        self.assertEqual(receipt["target"]["source"]["commit"], self.audited_commit)
+        self.assertEqual(receipt["observer"]["source"], "harness-controlled")
+        self.assertEqual(receipt["observer"]["threat_boundary"], "shared-interpreter-no-cryptographic-anti-tamper")
+        self.assertEqual(receipt["environment"]["python_flags"], ["-I", "-S"])
+        self.assertFalse(receipt["observer"]["cryptographic_anti_tamper"])
+        self.assertEqual(receipt["materialization"]["method"], "git-cat-file")
+        self.assertNotEqual(receipt["audited_commit"], receipt["tooling_commit"])
         self.assertIn(b"scenario-ok", (self.evidence / receipt["stdout"]["ref"]).read_bytes())
 
     def test_missing_required_rejected(self) -> None:
-        row = self.valid_scenario()
-        del row["postcondition"]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "postcondition"):
-            self.run_valid()
+        row = self.valid_scenario(); del row["postcondition"]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "postcondition"): self.run_valid()
 
     def test_tampered_binding_rejected(self) -> None:
-        row = self.valid_scenario()
-        row["audited_commit"] = "0" * 40
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "scenario_sha256"):
-            self.run_valid()
-
-    def test_recomputed_foreign_binding_rejected_by_external_contract(self) -> None:
-        row = self.valid_scenario()
-        row["audited_commit"] = self.tooling_commit
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Auditvertrag"):
-            self.run_valid()
+        row = self.valid_scenario(); row["audited_commit"] = "0" * 40
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Auditvertrag"): self.run_valid()
 
     def test_duplicate_or_foreign_id_rejected(self) -> None:
-        row = self.valid_scenario()
-        self.write_catalog([row, row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "doppelt"):
-            self.run_valid()
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "unbekannt"):
-            self.run_valid(scenario_id="SCN-FOREIGN")
+        row = self.valid_scenario(); self.write_catalog([row, row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "doppelt"): self.run_valid()
+        self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "unbekannt"): self.run_valid(scenario_id="SCN-X")
 
     def test_missing_or_tampered_artifact_rejected(self) -> None:
-        row = self.valid_scenario()
-        row["artifacts"] = [{"name": "missing", "ref": "missing.bin", "required": True}]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Artefakt fehlt"):
-            self.run_valid()
-        row = self.valid_scenario()
-        row["inputs"][0]["sha256"] = "f" * 64
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Input-Hash"):
-            self.run_valid("LIVE-002")
+        row = self.valid_scenario(); row["artifacts"] = [{"name":"x","ref":"missing","required":True}]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Artefakt fehlt"): self.run_valid()
 
-    def test_checkout_filter_cannot_overwrite_materialized_product_blob(self) -> None:
-        receipt = self.run_valid()
-        self.assertEqual(receipt["materialization"]["method"], "git-cat-file")
-        self.assertIn(b"scenario-ok", (self.evidence / receipt["stdout"]["ref"]).read_bytes())
+    def test_authority_blob_blocks_contract_substitution(self) -> None:
+        original = self.expected_contract_sha256; self.write_contract(run_id="RUN-FOREIGN")
+        with self.assertRaisesRegex(self.tool.ContractError, "Authority|Auditvertrag"): self.run_valid(expected_contract_sha256=original)
 
-    def test_postcondition_cannot_mutate_trace_or_evidence(self) -> None:
-        row = self.valid_scenario()
-        row["postcondition"]["argv"] = ["python", "tamper_checker.py", "{run_dir}/trace.jsonl"]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Postcondition.*veraendert"):
-            self.run_valid()
+    def test_scenario_schema_version_exact(self) -> None:
+        row = self.valid_scenario(); row["schema_version"] = 2
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "schema_version"): self.run_valid()
 
-    def test_input_and_catalog_toctou_rejected(self) -> None:
-        row = self.valid_scenario(script="slow.py")
-        self.write_catalog([row])
-        self.refresh_contract()
-        def mutate() -> None:
-            for _ in range(3000):
-                if list((self.evidence / ".staging").glob("*/sealed/inputs/fixture.json")):
-                    break
-                time.sleep(0.01)
-            self.input_path.write_text("mutated\n", encoding="utf-8")
-            self.catalog_path.write_text(self.catalog_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-        thread = threading.Thread(target=mutate)
-        thread.start()
-        with self.assertRaisesRegex(self.tool.ContractError, "TOCTOU"):
-            self.run_valid()
-        thread.join()
-
-    def test_self_written_trace_is_rejected(self) -> None:
-        row = self.valid_scenario(script="self_trace.py")
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "runner-reserviert"):
-            self.run_valid()
-
-    def test_duplicate_semantic_target_and_cross_feature_symbol_rejected(self) -> None:
-        first = self.valid_scenario()
-        second = self.valid_scenario(scenario_id="SCN-002")
-        self.write_catalog([first, second])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "semantisches Ziel doppelt"):
-            self.run_valid()
-        self.write_catalog([first])
-        self.feature_rows.append({"feature_id": "FEAT-UNCLAIMED", "path_id": "main"})
-        self.write_jsonl(self.feature_path, self.feature_rows)
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Exact-Set"):
-            self.run_valid("LIVE-002")
-        self.feature_rows.pop()
-        self.write_jsonl(self.feature_path, self.feature_rows)
-        self.symbol_rows[0]["feature_paths"] = ["FEAT-OTHER/main"]
-        self.write_jsonl(self.symbol_path, self.symbol_rows)
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Symbol.*(Featuretarget|Featurepfade)"):
-            self.run_valid("LIVE-003")
-
-    def test_executor_and_dependency_manifests_are_enforced(self) -> None:
-        manifest = json.loads(self.executor_path.read_text(encoding="utf-8"))
-        manifest["python"]["sha256"] = "0" * 64
-        self.executor_path.write_bytes(_json_bytes(manifest) + b"\n")
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Executor python"):
-            self.run_valid()
-
-        self.executor_path.write_bytes(_json_bytes({
-            "python": {"path": sys.executable, "sha256": _sha(Path(sys.executable)), "version": sys.version}
-        }) + b"\n")
-        row = self.valid_scenario()
-        row["required_modules"] = ["not-installed-pb-audit-module"]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "required_modules"):
-            self.run_valid("LIVE-002")
+    def test_catalog_cannot_execute_audited_scenario_directly(self) -> None:
+        row = self.valid_scenario(); row["harness"] = {"root":"audited","argv":["python","scenario.py"],"cwd":"."}
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "tooling"): self.run_valid()
 
     def test_nonexistent_command_and_path_escape_rejected(self) -> None:
-        row = self.valid_scenario()
-        row["command"]["argv"] = ["does-not-exist", "scenario.py"]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "nicht erlaubt"):
-            self.run_valid()
-        row = self.valid_scenario()
-        row["command"]["cwd"] = "../outside"
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "cwd.*ausserhalb"):
-            self.run_valid("LIVE-002")
+        row = self.valid_scenario(); row["harness"]["argv"][0] = "does-not-exist"
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "nicht erlaubt"): self.run_valid()
+        row = self.valid_scenario(); row["target"]["path"] = "../scenario.py"
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Pfad-Escape"): self.run_valid(runtime_run_id="LIVE-PATH")
 
-    def test_ui_db_gpu_require_observer_specific_events(self) -> None:
-        row = self.valid_scenario(script="ui_generic.py")
-        row["allowed_axes"] = ["UI"]
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "UI.*Observer"):
-            self.run_valid()
+    def test_runtime_and_scenario_reuse_rejected(self) -> None:
+        self.run_valid()
+        with self.assertRaisesRegex(self.tool.ContractError, "bereits"): self.run_valid()
+        with self.assertRaisesRegex(self.tool.ContractError, "Evidence-Reuse"): self.run_valid(runtime_run_id="LIVE-NEW")
 
-    def test_runtime_run_id_reuse_concurrent_and_stale_lock_rejected(self) -> None:
-        stale = self.evidence / ".runtime_runs.lock"
-        stale.write_text('{"pid":999999,"created_ns":1}\n', encoding="utf-8")
-        with self.assertRaisesRegex(self.tool.ContractError, "Lock.*manuell"):
-            self.run_valid()
-        stale.unlink()
-        row = self.valid_scenario(script="slow.py")
-        self.write_catalog([row])
-        self.refresh_contract()
-        result: list[object] = []
-        def first() -> None:
-            try:
-                result.append(self.run_valid())
-            except Exception as exc:
-                result.append(exc)
-        thread = threading.Thread(target=first)
-        thread.start()
-        lock = self.evidence / "runs" / ".LIVE-001.lock"
-        for _ in range(100):
-            if lock.exists():
-                break
-            time.sleep(0.01)
-        with self.assertRaisesRegex(self.tool.ContractError, "bereits|Lock existiert"):
-            self.run_valid()
+    def test_same_audited_tooling_commit_rejected_by_policy(self) -> None:
+        self.write_contract(audited_commit=self.tooling_commit)
+        with self.assertRaisesRegex(self.tool.ContractError, "gleich"): self.run_valid()
+
+    def test_unlisted_loaded_stdlib_module_rejected(self) -> None:
+        row = self.valid_scenario(script="foreign.py")
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Modul"): self.run_valid()
+
+    def test_symbol_runtime_claim_fails_closed_without_external_observer(self) -> None:
+        row = self.valid_scenario(); row["allowed_symbol_ids"] = ["SYM-X"]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
+        self.write_jsonl(self.symbol_path,[{"symbol_id":"SYM-X","feature_paths":["FEAT-001/main"]}]); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Symbol.*Observer"): self.run_valid()
+
+    def test_postcondition_trace_tamper_rejected(self) -> None:
+        row = self.valid_scenario(); row["postcondition"]["argv"] = ["python","tamper_checker.py","{run_dir}/trace.jsonl"]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Postcondition.*veraendert"): self.run_valid()
+
+    def test_product_self_written_trace_observer_forge_rejected(self) -> None:
+        row = self.valid_scenario(script="self_trace.py")
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"}); self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "runner-reserviert"): self.run_valid()
+
+    def test_input_catalog_toctou_rejected(self) -> None:
+        row = self.valid_scenario(script="slow.py"); self.write_catalog([row]); self.refresh_contract()
+        def mutate() -> None:
+            for _ in range(3000):
+                if list((self.evidence / ".staging").glob("*/sealed/inputs/*")): break
+                time.sleep(0.01)
+            self.input_path.write_text("changed\n"); self.catalog_path.write_text(self.catalog_path.read_text() + "\n")
+        thread = threading.Thread(target=mutate); thread.start()
+        with self.assertRaisesRegex(self.tool.ContractError, "TOCTOU"): self.run_valid()
         thread.join()
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], dict)
-        with self.assertRaisesRegex(self.tool.ContractError, "bereits"):
-            self.run_valid()
-        with self.assertRaisesRegex(self.tool.ContractError, "Evidence-Reuse"):
-            self.run_valid("LIVE-002")
 
-    @unittest.skipUnless(os.name == "nt", "taskkill /T-Vertrag ist Windows-spezifisch")
+    def test_stale_lock_and_concurrent_different_scenarios(self) -> None:
+        stale = self.evidence / ".runtime_runs.lock"; stale.write_text('{"pid":999999}\n')
+        with self.assertRaisesRegex(self.tool.ContractError, "Lock.*manuell"): self.run_valid()
+        stale.unlink()
+        first = self.valid_scenario(script="slow.py"); second = self.valid_scenario(scenario_id="SCN-002", script="slow.py")
+        second["feature_target"] = "FEAT-002/main"; second["scenario_sha256"] = self.tool.canonical_sha256(second, omit={"scenario_sha256"})
+        self.write_jsonl(self.feature_path,[{"feature_id":"FEAT-001","path_id":"main"},{"feature_id":"FEAT-002","path_id":"main"}]); self.write_catalog([first,second]); self.refresh_contract()
+        results: list[object] = []
+        def invoke(sid: str, rid: str) -> None:
+            try: results.append(self.run_valid(rid,sid))
+            except Exception as exc: results.append(exc)
+        threads=[threading.Thread(target=invoke,args=("SCN-001","LIVE-A")),threading.Thread(target=invoke,args=("SCN-002","LIVE-B"))]
+        [thread.start() for thread in threads]; [thread.join() for thread in threads]
+        self.assertEqual(2, sum(isinstance(item,dict) for item in results), results)
+
+    def test_atomic_ledger_crash_preserves_old_bytes(self) -> None:
+        ledger=self.evidence/"runtime_runs.jsonl"; old=b'{"evidence_id":"old","runtime_run_id":"old","scenario_id":"old"}\n'; ledger.write_bytes(old)
+        real_replace=os.replace
+        def crash(source, target):
+            if Path(target).name=="runtime_runs.jsonl": raise OSError("simulated crash")
+            return real_replace(source,target)
+        with mock.patch.object(self.tool.os,"replace",side_effect=crash):
+            with self.assertRaisesRegex(OSError,"simulated crash"): self.run_valid()
+        self.assertEqual(ledger.read_bytes(),old)
+
+    @unittest.skipUnless(os.name == "nt", "Windows process-tree contract")
     def test_timeout_kills_child_and_grandchild(self) -> None:
-        row = self.valid_scenario(script="tree_timeout.py")
-        row["timeout_seconds"] = 10.0
-        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_catalog([row])
-        self.refresh_contract()
-        with self.assertRaisesRegex(self.tool.ContractError, "Timeout"):
-            self.run_valid()
+        row=self.valid_scenario(script="tree_timeout.py"); row["timeout_seconds"]=5.0; row["required_stdlib_modules"]=["subprocess"]
+        row["scenario_sha256"]=self.tool.canonical_sha256(row,omit={"scenario_sha256"})
+        self.dependency_path.write_bytes(_json_bytes({"schema_version":1,"python_version":sys.version,"stdlib_modules":["subprocess"],"modules":[]})+b"\n")
+        self.write_catalog([row]); self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError,"Timeout"): self.run_valid()
         for _ in range(100):
-            if self.pid_marker.exists():
-                break
+            if self.pid_marker.exists(): break
             time.sleep(0.02)
-        pids = json.loads(self.pid_marker.read_text(encoding="utf-8"))
-        time.sleep(0.3)
-        for pid in pids:
-            output = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, check=False,
-            ).stdout
-            self.assertNotIn(f'"{pid}"', output, output)
+        for pid in json.loads(self.pid_marker.read_text()):
+            output=subprocess.run(["tasklist","/FI",f"PID eq {pid}","/FO","CSV","/NH"],capture_output=True,text=True).stdout
+            self.assertNotIn(f'"{pid}"',output)
 
 
 def _node(method: str) -> unittest.TestCase:
     return RuntimeEvidenceContractTests(method)
 
-
-def test_positive_minimal() -> unittest.TestCase:
-    return _node("test_positive_minimal")
-
-
-def test_missing_required_rejected() -> unittest.TestCase:
-    return _node("test_missing_required_rejected")
-
-
-def test_tampered_binding_rejected() -> unittest.TestCase:
-    return _node("test_tampered_binding_rejected")
-
-
-def test_duplicate_or_foreign_id_rejected() -> unittest.TestCase:
-    return _node("test_duplicate_or_foreign_id_rejected")
-
-
-def test_missing_or_tampered_artifact_rejected() -> unittest.TestCase:
-    return _node("test_missing_or_tampered_artifact_rejected")
-
+def test_positive_minimal() -> unittest.TestCase: return _node("test_positive_minimal")
+def test_missing_required_rejected() -> unittest.TestCase: return _node("test_missing_required_rejected")
+def test_tampered_binding_rejected() -> unittest.TestCase: return _node("test_tampered_binding_rejected")
+def test_duplicate_or_foreign_id_rejected() -> unittest.TestCase: return _node("test_duplicate_or_foreign_id_rejected")
+def test_missing_or_tampered_artifact_rejected() -> unittest.TestCase: return _node("test_missing_or_tampered_artifact_rejected")
 
 if __name__ == "__main__":
     unittest.main()

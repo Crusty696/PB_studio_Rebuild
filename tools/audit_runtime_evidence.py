@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
 import importlib.metadata
 import json
 import os
 import re
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -38,14 +35,21 @@ SURFACE_OBSERVERS = {
 }
 REQUIRED_SCENARIO_FIELDS = {
     "schema_version", "run_id", "scenario_id", "audited_commit", "tooling_commit",
-    "snapshot_id", "scenario_sha256", "feature_target", "command",
+    "snapshot_id", "scenario_sha256", "feature_target", "harness", "target",
     "timeout_seconds", "inputs", "allowed_symbol_ids", "allowed_axes",
-    "symbol_probes", "required_modules", "postcondition", "artifacts",
+    "required_modules", "required_stdlib_modules", "postcondition", "artifacts",
 }
-CONTRACT_REFS = (
-    "scenario_catalog", "feature_universe", "symbol_universe",
-    "executor_manifest", "dependency_manifest",
-)
+CONTRACT_ARTIFACTS = {
+    "scenario_catalog": "runtime-scenario-catalog",
+    "feature_universe": "runtime-feature-universe",
+    "symbol_universe": "runtime-symbol-universe",
+    "executor_manifest": "runtime-executor-manifest",
+    "dependency_manifest": "runtime-dependency-manifest",
+}
+CONTRACT_FIELDS = {
+    "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
+}
 ALLOWED_EXECUTORS = {"python"}
 
 
@@ -121,7 +125,7 @@ def _parse_json(data: bytes, label: str) -> dict[str, Any]:
     return value
 
 
-def _parse_jsonl(data: bytes, label: str) -> list[dict[str, Any]]:
+def _parse_jsonl(data: bytes, label: str, *, allow_empty: bool = False) -> list[dict[str, Any]]:
     try:
         lines = data.decode("utf-8").splitlines()
     except UnicodeError as exc:
@@ -137,7 +141,7 @@ def _parse_jsonl(data: bytes, label: str) -> list[dict[str, Any]]:
         if not isinstance(row, dict):
             raise ContractError(f"{label} Zeile {number}: Objekt erwartet")
         rows.append(row)
-    if not rows:
+    if not rows and not allow_empty:
         raise ContractError(f"{label} ist leer")
     return rows
 
@@ -152,6 +156,13 @@ def _read_bound_ref(evidence: Path, record: object, label: str) -> tuple[Path, b
     expected = record.get("sha256")
     if not isinstance(expected, str) or not HASH_RE.fullmatch(expected) or _sha_bytes(data) != expected:
         raise ContractError(f"Auditvertrag/{label}: SHA256 stimmt nicht")
+    if set(record) != {"artifact_id", "ref", "sha256", "bytes", "record_count"}:
+        raise ContractError(f"Auditvertrag/{label}: Artifact-Schema falsch")
+    if record.get("artifact_id") != f"sha256:{expected}" or record.get("bytes") != len(data):
+        raise ContractError(f"Auditvertrag/{label}: artifact_id/bytes falsch")
+    count = len(data.decode("utf-8").splitlines())
+    if type(record.get("record_count")) is not int or record["record_count"] != count:
+        raise ContractError(f"Auditvertrag/{label}: record_count falsch")
     return path, data
 
 
@@ -161,16 +172,57 @@ def _load_contract(evidence: Path, contract_path: Path) -> tuple[dict[str, Any],
         raise ContractError("audit_contract fehlt")
     data = contract_path.read_bytes()
     contract = _parse_json(data, "audit_contract")
-    if contract.get("schema_version") != 1:
-        raise ContractError("audit_contract.schema_version muss 1 sein")
-    for field in ("run_id", "snapshot_id"):
+    if set(contract) != CONTRACT_FIELDS or contract.get("schema_version") != 1:
+        raise ContractError("audit_contract Schema/Felder muessen exakt Version 1 entsprechen")
+    if contract.get("contract_sha256") != canonical_sha256(contract, omit={"contract_sha256"}):
+        raise ContractError("audit_contract.contract_sha256 stimmt nicht")
+    for field in ("plan_id", "run_id", "snapshot_id"):
         if not isinstance(contract.get(field), str) or not contract[field]:
             raise ContractError(f"audit_contract.{field} fehlt")
     for field in ("audited_commit", "tooling_commit"):
         if not isinstance(contract.get(field), str) or not SHA_RE.fullmatch(contract[field]):
             raise ContractError(f"audit_contract.{field} muss voller SHA sein")
-    refs = {name: _read_bound_ref(evidence, contract.get(name), name) for name in CONTRACT_REFS}
+    timestamps: dict[str, datetime] = {}
+    for field in ("frozen_at", "expires_at"):
+        try:
+            parsed = datetime.fromisoformat(str(contract.get(field)))
+        except ValueError as exc:
+            raise ContractError(f"audit_contract.{field} ungueltig") from exc
+        if parsed.tzinfo is None:
+            raise ContractError(f"audit_contract.{field} braucht Zeitzone")
+        timestamps[field] = parsed
+    now = datetime.now(timezone.utc)
+    if timestamps["frozen_at"] > now or timestamps["expires_at"] <= timestamps["frozen_at"]:
+        raise ContractError("audit_contract frozen_at/expires_at Reihenfolge ungueltig")
+    if timestamps["expires_at"] <= now:
+        raise ContractError("audit_contract ist abgelaufen")
+    artifacts = contract.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != set(CONTRACT_ARTIFACTS.values()):
+        raise ContractError("audit_contract.artifacts hat falsche Exact-Set-Menge")
+    refs = {name: _read_bound_ref(evidence, artifacts[key], key) for name, key in CONTRACT_ARTIFACTS.items()}
     return contract, data, refs
+
+
+def _load_authority_policy(
+    repo: Path, tooling_commit: str, policy_path: str, expected_contract_sha256: str,
+    contract: dict[str, Any],
+) -> tuple[dict[str, Any], bytes, str]:
+    if not isinstance(expected_contract_sha256, str) or not HASH_RE.fullmatch(expected_contract_sha256):
+        raise ContractError("Authority expected_contract_sha256 ungueltig")
+    if contract.get("contract_sha256") != expected_contract_sha256:
+        raise ContractError("Authority/Auditvertrag expected_contract_sha256 falsch")
+    if not isinstance(policy_path, str) or Path(policy_path).is_absolute() or ".." in Path(policy_path).parts:
+        raise ContractError("Authority-Policy-Pfad ungueltig")
+    result = _git(repo, "show", f"{tooling_commit}:{policy_path}", check=False)
+    if result.returncode != 0:
+        raise ContractError("Authority-Policy fehlt im tooling_commit")
+    authority = _parse_json(result.stdout, "Authority-Policy")
+    if authority.get("schema_version") != 1:
+        raise ContractError("Authority.schema_version muss exakt 1 sein")
+    if contract.get("audited_commit") == contract.get("tooling_commit") and authority.get("allow_same_audited_tooling_commit") is not True:
+        raise ContractError("audited_commit und tooling_commit sind gleich; Authority-Policy verbietet dies")
+    oid = _git(repo, "rev-parse", f"{tooling_commit}:{policy_path}").stdout.decode().strip()
+    return authority, result.stdout, oid
 
 
 def _load_catalog(data: bytes) -> dict[str, dict[str, Any]]:
@@ -185,6 +237,8 @@ def _load_catalog(data: bytes) -> dict[str, dict[str, Any]]:
         missing = sorted(REQUIRED_SCENARIO_FIELDS - row.keys())
         if missing:
             raise ContractError(f"Scenario {scenario_id}: Pflichtfelder fehlen: {', '.join(missing)}")
+        if row.get("schema_version") != 3:
+            raise ContractError(f"Scenario {scenario_id}: schema_version muss exakt 3 sein")
         if row.get("scenario_sha256") != canonical_sha256(row, omit={"scenario_sha256"}):
             raise ContractError(f"Scenario {scenario_id}: scenario_sha256 stimmt nicht")
         axes = row.get("allowed_axes")
@@ -194,11 +248,9 @@ def _load_catalog(data: bytes) -> dict[str, dict[str, Any]]:
         symbols = row.get("allowed_symbol_ids")
         if not isinstance(feature_target, str) or not feature_target:
             raise ContractError(f"Scenario {scenario_id}: feature_target fehlt")
-        if (
-            not isinstance(symbols, list) or not symbols
+        if (not isinstance(symbols, list)
             or not all(isinstance(symbol, str) and symbol for symbol in symbols)
-            or len(symbols) != len(set(symbols))
-        ):
+            or len(symbols) != len(set(symbols))):
             raise ContractError(f"Scenario {scenario_id}: allowed_symbol_ids ungueltig/doppelt")
         target = (str(row.get("feature_target", "")), tuple(sorted(axes)))
         if target in semantic_targets:
@@ -227,7 +279,7 @@ def _feature_and_symbol_sets(
             raise ContractError(f"Feature-Universum: {key!r} doppelt")
         features.add(key)
     symbols: dict[str, set[str]] = {}
-    for number, row in enumerate(_parse_jsonl(symbol_data, "Symbol-Universum"), 1):
+    for number, row in enumerate(_parse_jsonl(symbol_data, "Symbol-Universum", allow_empty=True), 1):
         symbol_id, feature_paths = row.get("symbol_id"), row.get("feature_paths")
         if not isinstance(symbol_id, str) or not symbol_id:
             raise ContractError(f"Symbol-Universum Zeile {number}: symbol_id fehlt")
@@ -246,7 +298,7 @@ def _validate_target_sets(row: dict[str, Any], features: set[str], symbols: dict
     if target not in features:
         raise ContractError(f"Scenario {row.get('scenario_id')}: fremdes Featuretarget")
     values = row.get("allowed_symbol_ids")
-    if not isinstance(values, list) or not values or not all(isinstance(item, str) and item for item in values):
+    if not isinstance(values, list) or not all(isinstance(item, str) and item for item in values):
         raise ContractError(f"Scenario {row.get('scenario_id')}: allowed_symbol_ids fehlt/ungueltig")
     if len(values) != len(set(values)):
         raise ContractError(f"Scenario {row.get('scenario_id')}: allowed_symbol_ids doppelt")
@@ -255,21 +307,8 @@ def _validate_target_sets(row: dict[str, Any], features: set[str], symbols: dict
             raise ContractError(f"Scenario {row.get('scenario_id')}: fremdes Symbol {symbol}")
         if target not in symbols[symbol]:
             raise ContractError(f"Symbol {symbol} ist nicht an Featuretarget {target} gebunden")
-    probes = row.get("symbol_probes")
-    if not isinstance(probes, list) or not probes:
-        raise ContractError("Scenario.symbol_probes fehlt")
-    probe_ids: list[str] = []
-    for index, probe in enumerate(probes):
-        if not isinstance(probe, dict):
-            raise ContractError(f"Scenario.symbol_probes[{index}] ungueltig")
-        symbol_id, path, function = probe.get("symbol_id"), probe.get("path"), probe.get("function")
-        if not all(isinstance(item, str) and item for item in (symbol_id, path, function)):
-            raise ContractError(f"Scenario.symbol_probes[{index}] unvollstaendig")
-        if Path(path).is_absolute() or ".." in Path(path).parts:
-            raise ContractError(f"Scenario.symbol_probes[{index}].path entkommt Auditbaum")
-        probe_ids.append(symbol_id)
-    if len(probe_ids) != len(set(probe_ids)) or set(probe_ids) != set(values):
-        raise ContractError("Scenario.symbol_probes muss allowed_symbol_ids exakt abbilden")
+    if values:
+        raise ContractError("Symbol-Runtimeachse braucht trusted externen Observer; Produktintrospektion reicht nicht")
 
 
 def _validate_catalog_exact_set(
@@ -311,6 +350,8 @@ def _validate_executor_and_dependencies(
             raise ContractError("Python-Executor/Version weicht vom laufenden Runner ab")
         normalized[name] = {"path": str(path), "sha256": expected, "version": str(item.get("version", ""))}
     dependencies = _parse_json(dependency_data, "Dependency-Manifest")
+    if dependencies.get("schema_version") != 1:
+        raise ContractError("Dependency-Manifest.schema_version muss exakt 1 sein")
     if dependencies.get("python_version") != sys.version:
         raise ContractError("Dependency-Manifest: python_version stimmt nicht")
     module_rows = dependencies.get("modules")
@@ -348,6 +389,16 @@ def _validate_executor_and_dependencies(
         raise ContractError("Scenario.required_modules ungueltig")
     if not set(required).issubset(modules):
         raise ContractError("Scenario.required_modules fehlen im Dependency-Manifest")
+    stdlib = dependencies.get("stdlib_modules")
+    required_stdlib = row.get("required_stdlib_modules")
+    if (not isinstance(stdlib, list) or len(stdlib) != len(set(stdlib))
+        or not all(isinstance(item, str) and item for item in stdlib)):
+        raise ContractError("Dependency-Manifest.stdlib_modules ungueltig")
+    if (not isinstance(required_stdlib, list) or len(required_stdlib) != len(set(required_stdlib))
+        or not all(isinstance(item, str) and item for item in required_stdlib)):
+        raise ContractError("Scenario.required_stdlib_modules ungueltig")
+    if set(required_stdlib) != set(stdlib):
+        raise ContractError("Scenario/Manifest-Stdlibmodule keine Exact-Set-Gleichheit")
     return normalized, dependencies
 
 
@@ -413,8 +464,11 @@ def _validate_command(command: object, label: str, fallback_timeout: float, expe
 
 def _expand_arg(
     arg: str, *, root: Path, run_dir: Path, inputs: dict[str, Path], label: str,
+    special_paths: dict[str, Path] | None = None,
 ) -> str:
     expanded = arg.replace("{run_dir}", str(run_dir))
+    for name, path in (special_paths or {}).items():
+        expanded = expanded.replace(f"{{{name}}}", str(path))
     for name, path in inputs.items():
         expanded = expanded.replace(f"{{input:{name}}}", str(path))
     if "{" in expanded or "}" in expanded:
@@ -424,7 +478,8 @@ def _expand_arg(
         raise ContractError(f"{label}: Pfad-Escape verboten")
     if pathish.is_absolute():
         resolved = pathish.resolve()
-        allowed = [root.resolve(), run_dir.resolve(), *[path.resolve() for path in inputs.values()]]
+        allowed = [root.resolve(), run_dir.resolve(), *[path.resolve() for path in inputs.values()],
+                   *[path.resolve() for path in (special_paths or {}).values()]]
         if not any(resolved == base or (base.is_dir() and _is_relative_to(resolved, base)) for base in allowed):
             raise ContractError(f"{label}: absoluter Pfad ausserhalb erlaubter Wurzeln")
     return expanded
@@ -433,6 +488,7 @@ def _expand_arg(
 def _resolve_command(
     command: dict[str, Any], *, root: Path, run_dir: Path, inputs: dict[str, Path],
     executors: dict[str, dict[str, str]], label: str, commit: str,
+    special_paths: dict[str, Path] | None = None,
 ) -> tuple[list[str], Path, dict[str, Any]]:
     cwd = _contained(root, root / command["cwd"], f"{label}.cwd")
     if not cwd.is_dir():
@@ -441,12 +497,15 @@ def _resolve_command(
     if executable_key not in executors:
         raise ContractError(f"{label}: Executable {command['argv'][0]!r} ist nicht erlaubt")
     resolved = [executors[executable_key]["path"]]
-    for index, arg in enumerate(command["argv"][1:], 1):
-        resolved.append(_expand_arg(arg, root=root, run_dir=run_dir, inputs=inputs, label=f"{label}.argv[{index}]"))
     if executable_key == "python":
-        if len(resolved) < 2 or resolved[1].startswith("-") or Path(resolved[1]).suffix.lower() != ".py":
+        resolved.extend(["-I", "-S"])
+    for index, arg in enumerate(command["argv"][1:], 1):
+        resolved.append(_expand_arg(arg, root=root, run_dir=run_dir, inputs=inputs,
+                                    special_paths=special_paths, label=f"{label}.argv[{index}]"))
+    if executable_key == "python":
+        if len(resolved) < 4 or Path(resolved[3]).suffix.lower() != ".py":
             raise ContractError(f"{label}: Python braucht gebundenes .py-Script")
-        source = Path(resolved[1])
+        source = Path(resolved[3])
         source = source if source.is_absolute() else cwd / source
     else:
         source = Path(resolved[0])
@@ -463,108 +522,16 @@ def _resolve_command(
     return resolved, cwd, provenance
 
 
-def _sanitized_environment(root: Path, run_dir: Path, observer_dir: Path | None) -> dict[str, str]:
+def _sanitized_environment(root: Path, run_dir: Path) -> dict[str, str]:
     keep = ("SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP")
     env = {key: os.environ[key] for key in keep if key in os.environ}
     env.update({
         "PB_AUDIT_ROOT": str(root), "PB_AUDIT_RUN_DIR": str(run_dir),
-        "PYTHONPATH": os.pathsep.join([str(observer_dir), str(root)]) if observer_dir else str(root),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1", "PYTHONSAFEPATH": "1",
+        "PATH": str(Path(sys.executable).resolve().parent),
     })
     return env
-
-
-class ObservationSink:
-    def __init__(self) -> None:
-        self.nonce = uuid.uuid4().hex
-        self.secret = os.urandom(32)
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.bind(("127.0.0.1", 0))
-        self.socket.listen(4)
-        self.socket.settimeout(0.1)
-        self.host, self.port = self.socket.getsockname()
-        self.events: list[dict[str, Any]] = []
-        self.errors: list[str] = []
-        self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._serve, daemon=True)
-
-    def write_bootstrap(self, destination: Path, probes: list[dict[str, str]], audited_root: Path) -> Path:
-        destination.mkdir(parents=True)
-        bound: dict[str, dict[str, str]] = {}
-        for probe in probes:
-            source = _contained(audited_root, audited_root / probe["path"], "symbol_probe.path")
-            if not source.is_file():
-                raise ContractError(f"symbol_probe.path fehlt im Auditcommit: {probe['path']}")
-            key = f"{os.path.normcase(str(source.resolve()))}|{probe['function']}"
-            if key in bound:
-                raise ContractError("symbol_probe-Ziel doppelt")
-            bound[key] = {"symbol_id": probe["symbol_id"], "path": probe["path"], "function": probe["function"]}
-        bootstrap = destination / "sitecustomize.py"
-        source = (
-            "import hashlib,hmac,json,os,socket,sys,time\n"
-            f"_HOST={self.host!r};_PORT={self.port!r};_NONCE={self.nonce!r};_SECRET={self.secret.hex()!r}\n"
-            f"_PROBES={bound!r}\n"
-            "_SENT=set()\n"
-            "def _trace(frame,event,arg):\n"
-            " if event!='call': return _trace\n"
-            " key=os.path.normcase(os.path.abspath(frame.f_code.co_filename))+'|'+frame.f_code.co_name\n"
-            " probe=_PROBES.get(key)\n"
-            " if probe is None or key in _SENT: return _trace\n"
-            " _SENT.add(key)\n"
-            " row={'nonce':_NONCE,'pid':os.getpid(),'time_ns':time.time_ns(),'observer':'runner-python-trace','event':'call','source_path':probe['path'],'function':probe['function'],'symbol_id':probe['symbol_id']}\n"
-            " payload=json.dumps(row,sort_keys=True,separators=(',',':')).encode()\n"
-            " row['signature']=hmac.new(bytes.fromhex(_SECRET),payload,hashlib.sha256).hexdigest()\n"
-            " try:\n"
-            "  with socket.create_connection((_HOST,_PORT),timeout=2) as sock: sock.sendall(json.dumps(row,separators=(',',':')).encode()+b'\\n')\n"
-            " except OSError: pass\n"
-            " return _trace\n"
-            "sys.settrace(_trace)\n"
-        )
-        bootstrap.write_text(source, encoding="utf-8")
-        return bootstrap
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def _serve(self) -> None:
-        while not self.stop_event.is_set():
-            try:
-                connection, _ = self.socket.accept()
-            except socket.timeout:
-                continue
-            except OSError:
-                return
-            with connection:
-                connection.settimeout(1)
-                payload = b""
-                try:
-                    while True:
-                        block = connection.recv(65536)
-                        if not block:
-                            break
-                        payload += block
-                        if len(payload) > 1024 * 1024:
-                            raise ValueError("Observer-Payload zu gross")
-                except (OSError, ValueError) as exc:
-                    self.errors.append(str(exc))
-                for line in payload.splitlines():
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        self.errors.append("Observer-Payload ist kein JSON")
-                        continue
-                    if not isinstance(row, dict):
-                        self.errors.append("Observer-Payload ist kein Objekt")
-                        continue
-                    row["runner_received_time_ns"] = time.time_ns()
-                    self.events.append(row)
-
-    def stop(self) -> None:
-        time.sleep(0.05)
-        self.stop_event.set()
-        self.socket.close()
-        self.thread.join(timeout=2)
 
 
 def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
@@ -597,12 +564,10 @@ def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
 
 def _execute(
     argv: list[str], *, cwd: Path, timeout: float, environment: dict[str, str],
-    label: str, observer: ObservationSink | None = None,
+    label: str,
 ) -> tuple[int, bytes, bytes, int, int, int]:
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     start_ns = time.time_ns()
-    if observer is not None:
-        observer.start()
     process = subprocess.Popen(
         argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
@@ -613,66 +578,8 @@ def _execute(
     except subprocess.TimeoutExpired as exc:
         _kill_process_tree(process)
         raise ContractError(f"{label}: Timeout nach {timeout:g}s") from exc
-    finally:
-        if observer is not None:
-            observer.stop()
     end_ns = time.time_ns()
     return process.returncode, stdout, stderr, process.pid, start_ns, end_ns
-
-
-def _validate_observations(
-    sink: ObservationSink, *, process_pid: int, start_ns: int, end_ns: int,
-    feature: str, allowed_symbols: list[str], allowed_axes: list[str],
-    probes: list[dict[str, str]],
-) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-    if sink.errors:
-        raise ContractError(f"Observer-Sink-Fehler: {sink.errors}")
-    if not sink.events:
-        raise ContractError("Runner-Observer erhielt keine Events")
-    symbols: set[str] = set()
-    axes: set[str] = set()
-    probe_map = {probe["symbol_id"]: probe for probe in probes}
-    cleaned: list[dict[str, Any]] = []
-    for number, row in enumerate(sink.events, 1):
-        signature = row.pop("signature", None)
-        signed_payload = _canonical_bytes({key: value for key, value in row.items() if key != "runner_received_time_ns"})
-        if not isinstance(signature, str) or not hmac.compare_digest(signature, hmac.new(sink.secret, signed_payload, hashlib.sha256).hexdigest()):
-            raise ContractError(f"Observer-Event {number}: Instrumentationssignatur falsch")
-        if row.get("nonce") != sink.nonce:
-            raise ContractError(f"Observer-Event {number}: Nonce falsch")
-        if row.get("pid") != process_pid:
-            raise ContractError(f"Observer-Event {number}: PID nicht Hauptprozess")
-        sent = row.get("time_ns")
-        received = row.get("runner_received_time_ns")
-        if type(sent) is not int or type(received) is not int or not (start_ns <= sent <= received <= end_ns + 2_000_000_000):
-            raise ContractError(f"Observer-Event {number}: Zeitbindung ungueltig")
-        symbol = row.get("symbol_id")
-        event, observer_type = row.get("event"), row.get("observer")
-        if symbol not in allowed_symbols:
-            raise ContractError(f"Observer-Event {number}: fremdes Symbol")
-        probe = probe_map[symbol]
-        if row.get("source_path") != probe["path"] or row.get("function") != probe["function"]:
-            raise ContractError(f"Observer-Event {number}: Probe-Bindung falsch")
-        if event != "call" or observer_type != "runner-python-trace":
-            raise ContractError(f"Observer-Event {number}: event/observer fehlt")
-        symbols.add(symbol)
-        cleaned.append({
-            **{key: value for key, value in row.items() if key != "nonce"},
-            "feature_path": feature,
-            "axis": "executed",
-        })
-    if symbols != set(allowed_symbols):
-        raise ContractError("Observer deckt nicht exakt alle gebundenen Symbole")
-    if "executed" in allowed_axes:
-        axes.add("executed")
-    unsupported = set(allowed_axes) - {"executed", "result", "live_evidence"}
-    if unsupported:
-        named = sorted(unsupported)
-        surface = next((axis for axis in named if axis in SURFACE_OBSERVERS), None)
-        if surface:
-            raise ContractError(f"Achse {surface} braucht spezifischen Observer; generischer Trace reicht nicht")
-        raise ContractError(f"Achsen brauchen noch runner-eigenen Spezialobserver: {named}")
-    return cleaned, sorted(symbols), sorted(axes)
 
 
 def _snapshot_files(root: Path) -> dict[str, str]:
@@ -694,9 +601,96 @@ def _assert_sources_unchanged(sources: dict[Path, str]) -> None:
             raise ContractError(f"TOCTOU: externe Quelle geaendert: {path.name}")
 
 
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        if os.name == "nt":
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            if os.name != "nt":
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def _durable_write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(path.parent)
+
+
+def _fsync_tree(root: Path) -> None:
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            try:
+                with path.open("r+b") as handle:
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except OSError:
+                if os.name != "nt":
+                    raise
+    directories = [path for path in root.rglob("*") if path.is_dir()]
+    for directory in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+        _fsync_directory(directory)
+    _fsync_directory(root)
+
+
 def _write(path: Path, data: bytes) -> dict[str, Any]:
-    path.write_bytes(data)
+    _durable_write(path, data)
     return {"bytes": len(data), "sha256": _sha_bytes(data)}
+
+
+def _validate_harness_report(
+    path: Path, descriptor_bytes: bytes, dependencies: dict[str, Any], row: dict[str, Any],
+) -> dict[str, Any]:
+    if not path.is_file():
+        raise ContractError("Trusted Harness hat keinen harness_report erzeugt")
+    report = _parse_json(path.read_bytes(), "harness_report")
+    if report.get("schema_version") != 1 or report.get("descriptor_sha256") != _sha_bytes(descriptor_bytes):
+        raise ContractError("harness_report Schema/Descriptor-Bindung falsch")
+    if report.get("target_exit_code") != 0:
+        raise ContractError(f"Audited Target Exit {report.get('target_exit_code')}")
+    loaded = report.get("loaded_modules")
+    if not isinstance(loaded, list):
+        raise ContractError("harness_report.loaded_modules fehlt")
+    expected_stdlib = set(row["required_stdlib_modules"])
+    external = {item["name"]: item for item in dependencies["modules"]}
+    expected_external = set(row["required_modules"])
+    actual_stdlib: set[str] = set()
+    actual_external: set[str] = set()
+    seen: set[str] = set()
+    stdlib_root = Path(os.__file__).resolve().parent
+    for item in loaded:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or item["name"] in seen:
+            raise ContractError("harness_report Modul fehlt/doppelt")
+        seen.add(item["name"])
+        origin = Path(str(item.get("origin", ""))).resolve()
+        if not origin.is_file() or item.get("sha256") != _sha(origin):
+            raise ContractError(f"Geladenes Modul Pfad/Hash falsch: {item['name']}")
+        top = item["name"].split(".", 1)[0]
+        if _is_relative_to(origin, stdlib_root):
+            actual_stdlib.add(top)
+        elif top in external:
+            allowed_files = {str(Path(record["path"]).resolve()).casefold() for record in external[top]["files"]}
+            if str(origin).casefold() not in allowed_files:
+                raise ContractError(f"Geladenes Dependency-Modul unpinned: {item['name']}")
+            actual_external.add(top)
+        else:
+            raise ContractError(f"Geladenes Modul nicht in Policy: {item['name']}")
+    if actual_stdlib != expected_stdlib or actual_external != expected_external:
+        raise ContractError(
+            f"Geladene Module keine Exact-Set-Gleichheit: stdlib={sorted(actual_stdlib)} deps={sorted(actual_external)}"
+        )
+    return report
 
 
 def _existing_runtime_ids(ledger: Path) -> tuple[set[str], set[str]]:
@@ -722,19 +716,71 @@ def _scenario_already_recorded(ledger: Path, scenario_id: str) -> bool:
     return any(row.get("scenario_id") == scenario_id for row in _parse_jsonl(ledger.read_bytes(), "runtime_runs.jsonl"))
 
 
-def _create_lock(path: Path, label: str) -> None:
+def _create_lock(path: Path, label: str) -> bytes:
     payload = _canonical_bytes({"pid": os.getpid(), "created_ns": time.time_ns(), "nonce": uuid.uuid4().hex}) + b"\n"
     try:
         descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
+    except (FileExistsError, PermissionError) as exc:
         raise ContractError(f"{label}-Lock existiert; auch stale Lock muss manuell untersucht werden") from exc
     with os.fdopen(descriptor, "wb") as handle:
         handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(path.parent)
+    return payload
+
+
+def _release_lock(path: Path, payload: bytes) -> None:
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            if path.read_bytes() != payload:
+                raise ContractError(f"Lock-Ownership geaendert: {path.name}")
+            path.unlink()
+            _fsync_directory(path.parent)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise ContractError(f"Lock konnte nicht freigegeben werden: {path.name}")
+            time.sleep(0.02)
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        output = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+        return f'"{pid}"' in output
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _create_ledger_lock(path: Path) -> bytes:
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            return _create_lock(path, "Ledger")
+        except ContractError:
+            try:
+                existing = _parse_json(path.read_bytes(), "Ledger-Lock")
+                pid = int(existing.get("pid", -1))
+            except (OSError, ValueError, ContractError):
+                raise ContractError("Ledger-Lock existiert; stale/ungueltig muss manuell untersucht werden")
+            if not _pid_alive(pid):
+                raise ContractError("Ledger-Lock existiert; stale Lock muss manuell untersucht werden")
+            if time.monotonic() >= deadline:
+                raise ContractError("Ledger-Lock durch aktiven Prozess blockiert")
+            time.sleep(0.02)
 
 
 def _append_ledger_atomic(ledger: Path, receipt: dict[str, Any]) -> None:
     lock = ledger.parent / ".runtime_runs.lock"
-    _create_lock(lock, "Ledger")
+    lock_payload = _create_ledger_lock(lock)
     temp_path: Path | None = None
     try:
         runtime_ids, evidence_ids = _existing_runtime_ids(ledger)
@@ -748,12 +794,13 @@ def _append_ledger_atomic(ledger: Path, receipt: dict[str, Any]) -> None:
         descriptor, name = tempfile.mkstemp(prefix="runtime-runs-", suffix=".tmp", dir=ledger.parent)
         os.close(descriptor)
         temp_path = Path(name)
-        temp_path.write_bytes(existing + _canonical_bytes(receipt) + b"\n")
+        _durable_write(temp_path, existing + _canonical_bytes(receipt) + b"\n")
         os.replace(temp_path, ledger)
+        _fsync_directory(ledger.parent)
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
-        lock.unlink(missing_ok=True)
+        _release_lock(lock, lock_payload)
 
 
 def _remove_tree(path: Path) -> None:
@@ -766,6 +813,7 @@ def _remove_tree(path: Path) -> None:
 
 def run_scenario(
     *, repo_root: Path, evidence_root: Path, contract_path: Path,
+    expected_contract_sha256: str, authority_policy_path: str,
     scenario_id: str, runtime_run_id: str,
 ) -> dict[str, Any]:
     repo = repo_root.resolve()
@@ -777,10 +825,11 @@ def run_scenario(
         raise ContractError("evidence_root muss existieren und ausserhalb Produkt-Worktree liegen")
     if not ID_RE.fullmatch(runtime_run_id):
         raise ContractError("runtime_run_id ungueltig")
-    if (evidence / ".runtime_runs.lock").exists():
-        raise ContractError("Ledger-Lock existiert; auch stale Lock muss manuell untersucht werden")
-
     contract, contract_bytes, refs = _load_contract(evidence, contract_path)
+    authority, authority_bytes, authority_blob = _load_authority_policy(
+        repo, contract["tooling_commit"], authority_policy_path,
+        expected_contract_sha256, contract,
+    )
     catalog_path, catalog_bytes = refs["scenario_catalog"]
     catalog = _load_catalog(catalog_bytes)
     if scenario_id not in catalog:
@@ -799,7 +848,7 @@ def run_scenario(
     timeout = row.get("timeout_seconds")
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0 or timeout > 86400:
         raise ContractError("Scenario.timeout_seconds ungueltig")
-    command, command_timeout = _validate_command(row.get("command"), "command", float(timeout), "audited")
+    harness, harness_timeout = _validate_command(row.get("harness"), "harness", float(timeout), "tooling")
     post, post_timeout = _validate_command(row.get("postcondition"), "postcondition", float(timeout), "tooling")
     axes = row.get("allowed_axes")
     if not isinstance(axes, list) or not axes or len(axes) != len(set(axes)) or not set(axes).issubset(KNOWN_AXES):
@@ -817,7 +866,7 @@ def run_scenario(
     if _scenario_already_recorded(ledger, scenario_id):
         raise ContractError(f"Scenario {scenario_id!r} bereits ausgefuehrt; Evidence-Reuse verboten")
     run_lock = runs_root / f".{runtime_run_id}.lock"
-    _create_lock(run_lock, "Runtime-Run")
+    run_lock_payload = _create_lock(run_lock, "Runtime-Run")
 
     staging = staging_root / f"{runtime_run_id}-{uuid.uuid4().hex}"
     audited_root = staging / "audited"
@@ -836,13 +885,17 @@ def run_scenario(
         sealed_records: list[dict[str, Any]] = []
         source_hashes: dict[Path, str] = {contract_path: _sha_bytes(contract_bytes)}
         contract_copy = sealed_root / "audit_contract.json"
-        contract_copy.write_bytes(contract_bytes)
+        _durable_write(contract_copy, contract_bytes)
         os.chmod(contract_copy, 0o444)
         sealed_records.append({"name": "audit_contract", "ref": f"runs/{runtime_run_id}/sealed/audit_contract.json", "sha256": _sha(contract_copy)})
+        authority_copy = sealed_root / "authority.json"
+        _durable_write(authority_copy, authority_bytes)
+        os.chmod(authority_copy, 0o444)
+        sealed_records.append({"name": "authority", "ref": f"runs/{runtime_run_id}/sealed/authority.json", "sha256": _sha(authority_copy), "git_blob": authority_blob})
         for name, (source, data) in refs.items():
             source_hashes[source] = _sha_bytes(data)
             target = sealed_root / f"{name}{source.suffix or '.bin'}"
-            target.write_bytes(data)
+            _durable_write(target, data)
             os.chmod(target, 0o444)
             sealed_records.append({"name": name, "ref": f"runs/{runtime_run_id}/sealed/{target.name}", "sha256": _sha(target)})
 
@@ -870,41 +923,70 @@ def run_scenario(
                 raise ContractError(f"Input-Hash stimmt nicht: {item.get('ref')}")
             source_hashes[source] = expected
             target = sealed_inputs_dir / f"{name}{source.suffix}"
-            target.write_bytes(data)
+            _durable_write(target, data)
             os.chmod(target, 0o444)
             input_paths[name] = target
             input_receipts.append({"name": name, "source_ref": item["ref"], "ref": f"runs/{runtime_run_id}/sealed/inputs/{target.name}", "sha256": expected})
 
         sealed_integrity = _snapshot_files(sealed_root)
 
-        argv, cwd, command_provenance = _resolve_command(
-            command, root=audited_root, run_dir=stage_run, inputs=input_paths,
-            executors=executors, label="command", commit=contract["audited_commit"],
+        target = row.get("target")
+        if not isinstance(target, dict) or set(target) != {"path", "argv"}:
+            raise ContractError("Scenario.target braucht exakt path + argv")
+        target_ref = target.get("path")
+        target_args = target.get("argv")
+        if not isinstance(target_ref, str) or Path(target_ref).is_absolute() or ".." in Path(target_ref).parts:
+            raise ContractError("Scenario.target.path ungueltig/Pfad-Escape")
+        if not isinstance(target_args, list) or not all(isinstance(arg, str) for arg in target_args):
+            raise ContractError("Scenario.target.argv ungueltig")
+        target_path = _contained(audited_root, audited_root / target_ref, "Scenario.target.path")
+        if not target_path.is_file():
+            raise ContractError("Scenario.target fehlt im audited_commit")
+        target_blob = _git(repo, "rev-parse", f"{contract['audited_commit']}:{target_ref}", check=False)
+        if target_blob.returncode != 0:
+            raise ContractError("Scenario.target ist kein gebundener audited_commit-Blob")
+        descriptor = {
+            "schema_version": 1, "audited_commit": contract["audited_commit"],
+            "target_path": str(target_path), "target_ref": target_ref,
+            "target_git_blob": target_blob.stdout.decode().strip(), "target_sha256": _sha(target_path),
+            "argv": target_args, "feature_target": row["feature_target"],
+            "inputs": {name: str(path) for name, path in sorted(input_paths.items())},
+        }
+        descriptor_bytes = _canonical_bytes(descriptor) + b"\n"
+        descriptor_path = stage_run / "target_descriptor.json"
+        report_path = stage_run / "harness_report.json"
+        _durable_write(descriptor_path, descriptor_bytes)
+        harness_argv, harness_cwd, harness_provenance = _resolve_command(
+            harness, root=tooling_root, run_dir=stage_run, inputs=input_paths,
+            executors=executors, label="harness", commit=contract["tooling_commit"],
+            special_paths={"target_descriptor": descriptor_path, "harness_report": report_path},
         )
-        observer = ObservationSink()
-        observer_dir = staging / "observer-bootstrap"
-        observer.write_bootstrap(observer_dir, row["symbol_probes"], audited_root)
-        observer_integrity = _snapshot_files(observer_dir)
-        environment = _sanitized_environment(audited_root, stage_run, observer_dir)
+        environment = _sanitized_environment(audited_root, stage_run)
         exit_code, stdout, stderr, process_pid, start_ns, end_ns = _execute(
-            argv, cwd=cwd, timeout=command_timeout, environment=environment,
-            label="command", observer=observer,
+            harness_argv, cwd=harness_cwd, timeout=harness_timeout, environment=environment,
+            label="harness",
         )
         _assert_sources_unchanged(source_hashes)
         _assert_snapshot(sealed_root, sealed_integrity, "Versiegelte Inputs nach Command")
         _assert_snapshot(audited_root, audited_integrity, "Auditcommit-Materialisierung nach Command")
         _assert_snapshot(tooling_root, tooling_integrity, "Toolingcommit-Materialisierung nach Command")
-        _assert_snapshot(observer_dir, observer_integrity, "Runner-Instrumentation nach Command")
         if (stage_run / "trace.jsonl").exists():
             raise ContractError("trace.jsonl ist runner-reserviert; Scenario darf Trace nicht selbst schreiben")
         expected_exit_codes = row.get("expected_exit_codes", [0])
         if not isinstance(expected_exit_codes, list) or exit_code not in expected_exit_codes:
-            raise ContractError(f"command: Exit {exit_code} nicht erwartet")
-        observations, covered_symbols, covered_axes = _validate_observations(
-            observer, process_pid=process_pid, start_ns=start_ns, end_ns=end_ns,
-            feature=row["feature_target"], allowed_symbols=row["allowed_symbol_ids"],
-            allowed_axes=row["allowed_axes"], probes=row["symbol_probes"],
-        )
+            raise ContractError(f"harness: Exit {exit_code} nicht erwartet")
+        harness_report = _validate_harness_report(report_path, descriptor_bytes, dependencies, row)
+        covered_symbols: list[str] = []
+        unsupported = set(row["allowed_axes"]) - {"executed", "result", "live_evidence"}
+        if unsupported:
+            raise ContractError(f"Achsen brauchen trusted externen Spezialobserver: {sorted(unsupported)}")
+        covered_axes = ["executed"] if "executed" in row["allowed_axes"] else []
+        observations = [{
+            "observer": "trusted-tooling-harness", "source": "harness-controlled",
+            "event": "target-completed", "feature_path": row["feature_target"],
+            "axis": "executed", "pid": process_pid, "start_ns": start_ns, "end_ns": end_ns,
+            "descriptor_sha256": _sha_bytes(descriptor_bytes),
+        }]
         trace_bytes = b"".join(_canonical_bytes(event) + b"\n" for event in observations)
         trace_info = _write(stage_run / "trace.jsonl", trace_bytes)
         stdout_info = _write(stage_run / "stdout.bin", stdout)
@@ -916,16 +998,15 @@ def run_scenario(
             post, root=tooling_root, run_dir=stage_run, inputs=input_paths,
             executors=executors, label="postcondition", commit=contract["tooling_commit"],
         )
-        post_environment = _sanitized_environment(tooling_root, stage_run, None)
+        post_environment = _sanitized_environment(tooling_root, stage_run)
         post_code, post_stdout, post_stderr, _, _, _ = _execute(
             post_argv, cwd=post_cwd, timeout=post_timeout, environment=post_environment,
-            label="postcondition", observer=None,
+            label="postcondition",
         )
         _assert_sources_unchanged(source_hashes)
         _assert_snapshot(sealed_root, sealed_integrity, "Versiegelte Inputs nach Postcondition")
         _assert_snapshot(audited_root, audited_integrity, "Auditcommit-Materialisierung nach Postcondition")
         _assert_snapshot(tooling_root, tooling_integrity, "Toolingcommit-Materialisierung nach Postcondition")
-        _assert_snapshot(observer_dir, observer_integrity, "Runner-Instrumentation nach Postcondition")
         _assert_snapshot(stage_run, before_checker, "Postcondition")
         if post_code != 0:
             raise ContractError(f"postcondition: Exit {post_code}")
@@ -935,7 +1016,6 @@ def run_scenario(
                 observations.append({
                     "observer": "runner-postcondition", "event": "pass",
                     "feature_path": row["feature_target"], "axis": axis,
-                    "symbol_id": row["allowed_symbol_ids"][0],
                     "pid": os.getpid(), "time_ns": time.time_ns(),
                 })
         covered_axes = sorted(set(covered_axes))
@@ -974,16 +1054,21 @@ def run_scenario(
         _assert_snapshot(sealed_root, sealed_integrity, "Versiegelte Inputs vor Publish")
         _assert_snapshot(audited_root, audited_integrity, "Auditcommit-Materialisierung vor Publish")
         _assert_snapshot(tooling_root, tooling_integrity, "Toolingcommit-Materialisierung vor Publish")
-        _assert_snapshot(observer_dir, observer_integrity, "Runner-Instrumentation vor Publish")
         os.replace(sealed_root, stage_run / "sealed")
+        _fsync_tree(stage_run)
+        _fsync_directory(stage_run)
         final_integrity = _snapshot_files(stage_run)
         timestamp = datetime.now(timezone.utc).isoformat()
         receipt: dict[str, Any] = {
-            "run_id": contract["run_id"], "runtime_run_id": runtime_run_id,
+            "plan_id": contract["plan_id"], "run_id": contract["run_id"], "runtime_run_id": runtime_run_id,
             "audited_commit": contract["audited_commit"], "tooling_commit": contract["tooling_commit"],
             "snapshot_id": contract["snapshot_id"], "scenario_id": row["scenario_id"],
             "scenario_sha256": row["scenario_sha256"], "timestamp": timestamp,
-            "audit_contract": {"ref": f"runs/{runtime_run_id}/sealed/audit_contract.json", "sha256": _sha_bytes(contract_bytes)},
+            "authority": {"git_blob": authority_blob, "path": authority_policy_path,
+                          "sha256": _sha_bytes(authority_bytes), "policy": authority,
+                          "expected_contract_sha256": expected_contract_sha256},
+            "audit_contract": {"ref": f"runs/{runtime_run_id}/sealed/audit_contract.json",
+                               "sha256": _sha_bytes(contract_bytes), "contract_sha256": contract["contract_sha256"]},
             "scenario_catalog": {"ref": f"runs/{runtime_run_id}/sealed/scenario_catalog.jsonl", "sha256": _sha_bytes(catalog_bytes)},
             "sealed_contract_inputs": sealed_records,
             "materialization": {
@@ -993,18 +1078,27 @@ def run_scenario(
             "runner": {"path": "tools/audit_runtime_evidence.py", "tooling_commit": contract["tooling_commit"], "sha256": runner_sha, "shell": False},
             "environment": {
                 "python_no_user_site": True, "python_safe_path": True,
+                "python_flags": ["-I", "-S"], "path": str(Path(sys.executable).resolve().parent),
                 "executor_manifest_sha256": _sha_bytes(refs["executor_manifest"][1]),
                 "dependency_manifest_sha256": _sha_bytes(refs["dependency_manifest"][1]),
                 "required_modules": row["required_modules"], "dependency_manifest": dependencies,
             },
-            "observer": {"nonce_bound": True, "pid": process_pid, "start_ns": start_ns, "end_ns": end_ns, "events": len(observations)},
+            "observer": {
+                "source": "harness-controlled", "pid": process_pid, "start_ns": start_ns,
+                "end_ns": end_ns, "events": len(observations),
+                "threat_boundary": "shared-interpreter-no-cryptographic-anti-tamper",
+                "cryptographic_anti_tamper": False,
+            },
             "input": {"ref": input_receipts[0]["ref"], "sha256": input_receipts[0]["sha256"]} if len(input_receipts) == 1 else {"ref": "multiple", "sha256": canonical_sha256(input_receipts)},
             "inputs": input_receipts,
-            "command": {"argv": command["argv"], "cwd": command["cwd"], "timeout_seconds": command_timeout, **command_provenance},
+            "harness": {"argv": harness["argv"], "cwd": harness["cwd"], "timeout_seconds": harness_timeout, **harness_provenance},
+            "target": {"descriptor_sha256": _sha_bytes(descriptor_bytes), "report": harness_report,
+                       "source": {"commit": contract["audited_commit"], "path": target_ref,
+                                  "git_blob": descriptor["target_git_blob"], "sha256": descriptor["target_sha256"]}},
             "stdout": {"ref": f"runs/{runtime_run_id}/stdout.bin", **stdout_info},
             "stderr": {"ref": f"runs/{runtime_run_id}/stderr.bin", **stderr_info},
             "exit": {"code": exit_code, "ref": f"runs/{runtime_run_id}/command.log", **exit_info},
-            "trace": {"ref": f"runs/{runtime_run_id}/trace.jsonl", **trace_info, "owner": "runner-observer-sink"},
+            "trace": {"ref": f"runs/{runtime_run_id}/trace.jsonl", **trace_info, "owner": "runner-from-trusted-harness-report"},
             "postcondition": {"ref": f"runs/{runtime_run_id}/postcondition.json", **post_info, "result": "pass", "checker_exit_code": post_code, "checker": post_provenance},
             "artifacts": artifact_receipts,
             "covered_feature_paths": [row["feature_target"]],
@@ -1025,15 +1119,17 @@ def run_scenario(
         receipt["evidence_id"] = canonical_evidence_id(receipt)
         if receipt["evidence_id"] in evidence_ids:
             raise ContractError("evidence_id bereits vorhanden")
-        (stage_run / "receipt.json").write_bytes(_canonical_bytes(receipt) + b"\n")
+        _durable_write(stage_run / "receipt.json", _canonical_bytes(receipt) + b"\n")
         _assert_sources_unchanged(source_hashes)
         _assert_snapshot(stage_run, {**final_integrity, "receipt.json": _sha(stage_run / "receipt.json")}, "Finale Rehash")
+        _fsync_tree(stage_run)
 
         _remove_tree(audited_root)
         _remove_tree(tooling_root)
         if final_run.exists():
             raise ContractError(f"runtime_run_id {runtime_run_id!r} bereits vorhanden")
         os.replace(stage_run, final_run)
+        _fsync_directory(runs_root)
         try:
             _append_ledger_atomic(ledger, receipt)
         except Exception:
@@ -1044,7 +1140,7 @@ def run_scenario(
     finally:
         if staging.exists():
             _remove_tree(staging)
-        run_lock.unlink(missing_ok=True)
+        _release_lock(run_lock, run_lock_payload)
         if not success and final_run.exists() and runtime_run_id not in _existing_runtime_ids(ledger)[0]:
             _remove_tree(final_run)
 
@@ -1054,13 +1150,16 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--audit-contract", type=Path, required=True)
+    parser.add_argument("--expected-contract-sha256", required=True)
+    parser.add_argument("--authority-policy-path", default="config/audit_runtime_authority_policy.json")
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument("--runtime-run-id", required=True)
     args = parser.parse_args()
     try:
         receipt = run_scenario(
             repo_root=args.root, evidence_root=args.evidence_root,
-            contract_path=args.audit_contract, scenario_id=args.scenario_id,
+            contract_path=args.audit_contract, expected_contract_sha256=args.expected_contract_sha256,
+            authority_policy_path=args.authority_policy_path, scenario_id=args.scenario_id,
             runtime_run_id=args.runtime_run_id,
         )
     except ContractError as exc:

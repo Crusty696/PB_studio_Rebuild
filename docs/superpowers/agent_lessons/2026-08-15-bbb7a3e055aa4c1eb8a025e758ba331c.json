@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bbb7a3e055aa4c1eb8a025e758ba331c",
+  "recorded_at": "2026-08-15T17:59:09+00:00",
+  "session_id": "84aec65e9e0147ecb8a601e7d102a74e",
+  "head_at_start": "52fd884b1dca20743ef85459edd50874d38be419",
+  "problem": "Lange Runtime-Regressionslaeufe liessen den 15-Minuten-Agentenclaim unbemerkt ablaufen, obwohl dieselben zwei Dateien weiter bearbeitet wurden.",
+  "cause": "Waerend mehrminuetiger unittest-Sessions wurde kein agent_session heartbeat gesendet; Registry gibt Claims nach 15 Minuten frei.",
+  "rule": "Bei Tests ueber 10 Minuten Agentenclaim vor Start und nach jedem 30-Sekunden-Poll heartbeaten; vor jedem weiteren Edit Registry-Status erneut pruefen und abgelaufenen Claim ohne Fremdbesitz neu setzen.",
+  "applies_to": "Lange Contracttests, Agent-Session-Claims, parallele Worktrees"
+}
