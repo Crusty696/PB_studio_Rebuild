@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e17be0c2987845ad908de2bf2b7b58c6",
+  "recorded_at": "2026-08-15T17:17:28+00:00",
+  "session_id": "a88775c7551648a98c85943ade256eab",
+  "head_at_start": "4b94c2608ff6e3561a81580236235247e28122fa",
+  "problem": "Ein einzelner immutable Auditvertrag kann vor Enrollment keine noch nicht existierenden Receipt-, Signoff- und Runtime-Output-Hashes binden.",
+  "cause": "Preflight-Inputs und spaeter erzeugte Evidence-Outputs wurden in dasselbe content-addressed Manifest gelegt; das erzeugt eine zeitliche Zirkularitaet oder verleitet zu ungeprueften Platzhaltern.",
+  "rule": "Vertrauensketten zweistufig modellieren: vorab extern gepinnter Auditcontract bindet nur existente Inputs; finaler Evidence-Contract bindet dessen SHA plus alle erzeugten Outputs; Completion prueft beide Exact-Sets und FKs vor atomarem Import.",
+  "applies_to": "Audit-Contracts, Reviewer-Receipts, Runtime-Evidence und atomare Completion"
+}
