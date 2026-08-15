@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import uuid
@@ -29,6 +30,7 @@ REQUIRED_CONTRACT_FIELDS = {
     "required_gate_results",
     "shards",
 }
+SAFE_IMPORT_ID = re.compile(r"IMPORT-[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
 
 
 class CompletionError(ValueError):
@@ -100,6 +102,8 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
     for field in ("import_id", "run_id", "snapshot_id"):
         if not isinstance(contract[field], str) or not contract[field].strip():
             raise CompletionError(f"{field} muss nichtleerer String sein")
+    if not SAFE_IMPORT_ID.fullmatch(contract["import_id"]):
+        raise CompletionError("import_id muss sichere einzelne Komponente mit Praefix IMPORT- sein")
     commit = contract["audited_commit"]
     if not isinstance(commit, str) or len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
         raise CompletionError("audited_commit muss kanonischer 40-stelliger SHA sein")
@@ -117,6 +121,7 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
     rows_by_name: dict[str, list[dict[str, Any]]] = {}
     keys_by_name: dict[str, set[str]] = {}
     names: set[str] = set()
+    staging_names: set[str] = {"atomic_import.json"}
     for index, spec in enumerate(specs, 1):
         if not isinstance(spec, dict):
             raise CompletionError(f"Shard-Spezifikation {index} ist kein Objekt")
@@ -129,6 +134,10 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
             raise CompletionError(f"Doppelte oder ungueltige Shard-ID: {name!r}")
         names.add(name)
         source = _safe_source(bundle, spec["path"])
+        staging_name = source.name
+        if staging_name in staging_names:
+            raise CompletionError(f"Staging-Zielname doppelt oder reserviert: {staging_name}")
+        staging_names.add(staging_name)
         payload = source.read_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         if digest != spec["sha256"]:

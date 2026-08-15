@@ -124,6 +124,25 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(CompletionError, "UNKNOWN"):
             import_bundle(self.bundle, contract, self.master)
 
+    def test_unsafe_import_id_or_staging_collision_rejected(self) -> None:
+        contract = self._write_bundle()
+        data = json.loads(contract.read_text(encoding="utf-8"))
+        data["import_id"] = "../escape"
+        contract.write_bytes(_canonical_json(data))
+        with self.assertRaisesRegex(CompletionError, "import_id"):
+            import_bundle(self.bundle, contract, self.master)
+
+        contract = self._write_bundle()
+        data = json.loads(contract.read_text(encoding="utf-8"))
+        original = self.bundle / "findings.jsonl"
+        nested = self.bundle / "nested" / "feature_states.jsonl"
+        nested.parent.mkdir()
+        nested.write_bytes(original.read_bytes())
+        data["shards"][1]["path"] = "nested/feature_states.jsonl"
+        contract.write_bytes(_canonical_json(data))
+        with self.assertRaisesRegex(CompletionError, "Zielname"):
+            import_bundle(self.bundle, contract, self.master)
+
     def test_failed_import_keeps_master_byteidentical(self) -> None:
         contract = self._write_bundle()
         import_bundle(self.bundle, contract, self.master)
