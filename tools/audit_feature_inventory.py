@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import io
 import json
 import re
 import subprocess
 import sys
+import tokenize
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
@@ -140,9 +142,13 @@ def enumerate_universes(
         data = _blob(root, commit, path)
         blob_sha = _sha(data)
         try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
+            if suffix == ".py":
+                encoding, _ = tokenize.detect_encoding(io.BytesIO(data).readline)
+                text = data.decode(encoding)
+            else:
+                text = data.decode("utf-8")
+        except (LookupError, SyntaxError, UnicodeDecodeError) as exc:
+            raise ContractError(f"Encoding-/Decodefehler in {path}: {exc}") from exc
 
         if suffix in {".md", ".rst", ".txt", ".toml", ".yaml", ".yml", ".json"}:
             for number, line in enumerate(text.splitlines(), 1):
