@@ -134,6 +134,28 @@ def _enum_value(value: object, allowed: set[str]) -> bool:
     return isinstance(value, str) and bool(value.strip()) and value in allowed
 
 
+def _safe_git_path(value: object) -> bool:
+    if (
+        not isinstance(value, str) or not value or value != value.strip()
+        or "\\" in value or "\0" in value or re.match(r"^[A-Za-z]:/", value)
+    ):
+        return False
+    path = PurePosixPath(value)
+    return (
+        path != PurePosixPath(".")
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and path.as_posix() == value
+    )
+
+
+def _trigger_source_id(
+    source_kind: str, path: str, line: int, column: int, detail: str,
+) -> str:
+    basis = f"{source_kind}\0{path}\0{line}\0{column}\0{detail}".encode("utf-8")
+    return f"TRIG-{_sha(basis)[:24]}"
+
+
 def _proof_errors(
     row: dict[str, Any], contract: dict[str, Any], evidence_root: Path,
     *, prefix: str, expected: dict[str, Any], label: str,
@@ -892,6 +914,12 @@ def validate_contracts(
         errors.append("Kantenuniversum enthaelt doppelte IDs")
     symbol_hash = universe_digest(expected_symbols, "symbol_id")
     edge_hash = universe_digest(expected_edges, "edge_id")
+    source_blobs_by_path: dict[str, set[str]] = {}
+    for source_row in (*expected_symbols, *expected_edges):
+        source_path = source_row.get("path")
+        source_blob = source_row.get("source_blob_sha256")
+        if isinstance(source_path, str) and isinstance(source_blob, str):
+            source_blobs_by_path.setdefault(source_path, set()).add(source_blob)
     artifact_specs = (
         (feature_records, feature_manifest, "feature-catalog", "catalog_id"),
         (runtime_records, runtime_manifest, "runtime-evidence", "evidence_id"),
@@ -917,10 +945,45 @@ def validate_contracts(
     evidence_ids = set(artifact_indexes[3])
     canonical_triggers = list(artifact_indexes[4].values())
     for number, row in enumerate(trigger_records, 1):
+        label = f"Triggeruniversum Zeile {number}"
         if set(row) != TRIGGER_ROW_FIELDS:
-            errors.append(f"Triggeruniversum Zeile {number}: Schemafelder nicht exakt")
-        if not _enum_value(row.get("source_kind"), TRIGGER_SOURCE_KINDS):
-            errors.append(f"Triggeruniversum Zeile {number}: source_kind ungueltig")
+            errors.append(f"{label}: Schemafelder nicht exakt")
+        source_kind = row.get("source_kind")
+        path = row.get("path")
+        line = row.get("line")
+        column = row.get("column")
+        detail = row.get("detail")
+        source_blob_sha256 = row.get("source_blob_sha256")
+        valid_kind = _enum_value(source_kind, TRIGGER_SOURCE_KINDS)
+        valid_path = _safe_git_path(path)
+        valid_line = isinstance(line, int) and not isinstance(line, bool) and line >= 1
+        valid_column = isinstance(column, int) and not isinstance(column, bool) and column >= 0
+        valid_detail = (
+            isinstance(detail, str) and bool(detail.strip()) and detail == detail.strip()
+        )
+        if not valid_kind:
+            errors.append(f"{label}: source_kind ungueltig")
+        if not valid_path:
+            errors.append(f"{label}: path ungueltig")
+        if not valid_line:
+            errors.append(f"{label}: line ungueltig")
+        if not valid_column:
+            errors.append(f"{label}: column ungueltig")
+        if not valid_detail:
+            errors.append(f"{label}: detail ungueltig")
+        if not isinstance(source_blob_sha256, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", source_blob_sha256,
+        ):
+            errors.append(f"{label}: source_blob_sha256 ungueltig")
+        elif (
+            valid_path and path in source_blobs_by_path
+            and source_blob_sha256 not in source_blobs_by_path[path]
+        ):
+            errors.append(f"{label}: source_blob_sha256 weicht vom kanonischen Sourcekatalog ab")
+        if valid_kind and valid_path and valid_line and valid_column and valid_detail:
+            expected_id = _trigger_source_id(source_kind, path, line, column, detail)
+            if row.get("source_id") != expected_id:
+                errors.append(f"{label}: source_id nicht deterministisch")
     if not known_feature_ids:
         errors.append("Featureuniversum ist leer")
     if not reviewer_ids:
