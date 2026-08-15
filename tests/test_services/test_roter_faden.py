@@ -54,13 +54,21 @@ SECTIONS = [
 class TestLangeEinstellungen:
     """Der Kernwunsch: deutlich weniger, dafuer laengere Clips."""
 
-    def test_deutlich_weniger_schnitte_als_das_raster(self):
+    def test_schnittzahl_liegt_im_praxiskorridor(self):
+        """Weder hektisch noch traege.
+
+        Der beanstandete Raster-Lauf hatte 212 Schnitte auf 337 s. Eine
+        Praxis-Recherche zu Musikvideos ergab als ueblichen Bereich rund
+        3-5 s Median, fuer diese Laenge also grob 70-130 Schnitte. Eine
+        fruehere Fassung lag mit 31 Schnitten (Median 12,7 s) auf
+        Dokumentarfilm-Niveau und damit klar darunter.
+        """
         anlaesse = schnitt_anlaesse(
             _beats(), DAUER, sections=SECTIONS, downbeats=_downbeats()
         )
-        assert len(anlaesse) < 100, (
-            f"{len(anlaesse)} Schnitte auf {DAUER:.0f}s — der Raster-Lauf hatte "
-            "212, es sollen deutlich weniger werden."
+        assert 40 <= len(anlaesse) <= 140, (
+            f"{len(anlaesse)} Schnitte auf {DAUER:.0f}s liegen ausserhalb des "
+            "Korridors (Raster-Lauf: 212, zu traege Fassung: 31)."
         )
 
     def test_mittlere_clipdauer_deutlich_ueber_einer_sekunde(self):
@@ -128,17 +136,25 @@ class TestMusikalischeAnlaesse:
             "ohne Sprung darf die Energie keinen Schnitt ausloesen"
         )
 
-    def test_schnitte_liegen_auf_taktanfaengen(self):
+    def test_musikalische_anlaesse_liegen_auf_taktanfaengen(self):
+        """Section- und Drop-Schnitte muessen auf dem Takt sitzen.
+
+        Fuer Raster-Schnitte (`maximaldauer`) gilt das mit einer Einschraenkung:
+        wuerde der Snap auf den Taktanfang den zugesagten Hoechstabstand
+        reissen, behaelt die Rohzeit Vorrang. Die Zusage "spaetestens nach N
+        Takten" wiegt schwerer als die Optik eines einzelnen Schnitts.
+        """
         downbeats = _downbeats()
         anlaesse = schnitt_anlaesse(_beats(), DAUER, sections=SECTIONS, downbeats=downbeats)
         toleranz = BEAT / 2
         daneben = [
             a for a in anlaesse
-            if min(abs(a.zeit - d) for d in downbeats) > toleranz
+            if a.grund in ("section", "drop")
+            and min(abs(a.zeit - d) for d in downbeats) > toleranz
         ]
         assert not daneben, (
-            f"{len(daneben)} Schnitte liegen nicht auf einem Taktanfang: "
-            f"{[round(a.zeit, 2) for a in daneben[:5]]}"
+            f"{len(daneben)} musikalische Schnitte liegen nicht auf einem "
+            f"Taktanfang: {[(round(a.zeit, 2), a.grund) for a in daneben[:5]]}"
         )
 
     def test_ergebnis_ist_sortiert_und_doppelungsfrei(self):
@@ -231,3 +247,69 @@ class TestWiederkehrendeMotive:
     def test_ohne_sections(self):
         assert motiv_zuordnung(None) == {}
         assert motiv_gruppe_fuer_zeit(5.0, None, {}) is None
+
+
+class TestBefundeAusDerGegenpruefung:
+    """Defekte, die ein Funktionstest mit boesartigen Eingaben fand (2026-08-15).
+
+    Alle vier waren im ersten Wurf enthalten und keiner davon faellt bei
+    freundlichen Eingaben auf — genau deshalb stehen sie hier.
+    """
+
+    def test_notbremse_wird_nicht_um_25_prozent_ueberschritten(self):
+        """Gemessen wurden 20,0s Abstand bei einem Limit von 16,0s.
+
+        Ursache war eine Toleranz von einem Viertel Raster in der
+        Lueckenfuellung. Der Fehler zeigt sich nur, wenn ein Anlass NICHT auf
+        dem Raster liegt — deshalb der krumme Section-Start.
+        """
+        bpm = 120.0
+        beat = 60.0 / bpm
+        dauer = 300.0
+        beats = [i * beat for i in range(int(dauer / beat))]
+        downbeats = [i * beat * 4 for i in range(int(dauer / (beat * 4)))]
+        takt = beat * 4
+
+        for start in (17.0, 19.0, 20.0):
+            sections = [_sec(0, start, "CHORUS"), _sec(start, dauer, "CHORUS")]
+            anlaesse = schnitt_anlaesse(
+                beats, dauer, sections=sections, downbeats=downbeats, max_takte=8
+            )
+            zeiten = [a.zeit for a in anlaesse] + [dauer]
+            groesste = max(b - a for a, b in zip(zeiten, zeiten[1:]))
+            assert groesste <= takt * 8 + 1e-6, (
+                f"Section-Start {start}s: groesster Abstand {groesste:.2f}s "
+                f"ueberschreitet das Limit {takt * 8:.2f}s"
+            )
+
+    def test_nan_in_den_beats_wandert_nicht_durch(self):
+        """`nan < x` ist immer falsch — NaN faellt sonst durch jede Pruefung."""
+        beats = _beats(60.0)
+        beats[0] = float("nan")
+        anlaesse = schnitt_anlaesse(beats, 60.0, downbeats=_downbeats(60.0))
+        assert all(a.zeit == a.zeit for a in anlaesse), (
+            f"NaN im Ergebnis: {[a.zeit for a in anlaesse][:5]}"
+        )
+
+    def test_unbrauchbare_gesamtdauer_ergibt_nichts(self):
+        for dauer in (0.0, -5.0, float("nan"), float("inf")):
+            assert schnitt_anlaesse(_beats(60.0), dauer) == [], (
+                f"total_duration={dauer} lieferte trotzdem Schnitte"
+            )
+
+    def test_kein_schnipsel_am_anfang(self):
+        """Der erste Beat liegt bei diesem Material auf 0,04s.
+
+        Zusammen mit der 0.0, die der Aufrufer setzt, entstand daraus ein
+        0,04-Sekunden-Segment.
+        """
+        beats = [0.04 + i * BEAT for i in range(200)]
+        anlaesse = schnitt_anlaesse(beats, 90.0, downbeats=_downbeats(90.0))
+        assert anlaesse[0].zeit == 0.0, (
+            f"erster Schnitt bei {anlaesse[0].zeit}s statt bei 0.0"
+        )
+
+    def test_bogen_vertraegt_unbrauchbare_werte(self):
+        for wert in (float("nan"), float("inf"), float("-inf"), None, "unsinn"):
+            ergebnis = bogen_intensitaet(wert)
+            assert 0.0 <= ergebnis <= 1.0, f"{wert!r} ergab {ergebnis}"

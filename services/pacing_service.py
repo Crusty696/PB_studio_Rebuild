@@ -835,8 +835,22 @@ def _auto_edit_phase3_inner(
     # FIX-2.1: bpm_val VOR dem LLM-Strategist-Block definieren (war NameError).
     bpm_val = _get_bpm(audio_id) or 120.0
 
-    # Phase 5: Optionaler LLM Pacing-Strategist (lokal, offline)
-    if settings.use_llm_strategist:
+    # Phase 5: Optionaler LLM Pacing-Strategist (lokal, offline).
+    # Sein einziges Ergebnis ist `_pacing_map_override`, und das liest nur der
+    # Raster-Pfad (_select_cut_beats_advanced). Im musikgetriebenen Modus
+    # waeren die ~85 s Laufzeit also vollstaendig verschenkt — der Auto-Edit
+    # vom 15.08. brauchte insgesamt neun Minuten. Deshalb hier ueberspringen
+    # statt ins Leere rechnen zu lassen.
+    _strategist_ohne_wirkung = (
+        settings.use_llm_strategist
+        and getattr(settings, "musikgetriebener_schnitt", False)
+    )
+    if _strategist_ohne_wirkung:
+        logger.info(
+            "LLM-Pacing-Strategist uebersprungen: im musikgetriebenen Schnitt "
+            "wird seine Section-Map nicht gelesen (spart ~85s)."
+        )
+    if settings.use_llm_strategist and not _strategist_ohne_wirkung:
         if should_stop_cb is not None and should_stop_cb():
             logger.info("auto_edit_phase3: cancel-request vor LLM-Strategist")
             return [], []
@@ -916,13 +930,22 @@ def _auto_edit_phase3_inner(
         # User-Anweisung 2026-08-15: lange Einstellungen, die nur enden, wenn
         # die Musik einen Grund liefert. Der Raster-Pfad darunter bleibt
         # unveraendert erhalten und greift, sobald der Schalter aus ist.
-        from services.pacing.roter_faden import schnitt_anlaesse
+        from services.pacing.roter_faden import dichte_parameter, schnitt_anlaesse
 
+        # Die Cut-Rate-Combo bleibt wirksam — nicht mehr als starres Raster,
+        # sondern als Dichte-Regler auf Takt-Abstand und Ansprechschwelle.
+        # Ohne diese Uebersetzung waere sie hier tot, und genau dieser Regler
+        # war beim Nutzer ueber Tage der Hauptkritikpunkt.
+        _max_takte, _energie_schwelle = dichte_parameter(
+            settings.base_cut_rate, settings.energy_reactivity,
+        )
         _anlaesse = schnitt_anlaesse(
             beats, total_duration,
             sections=sections,
             energy_per_beat=energy_per_beat,
             downbeats=downbeats,
+            max_takte=_max_takte,
+            energie_schwelle=_energie_schwelle,
         )
         cut_beats = [a.zeit for a in _anlaesse]
     else:
