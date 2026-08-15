@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b197d3b3b1c54fd699897f0ca3642b68",
+  "recorded_at": "2026-08-15T18:45:33+00:00",
+  "session_id": "e5fc6c9e8c044eb3ac4463b0971c4a6e",
+  "head_at_start": "1833f0e751bd2f828d69657c9106c695d72593d3",
+  "problem": "Evidence records referenced proof paths without proving immutable file content or target semantics",
+  "cause": "Contract bound evidence JSONL but omitted per-proof descriptors and canonical-root file validation",
+  "rule": "Bind every proof as its own content-addressed descriptor, resolve beneath an external evidence root, verify regular-file bytes/SHA, then compare parsed proof fields exactly to evidence FKs",
+  "applies_to": "audit evidence validators and completion gates"
+}

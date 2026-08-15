@@ -118,6 +118,14 @@ def artifact_contract_entry(records: list[dict[str, Any]], ref: str) -> dict[str
     }
 
 
+def file_contract_entry(data: bytes, ref: str, *, record_count: int = 1) -> dict[str, Any]:
+    digest = _sha(data)
+    return {
+        "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
+        "bytes": len(data), "record_count": record_count,
+    }
+
+
 def seal_audit_contract(core: dict[str, Any]) -> dict[str, Any]:
     contract = dict(core)
     contract["contract_sha256"] = _sha(_canonical(_without(contract, "contract_sha256")))
@@ -146,7 +154,52 @@ def _safe_ref(value: object) -> bool:
     if not isinstance(value, str) or not value or "\\" in value:
         return False
     path = PurePosixPath(value)
-    return not path.is_absolute() and ".." not in path.parts
+    return path != PurePosixPath(".") and not path.is_absolute() and ".." not in path.parts
+
+
+def _proof_errors(
+    row: dict[str, Any], contract: dict[str, Any], evidence_root: Path,
+    *, prefix: str, expected: dict[str, Any], label: str,
+) -> list[str]:
+    errors: list[str] = []
+    ref = row.get("proof_ref")
+    key = f"{prefix}:{row.get('evidence_id', '')}"
+    descriptor = contract.get("artifacts", {}).get(key)
+    if not isinstance(descriptor, dict):
+        return [f"{label}: Proof-Descriptor {key} fehlt"]
+    if descriptor.get("ref") != ref:
+        errors.append(f"{label}: Proof-Descriptor ref weicht ab")
+    if not _safe_ref(ref):
+        return errors + [f"{label}: proof_ref ungueltig"]
+    try:
+        root = evidence_root.resolve(strict=True)
+        target = (root / str(ref)).resolve(strict=False)
+        target.relative_to(root)
+    except (FileNotFoundError, OSError, ValueError):
+        return errors + [f"{label}: Proof-Pfad ausserhalb Evidence-Root/Root fehlt"]
+    if not target.exists():
+        return errors + [f"{label}: Proof-Datei fehlt"]
+    if not target.is_file():
+        return errors + [f"{label}: Proof ist keine regulaere Datei"]
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        return errors + [f"{label}: Proof nicht lesbar: {exc}"]
+    digest = _sha(data)
+    if descriptor.get("bytes") != len(data):
+        errors.append(f"{label}: Proof bytes weichen ab")
+    if descriptor.get("sha256") != digest or descriptor.get("artifact_id") != f"sha256:{digest}":
+        errors.append(f"{label}: Proof SHA/artifact_id weicht ab")
+    if descriptor.get("record_count") != 1:
+        errors.append(f"{label}: Proof record_count muss 1 sein")
+    try:
+        proof = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        errors.append(f"{label}: Proof ist kein UTF-8-JSON")
+    else:
+        if proof != expected:
+            errors.append(f"{label}: Proof-Semantik/FK weicht ab")
+    return errors
 
 
 def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
@@ -788,6 +841,7 @@ def validate_exact_set(
     reviewer_records: list[dict[str, Any]], reviewer_manifest: dict[str, Any],
     audit_contract: dict[str, Any], expected_contract_sha256: str,
     evidence_contract: dict[str, Any], expected_evidence_contract_sha256: str,
+    evidence_root: Path,
 ) -> list[str]:
     errors: list[str] = []
     errors.extend(validate_audit_contract(
@@ -836,10 +890,10 @@ def validate_exact_set(
         allowed = {
             "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
             "reviewer_id", "path", "source_blob_sha256", "signed_at", "proof_ref",
-            "artifact_ref", "run_id", "audited_commit", "tooling_commit", "snapshot_id",
+            "run_id", "audited_commit", "tooling_commit", "snapshot_id",
             "record_sha256",
         }
-        if set(row) - allowed or len({"proof_ref", "artifact_ref"} & set(row)) != 1:
+        if set(row) != allowed:
             errors.append(f"Feature-Evidence Zeile {number}: Schemafelder nicht exakt")
         for field in (
             "evidence_kind", "source_id", "feature_id", "path_id", "reviewer_id",
@@ -847,9 +901,20 @@ def validate_exact_set(
         ):
             if not row.get(field):
                 errors.append(f"Feature-Evidence Zeile {number}: {field} fehlt")
-        proof_ref = row.get("proof_ref") or row.get("artifact_ref")
+        proof_ref = row.get("proof_ref")
         if not _safe_ref(proof_ref):
-            errors.append(f"Feature-Evidence Zeile {number}: proof_ref/artifact_ref ungueltig")
+            errors.append(f"Feature-Evidence Zeile {number}: proof_ref ungueltig")
+        if row.get("evidence_kind") != "source-review":
+            errors.append(f"Feature-Evidence Zeile {number}: evidence_kind ungueltig")
+        proof_expected = {field: row.get(field) for field in (
+            "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
+            "reviewer_id", "path", "source_blob_sha256",
+        )}
+        proof_expected["schema_version"] = 1
+        errors.extend(_proof_errors(
+            row, evidence_contract, evidence_root, prefix="feature-proof",
+            expected=proof_expected, label=f"Feature-Evidence Zeile {number}",
+        ))
         if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("source_blob_sha256", ""))):
             errors.append(f"Feature-Evidence Zeile {number}: source_blob_sha256 ungueltig")
     feature_pairs: dict[tuple[str, str], dict[str, Any]] = {}
@@ -983,6 +1048,7 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--expected-audit-contract-sha256", required=True)
     verify.add_argument("--evidence-contract", type=Path, required=True)
     verify.add_argument("--expected-evidence-contract-sha256", required=True)
+    verify.add_argument("--evidence-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         signed_at = args.signed_at if args.command == "enumerate" else json.loads(
@@ -1026,6 +1092,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_contract_sha256=args.expected_audit_contract_sha256,
             evidence_contract=evidence_contract,
             expected_evidence_contract_sha256=args.expected_evidence_contract_sha256,
+            evidence_root=args.evidence_root,
         ))
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
         return 0 if not errors else 2
