@@ -1,0 +1,4 @@
+interface:
+  display_name: "PB Exhaustive Audit Ledger"
+  short_description: "Vollstaendiger Code- und Feature-Auditbeleg"
+  default_prompt: "Use $pb-exhaustive-audit-ledger to build a complete hash-bound line and feature-state audit ledger for PB Studio."

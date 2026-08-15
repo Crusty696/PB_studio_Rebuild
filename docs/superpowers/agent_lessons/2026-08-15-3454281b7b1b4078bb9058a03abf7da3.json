@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3454281b7b1b4078bb9058a03abf7da3",
+  "recorded_at": "2026-08-15T12:50:05+00:00",
+  "session_id": "14e10a99c5154a1ea6757e7400d735a0",
+  "head_at_start": "862c9a75789f504f6c457c07b1272a0357d23fdd",
+  "problem": "Schema- und Selbsttests waren gruen, waehrend Scope-Aliase und ungebundene Evidenzuniversen noch Vollstaendigkeit vortaeuschen konnten.",
+  "cause": "Validatoren prueften anfangs einzelne Datensaetze syntaktisch, banden aber Pfadmengen, Workspace-Einheiten, Scope-Manifeste und Current-HEAD-Snapshot nicht an allen Grenzen eindeutig zusammen.",
+  "rule": "Bei Vollstaendigkeitsaudits jede Universumsgrenze hash- und mengenbinden; danach adversarial vorwaerts testen, bis unabhaengiger Reviewer keine Critical/High/Medium-Umgehung mehr reproduziert.",
+  "applies_to": "Audit-Ledger, Coverage-Validatoren, externe Scope-Erweiterungen, Feature-Evidenzmatrizen"
+}

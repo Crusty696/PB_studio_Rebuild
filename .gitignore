@@ -69,6 +69,8 @@ skills-lock.json
 !.agents/skills/pb-concurrency-strike-team/SKILL.md
 !.agents/skills/pb-release-readiness-team/
 !.agents/skills/pb-release-readiness-team/SKILL.md
+!.agents/skills/pb-exhaustive-audit-ledger/
+!.agents/skills/pb-exhaustive-audit-ledger/**
 
 # QA screenshots and recordings (binary assets)
 docs/qa_screenshots/**/*.png
