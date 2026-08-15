@@ -296,7 +296,7 @@ def check(files: list[str], ignore_id: str | None = None) -> list[dict]:
 
 def claim(agent: str, task: str, files: list[str], branch: str | None = None,
           worktree: str | None = None, force: bool = False,
-          pid: int = 0) -> tuple[dict, list[dict]]:
+          pid: int = 0, parent_session_id: str | None = None) -> tuple[dict, list[dict]]:
     """Session registrieren. Gibt (session, conflicts) zurueck.
 
     Bei Konflikt wird NICHT registriert (ausser force=True) — der Aufrufer
@@ -316,6 +316,26 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
     """
     with _Lock():
         data, _ = _prune(_read_raw())
+        parent = None
+        if parent_session_id:
+            parent = next(
+                (row for row in data["sessions"] if row.get("id") == parent_session_id),
+                None,
+            )
+            if parent is None:
+                return {}, [{
+                    "id": parent_session_id,
+                    "agent": "(fehlender Parent)",
+                    "task": "",
+                    "pid": 0,
+                    "host": "",
+                    "branch": "",
+                    "worktree": "",
+                    "heartbeat": "",
+                    "claims": [],
+                    "_hits": [],
+                    "_reason": "parent-session-not-live",
+                }]
         conflicts = []
         for s in data["sessions"]:
             hits = _claims_overlap(files, s.get("claims", []))
@@ -335,6 +355,12 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
             "started_at": _utc_now(),
             "heartbeat": _utc_now(),
             "claims": [_norm(f) for f in files],
+            "parent_session_id": parent_session_id,
+            "ancestor_session_ids": (
+                [*parent.get("ancestor_session_ids", []), parent["id"]]
+                if parent is not None else []
+            ),
+            "forced": bool(force),
         }
         data["sessions"].append(session)
         _write_raw(data)
@@ -414,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--pid", type=int, default=0,
                    help="PID des AGENTEN (nicht dieses CLI-Prozesses!). "
                         "0 = keine Angabe, dann zaehlt allein der Heartbeat.")
+    c.add_argument(
+        "--parent-session-id",
+        help="aktive Parent-Session; Registry versiegelt transitive Lineage",
+    )
 
     h = sub.add_parser("heartbeat", help="Lebenszeichen senden")
     h.add_argument("--id", required=True)
@@ -476,8 +506,13 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_CONFLICT
 
         if a.cmd == "claim":
-            session, conflicts = claim(a.agent, a.task, a.files, a.branch,
-                                       a.worktree, a.force, a.pid)
+            session, conflicts = claim(
+                a.agent, a.task, a.files, a.branch, a.worktree, a.force, a.pid,
+                a.parent_session_id,
+            )
+            if conflicts and conflicts[0].get("_reason") == "parent-session-not-live":
+                print("KONFLIKT: Parent-Session ist nicht aktiv; nicht registriert.")
+                return EXIT_CONFLICT
             if conflicts and not a.force:
                 print("KONFLIKT: nicht registriert. Aktive fremde Session(s):")
                 for s in conflicts:
