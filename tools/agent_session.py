@@ -361,6 +361,10 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
                 if parent is not None else []
             ),
             "forced": bool(force),
+            "forced_lineage": bool(force) or bool(
+                parent is not None
+                and (parent.get("forced") or parent.get("forced_lineage"))
+            ),
         }
         data["sessions"].append(session)
         _write_raw(data)

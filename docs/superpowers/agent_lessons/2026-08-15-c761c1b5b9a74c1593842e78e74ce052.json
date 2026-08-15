@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c761c1b5b9a74c1593842e78e74ce052",
+  "recorded_at": "2026-08-15T16:36:49+00:00",
+  "session_id": "f4c6077eee834d8a83921b388b96c66e",
+  "head_at_start": "9fa39628cc7e30115f31df0bbc0341672b87adb1",
+  "problem": "Hashgebundene Reviewer-Receipts konnten offline neu erfunden werden; freie Pair-/Claim-/Scope-Eingaben machten einen formalen PASS ohne extern bewiesene Identitaet moeglich.",
+  "cause": "Unkeyed SHA-256 belegte nur Byteintegritaet. Reviewer-Vertrag, Spawn-Lineage und Signoffs hatten keinen extern gepinnten kryptographischen Trust-Anchor.",
+  "rule": "Audit-Identitaet nur mit extern signiertem, hashverkettetem Spawn-Journal, signiertem Exact-Set-Vertrag, im Snapshot gepinntem Public-Key und live erzeugten signierten Enrollment-/Signoff-Receipts akzeptieren; fehlende Signatur oder Pin immer fail-closed.",
+  "applies_to": "Reviewer-Roster, Completion-Readiness, Dual-Control-Signoffs, offline revalidierbare Audit-Evidenz"
+}

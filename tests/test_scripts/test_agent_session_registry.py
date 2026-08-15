@@ -113,6 +113,8 @@ def test_claim_rejects_missing_parent_and_marks_force():
 
     forced, _ = ag.claim("forced", "audit", [], force=True)
     assert forced["forced"] is True
+    child, _ = ag.claim("child", "audit", [], parent_session_id=forced["id"])
+    assert child["forced_lineage"] is True
 
 
 def test_glob_claims_conflict():
