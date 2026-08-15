@@ -667,6 +667,49 @@ class GateContractTests(unittest.TestCase):
             errors = validate(states)
             self.assertTrue(any("Non-Runtime-Vertrag" in error for error in errors), operation)
 
+    def test_resealed_non_runtime_types_and_feature_id_matrix_rejected(self) -> None:
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+
+        def validate(states):
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["symbol-state"] = HARNESS.artifact_contract_entry(
+                states, "evidence/symbol-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_contract, self.evidence_contract_sha = (
+                contract, contract["evidence_contract_sha256"]
+            )
+            try:
+                return self.errors(states, self.edge_states())
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        for field, values in (
+            ("reason", ([], {}, "", " ")),
+            ("evidence_id", ([], {}, "", " ")),
+        ):
+            for value in values:
+                states = self.states()
+                state = next(row for row in states if row["disposition"] == "non-runtime")
+                state["non_runtime_contract"][field] = value
+                errors = validate(states)
+                self.assertTrue(
+                    any(f"Non-Runtime-Vertrag {field}" in error for error in errors),
+                    f"{field}={value!r}",
+                )
+
+        for feature_ids in (
+            [["FEAT-CONTRACT"]], [{"id": "FEAT-CONTRACT"}],
+            ["FEAT-CONTRACT", "FEAT-CONTRACT"], [""], [" "],
+        ):
+            states = self.states()
+            states[0]["feature_ids"] = feature_ids
+            errors = validate(states)
+            self.assertTrue(any("feature_ids" in error for error in errors), repr(feature_ids))
+
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()
         target = states[0]

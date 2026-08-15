@@ -1070,8 +1070,15 @@ def validate_contracts(
         if role not in {"feature", "support", "framework", "dead-candidate"}:
             errors.append(f"{label}: role ungueltig")
         feature_ids = row.get("feature_ids")
-        if not isinstance(feature_ids, list) or not feature_ids or len(feature_ids) != len(set(feature_ids)):
-            errors.append(f"{label}: feature_ids fehlt/leer/doppelt")
+        if (
+            not isinstance(feature_ids, list) or not feature_ids
+            or any(
+                not isinstance(feature_id, str) or not feature_id.strip()
+                for feature_id in feature_ids
+            )
+            or len(feature_ids) != len(set(feature_ids))
+        ):
+            errors.append(f"{label}: feature_ids muss eindeutige nichtleere Strings enthalten")
         elif any(feature_id not in known_feature_ids for feature_id in feature_ids):
             errors.append(f"{label}: unbekannte feature_id")
         if row.get("reviewer_id") not in reviewer_ids:
@@ -1162,6 +1169,7 @@ def validate_contracts(
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
             contract = row.get("non_runtime_contract")
+            evidence_id: str | None = None
             if not isinstance(contract, dict):
                 errors.append(f"{label}: Non-Runtime-Vertrag fehlt")
             else:
@@ -1169,15 +1177,21 @@ def validate_contracts(
                     errors.append(f"{label}: Non-Runtime-Vertrag Schemafelder nicht exakt")
                 if contract.get("kind") not in NON_RUNTIME_CONTRACT_KINDS:
                     errors.append(f"{label}: Non-Runtime-Vertrag kind ungueltig")
-                if not contract.get("evidence_id") or not contract.get("reason"):
-                    errors.append(f"{label}: Non-Runtime-Vertrag Pflichtfeld fehlt")
-            if isinstance(contract, dict) and contract.get("evidence_id") not in evidence_ids:
+                raw_evidence_id = contract.get("evidence_id")
+                reason = contract.get("reason")
+                if not isinstance(raw_evidence_id, str) or not raw_evidence_id.strip():
+                    errors.append(f"{label}: Non-Runtime-Vertrag evidence_id ungueltig")
+                else:
+                    evidence_id = raw_evidence_id
+                if not isinstance(reason, str) or not reason.strip():
+                    errors.append(f"{label}: Non-Runtime-Vertrag reason ungueltig")
+            if evidence_id is not None and evidence_id not in evidence_ids:
                 errors.append(f"{label}: Non-Runtime-Vertrag referenziert unbekannte Evidence-ID")
-            elif isinstance(contract, dict) and artifact_indexes[3][contract["evidence_id"]].get("symbol_id") != symbol_id:
+            elif evidence_id is not None and artifact_indexes[3][evidence_id].get("symbol_id") != symbol_id:
                 errors.append(f"{label}: Non-Runtime-Evidence-Symbol-FK falsch")
-            elif isinstance(contract, dict):
-                evidence_consumers.add(contract["evidence_id"])
-                evidence = artifact_indexes[3][contract["evidence_id"]]
+            elif evidence_id is not None:
+                evidence_consumers.add(evidence_id)
+                evidence = artifact_indexes[3][evidence_id]
                 if evidence.get("reviewer_id") != row.get("reviewer_id"):
                     errors.append(f"{label}: Non-Runtime-Evidence-Reviewer-FK falsch")
                 if evidence.get("signed_at") != row.get("signed_at"):
