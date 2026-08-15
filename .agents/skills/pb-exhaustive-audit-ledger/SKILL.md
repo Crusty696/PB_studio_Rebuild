@@ -178,7 +178,9 @@ widerspruechlicher Evidenz, notwendigem Codefix oder Produktentscheid.
 - `scripts/verify_symbol_states.py`: Symboluniversum-Exact-Set und Runtime-/
   Non-Runtime-Vertrag je Funktion/Methode.
 - `scripts/verify_audit_readiness.py`: fail-closed Phase--1-Gate fuer exakte
-  Harness-/Testmenge aus festem Tooling-Commit und hashgebundene Testoutputs.
+  Harness-/Testmenge aus festem Tooling-Commit. Extern gepinnter separater
+  Authoritycommit bindet feste Gate-Matrix, Validator-/Dependency-Blobs und
+  Testquellen; Reviewer-Verifikation laeuft aus isolierter Blobmaterialisierung.
 - `scripts/self_test.py`, `scripts/self_test_identity_snapshot.py`,
   `scripts/self_test_feature_evidence.py`: integrierte und gezielte Positiv-/
   Negativvertraege. Gruene Selftests ersetzen keinen realen Auditlauf.
@@ -198,3 +200,10 @@ Vorhandene Teilvalidatoren beweisen nur ihre Eingabevertraege. Sie beweisen
 nicht, dass Generatoren jedes Requirement, jeden Trigger, jede dynamische Kante
 oder jedes Delta gefunden haben. Completion bleibt bis Phase--1-Harnesses und
 zwei unabhaengige Signoffs unzulaessig.
+
+Readiness-PASS benoetigt zwei verschiedene Inputs fuer denselben Authority-SHA:
+beweglichen `authority_commit` sowie separat verwahrten
+`expected_authority_commit`. Das Programm kann eine gemeinsame Kompromittierung
+beider Caller-Werte nicht erkennen. Ohne echten externen Pin und real
+provisionierte Reviewer-Schluessel ist nur struktureller Selftest moeglich;
+operationaler Readiness-Status bleibt NO-GO.
