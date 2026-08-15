@@ -1,0 +1,10 @@
+{
+  "lesson_id": "24de280c5cd14163b17c0e7491f93a68",
+  "recorded_at": "2026-08-15T22:16:40+00:00",
+  "session_id": "6954b07341314613b1129af5875b29ef",
+  "head_at_start": "c9486622d7726ab62a21b8ce9094036cff1dc088",
+  "problem": "Runtime Authority-Policy konnte mit gemeinsam ersetztem authority_commit, Vertrag und Katalog eine fremde konsistente Welt autorisieren.",
+  "cause": "authority_commit war zugleich vom Aufrufer gewaehlter Objektzeiger und vermeintlicher Trust-Pin; ohne separat attestierten erwarteten Commit existierte keine unabhaengige Vertrauenswurzel.",
+  "rule": "Bewegliche Objekt-ID nie selbst als Trust Root behandeln: erwarteten Authority-Commit aus separater vertrauenswuerdiger Caller-Domaene verpflichtend binden, exakte Gleichheit vor Objektzugriff pruefen und kompromittierten externen Pin als offene Grenze ausweisen.",
+  "applies_to": "Audit-Runner, signierte/attestierte Manifeste, Policy-Bootstrapping, content-addressed Evidence"
+}
