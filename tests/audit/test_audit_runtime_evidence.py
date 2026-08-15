@@ -101,8 +101,7 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         (cls.repo / "harness.py").write_text(HARNESS, encoding="utf-8")
         (cls.repo / "checker.py").write_text("from pathlib import Path\nimport sys\nraise SystemExit(0 if Path(sys.argv[1]).read_text() == 'result\\n' else 3)\n", encoding="utf-8")
         (cls.repo / "tamper_checker.py").write_text("from pathlib import Path\nimport sys\nPath(sys.argv[1]).write_text('{}\\n')\n", encoding="utf-8")
-        (cls.repo / "runtime_authority_policy.json").write_bytes(_json_bytes({"schema_version":1,"allow_same_audited_tooling_commit":False}) + b"\n")
-        subprocess.run(["git", "add", "tools/audit_runtime_evidence.py", "harness.py", "checker.py", "tamper_checker.py", "runtime_authority_policy.json"], cwd=cls.repo, check=True)
+        subprocess.run(["git", "add", "tools/audit_runtime_evidence.py", "harness.py", "checker.py", "tamper_checker.py"], cwd=cls.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "trusted tooling harness"], cwd=cls.repo, check=True)
         cls.tooling_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True).stdout.strip()
         cls.tool = _load_tool()
@@ -158,7 +157,7 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
     def write_catalog(self, rows: list[dict]) -> None:
         self.write_jsonl(self.catalog_path, rows)
 
-    def write_contract(self, **overrides: object) -> None:
+    def write_contract(self, *, bind_authority: bool = True, authority_overrides: dict | None = None, **overrides: object) -> None:
         def artifact(path: Path, records: int) -> dict:
             digest = _sha(path)
             return {"artifact_id":f"sha256:{digest}","ref":path.name,"sha256":digest,
@@ -180,14 +179,45 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         contract["contract_sha256"] = self.tool.canonical_sha256(contract, omit={"contract_sha256"})
         self.contract_path.write_bytes(_json_bytes(contract) + b"\n")
         self.expected_contract_sha256 = contract["contract_sha256"]
+        if bind_authority:
+            self.write_authority_policy(contract, authority_overrides=authority_overrides)
+
+    def write_authority_policy(
+        self, contract: dict | None = None, *, authority_overrides: dict | None = None,
+        policy_path: str = "config/audit_runtime_authority_policy.json",
+    ) -> str:
+        contract = contract or json.loads(self.contract_path.read_text(encoding="utf-8"))
+        policy = {
+            "schema_version": 1,
+            "audit_contract_sha256": contract["contract_sha256"],
+            "plan_id": contract["plan_id"], "run_id": contract["run_id"],
+            "snapshot_id": contract["snapshot_id"],
+            "audited_commit": contract["audited_commit"], "tooling_commit": contract["tooling_commit"],
+            "allow_same_audited_tooling_commit": False,
+        }
+        policy.update(authority_overrides or {})
+        target = self.repo / policy_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(_json_bytes(policy) + b"\n")
+        subprocess.run(["git", "add", "--", policy_path], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "--allow-empty", "-qm", f"authority {time.time_ns()}"], cwd=self.repo, check=True)
+        self.authority_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        return self.authority_commit
 
     def refresh_contract(self) -> None:
         self.write_contract()
 
-    def run_valid(self, runtime_run_id: str = "LIVE-001", scenario_id: str = "SCN-001", *, expected_contract_sha256: str | None = None) -> dict:
+    def run_valid(
+        self, runtime_run_id: str = "LIVE-001", scenario_id: str = "SCN-001", *,
+        expected_contract_sha256: str | None = None, authority_commit: str | None = None,
+        authority_policy_path: str = "config/audit_runtime_authority_policy.json",
+    ) -> dict:
         return self.tool.run_scenario(repo_root=self.repo, evidence_root=self.evidence, contract_path=self.contract_path,
             expected_contract_sha256=expected_contract_sha256 or self.expected_contract_sha256,
-            authority_policy_path="runtime_authority_policy.json", scenario_id=scenario_id, runtime_run_id=runtime_run_id)
+            authority_commit=authority_commit or self.authority_commit,
+            authority_policy_path=authority_policy_path, scenario_id=scenario_id, runtime_run_id=runtime_run_id)
 
     def test_positive_minimal(self) -> None:
         receipt = self.run_valid()
@@ -202,6 +232,17 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         self.assertFalse(receipt["observer"]["cryptographic_anti_tamper"])
         self.assertEqual(receipt["materialization"]["method"], "git-cat-file")
         self.assertNotEqual(receipt["audited_commit"], receipt["tooling_commit"])
+        self.assertEqual(receipt["authority"]["authority_commit"], self.authority_commit)
+        expected_blob = subprocess.run(
+            ["git", "rev-parse", f"{self.authority_commit}:config/audit_runtime_authority_policy.json"],
+            cwd=self.repo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        policy_bytes = subprocess.run(
+            ["git", "show", f"{self.authority_commit}:config/audit_runtime_authority_policy.json"],
+            cwd=self.repo, check=True, capture_output=True,
+        ).stdout
+        self.assertEqual(receipt["authority"]["git_blob"], expected_blob)
+        self.assertEqual(receipt["authority"]["sha256"], hashlib.sha256(policy_bytes).hexdigest())
         self.assertIn(b"scenario-ok", (self.evidence / receipt["stdout"]["ref"]).read_bytes())
 
     def test_missing_required_rejected(self) -> None:
@@ -228,6 +269,45 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
     def test_authority_blob_blocks_contract_substitution(self) -> None:
         original = self.expected_contract_sha256; self.write_contract(run_id="RUN-FOREIGN")
         with self.assertRaisesRegex(self.tool.ContractError, "Authority|Auditvertrag"): self.run_valid(expected_contract_sha256=original)
+
+    def test_joint_contract_catalog_cli_and_all_ids_substitution_rejected(self) -> None:
+        pinned_authority = self.authority_commit
+        row = self.valid_scenario()
+        row.update({
+            "run_id": "RUN-FOREIGN", "snapshot_id": "snapshot-foreign",
+            "audited_commit": "1" * 40, "tooling_commit": "2" * 40,
+        })
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
+        self.write_catalog([row])
+        self.write_contract(
+            bind_authority=False, plan_id="PLAN-FOREIGN", run_id="RUN-FOREIGN",
+            snapshot_id="snapshot-foreign", audited_commit="1" * 40, tooling_commit="2" * 40,
+        )
+        with self.assertRaisesRegex(self.tool.ContractError, "Authority-Policy.*(plan_id|run_id|snapshot_id|audited_commit|tooling_commit)|Authority"):
+            self.run_valid(authority_commit=pinned_authority, expected_contract_sha256=self.expected_contract_sha256)
+
+    def test_wrong_authority_commit_path_blob_field_and_sha_rejected(self) -> None:
+        with self.assertRaisesRegex(self.tool.ContractError, "authority_commit.*tooling_commit|Authority"):
+            self.run_valid(authority_commit=self.tooling_commit)
+        with self.assertRaisesRegex(self.tool.ContractError, "Policy-Pfad"):
+            self.run_valid(authority_policy_path="wrong/policy.json")
+        wrong_bindings = {
+            "plan_id": "PLAN-WRONG", "run_id": "RUN-WRONG", "snapshot_id": "snapshot-wrong",
+            "audited_commit": "1" * 40, "tooling_commit": "2" * 40,
+        }
+        for field, value in wrong_bindings.items():
+            with self.subTest(field=field):
+                bad_field_commit = self.write_authority_policy(authority_overrides={field: value})
+                with self.assertRaisesRegex(self.tool.ContractError, field):
+                    self.run_valid(authority_commit=bad_field_commit)
+        bad_sha_commit = self.write_authority_policy(authority_overrides={"audit_contract_sha256": "0" * 64})
+        with self.assertRaisesRegex(self.tool.ContractError, "audit_contract_sha256"):
+            self.run_valid(authority_commit=bad_sha_commit)
+        bad_blob_commit = self.write_authority_policy(authority_overrides={"unexpected": True})
+        with self.assertRaisesRegex(self.tool.ContractError, "Exact-Fields"):
+            self.run_valid(authority_commit=bad_blob_commit)
+        with self.assertRaisesRegex(self.tool.ContractError, "getrennt"):
+            self.run_valid(authority_commit=self.audited_commit)
 
     def test_scenario_schema_version_exact(self) -> None:
         row = self.valid_scenario(); row["schema_version"] = 2
