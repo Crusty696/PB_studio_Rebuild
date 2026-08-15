@@ -90,11 +90,16 @@ class GateContractTests(unittest.TestCase):
                 "source_blob_sha256": edge["source_blob_sha256"],
                 "proof_ref": f"proof/{edge['edge_id']}.json", **binding,
             }))
-        self.trigger_records = [HARNESS.seal_record({
-            "source_id": "TRIG-DUMMY", "source_kind": "entrypoint",
-            "path": "unrelated.py", "line": 1, "column": 0,
-            "detail": "unrelated", "source_blob_sha256": "a" * 64, **binding,
-        })]
+        trigger_core = {
+            "source_kind": "entrypoint", "path": "unrelated.py",
+            "line": 1, "column": 0, "detail": "unrelated",
+            "source_blob_sha256": "a" * 64, **binding,
+        }
+        trigger_core["source_id"] = HARNESS._trigger_source_id(
+            trigger_core["source_kind"], trigger_core["path"], trigger_core["line"],
+            trigger_core["column"], trigger_core["detail"],
+        )
+        self.trigger_records = [HARNESS.seal_record(trigger_core)]
         self.manifests = {
             kind: HARNESS.make_artifact_manifest(
                 kind, records, run_id=self.RUN, audited_commit=self.commit,
@@ -335,9 +340,114 @@ class GateContractTests(unittest.TestCase):
                 triggers[0].pop("detail")
             triggers[0] = HARNESS.seal_record(triggers[0])
             self.assertTrue(
-                any("Schemafelder nicht exakt" in error for error in validate(triggers)),
+            any("Schemafelder nicht exakt" in error for error in validate(triggers)),
                 operation,
             )
+
+    def test_resealed_trigger_locator_field_matrix_and_all_generator_kinds(self) -> None:
+        base_audit = copy.deepcopy(self.audit_contract)
+        base_evidence = copy.deepcopy(self.evidence_contract)
+
+        def validate(triggers):
+            manifest = HARNESS.make_artifact_manifest(
+                "trigger-catalog", triggers, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            audit = copy.deepcopy(base_audit)
+            audit["artifacts"]["trigger-universe"] = HARNESS.artifact_contract_entry(
+                triggers, "evidence/triggers.jsonl"
+            )
+            audit = HARNESS.seal_audit_contract({
+                key: value for key, value in audit.items() if key != "contract_sha256"
+            })
+            evidence = copy.deepcopy(base_evidence)
+            evidence["audit_contract_sha256"] = audit["contract_sha256"]
+            evidence = HARNESS.seal_evidence_contract({
+                key: value for key, value in evidence.items()
+                if key != "evidence_contract_sha256"
+            })
+            return HARNESS.validate_contracts(
+                self.symbols, self.edges, self.states(), self.edge_states(),
+                run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+                feature_records=self.feature_records,
+                feature_manifest=self.manifests["feature-catalog"],
+                runtime_records=self.runtime_records,
+                runtime_manifest=self.manifests["runtime-evidence"],
+                reviewer_records=self.reviewer_records,
+                reviewer_manifest=self.manifests["reviewer-roster"],
+                evidence_records=self.evidence_records,
+                evidence_manifest=self.manifests["symbol-evidence"],
+                trigger_records=triggers, trigger_manifest=manifest,
+                audit_contract=audit,
+                expected_contract_sha256=audit["contract_sha256"],
+                evidence_contract=evidence,
+                expected_evidence_contract_sha256=evidence["evidence_contract_sha256"],
+                evidence_root=self.repo,
+            )
+
+        base = copy.deepcopy(self.trigger_records[0])
+        matrices = {
+            "source_id": (" ", [], {}, None, True, 1, "TRIG-" + "0" * 24),
+            "path": (
+                [], {}, None, True, 1, "", " ", "/abs.py", "C:/abs.py",
+                "../x.py", "a\\b.py", "./a.py", "a\0b.py",
+            ),
+            "line": ([], {}, None, True, 0, -1, 1.5, "1"),
+            "column": ([], {}, None, True, -1, 1.5, "0"),
+            "detail": ([], {}, None, True, 1, "", " ", " padded "),
+            "source_blob_sha256": ([], {}, None, True, 1, "", "A" * 64, "g" * 64, "a" * 63),
+        }
+        tokens = {
+            "source_id": "source_id nicht deterministisch",
+            "path": "path ungueltig", "line": "line ungueltig",
+            "column": "column ungueltig", "detail": "detail ungueltig",
+            "source_blob_sha256": "source_blob_sha256 ungueltig",
+        }
+        for field, values in matrices.items():
+            for value in values:
+                triggers = [copy.deepcopy(base)]
+                triggers[0][field] = value
+                triggers[0] = HARNESS.seal_record(triggers[0])
+                self.assertTrue(
+                    any(tokens[field] in error for error in validate(triggers)),
+                    f"{field}={value!r}",
+                )
+
+        source = self.symbols[0]
+        core = {
+            "source_kind": "entrypoint", "path": source["path"],
+            "line": source["line_start"], "column": 0,
+            "detail": source["qualified_name"], "source_blob_sha256": "f" * 64,
+            "run_id": self.RUN, "audited_commit": self.commit,
+            "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+            "signed_at": self.SIGNED,
+        }
+        core["source_id"] = HARNESS._trigger_source_id(
+            core["source_kind"], core["path"], core["line"], core["column"], core["detail"]
+        )
+        errors = validate([HARNESS.seal_record(core)])
+        self.assertTrue(any("kanonischen Sourcekatalog" in error for error in errors))
+
+        binding = {
+            "run_id": self.RUN, "audited_commit": self.commit,
+            "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+            "signed_at": self.SIGNED,
+        }
+        triggers = []
+        for index, kind in enumerate(sorted(HARNESS.TRIGGER_SOURCE_KINDS), 1):
+            core = {
+                "source_kind": kind, "path": f"triggers/{index}.py",
+                "line": index, "column": index - 1, "detail": f"trigger-{kind}",
+                "source_blob_sha256": f"{index:064x}", **binding,
+            }
+            core["source_id"] = HARNESS._trigger_source_id(
+                kind, core["path"], core["line"], core["column"], core["detail"]
+            )
+            triggers.append(HARNESS.seal_record(core))
+        self.assertEqual(24, len(triggers))
+        self.assertEqual([], validate(triggers))
 
     def test_missing_required_rejected(self) -> None:
         states = self.states()
@@ -894,14 +1004,19 @@ class GateContractTests(unittest.TestCase):
             "evidence_ids": [self.symbol_evidence_id(target["symbol_id"])],
         }
         self.assertTrue(any("ohne kanonischen Trigger" in error for error in self.errors(states, self.edge_states())))
-        trigger = HARNESS.seal_record({
-            "source_id": "TRIG-EXPLICIT", "source_kind": "entrypoint",
+        trigger_core = {
+            "source_kind": "entrypoint",
             "path": target["path"], "line": target["line_start"], "column": 0,
             "detail": target["qualified_name"],
             "source_blob_sha256": target["source_blob_sha256"], "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
             "snapshot_id": self.SNAPSHOT, "signed_at": self.SIGNED,
-        })
+        }
+        trigger_core["source_id"] = HARNESS._trigger_source_id(
+            trigger_core["source_kind"], trigger_core["path"], trigger_core["line"],
+            trigger_core["column"], trigger_core["detail"],
+        )
+        trigger = HARNESS.seal_record(trigger_core)
         self.trigger_records = [trigger]
         self.manifests["trigger-catalog"] = HARNESS.make_artifact_manifest(
             "trigger-catalog", self.trigger_records, run_id=self.RUN,
