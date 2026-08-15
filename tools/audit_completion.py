@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +27,25 @@ REQUIRED_CONTRACT_FIELDS = {
     "run_id",
     "audited_commit",
     "snapshot_id",
+    "tooling_commit",
+    "audit_contract_sha256",
+    "evidence_contract_sha256",
     "qualification",
     "required_gate_results",
     "shards",
 }
 SAFE_IMPORT_ID = re.compile(r"IMPORT-[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
+FULL_SHA256 = re.compile(r"[0-9a-f]{64}")
+PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+AUDIT_CONTRACT_FIELDS = {
+    "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
+}
+EVIDENCE_CONTRACT_FIELDS = {
+    "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "audit_contract_sha256", "completed_at", "artifacts",
+    "evidence_contract_sha256",
+}
 
 
 class CompletionError(ValueError):
@@ -39,6 +54,10 @@ class CompletionError(ValueError):
 
 def _canonical_key(values: list[Any]) -> str:
     return json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _canonical_bytes(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -80,6 +99,101 @@ def _contains_unknown(value: Any) -> bool:
     return False
 
 
+def _aware_time(value: Any, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise CompletionError(f"{label} ungueltig: {exc}") from exc
+    if parsed.tzinfo is None:
+        raise CompletionError(f"{label} braucht Zeitzone")
+    return parsed
+
+
+def _record_count(path: Path, payload: bytes) -> int:
+    suffix = path.suffix.lower()
+    if suffix == ".jsonl":
+        count = 0
+        try:
+            for number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
+                if not line.strip():
+                    raise CompletionError(f"Leere JSONL-Zeile in Artifact {path}:{number}")
+                json.loads(line)
+                count += 1
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CompletionError(f"Artifact-JSONL ungueltig: {path}: {exc}") from exc
+        return count
+    if suffix == ".json":
+        try:
+            value = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CompletionError(f"Artifact-JSON ungueltig: {path}: {exc}") from exc
+        return len(value) if isinstance(value, list) else 1
+    return 1
+
+
+def _validate_artifacts(bundle: Path, artifacts: Any, label: str) -> dict[str, dict[str, Any]]:
+    if not isinstance(artifacts, dict) or not artifacts:
+        raise CompletionError(f"{label}.artifacts muss nichtleeres Objekt sein")
+    validated: dict[str, dict[str, Any]] = {}
+    required = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
+    for key, descriptor in artifacts.items():
+        if not isinstance(key, str) or not key or not isinstance(descriptor, dict) or set(descriptor) != required:
+            raise CompletionError(f"{label} Artifactdeskriptor ungueltig: {key!r}")
+        source = _safe_source(bundle, descriptor["ref"])
+        payload = source.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if not FULL_SHA256.fullmatch(str(descriptor["sha256"])) or descriptor["sha256"] != digest:
+            raise CompletionError(f"{label} Artifact-SHA256 falsch: {key}")
+        if descriptor["artifact_id"] != f"sha256:{digest}":
+            raise CompletionError(f"{label} artifact_id falsch: {key}")
+        if type(descriptor["bytes"]) is not int or descriptor["bytes"] != len(payload):
+            raise CompletionError(f"{label} Artifact-Bytes falsch: {key}")
+        if type(descriptor["record_count"]) is not int or descriptor["record_count"] != _record_count(source, payload):
+            raise CompletionError(f"{label} Artifact-record_count falsch: {key}")
+        validated[key] = descriptor
+    return validated
+
+
+def _validate_external_contracts(
+    bundle: Path,
+    audit: dict[str, Any],
+    evidence: dict[str, Any],
+    expected_audit_sha: str,
+    expected_evidence_sha: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    for expected, label in ((expected_audit_sha, "Auditcontract-SHA"), (expected_evidence_sha, "Evidence-Contract-SHA")):
+        if not FULL_SHA256.fullmatch(expected):
+            raise CompletionError(f"{label} muss externe lowercase SHA256 sein")
+    if set(audit) != AUDIT_CONTRACT_FIELDS:
+        raise CompletionError("Auditcontract-Feldmenge ungueltig")
+    if set(evidence) != EVIDENCE_CONTRACT_FIELDS:
+        raise CompletionError("Evidence-Contract-Feldmenge ungueltig")
+    audit_body = {key: value for key, value in audit.items() if key != "contract_sha256"}
+    evidence_body = {key: value for key, value in evidence.items() if key != "evidence_contract_sha256"}
+    calculated_audit = hashlib.sha256(_canonical_bytes(audit_body)).hexdigest()
+    calculated_evidence = hashlib.sha256(_canonical_bytes(evidence_body)).hexdigest()
+    if audit.get("contract_sha256") != expected_audit_sha or calculated_audit != expected_audit_sha:
+        raise CompletionError("Auditcontract-SHA stimmt nicht mit externem Pin")
+    if evidence.get("evidence_contract_sha256") != expected_evidence_sha or calculated_evidence != expected_evidence_sha:
+        raise CompletionError("Evidence-Contract-SHA stimmt nicht mit externem Pin")
+    common = ("plan_id", "run_id", "audited_commit", "tooling_commit", "snapshot_id")
+    if audit.get("schema_version") != 1 or evidence.get("schema_version") != 1:
+        raise CompletionError("Contract schema_version muss 1 sein")
+    if audit.get("plan_id") != PLAN_ID or any(evidence.get(field) != audit.get(field) for field in common):
+        raise CompletionError("Audit-/Evidence-Contract Bindung falsch")
+    if evidence.get("audit_contract_sha256") != expected_audit_sha:
+        raise CompletionError("Evidence-Contract referenziert falschen Auditcontract")
+    frozen = _aware_time(audit.get("frozen_at"), "frozen_at")
+    expires = _aware_time(audit.get("expires_at"), "expires_at")
+    completed = _aware_time(evidence.get("completed_at"), "completed_at")
+    if not frozen <= completed <= expires:
+        raise CompletionError("Evidence completed_at liegt ausserhalb Freeze-/TTL-Fenster")
+    return (
+        _validate_artifacts(bundle, audit.get("artifacts"), "Auditcontract"),
+        _validate_artifacts(bundle, evidence.get("artifacts"), "Evidence-Contract"),
+    )
+
+
 def _safe_source(bundle: Path, relative: Any) -> Path:
     if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
         raise CompletionError(f"Shardpfad ungueltig: {relative!r}")
@@ -93,7 +207,17 @@ def _safe_source(bundle: Path, relative: Any) -> Path:
     return candidate
 
 
-def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[str, Any], Path, bytes]]:
+def _validate_bundle(
+    bundle: Path,
+    contract: dict[str, Any],
+    audit: dict[str, Any],
+    evidence: dict[str, Any],
+    expected_audit_sha: str,
+    expected_evidence_sha: str,
+) -> list[tuple[dict[str, Any], Path, bytes]]:
+    _audit_artifacts, evidence_artifacts = _validate_external_contracts(
+        bundle, audit, evidence, expected_audit_sha, expected_evidence_sha,
+    )
     missing = sorted(REQUIRED_CONTRACT_FIELDS - contract.keys())
     if missing:
         raise CompletionError(f"Pflichtfelder fehlen: {', '.join(missing)}")
@@ -107,6 +231,14 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
     commit = contract["audited_commit"]
     if not isinstance(commit, str) or len(commit) != 40 or any(char not in "0123456789abcdef" for char in commit):
         raise CompletionError("audited_commit muss kanonischer 40-stelliger SHA sein")
+    tooling_commit = contract["tooling_commit"]
+    if not isinstance(tooling_commit, str) or len(tooling_commit) != 40 or any(char not in "0123456789abcdef" for char in tooling_commit):
+        raise CompletionError("tooling_commit muss kanonischer 40-stelliger SHA sein")
+    for field in ("run_id", "audited_commit", "tooling_commit", "snapshot_id"):
+        if contract[field] != audit[field]:
+            raise CompletionError(f"Atomic-Import-Bindung {field} falsch")
+    if contract["audit_contract_sha256"] != expected_audit_sha or contract["evidence_contract_sha256"] != expected_evidence_sha:
+        raise CompletionError("Atomic-Import Contract-SHA-Bindung falsch")
     qualification = contract["qualification"]
     if qualification not in {"unqualified", "qualified-partial"}:
         raise CompletionError("qualification ungueltig")
@@ -125,7 +257,7 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
     for index, spec in enumerate(specs, 1):
         if not isinstance(spec, dict):
             raise CompletionError(f"Shard-Spezifikation {index} ist kein Objekt")
-        required = {"name", "path", "sha256", "record_count", "primary_key", "foreign_keys"}
+        required = {"artifact_key", "name", "path", "sha256", "record_count", "primary_key", "foreign_keys"}
         absent = sorted(required - spec.keys())
         if absent:
             raise CompletionError(f"Shard {index}: Pflichtfelder fehlen: {', '.join(absent)}")
@@ -133,6 +265,9 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
         if not isinstance(name, str) or not name or name in names:
             raise CompletionError(f"Doppelte oder ungueltige Shard-ID: {name!r}")
         names.add(name)
+        artifact_key = spec["artifact_key"]
+        if not isinstance(artifact_key, str) or artifact_key not in evidence_artifacts:
+            raise CompletionError(f"Evidence-Artifact-FK fehlt: {name}")
         source = _safe_source(bundle, spec["path"])
         staging_name = source.name
         if staging_name in staging_names:
@@ -142,6 +277,9 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
         digest = hashlib.sha256(payload).hexdigest()
         if digest != spec["sha256"]:
             raise CompletionError(f"SHA256 stimmt nicht: {name}")
+        descriptor = evidence_artifacts[artifact_key]
+        if descriptor["ref"] != spec["path"] or descriptor["sha256"] != digest:
+            raise CompletionError(f"Evidence-Artifact-Bindung falsch: {name}")
         rows = _read_jsonl(source)
         if spec["record_count"] != len(rows):
             raise CompletionError(f"record_count stimmt nicht: {name}")
@@ -164,6 +302,10 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
         rows_by_name[name] = rows
         keys_by_name[name] = shard_keys
         validated.append((spec, source, payload))
+
+    artifact_keys = [spec["artifact_key"] for spec, _source, _payload in validated]
+    if len(artifact_keys) != len(set(artifact_keys)) or set(artifact_keys) != set(evidence_artifacts):
+        raise CompletionError("Evidence-Artifact-Menge entspricht nicht exakt Import-Shards")
 
     for spec, _source, _payload in validated:
         foreign_keys = spec["foreign_keys"]
@@ -188,14 +330,30 @@ def _validate_bundle(bundle: Path, contract: dict[str, Any]) -> list[tuple[dict[
     return validated
 
 
-def import_bundle(bundle_dir: Path | str, contract_path: Path | str, master_root: Path | str) -> dict[str, Any]:
+def import_bundle(
+    bundle_dir: Path | str,
+    contract_path: Path | str,
+    master_root: Path | str,
+    *,
+    audit_contract_path: Path | str,
+    evidence_contract_path: Path | str,
+    expected_audit_contract_sha256: str,
+    expected_evidence_contract_sha256: str,
+) -> dict[str, Any]:
     bundle = Path(bundle_dir).resolve()
     contract_file = Path(contract_path).resolve()
     master = Path(master_root).resolve()
     if not bundle.is_dir():
         raise CompletionError(f"Bundle fehlt: {bundle}")
     contract = _read_json(contract_file)
-    validated = _validate_bundle(bundle, contract)
+    audit_file = Path(audit_contract_path).resolve()
+    evidence_file = Path(evidence_contract_path).resolve()
+    audit = _read_json(audit_file)
+    evidence = _read_json(evidence_file)
+    validated = _validate_bundle(
+        bundle, contract, audit, evidence,
+        expected_audit_contract_sha256, expected_evidence_contract_sha256,
+    )
 
     versions = master / "versions"
     versions.mkdir(parents=True, exist_ok=True)
@@ -210,6 +368,8 @@ def import_bundle(bundle_dir: Path | str, contract_path: Path | str, master_root
         for spec, _source, payload in validated:
             (staging / Path(spec["path"]).name).write_bytes(payload)
         (staging / "atomic_import.json").write_bytes(contract_file.read_bytes())
+        (staging / "audit_contract.json").write_bytes(audit_file.read_bytes())
+        (staging / "evidence_contract.json").write_bytes(evidence_file.read_bytes())
         staging.rename(version)
         pointer_tmp.write_text(f"{import_id}\n", encoding="utf-8", newline="\n")
         try:
@@ -241,9 +401,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--contract", required=True, type=Path)
     parser.add_argument("--master", required=True, type=Path)
+    parser.add_argument("--audit-contract", required=True, type=Path)
+    parser.add_argument("--evidence-contract", required=True, type=Path)
+    parser.add_argument("--expected-audit-contract-sha256", required=True)
+    parser.add_argument("--expected-evidence-contract-sha256", required=True)
     args = parser.parse_args(argv)
     try:
-        result = import_bundle(args.bundle, args.contract, args.master)
+        result = import_bundle(
+            args.bundle, args.contract, args.master,
+            audit_contract_path=args.audit_contract,
+            evidence_contract_path=args.evidence_contract,
+            expected_audit_contract_sha256=args.expected_audit_contract_sha256,
+            expected_evidence_contract_sha256=args.expected_evidence_contract_sha256,
+        )
     except CompletionError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, sort_keys=True))
         return 2
