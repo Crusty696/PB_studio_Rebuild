@@ -71,3 +71,25 @@ def test_kaputte_antwort_wirft_nicht():
             raise RuntimeError("auch kaputt")
 
     assert "500" in _fehlertext(Kaputt(), "/api/chat", "m")
+
+
+def test_auch_der_chat_pfad_meldet_den_grund():
+    """Der Chat ist der Pfad, in dem der Nutzer "die KI geht nicht" bemerkt.
+
+    Die erste Fassung hatte nur vision() umgestellt; chat() meldete weiterhin
+    nur den nackten Statuscode.
+    """
+    import inspect
+
+    from services.ollama_service import OllamaService
+
+    quelle = inspect.getsource(OllamaService)
+    nackt = [
+        zeile.strip()
+        for zeile in quelle.splitlines()
+        if 'f"Fehler: {response.status_code}"' in zeile
+        or 'f"Fehler: {generate_response.status_code}"' in zeile
+    ]
+    assert not nackt, (
+        f"B-839: {len(nackt)} Stellen melden weiterhin nur den Statuscode: {nackt}"
+    )

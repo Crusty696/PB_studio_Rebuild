@@ -32,6 +32,10 @@ from services.pacing_beat_grid import (
     get_section_at_time,
     AdvancedPacingSettings,
 )
+# Roter Faden: bewusst am Modulkopf. Der Aufruf sitzt in der Kandidatenschleife
+# von _match_video_for_segment und liefe sonst pro Clip und pro Segment durch
+# den Import-Mechanismus — bei 100 Clips auf 100 Segmente rund 10.000 mal.
+from services.pacing.roter_faden import roter_faden_bonus
 
 logger = logging.getLogger(__name__)
 
@@ -354,8 +358,11 @@ def _enforce_minimum_durations(
 ) -> list[float]:
     """Phase 2: Entfernt Cut-Beats die zu kurze Segmente erzeugen wuerden.
 
-    - HARD_MIN_DURATION (3s) gilt immer
-    - SECTION_MIN_DURATION gibt hoeheres Minimum pro Section-Type
+    - HARD_MIN_DURATION (1.0s seit B-835) greift, wenn keine Section
+      erkannt wurde
+    - SECTION_MIN_DURATION ist autoritativ und liegt bewusst DARUNTER
+      (DROP 0.33s), damit die Section ihre eigene schnellste Stufe
+      erreichen kann
     - Strukturgrenzen (DROP-Eintritt) werden nie entfernt
     - NEUBAU-VOLLINTEGRATION T2.5.3 (FR-S1-2): ``min_multiplier_windows``
       [(start, end, mult)] skaliert das Minimum zeitfensterweise —
@@ -382,9 +389,11 @@ def _enforce_minimum_durations(
 
         # Section-spezifisches Minimum ermitteln.
         # Pacing-Tuning 2026-07-07: SECTION_MIN_DURATION ist autoritativ —
-        # vorher galt max(HARD_MIN=3.0, section), wodurch DROP (2.0s) nie
-        # schneller als 3.0s geschnitten werden durfte und Drops traege
+        # vorher galt max(HARD_MIN, section), wodurch DROP nie schneller als
+        # das globale Minimum geschnitten werden durfte und Drops traege
         # wirkten (gemessen: DROP mean 5.16s == WARMUP 5.16s).
+        # B-835: die konkreten Werte sind seither kleiner (HARD_MIN 1.0,
+        # DROP 0.33) und aus SECTION_PACING_MAP abgeleitet.
         min_dur = HARD_MIN_DURATION
         if sections:
             sec = get_section_at_time(sections, result[-1])
@@ -424,6 +433,22 @@ def _mindestdauer_durchsetzen(
     """
     if len(cuts) < 3:
         return cuts
+
+    # Nicht-endliche Werte vorab entfernen. Jeder Vergleich mit NaN ist False,
+    # deshalb faellt der Abstands-Check durch UND _ist_pflicht liefert False —
+    # ein einzelnes NaN in cuts[0] verwarf so die komplette restliche Timeline
+    # (gemessen: [nan, 2, 4, 6, 8] -> [nan, 8.0]).
+    import math as _math
+
+    sauber = [c for c in cuts if isinstance(c, (int, float)) and _math.isfinite(c)]
+    if len(sauber) != len(cuts):
+        logger.warning(
+            "Mindestdauer: %d nicht-endliche Cut-Werte entfernt",
+            len(cuts) - len(sauber),
+        )
+        cuts = sauber
+        if len(cuts) < 3:
+            return cuts
 
     def _minimum_bei(zeit: float) -> float:
         if sections:
@@ -1445,8 +1470,6 @@ def _match_video_for_segment(
             # die neuen Parameter ist der Term exakt 0 — Alt-Aufrufer und Tests
             # verhalten sich unveraendert.
             if track_position is not None:
-                from services.pacing.roter_faden import roter_faden_bonus
-
                 score += roter_faden_bonus(
                     track_position=track_position,
                     clip_intensitaet=motion,

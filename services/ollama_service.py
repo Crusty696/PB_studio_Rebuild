@@ -703,7 +703,11 @@ class OllamaService:
                     if not content:
                         content = response.json().get("message", {}).get("thinking", "")
                     return content
-                return f"Fehler: {response.status_code}"
+                # B-839: auch der Chat-Pfad meldet jetzt den Grund, nicht nur
+                # den Statuscode. Das ist der Pfad, in dem der Nutzer "die KI
+                # geht nicht" bemerkt hat — dort ist die Begruendung am
+                # wichtigsten.
+                return f"Fehler: {_fehlertext(response, '/api/chat', model)}"
             except Exception as e:
                 logger.error("Ollama Chat Fehler: %s", e)
                 return f"Fehler: {e}"

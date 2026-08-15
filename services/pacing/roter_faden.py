@@ -156,6 +156,55 @@ def _naechster_downbeat(zeit: float, downbeats: list[float], toleranz: float) ->
     return bester if abs(bester - zeit) <= toleranz else zeit
 
 
+def _kurven_faktor(kurve: list[float] | None, position: float) -> float:
+    """Wie stark die gezeichnete Kurve den Takt-Abstand an dieser Stelle staucht.
+
+    B-840. Die Kurve gibt Dichte vor: 1.0 heisst "hier dicht schneiden", 0.0
+    "hier ruhig". Der Rueckgabewert multipliziert den Takt-Abstand, hohe Dichte
+    ergibt also einen kleinen Faktor.
+
+    Der Ruhezustand 0.5 liefert exakt 1.0 — eine ungezeichnete Kurve darf nichts
+    verschieben. Das ist dieselbe Regel wie in B-829, nur an anderer Stelle.
+    """
+    if not kurve:
+        return 1.0
+    import math
+
+    index = int(max(0.0, min(1.0, position)) * (len(kurve) - 1))
+    try:
+        dichte = float(kurve[index])
+    except (TypeError, ValueError, IndexError):
+        return 1.0
+    if not math.isfinite(dichte):
+        return 1.0
+    dichte = max(0.0, min(1.0, dichte))
+    # 0.0 -> 2.0 (doppelter Abstand), 0.5 -> 1.0, 1.0 -> 0.25 (vierfach dichter)
+    if dichte >= 0.5:
+        return 1.0 - (dichte - 0.5) * 1.5
+    return 1.0 + (0.5 - dichte) * 2.0
+
+
+def _breakdown_faktor(section_typ: str, verhalten: str) -> float:
+    """B-840: die Breakdown-Combo als Faktor auf den Takt-Abstand.
+
+    Gilt ausschliesslich fuer BREAKDOWN-Passagen; alle uebrigen Sections
+    bleiben unberuehrt, damit die Einstellung nicht unbemerkt den ganzen Track
+    umstellt.
+
+    * ``halve``   — halbe Dichte, also doppelter Abstand (Vorgabe)
+    * ``force16`` — der groesstmoegliche Abstand, entspricht dem alten
+      "16 Beat erzwingen"
+    * ``none``    — kein Sonderfall
+    """
+    if section_typ != "BREAKDOWN":
+        return 1.0
+    if verhalten == "halve":
+        return 2.0
+    if verhalten == "force16":
+        return 4.0
+    return 1.0
+
+
 def schnitt_anlaesse(
     beats: list[float],
     total_duration: float,
@@ -164,6 +213,8 @@ def schnitt_anlaesse(
     downbeats: list[float] | None = None,
     max_takte: int = MAX_TAKTE_OHNE_SCHNITT,
     energie_schwelle: float = ENERGIE_SPRUNG_SCHWELLE,
+    pacing_kurve: list[float] | None = None,
+    breakdown_behavior: str = "halve",
 ) -> list[Schnittanlass]:
     """Schnittzeitpunkte aus der Musik ableiten statt aus einem festen Raster.
 
@@ -221,10 +272,12 @@ def schnitt_anlaesse(
     anlaesse.sort(key=lambda a: a.zeit)
     anlaesse = _entdoppeln(anlaesse, mindestabstand=beat_dauer)
 
-    # 3. Takt-Raster: Lücken auffüllen, je Section unterschiedlich dicht
+    # 3. Takt-Raster: Lücken auffüllen, je Section unterschiedlich dicht,
+    #    moduliert von der gezeichneten Kurve und der Breakdown-Wahl (B-840)
     anlaesse = _luecken_fuellen(
         anlaesse, total_duration, takt_dauer, max_takte,
         sections, downbeats or [], toleranz,
+        pacing_kurve=pacing_kurve, breakdown_behavior=breakdown_behavior,
     )
 
     logger.info(
@@ -282,6 +335,16 @@ def _entdoppeln(anlaesse: list[Schnittanlass], mindestabstand: float) -> list[Sc
     return ergebnis
 
 
+def _section_typ_bei(zeit: float, sections: list | None) -> str:
+    """Section-Typ an einer Zeitstelle, leer wenn keine passt."""
+    for sec in sections or []:
+        start = float(getattr(sec, "start", 0.0))
+        ende = float(getattr(sec, "end", 0.0))
+        if start <= zeit < ende:
+            return str(getattr(sec, "section_type", "") or "").upper()
+    return ""
+
+
 def _takte_fuer_section(zeit: float, sections: list | None, grundwert: int) -> int:
     """Wie viele Takte eine Einstellung an dieser Stelle höchstens stehen darf.
 
@@ -314,6 +377,8 @@ def _luecken_fuellen(
     sections: list | None,
     downbeats: list[float],
     toleranz: float,
+    pacing_kurve: list[float] | None = None,
+    breakdown_behavior: str = "halve",
 ) -> list[Schnittanlass]:
     """Zwischenschnitte im Takt-Raster setzen, je Section unterschiedlich dicht.
 
@@ -330,8 +395,17 @@ def _luecken_fuellen(
     for i, anlass in enumerate(anlaesse):
         ergebnis.append(anlass)
         naechste = grenzen[i + 1]
-        # Die Section am Beginn der Lücke bestimmt deren Dichte.
+        # Die Section am Beginn der Lücke bestimmt deren Dichte, die
+        # gezeichnete Kurve und die Breakdown-Wahl modulieren sie (B-840).
         luecke = takt_dauer * _takte_fuer_section(anlass.zeit, sections, grund_takte)
+        position = anlass.zeit / total_duration if total_duration > 0 else 0.0
+        luecke *= _kurven_faktor(pacing_kurve, position)
+        luecke *= _breakdown_faktor(
+            _section_typ_bei(anlass.zeit, sections), breakdown_behavior
+        )
+        # Ein Takt bleibt die Untergrenze — darunter wird aus dem Raster ein
+        # Flackern, und der Mindestabstand raeumt es ohnehin wieder weg.
+        luecke = max(luecke, takt_dauer)
         if luecke <= 0:
             continue
         # Die Lücke gleichmässig aufteilen, statt vom Anfang her in festen
@@ -410,7 +484,19 @@ def bogen_abweichung(position: float, clip_intensitaet: float) -> float:
     Als Strafterm gedacht, damit der Scorer Clips bevorzugt, die zur Stelle im
     Track passen.
     """
-    return abs(bogen_intensitaet(position) - max(0.0, min(1.0, float(clip_intensitaet))))
+    import math
+
+    try:
+        intensitaet = float(clip_intensitaet)
+    except (TypeError, ValueError):
+        intensitaet = 0.5
+    # Ohne diesen Guard wuerde NaN zur Hoechstintensitaet: `min(1.0, nan)` gibt
+    # in CPython 1.0 zurueck, weil `nan < 1.0` False ist. Ein Clip ohne
+    # Motion-Wert haette damit am Hoehepunkt gewonnen — genau das Gegenteil von
+    # "unbekannt". 0.5 ist der neutrale Mittelwert.
+    if not math.isfinite(intensitaet):
+        intensitaet = 0.5
+    return abs(bogen_intensitaet(position) - max(0.0, min(1.0, intensitaet)))
 
 
 # ── Wiederkehrende Motive ───────────────────────────────────────────────────
@@ -446,11 +532,24 @@ def motiv_gruppe_fuer_zeit(zeit: float, sections: list | None, zuordnung: dict[s
 
 # ── Anwendung auf die Clip-Auswahl ──────────────────────────────────────────
 
-# Wie stark Bogen und Motiv den Score verschieben dürfen. Bewusst klein: sie
-# sollen die Auswahl färben, nicht bestimmen. Rollenpassung, Energie und
-# Stilkohärenz bleiben die tragenden Kriterien.
-BOGEN_GEWICHT = 0.12
-MOTIV_GEWICHT = 0.10
+# Wie stark Bogen und Motiv den Score verschieben dürfen.
+#
+# Die erste Fassung stand auf 0.12 / 0.10 mit dem Kommentar "bewusst klein" —
+# das war schlicht falsch, weil ich den Wertebereich des Fitness-Scores nie
+# nachgemessen hatte. Eine Messung an 440 echten Clip-Embeddings ergab:
+#
+#   Score-Spanne zwischen bestem und zehntbestem Kandidaten: 0,0325
+#   Bogen-Spannweite bei Gewicht 0.12:                       0,24
+#
+# Der Bonus war damit das **7,4-fache** der gesamten Top-10-Streuung und
+# überschrieb die Rangfolge vollständig — statt zu färben, bestimmte er.
+#
+# Die Werte sind jetzt an dieser Messung ausgerichtet: die Bogen-Spannweite
+# (2 × 0.015 = 0,03) liegt in der Grössenordnung der Top-10-Streuung und kann
+# die Reihenfolge benachbarter Kandidaten drehen (Top1–Top2 liegen 0,0056
+# auseinander), ohne die tragenden Kriterien zu überstimmen.
+BOGEN_GEWICHT = 0.015
+MOTIV_GEWICHT = 0.010
 
 
 class MotivGedaechtnis:
@@ -465,14 +564,33 @@ class MotivGedaechtnis:
     def __init__(self) -> None:
         self._buckets: dict[int, dict[int, int]] = {}
 
+    @staticmethod
+    def _als_zahl(wert) -> int | None:
+        """Robuster Cast. ``style_bucket_id`` kommt ungeprüft aus der Datenbank;
+        ein nicht-numerischer Wert darf nicht mitten in der Segment-Schleife
+        des Auto-Edit eine Exception werfen."""
+        import math
+
+        if wert is None or isinstance(wert, bool):
+            return None if wert is None else int(wert)
+        try:
+            zahl = float(wert)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(zahl):
+            return None
+        return int(zahl)
+
     def merken(self, gruppe: int | None, style_bucket: int | None) -> None:
-        if gruppe is None or style_bucket is None:
+        g, b = self._als_zahl(gruppe), self._als_zahl(style_bucket)
+        if g is None or b is None:
             return
-        zaehler = self._buckets.setdefault(int(gruppe), {})
-        zaehler[int(style_bucket)] = zaehler.get(int(style_bucket), 0) + 1
+        zaehler = self._buckets.setdefault(g, {})
+        zaehler[b] = zaehler.get(b, 0) + 1
 
     def passt_zur_gruppe(self, gruppe: int | None, style_bucket: int | None) -> float:
         """0.0 = unbekannt oder fremd, bis 1.0 = prägend für diese Gruppe."""
+        gruppe, style_bucket = self._als_zahl(gruppe), self._als_zahl(style_bucket)
         if gruppe is None or style_bucket is None:
             return 0.0
         zaehler = self._buckets.get(int(gruppe))

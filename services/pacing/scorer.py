@@ -494,10 +494,17 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     # (Stil-Kollision). Gegenstueck zu w_style — angehoben, damit ein Bruch
     # nicht mehr durch einen guten Rollen-Score aufgewogen wird.
     "w_collision": 0.20,  # penalty
-    # Roter Faden: "weniger Clip-Wiederholungen". freshness bestraft Clips, die
-    # schon liefen. Bei 0.05 war die Strafe so klein, dass ein Topscorer
-    # trotzdem gewann — im Lauf vom 15.08. kamen 102 von 110 Clips doppelt vor.
-    "w_freshness": 0.15,  # penalty
+    # Zurueck auf 0.05 (2026-08-15). Die Anhebung auf 0.15 war als Mittel gegen
+    # Clip-Wiederholungen gedacht und ist wirkungslos: `staleness_penalty`
+    # (:431) bekommt gar keinen `usage_count`, sondern nur das
+    # 3er-Recency-Fenster — und dessen letzter Eintrag fliegt schon vorher
+    # durch die Adjacency-Regel raus. Eine Simulation ueber 100 Cuts mit 439
+    # echten ClipFeatures ergab fuer 0.05, 0.15 und sogar 0.60 dasselbe
+    # Ergebnis: 4 verschiedene Clips.
+    # Gegen Wiederholung wirken hier allein die harten Gates (Nutzungs-Cap,
+    # Adjacency) und der andere Freshness-Term in _compute_clip_fitness, der
+    # `usage_count` tatsaechlich liest.
+    "w_freshness": 0.05,  # penalty
     # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Klasse<->Shot-Klasse-Bonus
     # (compute_stem_class_bonus liefert bereits 0.0/0.15)
     "w_stem_class": 1.0,

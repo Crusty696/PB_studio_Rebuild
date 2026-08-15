@@ -946,6 +946,12 @@ def _auto_edit_phase3_inner(
             downbeats=downbeats,
             max_takte=_max_takte,
             energie_schwelle=_energie_schwelle,
+            # B-840: gezeichnete Kurve und Breakdown-Wahl wirken auch hier.
+            # Vorher wurden beide ausschliesslich im Raster-Pfad gelesen und
+            # waren im Standardmodus damit stumm — derselbe Fehler wie
+            # B-829/B-830/B-831, nur eine Ebene tiefer.
+            pacing_kurve=settings.manual_density_curve,
+            breakdown_behavior=settings.breakdown_behavior,
         )
         cut_beats = [a.zeit for a in _anlaesse]
     else:
@@ -1084,10 +1090,37 @@ def _auto_edit_phase3_inner(
                         (fp, round(float(st or 0.0), 1)): (mood, tags)
                         for fp, st, mood, tags in _rows
                     }
+                    # Roter Faden: style_bucket_id ueber denselben Schluessel
+                    # nachladen. Ohne diesen Join blieb `MotivGedaechtnis` leer
+                    # — der Vector-Store liefert nur Pfad, Szenenzeiten und
+                    # motion_score, kein Bucket. Gemessen: 0 % Wirkung, weil
+                    # `meta.get("style_bucket_id")` immer None war.
+                    _bucket_by_key: dict = {}
+                    try:
+                        with Session(_ae_eng) as _s2:
+                            _brows = _s2.execute(text(
+                                "SELECT vc.file_path, s.start_time, t.style_bucket_id "
+                                "FROM struct_clip_tags t "
+                                "JOIN scenes s ON s.id = t.scene_id "
+                                "JOIN video_clips vc ON vc.id = s.video_clip_id "
+                                "WHERE vc.deleted_at IS NULL"
+                            )).fetchall()
+                        _bucket_by_key = {
+                            (fp, round(float(st or 0.0), 1)): bucket
+                            for fp, st, bucket in _brows
+                        }
+                    except Exception as _bexc:
+                        logger.debug(
+                            "style_bucket-Join fuer den roten Faden nicht "
+                            "moeglich: %s", _bexc,
+                        )
                     _enriched = 0
                     for _meta in clip_metadata_list:
                         _key = (_meta.get("video_path"),
                                 round(float(_meta.get("scene_start", 0.0)), 1))
+                        _bucket = _bucket_by_key.get(_key)
+                        if _bucket is not None:
+                            _meta["style_bucket_id"] = _bucket
                         _mood_tags = _mood_by_key.get(_key)
                         if _mood_tags and _mood_tags[0]:
                             _meta["ai_mood"] = _mood_tags[0]
@@ -1531,7 +1564,7 @@ def _auto_edit_phase3_inner(
         seg_duration = seg_end - seg_start
 
         # Pacing-Tuning 2026-07-07: Mindestdauern erzwingt bereits
-        # _enforce_minimum_durations (section-aware, DROP darf 2.0s).
+        # _enforce_minimum_durations (section-aware; DROP darf seit B-835 0.33s).
         # Der alte HARD_MIN-Skip hier warf legitime kurze DROP-Segmente
         # weg und riss Luecken in die Timeline (4.6s-Loch am Track-Ende).
         if seg_duration < 0.2:

@@ -1148,7 +1148,17 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
         # Crossfade darf nie laenger als der Slot des ab- oder des aufgehenden
         # Segments sein (sonst wird ein Segment ueber seinen Beat hinaus gezeigt
         # -> Beat-Drift; das ist auch die B-687-Defekt-2-Eigenschaft).
-        _e = max(0.0, min(_xf_next, _avail, _base, _slot(video_segments[_i + 1])))
+        # B-841: die Grenze ist die HALBE Slotlaenge, nicht die volle. Wird der
+        # Crossfade so lang wie ein Segment, ist dessen eigener Beitrag zum
+        # Bild null — es verschwindet, das Video wird kuerzer als das Audio und
+        # die B-687-Invariante bricht. Seit die Segmente deutlich kuerzer
+        # geworden sind (Median 3,2 s statt 3,6 s, kuerzeste 0,33 s), ist das
+        # kein Randfall mehr: SECTION_CROSSFADE_MAP vergibt fuer BUILDUP 1,0 s
+        # bei einer Mindestdauer von 0,33 s und fuer COOLDOWN 4,0 s bei 2,62 s.
+        # Mit der Haelfte bleibt von beiden Nachbarn immer etwas stehen.
+        _e = max(0.0, min(
+            _xf_next, _avail, _base / 2.0, _slot(video_segments[_i + 1]) / 2.0,
+        ))
         ext[_i] = _e if _e >= 0.1 else 0.0  # OF1: <0.1 s -> harter Schnitt
     eff_dur = [
         (video_segments[_i].get(

@@ -43,10 +43,17 @@ class SchnittTabPacingAnker(QWidget):
         self.cut_rate_combo.addItems(["1 Beat", "2 Beat", "4 Beat", "8 Beat", "16 Beat"])
         self.cut_rate_combo.setCurrentIndex(2)
         self.cut_rate_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # T4.5
+        # B-840: Der Auto-Edit schneidet kein festes Raster mehr, sondern an
+        # musikalischen Anlaessen (Section-Wechsel, Drops, Energiespruenge).
+        # Diese Combo regelt seither die DICHTE dazwischen — der alte Text
+        # "Grundraster" beschrieb ein Verhalten, das es nicht mehr gibt.
         self.cut_rate_combo.setToolTip(
-            "Wirkung: Legt das Grundraster fuer neue Schnitte fest. "
-            "Wann: Kleinere Werte fuer schnelle Drops, groessere Werte fuer ruhige Parts. "
-            "Ergebnis: Auto-Edit setzt Cuts dichter oder weiter auseinander."
+            "Wirkung: Regelt die Schnittdichte. Geschnitten wird an "
+            "musikalischen Stellen — Section-Wechsel und Drops sitzen immer, "
+            "dieser Wert bestimmt, wie viel dazwischen liegt. "
+            "Wann: Kleinere Werte fuer dichte, groessere fuer ruhige Schnitte. "
+            "Ergebnis: bei 132 BPM etwa 300 Cuts (1 Beat) bis 38 Cuts (16 Beat) "
+            "auf einen 5-Minuten-Track."
         )
         row1.addWidget(self.cut_rate_combo, stretch=1)
         row1.addWidget(self._small_label("Style"))
@@ -69,7 +76,8 @@ class SchnittTabPacingAnker(QWidget):
         self.breakdown_combo.setToolTip(
             "Wirkung: Steuert Schnitte in ruhigen Breakdown-Abschnitten. "
             "Wann: Nutze es, wenn Breakdowns weniger hektisch wirken sollen. "
-            "Ergebnis: halve halbiert Cut-Dichte, force16 erzwingt 16-Beat-Abstand, none vermeidet Cuts."
+            "Ergebnis: halve verdoppelt den Abstand im Breakdown, force16 "
+            "vervierfacht ihn, none behandelt ihn wie jede andere Passage."
         )
         row1.addWidget(self.breakdown_combo, stretch=1)
         v.addLayout(row1)

@@ -75,9 +75,34 @@ class TestKohaerenzGewichte:
     def test_stilbruch_wiegt_schwerer_als_frueher(self):
         assert DEFAULT_WEIGHTS["w_collision"] > 0.10
 
-    def test_wiederholung_wiegt_schwerer_als_frueher(self):
-        assert DEFAULT_WEIGHTS["w_freshness"] > 0.05, (
-            "im Lauf vom 15.08. kamen 102 von 110 Clips doppelt vor"
+    def test_freshness_gewicht_wurde_nicht_sinnlos_angehoben(self):
+        """Korrektur: die Anhebung auf 0.15 war wirkungslos und ist zurueck.
+
+        `staleness_penalty` (services/pacing/scorer.py:431) bekommt gar keinen
+        `usage_count`, sondern nur das 3er-Recency-Fenster — dessen letzter
+        Eintrag fliegt zudem schon vorher durch die Adjacency-Regel raus. Eine
+        Simulation ueber 100 Cuts mit 439 echten ClipFeatures lieferte fuer
+        0.05, 0.15 und sogar 0.60 dasselbe Ergebnis: 4 verschiedene Clips.
+
+        Gegen Wiederholungen wirken hier die harten Gates (Nutzungs-Cap,
+        Adjacency) und der Freshness-Term in `_compute_clip_fitness`, der
+        `usage_count` tatsaechlich liest.
+        """
+        assert DEFAULT_WEIGHTS["w_freshness"] == 0.05, (
+            "ein hoeherer Wert suggeriert eine Wirkung, die dieser Term nicht hat"
+        )
+
+    def test_staleness_penalty_kennt_keinen_usage_count(self):
+        """Beleg fuer die Begruendung oben — falls sich die Signatur aendert,
+        muss die Entscheidung neu bewertet werden."""
+        import inspect
+
+        from services.pacing.scorer import staleness_penalty
+
+        parameter = list(inspect.signature(staleness_penalty).parameters)
+        assert "usage_count" not in parameter, (
+            "staleness_penalty kennt jetzt usage_count — dann kann w_freshness "
+            "wieder ein sinnvoller Hebel gegen Wiederholungen sein"
         )
 
     def test_uebergangs_terme_schlagen_die_rolle_nicht_tot(self):
