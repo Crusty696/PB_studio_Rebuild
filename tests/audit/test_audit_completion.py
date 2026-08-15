@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -140,7 +141,10 @@ class GateContractTests(unittest.TestCase):
                 "evidence_id": FEATURE_EVIDENCE_ID, "proof_ref": feature_proof["ref"],
                 "proof_sha256": feature_proof["sha256"], **self._binding(),
             }],
-            "symbol-state": [{"symbol_id": "SYM-1", **self._binding()}],
+            "symbol-state": [{
+                "symbol_id": "SYM-1", "runtime_evidence_ids": [RUNTIME_EVIDENCE_ID],
+                **self._binding(),
+            }],
             "edge-state": [{"edge_id": "EDGE-1", **self._binding()}],
             "symbol-state-evidence": [{
                 "evidence_id": SYMBOL_EVIDENCE_ID, "evidence_kind": "symbol-review",
@@ -149,7 +153,8 @@ class GateContractTests(unittest.TestCase):
             }],
             "runtime-evidence": [{
                 "evidence_id": RUNTIME_EVIDENCE_ID, "proof_ref": runtime_proof["ref"],
-                "proof_sha256": runtime_proof["sha256"], **self._binding(),
+                "proof_sha256": runtime_proof["sha256"],
+                "covered_symbol_ids": ["SYM-1"], **self._binding(),
             }],
             "delta-ledger": [],
         }
@@ -187,7 +192,7 @@ class GateContractTests(unittest.TestCase):
             "symbol-state": ["symbol_id"], "edge-state": ["edge_id"],
             "symbol-state-evidence": ["evidence_id"],
             "reviewer-roster": ["reviewer_id"], "runtime-evidence": ["evidence_id"],
-            "delta-ledger": ["delta_id"],
+            "delta-ledger": ["path", "change"],
         }
         evidence_artifacts = dict(dynamic)
         specs = []
@@ -256,7 +261,10 @@ class GateContractTests(unittest.TestCase):
 
     def test_full_positive_import_preserves_nested_refs_and_contracts(self) -> None:
         result = self.do_import()
-        self.assertEqual((8, 11), (result["shard_count"], result["attachment_count"]))
+        self.assertEqual((8, 11, 14), (
+            result["shard_count"], result["attachment_count"],
+            result["audit_artifact_count"],
+        ))
         version = self.master / "versions/IMPORT-001"
         self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())
         for ref in (
@@ -265,6 +273,11 @@ class GateContractTests(unittest.TestCase):
             "contracts/atomic_import.json",
         ):
             self.assertTrue((version / ref).is_file(), ref)
+        self.assertFalse((version / ".atomic-import-owner").exists())
+        audit = json.loads(self.audit_path.read_text())
+        for descriptor in audit["artifacts"].values():
+            imported = version / descriptor["ref"]
+            self.assertEqual((self.bundle / descriptor["ref"]).read_bytes(), imported.read_bytes())
 
     def test_audit_exact_14_missing_and_extra_rejected(self) -> None:
         audit = json.loads(self.audit_path.read_text())
@@ -356,8 +369,40 @@ class GateContractTests(unittest.TestCase):
         runtime = json.loads((self.bundle / "records/runtime-evidence.jsonl").read_text())
         runtime["evidence_kind"] = "runtime"
         self.rewrite_static_shard("symbol-state-evidence", [runtime])
-        with self.assertRaisesRegex(CompletionError, "mehrfach konsumiert"):
+        with self.assertRaisesRegex(CompletionError, "nur non-runtime"):
             self.do_import()
+
+    def test_runtime_evidence_fk_foreign_duplicate_and_orphan_rejected(self) -> None:
+        path = self.bundle / "records/symbol-state.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        for runtime_ids, message in (
+            (["FOREIGN"], "FK fremd"),
+            ([RUNTIME_EVIDENCE_ID, RUNTIME_EVIDENCE_ID], "Typ/Menge"),
+            ([], "Symbol-Closure"),
+        ):
+            self._write_bundle()
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            rows[0]["runtime_evidence_ids"] = runtime_ids
+            self.rewrite_static_shard("symbol-state", rows)
+            with self.assertRaisesRegex(CompletionError, message):
+                self.do_import()
+        self._write_bundle()
+        runtime_rows = [json.loads(
+            (self.bundle / "records/runtime-evidence.jsonl").read_text()
+        )]
+        runtime_rows[0]["covered_symbol_ids"] = ["SYM-FOREIGN"]
+        self.rewrite_static_shard("runtime-evidence", runtime_rows)
+        with self.assertRaisesRegex(CompletionError, "deckt Symbol nicht"):
+            self.do_import()
+
+    def test_delta_schema_record_imports_without_legacy_fields(self) -> None:
+        self.rewrite_static_shard("delta-ledger", [{
+            "run_id": RUN, "base_commit": COMMIT, "head_commit": "c" * 40,
+            "path": "report.md", "change": "modified", "product_relevant": False,
+            "disposition": "report-only", "reviewer_id": "REV-A",
+            "signed_at": "2026-08-15T11:00:00+00:00",
+        }])
+        self.assertEqual("imported", self.do_import()["status"])
 
     def test_unknown_and_foreign_key_rejected(self) -> None:
         path = self.bundle / "records/feature-state.jsonl"
@@ -421,6 +466,19 @@ class GateContractTests(unittest.TestCase):
                 self.do_import()
 
         self._write_bundle()
+        audit = json.loads(self.audit_path.read_text())
+        audit_ref = audit["artifacts"]["requirements-universe"]["ref"]
+
+        def mutate_audit_artifact(*args, **kwargs):
+            result = real_validate(*args, **kwargs)
+            (self.bundle / audit_ref).write_bytes(b"changed-after-validation")
+            return result
+
+        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_audit_artifact):
+            with self.assertRaisesRegex(CompletionError, "Auditcontract Artifact"):
+                self.do_import()
+
+        self._write_bundle()
         original_audit = self.audit_path.read_bytes()
 
         def mutate_contract(*args, **kwargs):
@@ -432,6 +490,139 @@ class GateContractTests(unittest.TestCase):
             self.do_import()
         imported = self.master / "versions/IMPORT-001/contracts/audit_contract.json"
         self.assertEqual(original_audit, imported.read_bytes())
+
+    def test_membership_type_matrix_fails_closed_without_crash(self) -> None:
+        hostile = [[], [[]], {}, {"nested": []}, True, 1, None, "", " "]
+        for value in hostile:
+            with self.subTest(field="qualification", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["qualification"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="artifact_key", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["artifact_key"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="target_shard", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["foreign_keys"] = [{
+                    "field": "feature_id", "target_shard": value,
+                    "target_fields": ["feature_id", "path_id"],
+                }]
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="target_fields", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["foreign_keys"] = [{
+                    "field": "feature_id", "target_shard": "feature-state",
+                    "target_fields": value,
+                }]
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="primary_key", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["primary_key"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+
+        for value in hostile:
+            with self.subTest(field="evidence_kind", value=value):
+                self._write_bundle()
+                rows = [json.loads(
+                    (self.bundle / "records/symbol-state-evidence.jsonl").read_text()
+                )]
+                rows[0]["evidence_kind"] = value
+                self.rewrite_static_shard("symbol-state-evidence", rows)
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="runtime_evidence_ids", value=value):
+                self._write_bundle()
+                rows = [json.loads((self.bundle / "records/symbol-state.jsonl").read_text())]
+                rows[0]["runtime_evidence_ids"] = value
+                self.rewrite_static_shard("symbol-state", rows)
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+
+    def test_concurrent_import_lock_preserves_winner_version(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+        real_replace = completion.os.replace
+        results: list[object] = []
+
+        def delayed_replace(source, target):
+            if Path(source).name.startswith(".staging-"):
+                entered.set()
+                if not release.wait(timeout=10):
+                    raise OSError("test timeout")
+            return real_replace(source, target)
+
+        def run_import() -> None:
+            try:
+                results.append(self.do_import())
+            except Exception as exc:  # noqa: BLE001 - Result wird adversarial klassifiziert.
+                results.append(exc)
+
+        with mock.patch("tools.audit_completion.os.replace", side_effect=delayed_replace):
+            winner = threading.Thread(target=run_import)
+            winner.start()
+            self.assertTrue(entered.wait(timeout=10))
+            loser = threading.Thread(target=run_import)
+            loser.start()
+            loser.join(timeout=10)
+            release.set()
+            winner.join(timeout=10)
+        self.assertFalse(winner.is_alive() or loser.is_alive())
+        self.assertEqual(1, sum(isinstance(item, dict) for item in results), results)
+        errors = [item for item in results if isinstance(item, CompletionError)]
+        self.assertEqual(1, len(errors), results)
+        self.assertIn("Ownership-Lock", str(errors[0]))
+        self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())
+        self.assertTrue((self.master / "versions/IMPORT-001/contracts/atomic_import.json").is_file())
+
+    def test_foreign_lock_and_preexisting_version_are_never_removed(self) -> None:
+        self.master.mkdir()
+        lock = self.master / ".atomic-import.lock"
+        lock.write_bytes(b"foreign-token")
+        with self.assertRaisesRegex(CompletionError, "Ownership-Lock"):
+            self.do_import()
+        self.assertEqual(b"foreign-token", lock.read_bytes())
+        lock.unlink()
+
+        foreign = self.master / "versions/IMPORT-001/foreign.bin"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_bytes(b"foreign-version")
+        with self.assertRaisesRegex(CompletionError, "existiert bereits"):
+            self.do_import()
+        self.assertEqual(b"foreign-version", foreign.read_bytes())
+
+    def test_cleanup_never_deletes_version_replaced_by_foreign_owner(self) -> None:
+        real_replace = completion.os.replace
+        version = self.master / "versions/IMPORT-001"
+
+        def replace_then_foreign(source, target):
+            if Path(target).name == "CURRENT":
+                if version.exists():
+                    completion.shutil.rmtree(version)
+                version.mkdir(parents=True)
+                (version / "foreign.bin").write_bytes(b"foreign-after-race")
+                raise OSError("injected foreign replacement")
+            return real_replace(source, target)
+
+        with mock.patch("tools.audit_completion.os.replace", side_effect=replace_then_foreign):
+            with self.assertRaisesRegex(CompletionError, "Pointerwechsel"):
+                self.do_import()
+        self.assertEqual(b"foreign-after-race", (version / "foreign.bin").read_bytes())
 
 
 if __name__ == "__main__":

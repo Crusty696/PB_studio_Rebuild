@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -44,6 +45,11 @@ EVIDENCE_STATIC_KEYS = {
     "feature-state", "feature-state-evidence", "symbol-state", "edge-state",
     "symbol-state-evidence", "reviewer-roster", "runtime-evidence", "delta-ledger",
 }
+DELTA_RECORD_FIELDS = {
+    "run_id", "base_commit", "head_commit", "path", "change",
+    "product_relevant", "disposition", "reviewer_id", "signed_at",
+}
+DELTA_DISPOSITIONS = {"report-only", "reaudit-required", "explicit-user-exclusion"}
 DESCRIPTOR_FIELDS = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
 SHARD_SPEC_FIELDS = {
     "artifact_key", "name", "path", "sha256", "record_count", "primary_key",
@@ -229,7 +235,7 @@ def _validate_external_contracts(
     expected_audit_sha: str, expected_evidence_sha: str,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     for expected, label in ((expected_audit_sha, "Auditcontract-SHA"), (expected_evidence_sha, "Evidence-Contract-SHA")):
-        if not FULL_SHA256.fullmatch(expected):
+        if not isinstance(expected, str) or not FULL_SHA256.fullmatch(expected):
             raise CompletionError(f"{label} muss externe lowercase SHA256 sein")
     if set(audit) != AUDIT_CONTRACT_FIELDS:
         raise CompletionError("Auditcontract-Feldmenge ungueltig")
@@ -300,13 +306,11 @@ def _validate_attachment_closure(
         _proof_attachment(row, "feature-proof", evidence_artifacts, expected, f"Feature-Evidence {number}")
     for number, row in enumerate(rows_by_key["symbol-state-evidence"], 1):
         kind = row.get("evidence_kind")
-        if kind == "runtime":
-            prefix = "runtime-proof"
-        elif kind in {"symbol-review", "edge-review"}:
-            prefix = "symbol-proof"
-        else:
-            raise CompletionError(f"Symbol-Evidence {number}: evidence_kind ungueltig")
-        _proof_attachment(row, prefix, evidence_artifacts, expected, f"Symbol-Evidence {number}")
+        if not isinstance(kind, str) or kind not in {"symbol-review", "edge-review"}:
+            raise CompletionError(
+                f"Symbol-Evidence {number}: nur non-runtime symbol-review/edge-review erlaubt"
+            )
+        _proof_attachment(row, "symbol-proof", evidence_artifacts, expected, f"Symbol-Evidence {number}")
     for number, row in enumerate(rows_by_key["runtime-evidence"], 1):
         _proof_attachment(row, "runtime-proof", evidence_artifacts, expected, f"Runtime-Evidence {number}")
 
@@ -354,11 +358,13 @@ def _validate_attachment_closure(
         if not isinstance(item, dict):
             raise CompletionError("Reviewer-Contract required_signoff ungueltig")
         reviewer_id, role = item.get("reviewer_id"), item.get("role")
-        session_id = contract_sessions.get(str(reviewer_id))
+        if not isinstance(reviewer_id, str) or not reviewer_id or not isinstance(role, str) or not role:
+            raise CompletionError("Reviewer-Contract required_signoff Typ/Feld falsch")
+        session_id = contract_sessions.get(reviewer_id)
         if not session_id or reviewer_id not in roster_by_reviewer or roster_by_reviewer[reviewer_id]["session_id"] != session_id:
             raise CompletionError("Reviewer-Contract Signoff-Roster-FK falsch")
-        pair = (str(role), session_id)
-        if not isinstance(role, str) or not role or pair in seen_signoffs:
+        pair = (role, session_id)
+        if pair in seen_signoffs:
             raise CompletionError("Reviewer-Contract required_signoff fehlt/doppelt")
         seen_signoffs.add(pair)
         expected |= {f"reviewer-signoff:{role}:{session_id}", f"reviewer-signoff-signature:{role}:{session_id}"}
@@ -394,7 +400,7 @@ def _validate_bundle(
     if contract["audit_contract_sha256"] != expected_audit_sha or contract["evidence_contract_sha256"] != expected_evidence_sha:
         raise CompletionError("Atomic-Import Contract-SHA-Bindung falsch")
     qualification = contract["qualification"]
-    if qualification not in {"unqualified", "qualified-partial"}:
+    if not isinstance(qualification, str) or qualification not in {"unqualified", "qualified-partial"}:
         raise CompletionError("qualification ungueltig")
     gates = contract["required_gate_results"]
     if not isinstance(gates, dict) or set(gates) != REQUIRED_GATES or any(gates[name] is not True for name in REQUIRED_GATES):
@@ -415,7 +421,7 @@ def _validate_bundle(
         name, artifact_key = spec["name"], spec["artifact_key"]
         if not isinstance(name, str) or not name or name in names:
             raise CompletionError(f"Doppelte oder ungueltige Shard-ID: {name!r}")
-        if artifact_key not in EVIDENCE_STATIC_KEYS or artifact_key in rows_by_key:
+        if not isinstance(artifact_key, str) or artifact_key not in EVIDENCE_STATIC_KEYS or artifact_key in rows_by_key:
             raise CompletionError(f"Statische Evidence-Artifact-ID fehlt/doppelt: {artifact_key!r}")
         names.add(name)
         source = _safe_source(bundle, spec["path"])
@@ -438,12 +444,29 @@ def _validate_bundle(
             raise CompletionError(f"primary_key ungueltig: {name}")
         shard_keys: set[str] = set()
         for row_number, row in enumerate(rows, 1):
-            for binding in ("run_id", "snapshot_id"):
+            bindings = ("run_id",) if artifact_key == "delta-ledger" else ("run_id", "snapshot_id")
+            for binding in bindings:
                 if row.get(binding) != contract[binding]:
                     raise CompletionError(f"Bindung {binding} falsch: {name}:{row_number}")
             commit_value = row.get("base_commit") if artifact_key == "delta-ledger" else row.get("audited_commit")
             if commit_value != contract["audited_commit"]:
                 raise CompletionError(f"Bindung audited_commit falsch: {name}:{row_number}")
+            if artifact_key == "delta-ledger":
+                if set(row) != DELTA_RECORD_FIELDS:
+                    raise CompletionError(f"Delta-Ledger Feldmenge falsch: {name}:{row_number}")
+                if (
+                    not FULL_COMMIT.fullmatch(str(row.get("head_commit")))
+                    or not isinstance(row.get("path"), str) or not row["path"]
+                    or not isinstance(row.get("change"), str) or not row["change"]
+                    or type(row.get("product_relevant")) is not bool
+                    or not isinstance(row.get("disposition"), str)
+                    or row["disposition"] not in DELTA_DISPOSITIONS
+                    or not isinstance(row.get("reviewer_id"), str) or not row["reviewer_id"].strip()
+                ):
+                    raise CompletionError(f"Delta-Ledger Typ/Disposition falsch: {name}:{row_number}")
+                _aware_time(row.get("signed_at"), f"Delta-Ledger signed_at {name}:{row_number}")
+                if row["product_relevant"] is True:
+                    raise CompletionError(f"Produktrelevantes Delta blockiert Completion: {name}:{row_number}")
             if any(field not in row for field in primary_key):
                 raise CompletionError(f"Primaerschluessel unvollstaendig: {name}:{row_number}")
             key = _canonical_key([row[field] for field in primary_key])
@@ -465,7 +488,13 @@ def _validate_bundle(
             if not isinstance(relation, dict) or set(relation) != {"field", "target_shard", "target_fields"}:
                 raise CompletionError(f"Fremdschluesselvertrag ungueltig: {spec['name']}")
             field, target, target_fields = relation["field"], relation["target_shard"], relation["target_fields"]
-            if target not in rows_by_name or not isinstance(field, str) or not isinstance(target_fields, list) or not target_fields:
+            if (
+                not isinstance(field, str) or not field
+                or not isinstance(target, str) or not target
+                or not isinstance(target_fields, list) or not target_fields
+                or not all(isinstance(item, str) and item for item in target_fields)
+                or target not in rows_by_name
+            ):
                 raise CompletionError(f"Fremdschluesselziel ungueltig: {spec['name']}")
             target_spec = next(item for item, _p, _b in validated if item["name"] == target)
             if target_fields != target_spec["primary_key"]:
@@ -475,8 +504,103 @@ def _validate_bundle(
                 parts = value if isinstance(value, list) else [value]
                 if len(parts) != len(target_fields) or _canonical_key(parts) not in keys_by_name[target]:
                     raise CompletionError(f"Fremdschluessel nicht aufloesbar: {spec['name']}:{row_number}")
+    runtime_by_id: dict[str, dict[str, Any]] = {}
+    for number, row in enumerate(rows_by_key["runtime-evidence"], 1):
+        evidence_id = row.get("evidence_id")
+        if not isinstance(evidence_id, str) or not evidence_id or evidence_id in runtime_by_id:
+            raise CompletionError(f"Runtime-Evidence {number}: evidence_id fehlt/doppelt")
+        covered_symbols = row.get("covered_symbol_ids")
+        if (
+            not isinstance(covered_symbols, list) or not covered_symbols
+            or any(not isinstance(value, str) or not value for value in covered_symbols)
+            or len(covered_symbols) != len(set(covered_symbols))
+        ):
+            raise CompletionError(f"Runtime-Evidence {number}: covered_symbol_ids Typ/Menge ungueltig")
+        runtime_by_id[evidence_id] = row
+    consumers: dict[str, set[str]] = {evidence_id: set() for evidence_id in runtime_by_id}
+    symbol_ids: set[str] = set()
+    for number, row in enumerate(rows_by_key["symbol-state"], 1):
+        symbol_id = row.get("symbol_id")
+        if not isinstance(symbol_id, str) or not symbol_id or symbol_id in symbol_ids:
+            raise CompletionError(f"Symbol-State {number}: symbol_id fehlt/doppelt")
+        symbol_ids.add(symbol_id)
+        runtime_ids = row.get("runtime_evidence_ids")
+        if (
+            not isinstance(runtime_ids, list)
+            or any(not isinstance(value, str) or not value for value in runtime_ids)
+            or len(runtime_ids) != len(set(runtime_ids))
+        ):
+            raise CompletionError(f"Symbol-State {number}: runtime_evidence_ids Typ/Menge ungueltig")
+        foreign = set(runtime_ids) - set(runtime_by_id)
+        if foreign:
+            raise CompletionError(f"Symbol-State {number}: Runtime-Evidence-FK fremd: {sorted(foreign)!r}")
+        for evidence_id in runtime_ids:
+            if symbol_id not in runtime_by_id[evidence_id]["covered_symbol_ids"]:
+                raise CompletionError(
+                    f"Symbol-State {number}: Runtime-Evidence deckt Symbol nicht: {evidence_id}"
+                )
+            consumers[evidence_id].add(symbol_id)
+    for evidence_id, runtime in runtime_by_id.items():
+        expected_symbols = set(runtime["covered_symbol_ids"])
+        if consumers[evidence_id] != expected_symbols:
+            raise CompletionError(
+                f"Runtime-Evidence Symbol-Closure falsch {evidence_id}: "
+                f"fehlend={sorted(expected_symbols - consumers[evidence_id])!r}, "
+                f"fremd={sorted(consumers[evidence_id] - expected_symbols)!r}"
+            )
     _validate_attachment_closure(bundle, audit_artifacts, evidence_artifacts, rows_by_key)
     return validated, evidence_artifacts
+
+
+def _buffer_artifacts(
+    bundle: Path,
+    artifacts: dict[str, dict[str, Any]],
+    label: str,
+    copies: dict[str, bytes],
+) -> None:
+    destinations = {value.casefold() for value in copies}
+    for key, descriptor in artifacts.items():
+        ref = _safe_ref(descriptor["ref"]).as_posix()
+        if ref.casefold() in destinations:
+            raise CompletionError(f"{label} Importziel doppelt: {ref}")
+        source = _safe_source(bundle, ref)
+        payload = source.read_bytes()
+        if (
+            hashlib.sha256(payload).hexdigest() != descriptor["sha256"]
+            or len(payload) != descriptor["bytes"]
+            or _record_count(source, payload) != descriptor["record_count"]
+        ):
+            raise CompletionError(f"{label} Artifact nach Validierung veraendert: {key}")
+        copies[ref] = payload
+        destinations.add(ref.casefold())
+
+
+@contextmanager
+def _import_lock(master: Path):
+    master.mkdir(parents=True, exist_ok=True)
+    path = master / ".atomic-import.lock"
+    payload = _canonical_bytes({"token": uuid.uuid4().hex, "pid": os.getpid()})
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise CompletionError("Atomic-Import durch fremden Ownership-Lock blockiert") from exc
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        yield payload
+    finally:
+        try:
+            current = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise CompletionError("Atomic-Import Lock-Ownership verloren") from exc
+        if current != payload:
+            raise CompletionError("Atomic-Import fremden Lock nicht entfernt")
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise CompletionError("Atomic-Import eigenen Lock nicht freigebbar") from exc
 
 
 def import_bundle(
@@ -509,18 +633,10 @@ def import_bundle(
         expected_evidence_contract_sha256,
     )
 
+    audit_artifacts = _validate_artifacts(bundle, audit["artifacts"], "Auditcontract")
     copies: dict[str, bytes] = {}
-    for descriptor in evidence_artifacts.values():
-        ref = _safe_ref(descriptor["ref"]).as_posix()
-        source = _safe_source(bundle, ref)
-        payload = source.read_bytes()
-        if (
-            hashlib.sha256(payload).hexdigest() != descriptor["sha256"]
-            or len(payload) != descriptor["bytes"]
-            or _record_count(source, payload) != descriptor["record_count"]
-        ):
-            raise CompletionError(f"Evidence-Artifact wurde nach Validierung veraendert: {ref}")
-        copies[ref] = payload
+    _buffer_artifacts(bundle, audit_artifacts, "Auditcontract", copies)
+    _buffer_artifacts(bundle, evidence_artifacts, "Evidence-Contract", copies)
     for ref, payload in (
         (contract_ref.as_posix(), contract_bytes),
         (audit_ref.as_posix(), audit_bytes),
@@ -529,42 +645,62 @@ def import_bundle(
         if ref.casefold() in {item.casefold() for item in copies}:
             raise CompletionError(f"Contract-Ziel kollidiert mit Artifact-Ref: {ref}")
         copies[ref] = payload
-    if len(copies) != len(evidence_artifacts) + 3:
+    if len(copies) != len(audit_artifacts) + len(evidence_artifacts) + 3:
         raise CompletionError("Import-Zielpfade kollidieren")
 
-    versions = master / "versions"
-    versions.mkdir(parents=True, exist_ok=True)
     import_id = contract["import_id"]
-    version = versions / import_id
-    if version.exists():
-        raise CompletionError(f"Import-ID existiert bereits: {import_id}")
-    staging = master / f".staging-{uuid.uuid4().hex}"
-    pointer_tmp = master / f".CURRENT-{uuid.uuid4().hex}.tmp"
-    try:
-        staging.mkdir()
-        for ref, payload in sorted(copies.items()):
-            target = staging.joinpath(*PurePosixPath(ref).parts)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(payload)
-        os.replace(staging, version)
-        pointer_tmp.write_text(f"{import_id}\n", encoding="utf-8", newline="\n")
-        try:
-            os.replace(pointer_tmp, master / "CURRENT")
-        except OSError as exc:
-            raise CompletionError(f"Atomarer Pointerwechsel fehlgeschlagen: {exc}") from exc
-    except Exception:
-        if pointer_tmp.exists():
-            pointer_tmp.unlink()
-        if staging.exists():
-            shutil.rmtree(staging)
+    with _import_lock(master):
+        versions = master / "versions"
+        versions.mkdir(parents=True, exist_ok=True)
+        version = versions / import_id
         if version.exists():
-            shutil.rmtree(version)
-        raise
+            raise CompletionError(f"Import-ID existiert bereits: {import_id}")
+        token = uuid.uuid4().hex
+        owner_payload = token.encode("ascii")
+        owner_name = ".atomic-import-owner"
+        staging = master / f".staging-{token}"
+        pointer_tmp = master / f".CURRENT-{token}.tmp"
+        owned_version = False
+        pointer_swapped = False
+        try:
+            staging.mkdir()
+            (staging / owner_name).write_bytes(owner_payload)
+            for ref, payload in sorted(copies.items()):
+                target = staging.joinpath(*PurePosixPath(ref).parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+            os.replace(staging, version)
+            owned_version = True
+            pointer_tmp.write_text(f"{import_id}\n", encoding="utf-8", newline="\n")
+            try:
+                os.replace(pointer_tmp, master / "CURRENT")
+                pointer_swapped = True
+            except OSError as exc:
+                raise CompletionError(f"Atomarer Pointerwechsel fehlgeschlagen: {exc}") from exc
+            try:
+                (version / owner_name).unlink()
+            except OSError as exc:
+                raise CompletionError("Import-Ownership-Marker nicht entfernbar") from exc
+        except Exception:
+            if pointer_tmp.exists():
+                pointer_tmp.unlink()
+            if staging.exists():
+                shutil.rmtree(staging)
+            if owned_version and not pointer_swapped and version.exists():
+                marker = version / owner_name
+                try:
+                    still_owned = marker.is_file() and marker.read_bytes() == owner_payload
+                except OSError:
+                    still_owned = False
+                if still_owned:
+                    shutil.rmtree(version)
+            raise
     return {
         "status": "imported", "import_id": import_id, "run_id": contract["run_id"],
         "audited_commit": contract["audited_commit"], "snapshot_id": contract["snapshot_id"],
         "shard_count": len(validated),
         "attachment_count": len(evidence_artifacts) - len(EVIDENCE_STATIC_KEYS),
+        "audit_artifact_count": len(audit_artifacts),
     }
 
 
