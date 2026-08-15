@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
-from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, SIGNOFF_TRUST_BLOCKER, _basis, _run_test_node, verify_readiness
+from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, _basis, _run_test_node, _verify_attestation_bundle, verify_readiness
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
 from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
@@ -592,7 +592,12 @@ def main() -> int:
             fake_snapshot, files, [], head,
         ))
 
-        tool_source = "def validate(value):\n    return isinstance(value, dict) and set(value) == {'valid'} and value.get('valid') is True\n"
+        tool_source = (
+            "def validate(value):\n"
+            "    return isinstance(value, dict) and set(value) == {'valid'} and value.get('valid') is True\n\n"
+            "def verify_attestation_bundle(*args, **kwargs):\n"
+            "    return ['fixture bundle missing']\n"
+        )
         common_tests = """
 import importlib.util
 import unittest
@@ -643,29 +648,70 @@ if __name__ == "__main__": unittest.main()
         ]
         _write_jsonl(readiness_roster, roster_rows)
         roster_sha = hashlib.sha256(readiness_roster.read_bytes()).hexdigest()
+        bundle_manifest = base / "readiness-attestation-bundle.json"
+        bundle_manifest.write_text(json.dumps({
+            "schema_version": 1,
+            "receipts_dir": str(base / "receipts"),
+            "attestations_dir": str(base / "attestations"),
+            "contract_path": str(base / "reviewer-contract.json"),
+            "contract_signature": str(base / "reviewer-contract.json.sig"),
+            "spawn_journal_path": str(base / "spawn-journal.json"),
+            "spawn_journal_signature": str(base / "spawn-journal.json.sig"),
+            "readiness_binding_path": str(base / "readiness-binding.json"),
+            "readiness_binding_signature": str(base / "readiness-binding.json.sig"),
+            "expected_readiness_binding_sha256": "a" * 64,
+            "audit_contract_path": str(base / "audit-contract.json"),
+            "audit_contract_signature": str(base / "audit-contract.json.sig"),
+            "expected_audit_contract_sha256": "b" * 64,
+            "authority_public_key_path": str(base / "authority.pub"),
+            "spawn_public_key_path": str(base / "spawn.pub"),
+            "lead_v_public_key_path": str(base / "lead-v.pub"),
+            "adversarial_public_key_path": str(base / "adversarial.pub"),
+        }, sort_keys=True), encoding="utf-8")
         readiness = {
-            "schema_version": 2, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
+            "schema_version": 3, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
             "run_id": RUN_ID, "tooling_commit": tooling_commit, "integration_head": tooling_commit,
             "matrix_version": 1, "artifacts": artifact_rows,
             "reviewer_roster_path": str(readiness_roster), "reviewer_roster_sha256": roster_sha,
+            "attestation_bundle_path": str(bundle_manifest),
+            "attestation_bundle_sha256": hashlib.sha256(bundle_manifest.read_bytes()).hexdigest(),
         }
         basis = _basis(readiness, artifact_rows, roster_sha)
-        readiness["signoffs"] = [
-            {"role": "lead-v", "reviewer_id": "lead-v", "session_id": "session-lead", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:00Z"},
-            {"role": "adversarial", "reviewer_id": "adversarial", "session_id": "session-adversarial", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:01Z"},
-        ]
+        missing_bridge = _verify_attestation_bundle(
+            base / "missing-reviewer-tool-root", json.loads(bundle_manifest.read_text(encoding="utf-8")),
+            basis_sha256=basis, roster_path=readiness_roster,
+            tooling_commit=tooling_commit,
+        )
+        assert missing_bridge and "nicht ladbar" in missing_bridge[0]
         readiness_path = base / "readiness.json"
         readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
-        readiness_errors = verify_readiness(root, readiness_path)
-        assert readiness_errors == [SIGNOFF_TRUST_BLOCKER], readiness_errors
+        assert verify_readiness(root, readiness_path, verify_bundle=False) == []
+        with patch("verify_audit_readiness._run_gates", return_value=[]), patch(
+            "verify_audit_readiness._verify_attestation_bundle", return_value=[]
+        ) as signed_bundle:
+            readiness_errors = verify_readiness(root, readiness_path)
+        assert readiness_errors == [], readiness_errors
+        assert signed_bundle.call_args.kwargs["basis_sha256"] == basis
         empty_test = base / "comment-only-test.py"
         empty_test.write_text("# no tests\n", encoding="utf-8")
         assert _run_test_node(base, str(empty_test), "test_positive_minimal", {}).returncode != 0
         broken_readiness = copy.deepcopy(readiness)
-        broken_readiness["signoffs"][1]["session_id"] = "session-lead"
+        broken_readiness["signoffs"] = []
         broken_readiness_path = base / "readiness-broken.json"
         broken_readiness_path.write_text(json.dumps(broken_readiness), encoding="utf-8")
-        assert any("Signoff-Bindung" in error for error in verify_readiness(root, broken_readiness_path))
+        assert any("Manifest-Feldmenge" in error for error in verify_readiness(root, broken_readiness_path))
+        tampered_bundle = copy.deepcopy(readiness)
+        tampered_bundle["attestation_bundle_sha256"] = "0" * 64
+        tampered_bundle_path = base / "readiness-tampered-bundle.json"
+        tampered_bundle_path.write_text(json.dumps(tampered_bundle), encoding="utf-8")
+        assert any("attestation_bundle_sha256" in error for error in verify_readiness(root, tampered_bundle_path))
+        with patch("verify_audit_readiness._run_gates", return_value=[]), patch(
+            "verify_audit_readiness._verify_attestation_bundle", return_value=["Signatur falsch"]
+        ):
+            assert "Signatur falsch" in verify_readiness(root, readiness_path)
+        with patch("verify_audit_readiness._run_gates", return_value=[]):
+            real_bridge_errors = verify_readiness(root, readiness_path)
+        assert real_bridge_errors == ["fixture bundle missing"], real_bridge_errors
     print("self-test: OK")
     return 0
 

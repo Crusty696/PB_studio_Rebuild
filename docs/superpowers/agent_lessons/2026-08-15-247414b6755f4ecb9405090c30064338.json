@@ -1,0 +1,10 @@
+{
+  "lesson_id": "247414b6755f4ecb9405090c30064338",
+  "recorded_at": "2026-08-15T22:34:49+00:00",
+  "session_id": "437d98b87d40460f95af7330c7d58a07",
+  "head_at_start": "042ffdc2caa982e2a955b86276daa047c465888e",
+  "problem": "Readiness konnte durch freie Inline-Signoffs trotz echter Reviewer-Receipt-API nicht vertrauenswuerdig gruen werden.",
+  "cause": "Readiness validierte selbstbehauptete Roster-/Signoff-JSON lokal und rief den kryptographisch gepinnten Reviewer-Attestation-Bundle-Validator nicht auf.",
+  "rule": "Readiness-Basis zuerst deterministisch berechnen; danach nur rollengetrennte signierte Attestations ueber den produktiven Reviewer-Bundle-Validator akzeptieren. Inline-Signoffs und permanente Platzhalterblocker entfernen, Git-Trust-Lesewege replacement-frei ausfuehren.",
+  "applies_to": "Phase-minus-1 Readiness, Reviewer-Signoffs, Evidence-Gates"
+}
