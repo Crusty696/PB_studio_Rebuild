@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import argparse
 import ast
+import configparser
 import hashlib
 import io
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tokenize
+import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -30,6 +34,63 @@ def _canonical(value: Any) -> bytes:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _without(row: dict[str, Any], *fields: str) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key not in fields}
+
+
+def seal_record(row: dict[str, Any]) -> dict[str, Any]:
+    sealed = dict(row)
+    sealed["record_sha256"] = _sha(_canonical(_without(sealed, "record_sha256")))
+    return sealed
+
+
+def make_artifact_manifest(
+    kind: str, records: list[dict[str, Any]], *, run_id: str,
+    audited_commit: str, tooling_commit: str, snapshot_id: str,
+) -> dict[str, Any]:
+    manifest = {
+        "schema_version": 1, "kind": kind, "run_id": run_id,
+        "audited_commit": audited_commit, "tooling_commit": tooling_commit,
+        "snapshot_id": snapshot_id, "record_count": len(records),
+        "records_sha256": _sha(b"\n".join(_canonical(row) for row in records)),
+    }
+    manifest["artifact_id"] = "sha256:" + _sha(_canonical(manifest))
+    return manifest
+
+
+def validate_artifact_universe(
+    rows: list[dict[str, Any]], manifest: dict[str, Any], kind: str,
+    id_field: str, *, run_id: str, audited_commit: str, tooling_commit: str,
+    snapshot_id: str,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    errors: list[str] = []
+    expected = make_artifact_manifest(
+        kind, rows, run_id=run_id, audited_commit=audited_commit,
+        tooling_commit=tooling_commit, snapshot_id=snapshot_id,
+    )
+    if manifest != expected:
+        errors.append(f"{kind}: Artefaktmanifest/Hashbindung falsch")
+    indexed: dict[str, dict[str, Any]] = {}
+    for number, row in enumerate(rows, 1):
+        item_id = row.get(id_field)
+        label = f"{kind} Zeile {number}"
+        if not isinstance(item_id, str) or not item_id or item_id in indexed:
+            errors.append(f"{label}: {id_field} fehlt/doppelt")
+        else:
+            indexed[item_id] = row
+        if row.get("record_sha256") != _sha(_canonical(_without(row, "record_sha256"))):
+            errors.append(f"{label}: record_sha256 falsch")
+        for field, value in (
+            ("run_id", run_id), ("audited_commit", audited_commit),
+            ("tooling_commit", tooling_commit), ("snapshot_id", snapshot_id),
+        ):
+            if row.get(field) != value:
+                errors.append(f"{label}: {field} falsch")
+    if not rows:
+        errors.append(f"{kind}: Artefakt ist leer")
+    return indexed, errors
 
 
 def _git(root: Path, *args: str) -> bytes:
@@ -61,6 +122,165 @@ def _dotted(node: ast.AST) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return ast.dump(node, include_attributes=False)
+
+
+def _balanced(text: str, path: str, *, braces: bool = False) -> None:
+    stack: list[str] = []
+    pairs = {')': '(', ']': '[', '}': '{'}
+    quote: str | None = None
+    escaped = False
+    comment = False
+    for char in text:
+        if comment:
+            if char == "\n":
+                comment = False
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if quote:
+            if char == "`":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char == "#" and braces:
+            comment = True
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in "([" + ("{" if braces else ""):
+            stack.append(char)
+        elif char in ")]" + ("}" if braces else ""):
+            if not stack or stack.pop() != pairs[char]:
+                raise ContractError(f"parser_error:{path}: unbalanciertes Token {char}")
+    if quote or stack:
+        raise ContractError(f"parser_error:{path}: unbalancierte Quotes/Klammern")
+
+
+def _matching_brace(text: str, opening: int, path: str) -> int:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    comment = False
+    for index in range(opening, len(text)):
+        char = text[index]
+        if comment:
+            if char == "\n":
+                comment = False
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if quote:
+            if char == "`":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char == "#":
+            comment = True
+        elif char in {"'", '"'}:
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise ContractError(f"parser_error:{path}: Function-Block nicht geschlossen")
+
+
+def _parse_structured(text: str, suffix: str, path: str) -> None:
+    try:
+        if suffix == ".json":
+            json.loads(text)
+        elif suffix == ".toml":
+            tomllib.loads(text)
+        elif suffix in {".ini", ".cfg"}:
+            parser = configparser.ConfigParser()
+            parser.read_string(text)
+        elif suffix in {".ui", ".ts"}:
+            ET.fromstring(text)
+        elif suffix in {".yaml", ".yml"}:
+            try:
+                import yaml  # type: ignore[import-untyped]
+            except ImportError as exc:
+                raise ContractError(f"parser_error:{path}: YAML-Parser fehlt") from exc
+            yaml.safe_load(text)
+        elif suffix == ".sql":
+            statements = _sql_statements(text, path)
+            allowed = re.compile(r"^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|SELECT|PRAGMA|WITH|BEGIN|END|COMMIT|ROLLBACK)\b", re.I)
+            if not statements or any(not allowed.match(item) for item in statements):
+                raise ContractError(f"parser_error:{path}: nicht unterstuetzte SQL-Grammatik")
+    except ContractError:
+        raise
+    except Exception as exc:
+        raise ContractError(f"parser_error:{path}: {exc}") from exc
+
+
+def _sql_statements(text: str, path: str) -> list[str]:
+    _balanced(text, path)
+    statements: list[str] = []
+    start = 0
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote:
+                if index + 1 < len(text) and text[index + 1] == quote:
+                    index += 1
+                else:
+                    quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == ";":
+            if statement := text[start:index].strip():
+                statements.append(statement)
+            start = index + 1
+        index += 1
+    if statement := text[start:].strip():
+        statements.append(statement)
+    return statements
+
+
+def _parse_batch_units(text: str, path: str) -> None:
+    _balanced(text, path)
+    labels: set[str] = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        if match := re.match(r"\s*:([^:\s]+)", line):
+            label = match.group(1).lower()
+            if label in labels:
+                raise ContractError(f"parser_error:{path}:{number}: doppeltes Label {label}")
+            labels.add(label)
+    for number, line in enumerate(text.splitlines(), 1):
+        if match := re.match(r"\s*call\s+:([^\s]+)", line, re.IGNORECASE):
+            if match.group(1).lower() not in labels:
+                raise ContractError(
+                    f"parser_error:{path}:{number}: unbekanntes Batch-Label {match.group(1)}"
+                )
+
+
+def _parse_powershell(text: str, path: str) -> None:
+    executable = shutil.which("pwsh") or shutil.which("powershell")
+    if executable is None:
+        raise ContractError(f"parser_error:{path}: PowerShell-AST-Parser fehlt")
+    parser_script = (
+        "$tokens=$null;$errors=$null;"
+        "[void][System.Management.Automation.Language.Parser]::ParseInput("
+        "[Console]::In.ReadToEnd(),[ref]$tokens,[ref]$errors);"
+        "if($errors.Count){$errors|ForEach-Object{$_.Message}|Write-Error;exit 2}"
+    )
+    try:
+        result = subprocess.run(
+            [executable, "-NoProfile", "-NonInteractive", "-Command", parser_script],
+            input=text, text=True, encoding="utf-8", capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ContractError(f"parser_error:{path}: PowerShell-Parser nicht verfuegbar: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().replace("\n", " | ")[-500:]
+        raise ContractError(f"parser_error:{path}: {detail or 'PowerShell-Syntaxfehler'}")
 
 
 class Collector(ast.NodeVisitor):
@@ -134,6 +354,10 @@ class Collector(ast.NodeVisitor):
         for base in node.bases:
             self._edge(base, "class-base", _dotted(base))
             self.visit(base)
+        for keyword in node.keywords:
+            target = _dotted(keyword.value.func if isinstance(keyword.value, ast.Call) else keyword.value)
+            self._edge(keyword.value, "class-keyword", target)
+            self.visit(keyword.value)
         for child in node.body:
             self.visit(child)
         self.current_symbol.pop()
@@ -223,22 +447,43 @@ def enumerate_contract_universe(
             edges.extend(collector.edges)
             continue
         if suffix in {".ps1", ".psm1"}:
+            _parse_powershell(text, path)
             matches = list(re.finditer(r"(?im)^\s*(?:function|filter)\s+([\w:-]+)", text))
-            total_lines = max(1, len(text.splitlines()))
-            for index, match in enumerate(matches):
+            ps_symbols: dict[str, dict[str, Any]] = {}
+            ps_bodies: dict[str, tuple[int, int]] = {}
+            for match in matches:
                 start = text.count("\n", 0, match.start()) + 1
-                end = (
-                    text.count("\n", 0, matches[index + 1].start())
-                    if index + 1 < len(matches) else total_lines
-                )
+                opening = text.find("{", match.end())
+                if opening < 0:
+                    raise ContractError(f"parser_error:{path}:{start}: Function ohne Block")
+                closing = _matching_brace(text, opening, path)
+                end = text.count("\n", 0, closing) + 1
                 name = match.group(1)
-                symbols.append({
+                row = {
                     "symbol_id": _id("SYM", path, name, start, end, "powershell-function"),
                     "path": path, "qualified_name": name, "kind": "powershell-function",
                     "line_start": start, "line_end": end, **binding,
-                })
+                }
+                symbols.append(row)
+                ps_symbols[name.lower()] = row
+                ps_bodies[name.lower()] = (opening + 1, closing)
+            for source_name, (opening, closing) in ps_bodies.items():
+                body = text[opening:closing]
+                source = ps_symbols[source_name]
+                for target_name, target in ps_symbols.items():
+                    pattern = re.compile(rf"(?im)(?:^|[;{{}}|])\s*&?\s*{re.escape(target['qualified_name'])}\b")
+                    for call in pattern.finditer(body):
+                        absolute = opening + call.start()
+                        line = text.count("\n", 0, absolute) + 1
+                        edges.append({
+                            "edge_id": _id("EDGE", path, line, 0, "powershell-call", source["symbol_id"], target["qualified_name"]),
+                            "path": path, "line": line, "column": 0,
+                            "edge_kind": "powershell-call", "source_symbol_id": source["symbol_id"],
+                            "target": target["qualified_name"], "target_symbol_id": target["symbol_id"], **binding,
+                        })
             continue
         if suffix in {".bat", ".cmd"}:
+            _parse_batch_units(text, path)
             matches = list(re.finditer(r"(?im)^\s*:([^:\s]+)", text))
             label_ids: dict[str, str] = {}
             total_lines = max(1, len(text.splitlines()))
@@ -249,6 +494,8 @@ def enumerate_contract_universe(
                     if index + 1 < len(matches) else total_lines
                 )
                 name = match.group(1)
+                if name.lower() in label_ids:
+                    raise ContractError(f"parser_error:{path}:{start}: doppeltes Label {name}")
                 symbol_id = _id("SYM", path, name, start, end, "batch-label")
                 label_ids[name.lower()] = symbol_id
                 symbols.append({
@@ -258,13 +505,18 @@ def enumerate_contract_universe(
             for match in re.finditer(r"(?im)^\s*call\s+:([^\s]+)", text):
                 line = text.count("\n", 0, match.start()) + 1
                 target = match.group(1)
+                current = next(
+                    (row for row in reversed(symbols) if row["path"] == path and row["line_start"] <= line <= row["line_end"]),
+                    None,
+                )
                 edges.append({
-                    "edge_id": _id("EDGE", path, line, 0, "batch-call", f"MODULE:{path}", target),
+                    "edge_id": _id("EDGE", path, line, 0, "batch-call", current["symbol_id"] if current else f"MODULE:{path}", target),
                     "path": path, "line": line, "column": 0, "edge_kind": "batch-call",
-                    "source_symbol_id": f"MODULE:{path}", "target": target,
+                    "source_symbol_id": current["symbol_id"] if current else f"MODULE:{path}", "target": target,
                     "target_symbol_id": label_ids.get(target.lower()), **binding,
                 })
             continue
+        _parse_structured(text, suffix, path)
         kind = "schema-unit" if suffix == ".sql" else (
             "ui-unit" if suffix == ".ui" else "translation-unit" if suffix == ".ts" else "config-unit"
         )
@@ -305,9 +557,12 @@ def _validate_binding(row: dict[str, Any], label: str, run_id: str, commit: str,
 def validate_contracts(
     expected_symbols: list[dict[str, Any]], expected_edges: list[dict[str, Any]],
     states: list[dict[str, Any]], edge_states: list[dict[str, Any]], *,
-    run_id: str, audited_commit: str, snapshot_id: str,
-    known_feature_ids: set[str], runtime_evidence_ids: set[str],
-    reviewer_ids: set[str], evidence_ids: set[str],
+    run_id: str, audited_commit: str, tooling_commit: str, snapshot_id: str,
+    feature_records: list[dict[str, Any]], feature_manifest: dict[str, Any],
+    runtime_records: list[dict[str, Any]], runtime_manifest: dict[str, Any],
+    reviewer_records: list[dict[str, Any]], reviewer_manifest: dict[str, Any],
+    evidence_records: list[dict[str, Any]], evidence_manifest: dict[str, Any],
+    trigger_records: list[dict[str, Any]], trigger_manifest: dict[str, Any],
 ) -> list[str]:
     errors: list[str] = []
     symbol_map = {row["symbol_id"]: row for row in expected_symbols}
@@ -318,6 +573,30 @@ def validate_contracts(
         errors.append("Kantenuniversum enthaelt doppelte IDs")
     symbol_hash = universe_digest(expected_symbols, "symbol_id")
     edge_hash = universe_digest(expected_edges, "edge_id")
+    artifact_specs = (
+        (feature_records, feature_manifest, "feature-catalog", "catalog_id"),
+        (runtime_records, runtime_manifest, "runtime-evidence", "evidence_id"),
+        (reviewer_records, reviewer_manifest, "reviewer-roster", "reviewer_id"),
+        (evidence_records, evidence_manifest, "symbol-evidence", "evidence_id"),
+        (trigger_records, trigger_manifest, "trigger-catalog", "source_id"),
+    )
+    artifact_indexes: list[dict[str, dict[str, Any]]] = []
+    for records, manifest, kind, id_field in artifact_specs:
+        index, artifact_errors = validate_artifact_universe(
+            records, manifest, kind, id_field, run_id=run_id,
+            audited_commit=audited_commit, tooling_commit=tooling_commit,
+            snapshot_id=snapshot_id,
+        )
+        artifact_indexes.append(index)
+        errors.extend(artifact_errors)
+    known_feature_ids = {
+        str(row.get("feature_id", "")) for row in artifact_indexes[0].values()
+        if row.get("feature_id")
+    }
+    runtime_evidence_ids = set(artifact_indexes[1])
+    reviewer_ids = set(artifact_indexes[2])
+    evidence_ids = set(artifact_indexes[3])
+    canonical_triggers = list(artifact_indexes[4].values())
     if not known_feature_ids:
         errors.append("Featureuniversum ist leer")
     if not reviewer_ids:
@@ -364,19 +643,33 @@ def validate_contracts(
         else:
             validate_evidence(caller.get("evidence_ids"), f"{label}/Caller")
             caller_edges = caller.get("edge_ids")
+            incoming = {
+                edge_id for edge_id, edge in edge_map.items()
+                if edge.get("target_symbol_id") == symbol_id
+            }
+            trigger_match = any(
+                trigger.get("path") == row.get("path")
+                and (
+                    trigger.get("target_symbol_id") == symbol_id
+                    or (
+                        trigger.get("source_kind") in {"entrypoint", "main-guard", "decorator-hook"}
+                        and str(row.get("qualified_name", "")).rsplit(".", 1)[-1].removesuffix("()")
+                        in {str(trigger.get("detail", "")), "main"}
+                    )
+                )
+                for trigger in canonical_triggers
+            )
             if not isinstance(caller_edges, list):
                 errors.append(f"{label}: Caller-edge_ids fehlt")
-            elif caller.get("kind") == "incoming-edges":
-                if not caller_edges:
-                    errors.append(f"{label}: Incoming-Caller ohne Kante")
-                for edge_id in caller_edges:
-                    edge = edge_map.get(edge_id)
-                    if edge is None:
-                        errors.append(f"{label}: Caller referenziert fremde Kante")
-                    elif edge.get("target_symbol_id") != symbol_id:
-                        errors.append(f"{label}: Caller-Kante referenziert nicht Zielsymbol")
+            elif incoming:
+                if caller.get("kind") != "incoming-edges" or set(caller_edges) != incoming:
+                    errors.append(f"{label}: kanonische Incoming-Kanten nicht exakt dispositioniert")
             elif caller_edges:
-                errors.append(f"{label}: Nicht-Incoming-Caller darf keine edge_ids behaupten")
+                errors.append(f"{label}: Symbol ohne Incoming darf keine edge_ids behaupten")
+            elif trigger_match and caller.get("kind") not in {"entrypoint", "framework-hook"}:
+                errors.append(f"{label}: kanonischer Entry-/Frameworkhook falsch dispositioniert")
+            elif not trigger_match and caller.get("kind") != "unreferenced":
+                errors.append(f"{label}: entrypoint/framework ohne kanonischen Trigger")
         contracts = row.get("contracts")
         if not isinstance(contracts, dict):
             errors.append(f"{label}: contracts fehlt")
@@ -462,33 +755,6 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def validate_reference_universe(
-    rows: list[dict[str, Any]], id_field: str, label: str, *, run_id: str,
-    audited_commit: str, snapshot_id: str, require_snapshot: bool = True,
-) -> tuple[set[str], list[str]]:
-    ids: set[str] = set()
-    errors: list[str] = []
-    if not rows:
-        errors.append(f"{label} ist leer")
-    for number, row in enumerate(rows, 1):
-        item_id = row.get(id_field)
-        row_label = f"{label} Zeile {number}"
-        if not isinstance(item_id, str) or not item_id or item_id in ids:
-            errors.append(f"{row_label}: {id_field} fehlt/doppelt")
-        else:
-            ids.add(item_id)
-        if row.get("run_id") != run_id:
-            errors.append(f"{row_label}: run_id falsch")
-        commit = row.get("audited_commit", row.get("commit_sha"))
-        if commit != audited_commit:
-            errors.append(f"{row_label}: audited_commit/commit_sha falsch")
-        if require_snapshot and row.get("snapshot_id") != snapshot_id:
-            errors.append(f"{row_label}: snapshot_id falsch")
-        if not require_snapshot and row.get("snapshot_id") not in (None, snapshot_id):
-            errors.append(f"{row_label}: vorhandene snapshot_id falsch")
-    return ids, errors
-
-
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"".join(_canonical(row) + b"\n" for row in rows))
@@ -514,6 +780,13 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--runtime-universe", type=Path, required=True)
     verify.add_argument("--reviewer-roster", type=Path, required=True)
     verify.add_argument("--evidence-universe", type=Path, required=True)
+    verify.add_argument("--trigger-universe", type=Path, required=True)
+    verify.add_argument("--feature-manifest", type=Path, required=True)
+    verify.add_argument("--runtime-manifest", type=Path, required=True)
+    verify.add_argument("--reviewer-manifest", type=Path, required=True)
+    verify.add_argument("--evidence-manifest", type=Path, required=True)
+    verify.add_argument("--trigger-manifest", type=Path, required=True)
+    verify.add_argument("--tooling-commit", required=True)
     args = parser.parse_args(argv)
     try:
         symbols, edges = enumerate_contract_universe(
@@ -533,27 +806,20 @@ def main(argv: list[str] | None = None) -> int:
             errors.append("Symboluniversum weicht von kanonischer Gitobjekt-Enumeration ab")
         if _read_jsonl(args.edges) != edges:
             errors.append("Kantenuniversum weicht von kanonischer Gitobjekt-Enumeration ab")
-        reference_specs = (
-            (args.feature_universe, "feature_id", "Featureuniversum", True),
-            (args.runtime_universe, "evidence_id", "Runtimeuniversum", True),
-            (args.reviewer_roster, "reviewer_id", "Reviewer-Roster", False),
-            (args.evidence_universe, "evidence_id", "Evidence-Universum", True),
-        )
-        reference_ids: list[set[str]] = []
-        for path, id_field, label, require_snapshot in reference_specs:
-            ids, reference_errors = validate_reference_universe(
-                _read_jsonl(path), id_field, label, run_id=args.run_id,
-                audited_commit=resolve_commit(args.root.resolve(), args.audited_commit),
-                snapshot_id=args.snapshot_id, require_snapshot=require_snapshot,
-            )
-            reference_ids.append(ids)
-            errors.extend(reference_errors)
         errors.extend(validate_contracts(
             symbols, edges, _read_jsonl(args.symbol_states), _read_jsonl(args.edge_states),
             run_id=args.run_id, audited_commit=resolve_commit(args.root.resolve(), args.audited_commit),
-            snapshot_id=args.snapshot_id,
-            known_feature_ids=reference_ids[0], runtime_evidence_ids=reference_ids[1],
-            reviewer_ids=reference_ids[2], evidence_ids=reference_ids[3],
+            tooling_commit=args.tooling_commit, snapshot_id=args.snapshot_id,
+            feature_records=_read_jsonl(args.feature_universe),
+            feature_manifest=json.loads(args.feature_manifest.read_text(encoding="utf-8")),
+            runtime_records=_read_jsonl(args.runtime_universe),
+            runtime_manifest=json.loads(args.runtime_manifest.read_text(encoding="utf-8")),
+            reviewer_records=_read_jsonl(args.reviewer_roster),
+            reviewer_manifest=json.loads(args.reviewer_manifest.read_text(encoding="utf-8")),
+            evidence_records=_read_jsonl(args.evidence_universe),
+            evidence_manifest=json.loads(args.evidence_manifest.read_text(encoding="utf-8")),
+            trigger_records=_read_jsonl(args.trigger_universe),
+            trigger_manifest=json.loads(args.trigger_manifest.read_text(encoding="utf-8")),
         ))
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
         return 0 if not errors else 2
