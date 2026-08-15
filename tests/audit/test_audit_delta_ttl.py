@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.audit_delta_ttl import (  # noqa: E402
     AUDIT_ARTIFACT_KEYS,
+    DELTA_FIELDS,
     expected_delta,
     verify_delta_ttl,
 )
@@ -63,10 +64,31 @@ class GateContractTests(unittest.TestCase):
         selected = self.contract if contract is None else contract
         return verify_delta_ttl(
             self.repo, selected, [] if rows is None else rows,
-            integration_head=head or self.base,
-            expected_audit_contract_sha256=pin or selected.get("contract_sha256", ""),
+            integration_head=self.current_head() if head is None else head,
+            expected_audit_contract_sha256=(
+                selected.get("contract_sha256", "") if pin is None else pin
+            ),
             now=now or datetime(2026, 8, 15, 10, 30, tzinfo=timezone.utc),
         )
+
+    def current_head(self) -> str:
+        return git(self.repo, "rev-parse", "HEAD")
+
+    @staticmethod
+    def disposition(row: dict, *, product_relevant: bool = False) -> dict:
+        return {
+            **row, "product_relevant": product_relevant,
+            "disposition": "reaudit-required" if product_relevant else "report-only",
+            "reviewer_id": "REV-A", "signed_at": "2026-08-15T10:20:00+00:00",
+        }
+
+    def make_delta(self, content: str = "value = 2\n") -> tuple[str, dict]:
+        (self.repo / "app.py").write_text(content, encoding="utf-8")
+        git(self.repo, "add", "app.py")
+        git(self.repo, "commit", "-m", "delta")
+        head = self.current_head()
+        row = expected_delta(self.repo, self.base, head, run_id="RUN-001")[0]
+        return head, self.disposition(row)
 
     def test_positive_global_contract_no_delta(self) -> None:
         self.assertEqual([], self.verify())
@@ -83,20 +105,17 @@ class GateContractTests(unittest.TestCase):
         self.assertNotEqual(raw_file_sha, self.contract["contract_sha256"])
         self.assertTrue(any("Body-SHA" in error for error in self.verify(pin=raw_file_sha)))
 
-    def test_missing_id_and_tampered_commit_rejected(self) -> None:
+    def test_missing_id_tampered_commit_and_noncurrent_head_rejected(self) -> None:
         contract = dict(self.contract)
         del contract["run_id"]
         self.assertTrue(any("run_id" in error or "Feldmenge" in error for error in self.verify(contract=contract)))
         contract = dict(self.contract, audited_commit="0" * 40)
         self.assertTrue(any("audited_commit" in error for error in self.verify(contract=contract)))
+        self.make_delta()
+        self.assertTrue(any("Current HEAD" in error for error in self.verify(head=self.base)))
 
     def test_exact_delta_duplicate_foreign_and_missing_rejected(self) -> None:
-        (self.repo / "app.py").write_text("value = 2\n", encoding="utf-8")
-        git(self.repo, "add", "app.py")
-        git(self.repo, "commit", "-m", "report delta")
-        head = git(self.repo, "rev-parse", "HEAD")
-        expected = expected_delta(self.repo, self.base, head, run_id="RUN-001", snapshot_id="snapshot-001")
-        row = {**expected[0], "product_relevant": False, "decision_ref": "D-090", "reviewer_id": "REV-A"}
+        head, row = self.make_delta()
         self.assertEqual([], self.verify(rows=[row], head=head))
         errors = self.verify(rows=[row, dict(row)], head=head)
         self.assertTrue(any("doppelt" in error for error in errors), errors)
@@ -104,29 +123,66 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any("Mengengleichheit" in error for error in self.verify(rows=[foreign], head=head)))
         self.assertTrue(any("Mengengleichheit" in error for error in self.verify(rows=[], head=head)))
 
+    def test_delta_exact_fields_disposition_reviewer_and_timestamp(self) -> None:
+        head, row = self.make_delta()
+        self.assertEqual(DELTA_FIELDS, set(row))
+        variants = []
+        missing = dict(row)
+        missing.pop("signed_at")
+        variants.append(missing)
+        variants.append({**row, "extra": True})
+        variants.append({**row, "disposition": "accepted"})
+        variants.append({**row, "reviewer_id": " "})
+        variants.append({**row, "signed_at": "2026-08-15T10:20:00"})
+        for value in variants:
+            with self.subTest(value=value):
+                self.assertTrue(self.verify(rows=[value], head=head))
+
     def test_expired_ttl_product_delta_and_naive_now_rejected(self) -> None:
         self.assertTrue(any(
             "TTL" in error
             for error in self.verify(now=datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc))
         ))
         self.assertTrue(any("timezone-aware" in error for error in self.verify(now=datetime(2026, 8, 15, 10, 30))))
-        (self.repo / "app.py").write_text("value = 2\n", encoding="utf-8")
-        git(self.repo, "add", "app.py")
-        git(self.repo, "commit", "-m", "product delta")
-        head = git(self.repo, "rev-parse", "HEAD")
-        row = expected_delta(self.repo, self.base, head, run_id="RUN-001", snapshot_id="snapshot-001")[0]
-        row.update(product_relevant=True, decision_ref="D-090", reviewer_id="REV-A")
+        head, row = self.make_delta()
+        row.update(product_relevant=True, disposition="reaudit-required")
         self.assertTrue(any("produktrelevant" in error for error in self.verify(rows=[row], head=head)))
 
-    def test_rename_old_path_is_part_of_exact_identity(self) -> None:
+    def test_rename_uses_schema_path_and_change_without_extra_fields(self) -> None:
         git(self.repo, "mv", "app.py", "renamed.py")
         git(self.repo, "commit", "-m", "rename")
-        head = git(self.repo, "rev-parse", "HEAD")
-        row = expected_delta(self.repo, self.base, head, run_id="RUN-001", snapshot_id="snapshot-001")[0]
-        row.update(product_relevant=False, decision_ref="D-090", reviewer_id="REV-A")
+        head = self.current_head()
+        row = self.disposition(expected_delta(self.repo, self.base, head, run_id="RUN-001")[0])
+        self.assertEqual("renamed", row["change"])
+        self.assertEqual("renamed.py", row["path"])
+        self.assertEqual(DELTA_FIELDS, set(row))
         self.assertEqual([], self.verify(rows=[row], head=head))
-        row["old_path"] = "wrong.py"
-        self.assertTrue(any("Mengengleichheit" in error for error in self.verify(rows=[row], head=head)))
+
+    def test_git_replace_objects_are_ignored(self) -> None:
+        head, row = self.make_delta()
+        git(self.repo, "replace", self.base, head)
+        expected = expected_delta(self.repo, self.base, head, run_id="RUN-001")
+        self.assertEqual(["modified"], [item["change"] for item in expected])
+        self.assertEqual([], self.verify(rows=[row], head=head))
+
+    def test_membership_type_matrix_never_crashes(self) -> None:
+        hostile = [[], {}, {"nested": []}, True, 1, None, "", " "]
+        for value in hostile:
+            with self.subTest(value=value):
+                errors = self.verify(rows=[{
+                    "run_id": "RUN-001", "base_commit": self.base,
+                    "head_commit": self.base, "path": "app.py", "change": "modified",
+                    "product_relevant": False, "disposition": value,
+                    "reviewer_id": "REV-A", "signed_at": "2026-08-15T10:20:00+00:00",
+                }])
+                self.assertTrue(errors)
+
+    def test_production_cli_has_no_now_override(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parents[2] / "tools/audit_delta_ttl.py"), "--help"],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertNotIn("--now", result.stdout)
 
 
 if __name__ == "__main__":

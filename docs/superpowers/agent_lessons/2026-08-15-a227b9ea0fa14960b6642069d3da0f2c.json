@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a227b9ea0fa14960b6642069d3da0f2c",
+  "recorded_at": "2026-08-15T23:22:02+00:00",
+  "session_id": "90e0fe80114046279751652ff5e157c6",
+  "head_at_start": "d0a458d4ff078af2ea777af2246e5db76af60715",
+  "problem": "Atomic cleanup tracked ownership only in memory; after another actor replaced the published version path, failure cleanup could delete foreign bytes.",
+  "cause": "An owned_version boolean proved only that this process had once published the path, not that the current filesystem object was still the same object.",
+  "rule": "Before destructive cleanup of a mutable shared path, revalidate a filesystem-resident unguessable ownership token immediately before deletion; an in-memory ownership flag alone never authorizes deletion.",
+  "applies_to": "atomic imports, version directories, temporary publication paths, concurrent filesystem writers"
+}
