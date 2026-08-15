@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c16b93725ea148d7a28059d8a5473a32",
+  "recorded_at": "2026-08-15T23:47:01+00:00",
+  "session_id": "4436b00b63954ae494ae41e24677bea3",
+  "head_at_start": "237e25d7e4c7a55f2f39575606234c5e4e5d8778",
+  "problem": "Safe relative artifact refs rejected a Windows drive colon only in the first segment, while nested ADS refs and Windows alias/device names remained accepted.",
+  "cause": "Path validation modeled POSIX traversal plus a first-segment drive check, but import materializes each segment through Windows filesystem semantics.",
+  "rule": "When a contract promises safe relative refs on Windows, validate every segment before filesystem use: reject colons/ADS, trailing dot or space aliases, and reserved device stems case-insensitively; preserve valid nested paths.",
+  "applies_to": "Windows artifact imports, archive extraction, content-addressed bundles, atomic staging paths"
+}
