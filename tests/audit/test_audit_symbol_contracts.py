@@ -194,6 +194,7 @@ class GateContractTests(unittest.TestCase):
         rows = []
         for symbol in self.symbols:
             evidence_id = self.symbol_evidence_id(symbol["symbol_id"])
+            is_runtime = symbol["symbol_id"] == self.runtime_records[0]["symbol_id"]
             incoming = [
                 edge["edge_id"] for edge in self.edges
                 if edge.get("target_symbol_id") == symbol["symbol_id"]
@@ -202,7 +203,7 @@ class GateContractTests(unittest.TestCase):
                 key: {"status": "reviewed", "evidence_ids": [evidence_id]}
                 for key in HARNESS.CONTRACT_KEYS
             }
-            rows.append({
+            row = {
                 **symbol,
                 "symbols_sha256": symbol_hash,
                 "edges_sha256": edge_hash,
@@ -215,15 +216,16 @@ class GateContractTests(unittest.TestCase):
                     "evidence_ids": [evidence_id],
                 },
                 "contracts": contracts,
-                "disposition": "non-runtime",
-                "runtime_evidence_ids": [],
-                "non_runtime_contract": {
-                    "kind": "static-contract",
-                    "evidence_id": evidence_id,
-                    "reason": "Contractfixture ohne Runtimebehauptung",
-                },
+                "disposition": "runtime" if is_runtime else "non-runtime",
+                "runtime_evidence_ids": [self.runtime_records[0]["evidence_id"]] if is_runtime else [],
                 "signed_at": self.SIGNED,
-            })
+            }
+            if not is_runtime:
+                row["non_runtime_contract"] = {
+                    "kind": "static-contract", "evidence_id": evidence_id,
+                    "reason": "Contractfixture ohne Runtimebehauptung",
+                }
+            rows.append(row)
         return rows
 
     def edge_states(self) -> list[dict]:
@@ -369,6 +371,108 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any("Reviewer" in error for error in errors))
         self.assertTrue(any("Evidence" in error for error in errors))
         self.assertTrue(any("Runtime" in error for error in errors))
+
+    def test_fully_resealed_foreign_runtime_package_is_rejected(self) -> None:
+        states = self.states()
+        runtime = copy.deepcopy(self.runtime_records)
+        runtime[0]["symbol_id"] = "FOREIGN-SYMBOL"
+        runtime[0]["path"] = "foreign.py"
+        runtime[0]["source_blob_sha256"] = "f" * 64
+        runtime[0] = HARNESS.seal_record(runtime[0])
+        manifest = HARNESS.make_artifact_manifest(
+            "runtime-evidence", runtime, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        proof = {field: runtime[0][field] for field in (
+            "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
+            "source_blob_sha256",
+        )}
+        proof["schema_version"] = 1
+        data = HARNESS._canonical(proof)
+        (self.repo / runtime[0]["proof_ref"]).write_bytes(data)
+        contract = copy.deepcopy(self.evidence_contract)
+        contract["artifacts"]["runtime-evidence"] = HARNESS.artifact_contract_entry(
+            runtime, "evidence/runtime.jsonl"
+        )
+        contract["artifacts"][f"runtime-proof:{runtime[0]['evidence_id']}"] = (
+            HARNESS.file_contract_entry(data, runtime[0]["proof_ref"])
+        )
+        contract = HARNESS.seal_evidence_contract({
+            key: value for key, value in contract.items()
+            if key != "evidence_contract_sha256"
+        })
+        old_runtime, old_manifest = self.runtime_records, self.manifests["runtime-evidence"]
+        old_contract, old_sha = self.evidence_contract, self.evidence_contract_sha
+        self.runtime_records, self.manifests["runtime-evidence"] = runtime, manifest
+        self.evidence_contract, self.evidence_contract_sha = (
+            contract, contract["evidence_contract_sha256"]
+        )
+        try:
+            errors = self.errors(states, self.edge_states())
+        finally:
+            self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
+            self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
+        self.assertTrue(any("Runtime-Evidence" in error and "fremde" in error for error in errors))
+
+    def test_runtime_evidence_schema_fks_and_exact_consumption_rejected(self) -> None:
+        states = self.states()
+        runtime_state = next(row for row in states if row["disposition"] == "runtime")
+        runtime_state["disposition"] = "non-runtime"
+        runtime_state["runtime_evidence_ids"] = []
+        runtime_state["non_runtime_contract"] = {
+            "kind": "static-contract",
+            "evidence_id": self.symbol_evidence_id(runtime_state["symbol_id"]),
+            "reason": "orphan repro",
+        }
+        self.assertTrue(any("Runtime-Evidence-Exact-Set" in error for error in self.errors(states, self.edge_states())))
+
+        states = self.states()
+        other = next(row for row in states if row["disposition"] != "runtime")
+        other["disposition"] = "runtime"
+        other["runtime_evidence_ids"] = [self.runtime_records[0]["evidence_id"]]
+        other.pop("non_runtime_contract")
+        errors = self.errors(states, self.edge_states())
+        self.assertTrue(any("mehrfach" in error for error in errors))
+        self.assertTrue(any("Runtime-Evidence-Symbol-FK" in error for error in errors))
+
+        for field, value, token in (
+            ("path", "wrong.py", "Source-Pfad/Blob"),
+            ("source_blob_sha256", "e" * 64, "Source-Pfad/Blob"),
+            ("reviewer_id", "REV-FOREIGN", "Reviewer-FK"),
+            ("evidence_kind", "runtime ", "evidence_kind"),
+        ):
+            runtime = copy.deepcopy(self.runtime_records)
+            runtime[0][field] = value
+            runtime[0] = HARNESS.seal_record(runtime[0])
+            old_runtime, old_manifest = self.runtime_records, self.manifests["runtime-evidence"]
+            self.runtime_records = runtime
+            self.manifests["runtime-evidence"] = HARNESS.make_artifact_manifest(
+                "runtime-evidence", runtime, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            try:
+                errors = self.errors(self.states(), self.edge_states())
+            finally:
+                self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
+            self.assertTrue(any(token in error for error in errors), field)
+
+        runtime = copy.deepcopy(self.runtime_records)
+        runtime[0]["extra"] = "not-allowed"
+        runtime[0] = HARNESS.seal_record(runtime[0])
+        old_runtime, old_manifest = self.runtime_records, self.manifests["runtime-evidence"]
+        self.runtime_records = runtime
+        self.manifests["runtime-evidence"] = HARNESS.make_artifact_manifest(
+            "runtime-evidence", runtime, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        try:
+            errors = self.errors(self.states(), self.edge_states())
+        finally:
+            self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
+        self.assertTrue(any("Schemafelder nicht exakt" in error for error in errors))
 
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()

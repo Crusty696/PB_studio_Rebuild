@@ -907,8 +907,32 @@ def validate_contracts(
 
     for number, runtime in enumerate(runtime_records, 1):
         label = f"Runtime-Evidence Zeile {number}"
+        expected_fields = {
+            "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
+            "source_blob_sha256", "proof_ref", "run_id", "audited_commit",
+            "tooling_commit", "snapshot_id", "signed_at", "record_sha256",
+        }
+        if set(runtime) != expected_fields:
+            errors.append(f"{label}: Schemafelder nicht exakt")
         if runtime.get("evidence_kind") != "runtime":
             errors.append(f"{label}: evidence_kind ungueltig")
+        _validate_binding(
+            runtime, label, run_id, audited_commit, tooling_commit, snapshot_id, errors,
+        )
+        source = symbol_map.get(str(runtime.get("symbol_id", "")))
+        if source is None:
+            errors.append(f"{label}: fremde symbol_id")
+        elif (
+            runtime.get("path") != source.get("path")
+            or runtime.get("source_blob_sha256") != source.get("source_blob_sha256")
+        ):
+            errors.append(f"{label}: Source-Pfad/Blob falsch")
+        if runtime.get("reviewer_id") not in reviewer_ids:
+            errors.append(f"{label}: Reviewer-FK fehlt")
+        if not _safe_ref(runtime.get("proof_ref")):
+            errors.append(f"{label}: proof_ref ungueltig")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(runtime.get("source_blob_sha256", ""))):
+            errors.append(f"{label}: source_blob_sha256 ungueltig")
         proof_expected = {field: runtime.get(field) for field in (
             "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
             "source_blob_sha256",
@@ -984,6 +1008,7 @@ def validate_contracts(
                     errors.append(f"{label}: Evidence-Kanten-FK falsch")
 
     seen_symbols: set[str] = set()
+    runtime_consumers: dict[str, int] = {}
     for number, row in enumerate(states, 1):
         symbol_id = str(row.get("symbol_id", ""))
         label = f"Symbol-State Zeile {number}/{symbol_id}"
@@ -1061,17 +1086,21 @@ def validate_contracts(
         disposition = row.get("disposition")
         if disposition not in SYMBOL_DISPOSITIONS:
             errors.append(f"{label}: disposition ungueltig")
-        if disposition == "runtime" and not row.get("runtime_evidence_ids"):
-            errors.append(f"{label}: Runtime-Disposition ohne Evidence-ID")
-        elif disposition == "runtime" and any(
-            evidence_id not in runtime_evidence_ids for evidence_id in row.get("runtime_evidence_ids", [])
-        ):
-            errors.append(f"{label}: unbekannte Runtime-Evidence-ID")
-        elif disposition == "runtime" and any(
-            artifact_indexes[1][evidence_id].get("symbol_id") != symbol_id
-            for evidence_id in row.get("runtime_evidence_ids", [])
-        ):
-            errors.append(f"{label}: Runtime-Evidence-Symbol-FK falsch")
+        if disposition == "runtime":
+            runtime_ids = row.get("runtime_evidence_ids")
+            if not isinstance(runtime_ids, list) or not runtime_ids:
+                errors.append(f"{label}: Runtime-Disposition ohne Evidence-ID")
+            else:
+                string_runtime_ids = [value for value in runtime_ids if isinstance(value, str)]
+                if len(string_runtime_ids) != len(runtime_ids) or len(string_runtime_ids) != len(set(string_runtime_ids)):
+                    errors.append(f"{label}: Runtime-Evidence-ID doppelt konsumiert")
+                for evidence_id in runtime_ids:
+                    if not isinstance(evidence_id, str) or evidence_id not in runtime_evidence_ids:
+                        errors.append(f"{label}: unbekannte Runtime-Evidence-ID")
+                        continue
+                    runtime_consumers[evidence_id] = runtime_consumers.get(evidence_id, 0) + 1
+                    if artifact_indexes[1][evidence_id].get("symbol_id") != symbol_id:
+                        errors.append(f"{label}: Runtime-Evidence-Symbol-FK falsch")
         if disposition == "non-runtime":
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
@@ -1124,6 +1153,15 @@ def validate_contracts(
         errors.append(
             "Kanten-Exact-Set verletzt: "
             f"fehlend={sorted(set(edge_map) - seen_edges)!r}, extra={sorted(seen_edges - set(edge_map))!r}"
+        )
+    orphan_runtime = runtime_evidence_ids - set(runtime_consumers)
+    duplicate_runtime = sorted(
+        evidence_id for evidence_id, count in runtime_consumers.items() if count != 1
+    )
+    if orphan_runtime or duplicate_runtime:
+        errors.append(
+            "Runtime-Evidence-Exact-Set verletzt: "
+            f"orphan={sorted(orphan_runtime)!r}, mehrfach={duplicate_runtime!r}"
         )
     if not expected_symbols:
         errors.append("Symboluniversum ist leer")

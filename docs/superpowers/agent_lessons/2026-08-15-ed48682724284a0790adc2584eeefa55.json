@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ed48682724284a0790adc2584eeefa55",
+  "recorded_at": "2026-08-15T21:12:44+00:00",
+  "session_id": "dc5550053da74fd79e169472f05421f2",
+  "head_at_start": "56785814ba357aa0206b4779472459ba25cca54b",
+  "problem": "Ein vollstaendig neu versiegeltes Runtime-Evidence-Artefakt konnte als unreferenzierter oder fremd gebundener Datensatz im Evidence-Contract liegen und trotzdem PASS erlauben",
+  "cause": "Validator pruefte Runtime-Evidence nur bei Referenz aus einem Symbol-State; Rows selbst hatten weder exaktes Schema noch kanonische Symbol-/Reviewer-/Source-FKs und keine inverse Consumption-Exact-Set-Pruefung",
+  "rule": "Jedes Evidence-Universum zuerst zeilenweise unabhaengig gegen kanonische Ziel-, Reviewer-, Source-, Zeit- und Proof-FKs validieren; danach inverse Exact-Set-Pruefung erzwingen, sodass jede Evidence-ID genau einmal durch einen zulaessigen Statevertrag konsumiert wird",
+  "applies_to": "Runtime-Evidence, Audit-Ledger, State-/Edge-Vertraege, Completion-Gates"
+}
