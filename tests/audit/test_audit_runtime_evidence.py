@@ -66,7 +66,7 @@ raise SystemExit(exit_code)
 '''
 
 
-class RuntimeEvidenceContractTests(unittest.TestCase):
+class GateContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.shared = tempfile.TemporaryDirectory()
@@ -212,11 +212,13 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
     def run_valid(
         self, runtime_run_id: str = "LIVE-001", scenario_id: str = "SCN-001", *,
         expected_contract_sha256: str | None = None, authority_commit: str | None = None,
+        expected_authority_commit: str | None = None,
         authority_policy_path: str = "config/audit_runtime_authority_policy.json",
     ) -> dict:
         return self.tool.run_scenario(repo_root=self.repo, evidence_root=self.evidence, contract_path=self.contract_path,
             expected_contract_sha256=expected_contract_sha256 or self.expected_contract_sha256,
             authority_commit=authority_commit or self.authority_commit,
+            expected_authority_commit=expected_authority_commit or self.authority_commit,
             authority_policy_path=authority_policy_path, scenario_id=scenario_id, runtime_run_id=runtime_run_id)
 
     def test_positive_minimal(self) -> None:
@@ -233,6 +235,11 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         self.assertEqual(receipt["materialization"]["method"], "git-cat-file")
         self.assertNotEqual(receipt["audited_commit"], receipt["tooling_commit"])
         self.assertEqual(receipt["authority"]["authority_commit"], self.authority_commit)
+        self.assertEqual(receipt["authority"]["expected_authority_commit"], self.authority_commit)
+        self.assertEqual(
+            receipt["authority"]["trust_boundary"],
+            "trusted-external-authority-pin-required; compromised-external-pin-not-detected",
+        )
         expected_blob = subprocess.run(
             ["git", "rev-parse", f"{self.authority_commit}:config/audit_runtime_authority_policy.json"],
             cwd=self.repo, check=True, capture_output=True, text=True,
@@ -283,8 +290,60 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
             bind_authority=False, plan_id="PLAN-FOREIGN", run_id="RUN-FOREIGN",
             snapshot_id="snapshot-foreign", audited_commit="1" * 40, tooling_commit="2" * 40,
         )
-        with self.assertRaisesRegex(self.tool.ContractError, "Authority-Policy.*(plan_id|run_id|snapshot_id|audited_commit|tooling_commit)|Authority"):
-            self.run_valid(authority_commit=pinned_authority, expected_contract_sha256=self.expected_contract_sha256)
+        foreign_authority = self.write_authority_policy()
+        with self.assertRaisesRegex(self.tool.ContractError, "expected_authority_commit|Authority"):
+            self.run_valid(
+                authority_commit=foreign_authority,
+                expected_authority_commit=pinned_authority,
+                expected_contract_sha256=self.expected_contract_sha256,
+            )
+
+    def test_missing_or_mismatched_external_authority_pin_rejected(self) -> None:
+        with self.assertRaises(TypeError):
+            self.tool.run_scenario(
+                repo_root=self.repo, evidence_root=self.evidence, contract_path=self.contract_path,
+                expected_contract_sha256=self.expected_contract_sha256,
+                authority_commit=self.authority_commit,
+                authority_policy_path="config/audit_runtime_authority_policy.json",
+                scenario_id="SCN-001", runtime_run_id="LIVE-NO-PIN",
+            )
+        cli_without_pin = [
+            "audit_runtime_evidence.py", "--root", str(self.repo),
+            "--evidence-root", str(self.evidence), "--audit-contract", str(self.contract_path),
+            "--expected-contract-sha256", self.expected_contract_sha256,
+            "--authority-commit", self.authority_commit,
+            "--scenario-id", "SCN-001", "--runtime-run-id", "LIVE-NO-CLI-PIN",
+        ]
+        with mock.patch.object(self.tool.sys, "argv", cli_without_pin):
+            with self.assertRaisesRegex(SystemExit, "2"):
+                self.tool.main()
+        with self.assertRaisesRegex(self.tool.ContractError, "expected_authority_commit|Authority"):
+            self.run_valid(expected_authority_commit="0" * 40)
+
+    def test_git_replace_cannot_substitute_pinned_authority_policy(self) -> None:
+        pinned_authority = self.authority_commit
+        row = self.valid_scenario()
+        row.update({"run_id": "RUN-FOREIGN", "snapshot_id": "snapshot-foreign"})
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
+        self.write_catalog([row])
+        self.write_contract(
+            bind_authority=False, plan_id="PLAN-FOREIGN", run_id="RUN-FOREIGN",
+            snapshot_id="snapshot-foreign",
+        )
+        malicious_authority = self.write_authority_policy()
+        subprocess.run(
+            ["git", "replace", pinned_authority, malicious_authority], cwd=self.repo, check=True,
+        )
+        try:
+            with self.assertRaisesRegex(self.tool.ContractError, "Authority-Policy|Authority"):
+                self.run_valid(
+                    authority_commit=pinned_authority,
+                    expected_authority_commit=pinned_authority,
+                    expected_contract_sha256=self.expected_contract_sha256,
+                )
+            self.assertFalse((self.evidence / "runs" / "LIVE-001" / "receipt.json").exists())
+        finally:
+            subprocess.run(["git", "replace", "-d", pinned_authority], cwd=self.repo, check=True)
 
     def test_wrong_authority_commit_path_blob_field_and_sha_rejected(self) -> None:
         with self.assertRaisesRegex(self.tool.ContractError, "authority_commit.*tooling_commit|Authority"):
@@ -307,7 +366,10 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
         with self.assertRaisesRegex(self.tool.ContractError, "Exact-Fields"):
             self.run_valid(authority_commit=bad_blob_commit)
         with self.assertRaisesRegex(self.tool.ContractError, "getrennt"):
-            self.run_valid(authority_commit=self.audited_commit)
+            self.run_valid(
+                authority_commit=self.audited_commit,
+                expected_authority_commit=self.audited_commit,
+            )
 
     def test_scenario_schema_version_exact(self) -> None:
         row = self.valid_scenario(); row["schema_version"] = 2
@@ -409,7 +471,7 @@ class RuntimeEvidenceContractTests(unittest.TestCase):
 
 
 def _node(method: str) -> unittest.TestCase:
-    return RuntimeEvidenceContractTests(method)
+    return GateContractTests(method)
 
 def test_positive_minimal() -> unittest.TestCase: return _node("test_positive_minimal")
 def test_missing_required_rejected() -> unittest.TestCase: return _node("test_missing_required_rejected")

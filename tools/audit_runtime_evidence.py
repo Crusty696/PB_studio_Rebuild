@@ -89,9 +89,11 @@ def _sha(path: Path) -> str:
 
 
 def _git(repo: Path, *args: str, input_data: bytes | None = None, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+    env = os.environ.copy()
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
     return subprocess.run(
         ["git", *args], cwd=repo, input=input_data, check=check,
-        capture_output=True, shell=False,
+        capture_output=True, shell=False, env=env,
     )
 
 
@@ -209,11 +211,16 @@ def _load_contract(evidence: Path, contract_path: Path) -> tuple[dict[str, Any],
 
 
 def _load_authority_policy(
-    repo: Path, authority_commit: str, tooling_commit: str, policy_path: str,
+    repo: Path, authority_commit: str, expected_authority_commit: str,
+    tooling_commit: str, policy_path: str,
     expected_contract_sha256: str, contract: dict[str, Any],
 ) -> tuple[dict[str, Any], bytes, str]:
     if not isinstance(authority_commit, str) or not SHA_RE.fullmatch(authority_commit):
         raise ContractError("authority_commit muss voller SHA sein")
+    if not isinstance(expected_authority_commit, str) or not SHA_RE.fullmatch(expected_authority_commit):
+        raise ContractError("expected_authority_commit muss attestierter voller SHA sein")
+    if authority_commit != expected_authority_commit:
+        raise ContractError("Authority authority_commit stimmt nicht mit extern attestiertem expected_authority_commit ueberein")
     if authority_commit in {tooling_commit, contract.get("audited_commit")}:
         raise ContractError("authority_commit muss von audited_commit und tooling_commit getrennt sein")
     if _git(repo, "cat-file", "-e", f"{authority_commit}^{{commit}}", check=False).returncode != 0:
@@ -836,9 +843,16 @@ def _remove_tree(path: Path) -> None:
 
 def run_scenario(
     *, repo_root: Path, evidence_root: Path, contract_path: Path,
-    expected_contract_sha256: str, authority_commit: str, authority_policy_path: str,
+    expected_contract_sha256: str, authority_commit: str, expected_authority_commit: str,
+    authority_policy_path: str,
     scenario_id: str, runtime_run_id: str,
 ) -> dict[str, Any]:
+    """Run one bound scenario.
+
+    ``expected_authority_commit`` is a trust input attested by the external
+    readiness/authority caller. This runner detects substitution against that
+    pin; it cannot detect compromise of the caller or of the pin supplied by it.
+    """
     repo = repo_root.resolve()
     evidence = evidence_root.resolve()
     contract_path = contract_path.resolve()
@@ -850,7 +864,8 @@ def run_scenario(
         raise ContractError("runtime_run_id ungueltig")
     contract, contract_bytes, refs = _load_contract(evidence, contract_path)
     authority, authority_bytes, authority_blob = _load_authority_policy(
-        repo, authority_commit, contract["tooling_commit"], authority_policy_path,
+        repo, authority_commit, expected_authority_commit,
+        contract["tooling_commit"], authority_policy_path,
         expected_contract_sha256, contract,
     )
     catalog_path, catalog_bytes = refs["scenario_catalog"]
@@ -1089,8 +1104,10 @@ def run_scenario(
             "scenario_sha256": row["scenario_sha256"], "timestamp": timestamp,
             "authority": {"git_blob": authority_blob, "path": authority_policy_path,
                           "authority_commit": authority_commit,
+                          "expected_authority_commit": expected_authority_commit,
                           "sha256": _sha_bytes(authority_bytes), "policy": authority,
-                          "expected_contract_sha256": expected_contract_sha256},
+                          "expected_contract_sha256": expected_contract_sha256,
+                          "trust_boundary": "trusted-external-authority-pin-required; compromised-external-pin-not-detected"},
             "audit_contract": {"ref": f"runs/{runtime_run_id}/sealed/audit_contract.json",
                                "sha256": _sha_bytes(contract_bytes), "contract_sha256": contract["contract_sha256"]},
             "scenario_catalog": {"ref": f"runs/{runtime_run_id}/sealed/scenario_catalog.jsonl", "sha256": _sha_bytes(catalog_bytes)},
@@ -1176,6 +1193,10 @@ def main() -> int:
     parser.add_argument("--audit-contract", type=Path, required=True)
     parser.add_argument("--expected-contract-sha256", required=True)
     parser.add_argument("--authority-commit", required=True)
+    parser.add_argument(
+        "--expected-authority-commit", required=True,
+        help="Vom vertrauenswuerdigen uebergeordneten Caller attestierter Authority-Commit",
+    )
     parser.add_argument("--authority-policy-path", default=AUTHORITY_POLICY_PATH)
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument("--runtime-run-id", required=True)
@@ -1184,7 +1205,9 @@ def main() -> int:
         receipt = run_scenario(
             repo_root=args.root, evidence_root=args.evidence_root,
             contract_path=args.audit_contract, expected_contract_sha256=args.expected_contract_sha256,
-            authority_commit=args.authority_commit, authority_policy_path=args.authority_policy_path,
+            authority_commit=args.authority_commit,
+            expected_authority_commit=args.expected_authority_commit,
+            authority_policy_path=args.authority_policy_path,
             scenario_id=args.scenario_id,
             runtime_run_id=args.runtime_run_id,
         )
