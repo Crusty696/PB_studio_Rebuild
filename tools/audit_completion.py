@@ -58,6 +58,11 @@ SHARD_SPEC_FIELDS = {
 SAFE_IMPORT_ID = re.compile(r"IMPORT-[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
 FULL_SHA256 = re.compile(r"[0-9a-f]{64}")
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 ATTACHMENT_KEY = re.compile(
     r"(?:feature-proof|symbol-proof|runtime-proof):[^\s]+"
     r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
@@ -140,7 +145,13 @@ def _safe_ref(relative: Any) -> PurePosixPath:
     ref = PurePosixPath(relative)
     if ref.is_absolute() or any(part in {"", ".", ".."} for part in ref.parts):
         raise CompletionError(f"Artifact-Ref ungueltig: {relative!r}")
-    if relative != ref.as_posix() or ":" in ref.parts[0]:
+    windows_unsafe = any(
+        ":" in part
+        or part.endswith((".", " "))
+        or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+        for part in ref.parts
+    )
+    if relative != ref.as_posix() or windows_unsafe:
         raise CompletionError(f"Artifact-Ref nicht kanonisch: {relative!r}")
     return ref
 

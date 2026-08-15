@@ -357,6 +357,27 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(CompletionError, "SHA256"):
             self.do_import()
 
+    def test_windows_unsafe_refs_rejected_without_breaking_nested_refs(self) -> None:
+        self.assertEqual(
+            "attachments/runtime/RE-1.json",
+            completion._safe_ref("attachments/runtime/RE-1.json").as_posix(),
+        )
+        for unsafe in (
+            "dir/name:stream",
+            "a/b:c/d",
+            "dir/trailing.",
+            "dir/trailing ",
+            "CON",
+            "dir/prn.txt",
+            "a/AUX/b",
+            "dir/nul.json",
+            "COM1",
+            "nested/lpt1.log",
+        ):
+            with self.subTest(unsafe=unsafe):
+                with self.assertRaises(CompletionError):
+                    completion._safe_ref(unsafe)
+
     def test_proof_sha_is_mandatory_and_runtime_proof_cannot_have_two_authorities(self) -> None:
         path = self.bundle / "records/feature-state-evidence.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines()]
