@@ -590,6 +590,7 @@ class GateContractTests(unittest.TestCase):
                 states[0].pop("role")
             self.assertTrue(any("Schemafelder nicht exakt" in error for error in validate(states, edges)), operation)
 
+        for operation in ("extra", "missing"):
             states, edges = self.states(), self.edge_states()
             if operation == "extra":
                 edges[0]["unexpected"] = True
@@ -615,6 +616,56 @@ class GateContractTests(unittest.TestCase):
             else:
                 cell.pop("evidence_ids")
             self.assertTrue(any("Schemafelder nicht exakt" in error for error in validate(states, edges)), operation)
+
+    def test_resealed_caller_incoming_and_non_runtime_contract_rejected(self) -> None:
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+
+        def validate(states):
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["symbol-state"] = HARNESS.artifact_contract_entry(
+                states, "evidence/symbol-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_contract, self.evidence_contract_sha = (
+                contract, contract["evidence_contract_sha256"]
+            )
+            try:
+                return self.errors(states, self.edge_states())
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        for operation in ("extra", "missing"):
+            states = self.states()
+            caller = states[0]["caller_contract"]
+            if operation == "extra":
+                caller["unexpected"] = True
+            else:
+                caller.pop("edge_ids")
+            self.assertTrue(any("Caller-Contract Schemafelder" in error for error in validate(states)), operation)
+
+        states = self.states()
+        incoming_state = next(
+            row for row in states if row["caller_contract"]["kind"] == "incoming-edges"
+        )
+        incoming_id = incoming_state["caller_contract"]["edge_ids"][0]
+        incoming_state["caller_contract"]["edge_ids"] = [incoming_id, incoming_id]
+        self.assertTrue(any("Caller-edge_ids" in error and "doppelt" in error for error in validate(states)))
+
+        for operation in ("extra", "missing", "fabricated"):
+            states = self.states()
+            state = next(row for row in states if row["disposition"] == "non-runtime")
+            contract = state["non_runtime_contract"]
+            if operation == "extra":
+                contract["unexpected"] = True
+            elif operation == "missing":
+                contract.pop("reason")
+            else:
+                contract["kind"] = "fabricated-contract"
+            errors = validate(states)
+            self.assertTrue(any("Non-Runtime-Vertrag" in error for error in errors), operation)
 
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "25f37737c7124a2ca4fde25df552a29c",
+  "recorded_at": "2026-08-15T22:15:55+00:00",
+  "session_id": "625b67215d8748fdb43f7d72696de98f",
+  "head_at_start": "5bbace0386fa2d3be77c258e11e09d679b5563a0",
+  "problem": "Neu versiegelte Symbol-States konnten Caller-Kanten duplizieren oder fabricated Non-Runtime-Vertragsarten behaupten",
+  "cause": "Caller- und Non-Runtime-Unterobjekte wurden nur auf einzelne truthy Werte und Set-Gleichheit geprueft; unbekannte Felder, Listenkardinalitaet und kind-Domain blieben offen",
+  "rule": "Auch verschachtelte Contractobjekte als exakte Feldschemas validieren; Listen vor Mengenvergleich auf Typ und Duplikate pruefen; Discriminator/kind nur aus expliziter Enum akzeptieren",
+  "applies_to": "Symbol-State Caller-Contracts, Incoming-Edges, Non-Runtime-Contracts, Audit-Harnesses"
+}

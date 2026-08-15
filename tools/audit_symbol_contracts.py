@@ -24,6 +24,7 @@ from typing import Any, Iterable
 CONTRACT_KEYS = ("inputs", "outputs", "side_effects", "errors", "config", "persistence")
 EDGE_DISPOSITIONS = {"resolved", "dynamic", "framework", "unreferenced", "unknown"}
 SYMBOL_DISPOSITIONS = {"runtime", "non-runtime", "unknown"}
+NON_RUNTIME_CONTRACT_KINDS = {"static-contract"}
 PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
 SUPPORTED_SQL_DIALECT = "sqlite"
 
@@ -1079,6 +1080,8 @@ def validate_contracts(
         if not isinstance(caller, dict) or caller.get("kind") not in {"incoming-edges", "framework-hook", "entrypoint", "unreferenced"}:
             errors.append(f"{label}: Caller-/Frameworkvertrag fehlt")
         else:
+            if set(caller) != {"kind", "edge_ids", "evidence_ids"}:
+                errors.append(f"{label}: Caller-Contract Schemafelder nicht exakt")
             validate_evidence(
                 caller.get("evidence_ids"), f"{label}/Caller", symbol_id=symbol_id,
                 reviewer_id=row.get("reviewer_id"), signed_at=row.get("signed_at"),
@@ -1100,8 +1103,12 @@ def validate_contracts(
                 )
                 for trigger in canonical_triggers
             )
-            if not isinstance(caller_edges, list):
-                errors.append(f"{label}: Caller-edge_ids fehlt")
+            if (
+                not isinstance(caller_edges, list)
+                or any(not isinstance(edge_id, str) for edge_id in caller_edges)
+                or len(caller_edges) != len(set(caller_edges))
+            ):
+                errors.append(f"{label}: Caller-edge_ids fehlt/ungueltig/doppelt")
             elif incoming:
                 if caller.get("kind") != "incoming-edges" or set(caller_edges) != incoming:
                     errors.append(f"{label}: kanonische Incoming-Kanten nicht exakt dispositioniert")
@@ -1155,13 +1162,20 @@ def validate_contracts(
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
             contract = row.get("non_runtime_contract")
-            if not isinstance(contract, dict) or not all(contract.get(key) for key in ("kind", "evidence_id", "reason")):
+            if not isinstance(contract, dict):
                 errors.append(f"{label}: Non-Runtime-Vertrag fehlt")
-            elif contract["evidence_id"] not in evidence_ids:
-                errors.append(f"{label}: Non-Runtime-Vertrag referenziert unbekannte Evidence-ID")
-            elif artifact_indexes[3][contract["evidence_id"]].get("symbol_id") != symbol_id:
-                errors.append(f"{label}: Non-Runtime-Evidence-Symbol-FK falsch")
             else:
+                if set(contract) != {"kind", "evidence_id", "reason"}:
+                    errors.append(f"{label}: Non-Runtime-Vertrag Schemafelder nicht exakt")
+                if contract.get("kind") not in NON_RUNTIME_CONTRACT_KINDS:
+                    errors.append(f"{label}: Non-Runtime-Vertrag kind ungueltig")
+                if not contract.get("evidence_id") or not contract.get("reason"):
+                    errors.append(f"{label}: Non-Runtime-Vertrag Pflichtfeld fehlt")
+            if isinstance(contract, dict) and contract.get("evidence_id") not in evidence_ids:
+                errors.append(f"{label}: Non-Runtime-Vertrag referenziert unbekannte Evidence-ID")
+            elif isinstance(contract, dict) and artifact_indexes[3][contract["evidence_id"]].get("symbol_id") != symbol_id:
+                errors.append(f"{label}: Non-Runtime-Evidence-Symbol-FK falsch")
+            elif isinstance(contract, dict):
                 evidence_consumers.add(contract["evidence_id"])
                 evidence = artifact_indexes[3][contract["evidence_id"]]
                 if evidence.get("reviewer_id") != row.get("reviewer_id"):
