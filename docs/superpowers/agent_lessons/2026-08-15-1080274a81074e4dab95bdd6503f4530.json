@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1080274a81074e4dab95bdd6503f4530",
+  "recorded_at": "2026-08-15T14:01:10+00:00",
+  "session_id": "6675bc55f3af453eb0a5d1e6fef4c776",
+  "head_at_start": "0601e580678c80231d497ba6a800043d35bf1adb",
+  "problem": "Ein Auditplan konnte formale Ledger-Vollstaendigkeit behaupten, obwohl Featureuniversum, Runtimeartefakte, Symbolzustaende, Revieweridentitaet und Auditcommit nicht referenziell gebunden waren.",
+  "cause": "Vorhandene Validatoren prueften einzelne Records und Current HEAD, aber nicht unabhaengige Exact-Set-Universen, content-addressed Evidenz, Parent-Lineage, Delta/TTL oder atomaren Import.",
+  "rule": "Vollaudit erst aktivieren, wenn vor dem Snapshot alle Universums-, Evidenz-, Identitaets-, Delta- und Completion-Harnesses samt positiven und negativen Contracttests existieren; Audit immer an unveraenderlichen audited_commit statt bewegliches HEAD binden.",
+  "applies_to": "Projektweite Codeaudits, Evidence-Ledger, Zwei-Pass-Reviews, Runtime-Verifikation"
+}
