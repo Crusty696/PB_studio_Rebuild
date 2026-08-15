@@ -936,6 +936,13 @@ def validate_exact_set(
         str(row.get("source_id", "")) for rows in universes.values() for row in rows
     }
     for row in features_by_id.values():
+        catalog_fields = {
+            "catalog_id", "feature_id", "path_id", "name", "source_ids",
+            "run_id", "audited_commit", "tooling_commit", "snapshot_id",
+            "signed_at", "record_sha256",
+        }
+        if set(row) != catalog_fields:
+            errors.append("Featurekatalog: Schemafelder nicht exakt")
         pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
         if not all(pair) or pair in feature_pairs:
             errors.append("Featurekatalog: Feature-/Pfad-ID fehlt/doppelt")
@@ -978,7 +985,16 @@ def validate_exact_set(
 
     seen: set[tuple[str, str]] = set()
     disposition_sources: dict[tuple[str, str], set[str]] = {}
+    evidence_consumers: dict[str, int] = {}
     for number, row in enumerate(dispositions, 1):
+        state_fields = {
+            "universe", "source_id", "run_id", "audited_commit", "tooling_commit",
+            "snapshot_id", "universe_sha256", "disposition", "feature_id",
+            "path_id", "evidence_id", "reviewer_id", "signed_at",
+            "source_blob_sha256",
+        }
+        if set(row) != state_fields:
+            errors.append(f"Disposition Zeile {number}: Schemafelder nicht exakt")
         kind = str(row.get("universe", ""))
         source_id = str(row.get("source_id", ""))
         key = (kind, source_id)
@@ -1012,6 +1028,9 @@ def validate_exact_set(
         if source is not None and row.get("source_blob_sha256") != source.get("source_blob_sha256"):
             errors.append(f"Disposition Zeile {number}: Source-Blob falsch")
         evidence = evidence_by_id.get(str(row.get("evidence_id", "")))
+        evidence_id = str(row.get("evidence_id", ""))
+        if evidence_id:
+            evidence_consumers[evidence_id] = evidence_consumers.get(evidence_id, 0) + 1
         reviewer = reviewers_by_id.get(str(row.get("reviewer_id", "")))
         if reviewer is None:
             errors.append(f"Disposition Zeile {number}: Reviewer-FK fehlt")
@@ -1047,6 +1066,17 @@ def validate_exact_set(
                 f"unused={sorted(claimed - consumed)!r}, "
                 f"unclaimed={sorted(consumed - claimed)!r}"
             )
+    evidence_closure = {
+        evidence_id: evidence_consumers.get(evidence_id, 0)
+        for evidence_id in evidence_by_id
+        if evidence_consumers.get(evidence_id, 0) != 1
+    }
+    foreign_consumers = set(evidence_consumers) - set(evidence_by_id)
+    if evidence_closure or foreign_consumers:
+        errors.append(
+            "Feature-Evidence-Consumer-Closure verletzt: "
+            f"counts={evidence_closure!r}, foreign={sorted(foreign_consumers)!r}"
+        )
     return errors
 
 

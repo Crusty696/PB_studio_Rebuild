@@ -559,6 +559,63 @@ class GateContractTests(unittest.TestCase):
                 self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
             self.assertTrue(any(f"{prefix}-Key-Exact-Set" in error for error in errors))
 
+    def test_resealed_state_edge_and_contract_exact_fields_rejected(self) -> None:
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+
+        def validate(states, edges):
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["symbol-state"] = HARNESS.artifact_contract_entry(
+                states, "evidence/symbol-state.jsonl"
+            )
+            contract["artifacts"]["edge-state"] = HARNESS.artifact_contract_entry(
+                edges, "evidence/edge-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_contract, self.evidence_contract_sha = (
+                contract, contract["evidence_contract_sha256"]
+            )
+            try:
+                return self.errors(states, edges)
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        for operation in ("extra", "missing"):
+            states, edges = self.states(), self.edge_states()
+            if operation == "extra":
+                states[0]["unexpected"] = True
+            else:
+                states[0].pop("role")
+            self.assertTrue(any("Schemafelder nicht exakt" in error for error in validate(states, edges)), operation)
+
+            states, edges = self.states(), self.edge_states()
+            if operation == "extra":
+                edges[0]["unexpected"] = True
+            else:
+                edges[0].pop("column")
+            self.assertTrue(any("Schemafelder nicht exakt" in error for error in validate(states, edges)), operation)
+
+            states, edges = self.states(), self.edge_states()
+            if operation == "extra":
+                states[0]["contracts"]["unexpected"] = {
+                    "status": "reviewed", "evidence_ids": [
+                        self.symbol_evidence_id(states[0]["symbol_id"])
+                    ],
+                }
+            else:
+                states[0]["contracts"].pop(HARNESS.CONTRACT_KEYS[0])
+            self.assertTrue(any("Contract-Objekt Felder nicht exakt" in error for error in validate(states, edges)), operation)
+
+            states, edges = self.states(), self.edge_states()
+            cell = states[0]["contracts"][HARNESS.CONTRACT_KEYS[0]]
+            if operation == "extra":
+                cell["unexpected"] = True
+            else:
+                cell.pop("evidence_ids")
+            self.assertTrue(any("Schemafelder nicht exakt" in error for error in validate(states, edges)), operation)
+
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()
         target = states[0]
