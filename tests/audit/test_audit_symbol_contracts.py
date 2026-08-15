@@ -710,6 +710,68 @@ class GateContractTests(unittest.TestCase):
             errors = validate(states)
             self.assertTrue(any("feature_ids" in error for error in errors), repr(feature_ids))
 
+    def test_resealed_discriminator_and_unknown_reason_type_matrix_rejected(self) -> None:
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+
+        def validate(states, edges=None):
+            edges = edges or self.edge_states()
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["symbol-state"] = HARNESS.artifact_contract_entry(
+                states, "evidence/symbol-state.jsonl"
+            )
+            contract["artifacts"]["edge-state"] = HARNESS.artifact_contract_entry(
+                edges, "evidence/edge-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_contract, self.evidence_contract_sha = (
+                contract, contract["evidence_contract_sha256"]
+            )
+            try:
+                return self.errors(states, edges)
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        for value in ([], {}, "", " "):
+            mutations = (
+                ("caller kind", lambda rows: rows[0]["caller_contract"].__setitem__("kind", value)),
+                ("contract status", lambda rows: rows[0]["contracts"][HARNESS.CONTRACT_KEYS[0]].__setitem__("status", value)),
+                ("non-runtime kind", lambda rows: next(row for row in rows if row["disposition"] == "non-runtime")["non_runtime_contract"].__setitem__("kind", value)),
+                ("role", lambda rows: rows[0].__setitem__("role", value)),
+                ("symbol disposition", lambda rows: rows[0].__setitem__("disposition", value)),
+            )
+            for label, mutate in mutations:
+                states = self.states()
+                mutate(states)
+                errors = validate(states)
+                self.assertTrue(
+                    any(
+                        "ungueltig" in error
+                        or (label == "caller kind" and "Caller-/Frameworkvertrag" in error)
+                        for error in errors
+                    ),
+                    label,
+                )
+
+            edges = self.edge_states()
+            edges[0]["disposition"] = value
+            self.assertTrue(any("disposition ungueltig" in error for error in validate(self.states(), edges)))
+
+        for value in ([], {}, "", " "):
+            states = self.states()
+            state = next(row for row in states if row["disposition"] == "non-runtime")
+            state["disposition"] = "unknown"
+            state.pop("non_runtime_contract")
+            state["unknown_reason"] = value
+            self.assertTrue(any("UNKNOWN" in error for error in validate(states)), repr(value))
+
+            edges = self.edge_states()
+            edges[0]["disposition"] = "unknown"
+            edges[0]["unknown_reason"] = value
+            self.assertTrue(any("UNKNOWN" in error for error in validate(self.states(), edges)), repr(value))
+
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()
         target = states[0]

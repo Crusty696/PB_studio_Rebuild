@@ -117,6 +117,10 @@ def _safe_ref(value: object) -> bool:
     return path != PurePosixPath(".") and not path.is_absolute() and ".." not in path.parts
 
 
+def _enum_value(value: object, allowed: set[str]) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value in allowed
+
+
 def _proof_errors(
     row: dict[str, Any], contract: dict[str, Any], evidence_root: Path,
     *, prefix: str, expected: dict[str, Any], label: str,
@@ -1067,7 +1071,7 @@ def validate_contracts(
         if row.get("symbols_sha256") != symbol_hash or row.get("edges_sha256") != edge_hash:
             errors.append(f"{label}: Universumshash falsch")
         role = row.get("role")
-        if role not in {"feature", "support", "framework", "dead-candidate"}:
+        if not _enum_value(role, {"feature", "support", "framework", "dead-candidate"}):
             errors.append(f"{label}: role ungueltig")
         feature_ids = row.get("feature_ids")
         if (
@@ -1084,7 +1088,9 @@ def validate_contracts(
         if row.get("reviewer_id") not in reviewer_ids:
             errors.append(f"{label}: unbekannter Reviewer")
         caller = row.get("caller_contract")
-        if not isinstance(caller, dict) or caller.get("kind") not in {"incoming-edges", "framework-hook", "entrypoint", "unreferenced"}:
+        if not isinstance(caller, dict) or not _enum_value(
+            caller.get("kind"), {"incoming-edges", "framework-hook", "entrypoint", "unreferenced"},
+        ):
             errors.append(f"{label}: Caller-/Frameworkvertrag fehlt")
         else:
             if set(caller) != {"kind", "edge_ids", "evidence_ids"}:
@@ -1103,7 +1109,10 @@ def validate_contracts(
                 and (
                     trigger.get("target_symbol_id") == symbol_id
                     or (
-                        trigger.get("source_kind") in {"entrypoint", "main-guard", "decorator-hook"}
+                        _enum_value(
+                            trigger.get("source_kind"),
+                            {"entrypoint", "main-guard", "decorator-hook"},
+                        )
                         and str(row.get("qualified_name", "")).rsplit(".", 1)[-1].removesuffix("()")
                         in {str(trigger.get("detail", "")), "main"}
                     )
@@ -1133,7 +1142,9 @@ def validate_contracts(
                 errors.append(f"{label}: Contract-Objekt Felder nicht exakt")
             for key in CONTRACT_KEYS:
                 cell = contracts.get(key)
-                if not isinstance(cell, dict) or cell.get("status") not in {"reviewed", "n-a", "unknown"}:
+                if not isinstance(cell, dict) or not _enum_value(
+                    cell.get("status"), {"reviewed", "n-a", "unknown"},
+                ):
                     errors.append(f"{label}: Vertrag {key} fehlt/ungueltig")
                 else:
                     if set(cell) != {"status", "evidence_ids"}:
@@ -1144,7 +1155,7 @@ def validate_contracts(
                         signed_at=row.get("signed_at"),
                     )
         disposition = row.get("disposition")
-        if disposition not in SYMBOL_DISPOSITIONS:
+        if not _enum_value(disposition, SYMBOL_DISPOSITIONS):
             errors.append(f"{label}: disposition ungueltig")
         if disposition == "runtime":
             runtime_ids = row.get("runtime_evidence_ids")
@@ -1175,7 +1186,7 @@ def validate_contracts(
             else:
                 if set(contract) != {"kind", "evidence_id", "reason"}:
                     errors.append(f"{label}: Non-Runtime-Vertrag Schemafelder nicht exakt")
-                if contract.get("kind") not in NON_RUNTIME_CONTRACT_KINDS:
+                if not _enum_value(contract.get("kind"), NON_RUNTIME_CONTRACT_KINDS):
                     errors.append(f"{label}: Non-Runtime-Vertrag kind ungueltig")
                 raw_evidence_id = contract.get("evidence_id")
                 reason = contract.get("reason")
@@ -1196,7 +1207,10 @@ def validate_contracts(
                     errors.append(f"{label}: Non-Runtime-Evidence-Reviewer-FK falsch")
                 if evidence.get("signed_at") != row.get("signed_at"):
                     errors.append(f"{label}: Non-Runtime-Evidence-signed_at-FK falsch")
-        if disposition == "unknown" and not row.get("unknown_reason"):
+        if disposition == "unknown" and (
+            not isinstance(row.get("unknown_reason"), str)
+            or not row["unknown_reason"].strip()
+        ):
             errors.append(f"{label}: UNKNOWN ohne Grund")
 
     seen_edges: set[str] = set()
@@ -1231,9 +1245,12 @@ def validate_contracts(
         )
         if row.get("symbols_sha256") != symbol_hash or row.get("edges_sha256") != edge_hash:
             errors.append(f"{label}: Universumshash falsch")
-        if row.get("disposition") not in EDGE_DISPOSITIONS:
+        if not _enum_value(row.get("disposition"), EDGE_DISPOSITIONS):
             errors.append(f"{label}: disposition ungueltig")
-        elif row.get("disposition") == "unknown" and not row.get("unknown_reason"):
+        elif row.get("disposition") == "unknown" and (
+            not isinstance(row.get("unknown_reason"), str)
+            or not row["unknown_reason"].strip()
+        ):
             errors.append(f"{label}: UNKNOWN-Kante ohne Grund")
         if row.get("reviewer_id") not in reviewer_ids:
             errors.append(f"{label}: unbekannter Reviewer")

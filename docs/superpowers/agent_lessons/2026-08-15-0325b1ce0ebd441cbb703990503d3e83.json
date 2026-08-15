@@ -1,0 +1,10 @@
+{
+  "lesson_id": "0325b1ce0ebd441cbb703990503d3e83",
+  "recorded_at": "2026-08-15T22:45:50+00:00",
+  "session_id": "1e9e6bfa2188460daffc4636a1d15e35",
+  "head_at_start": "fe219a92c2e9a1bd3a5794ca5a3f376bc41fae66",
+  "problem": "Unhashbare Discriminatorwerte und truthige nicht-String unknown_reason-Werte konnten Auditvalidierung crashen oder passieren",
+  "cause": "Enumpruefungen nutzten direkte Set-Membership; Begruendungen nur Truthiness statt zentraler Stringgrenze",
+  "rule": "Jeden Discriminator zentral als getrimmten nichtleeren String validieren, bevor Enum-Membership erfolgt; unknown_reason ebenfalls strikt als getrimmten nichtleeren String pruefen",
+  "applies_to": "Symbol-/Edge-State, Caller-, Contract- und Non-Runtime-Discriminatoren, Audit-Harnesses"
+}
