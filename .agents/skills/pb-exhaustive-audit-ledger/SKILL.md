@@ -159,15 +159,30 @@ widerspruechlicher Evidenz, notwendigem Codefix oder Produktentscheid.
 - `references/ledger-schema.md`: JSONL-Schemas und Completion-Regeln.
 - `scripts/build_inventory.py`: HEAD-reiner Git-Snapshot plus untracked Dateien/
   ignored Scopewurzeln; Dirty-State fail-closed.
-- `scripts/verify_line_coverage.py`: Zwei-Pass-Zeilen- und Nicht-Zeilen-Validator.
-- `scripts/verify_feature_matrix.py`: Feature-Achsen-/Evidenzvalidator.
+- `scripts/verify_line_coverage.py`: Zwei-Pass-Zeilen-/Nicht-Zeilen-Validator
+  gegen festes `audited_commit` plus hashgebundenes Reviewer-Roster/Lineage.
+- `scripts/verify_feature_matrix.py`: Requirements-/Trigger-Exact-Set,
+  Feature-Achsen und content-addressed Runtime-Evidenz.
+- `scripts/verify_symbol_states.py`: Symboluniversum-Exact-Set und Runtime-/
+  Non-Runtime-Vertrag je Funktion/Methode.
+- `scripts/verify_audit_readiness.py`: fail-closed Phase--1-Gate fuer exakte
+  Harness-/Testmenge aus festem Tooling-Commit und hashgebundene Testoutputs.
+- `scripts/self_test.py`, `scripts/self_test_identity_snapshot.py`,
+  `scripts/self_test_feature_evidence.py`: integrierte und gezielte Positiv-/
+  Negativvertraege. Gruene Selftests ersetzen keinen realen Auditlauf.
 
 ## Noch fehlende Phase--1-Werkzeuge
 
-Nicht als vorhanden behandeln: Requirements-/Trigger-Exact-Set-Validator,
-Symbol-State-Validator, content-addressed Runtime-Evidence-Validator,
-Reviewer-Roster-/Lineage-Validator, Delta-/TTL-Validator und atomarer
-Completion-Importer. Plan darf erst aktiviert werden, nachdem Implementierung
-plus positive/negative Contracttests dieser sechs Harnesses belegt sind.
-Ebenfalls Teil Phase -1: vorhandene Inventory-/Line-/Feature-Scripts auf
-explizites `audited_commit` statt beweglichem HEAD/Workspace umstellen.
+Bereits als Skill-Teilvertraege vorhanden und getestet: Requirements-/Trigger-
+Exact-Set, Symbol-State, content-addressed Runtime-Evidence, Reviewer-Roster-/
+Lineage und `audited_commit`-gebundene Coverage. Nicht als vollstaendige
+Phase--1-Harnesses behandeln: kanonische Universumsgeneratoren, Delta-/TTL-
+Validator und atomarer Completion-Importer fehlen; sechs im Plan vorgegebene
+`tools/audit_*.py` samt `tests/audit/test_*.py` existieren nicht vollstaendig.
+`verify_audit_readiness.py` muss deshalb fail-closed rot bleiben. Auditstart
+damit verboten.
+
+Vorhandene Teilvalidatoren beweisen nur ihre Eingabevertraege. Sie beweisen
+nicht, dass Generatoren jedes Requirement, jeden Trigger, jede dynamische Kante
+oder jedes Delta gefunden haben. Completion bleibt bis Phase--1-Harnesses und
+zwei unabhaengige Signoffs unzulaessig.

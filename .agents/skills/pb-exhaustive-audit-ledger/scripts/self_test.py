@@ -10,10 +10,16 @@ from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
+from verify_audit_readiness import REQUIRED_ARTIFACTS, verify_readiness
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
-from verify_line_coverage import _enumerate_scope, _linklike, verify as verify_coverage
+from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
 RUN_ID = "SELFTEST-RUN"
+
+
+def verify_coverage(*args: Path) -> list[str]:
+    snapshot_path = Path(args[1])
+    return _verify_coverage(*args, snapshot_path.parent / "reviewer_roster.jsonl")
 
 
 def _git(root: Path, *args: str) -> None:
@@ -25,6 +31,38 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def _bind_reviewer_roster(evidence_dir: Path, root: Path) -> Path:
+    snapshot_path = evidence_dir / "snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    inventory = [
+        json.loads(line)
+        for line in (evidence_dir / "files.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    snapshot_id = inventory[0]["snapshot_id"]
+    audited_commit = snapshot["commit_sha"]
+    rows = []
+    for label in ("a", "b"):
+        rows.append({
+            "run_id": RUN_ID,
+            "audited_commit": audited_commit,
+            "snapshot_id": snapshot_id,
+            "reviewer_id": f"reviewer-{label}",
+            "session_id": f"session-{label}",
+            "parent_id": f"director-{label}",
+            "lineage_ids": [f"root-{label}", f"director-{label}"],
+            "worktree": str((root.parent / f"reviewer-{label}").resolve()),
+            "branch": f"audit/{label}",
+            "commit_sha": audited_commit,
+            "claims": ["*"],
+        })
+    roster = evidence_dir / "reviewer_roster.jsonl"
+    _write_jsonl(roster, rows)
+    snapshot["audited_commit"] = audited_commit
+    snapshot["reviewer_roster_sha256"] = hashlib.sha256(roster.read_bytes()).hexdigest()
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    return roster
 
 
 def _range(meta: dict, label: str, reviewer: str, start: int, end: int) -> dict:
@@ -106,6 +144,7 @@ def main() -> int:
 
         evidence_dir = base / "evidence"
         summary = build(root, evidence_dir, run_id=RUN_ID)
+        _bind_reviewer_roster(evidence_dir, root)
         files = [json.loads(line) for line in (evidence_dir / "files.jsonl").read_text(encoding="utf-8").splitlines()]
         by_path = {row["path"]: row for row in files}
         pass_a = evidence_dir / "a.jsonl"
@@ -144,10 +183,11 @@ def main() -> int:
         missing_inventory = [row for row in files if row["path"] != "small.py"]
         missing_path = evidence_dir / "missing-file.jsonl"
         _write_jsonl(missing_path, missing_inventory)
-        assert any("Inventory/HEAD-Pfadmenge" in error for error in verify_coverage(
+        missing_inventory_errors = verify_coverage(
             root, evidence_dir / "snapshot.json", missing_path,
             pass_a, pass_b, non_line, exclusions, workspace_units,
-        ))
+        )
+        assert any("Inventory/audited_commit-Pfadmenge" in error for error in missing_inventory_errors), missing_inventory_errors
 
         _write_jsonl(pass_b, [
             _range(by_path["sample.py"], "B", "reviewer-b", 1, 250),
@@ -250,7 +290,9 @@ def main() -> int:
             row["snapshot_id"] = excluded_snapshot_id
         positive_excluded_path = evidence_dir / "positive-excluded.jsonl"
         _write_jsonl(positive_excluded_path, excluded)
-        positive_excluded_snapshot = dict(summary)
+        positive_excluded_snapshot = json.loads(
+            (evidence_dir / "snapshot.json").read_text(encoding="utf-8")
+        )
         positive_excluded_snapshot["snapshot_id"] = excluded_snapshot_id
         positive_excluded_snapshot_path = evidence_dir / "positive-excluded-snapshot.json"
         positive_excluded_snapshot_path.write_text(
@@ -268,6 +310,7 @@ def main() -> int:
         positive_excluded_b = evidence_dir / "positive-excluded-b.jsonl"
         positive_excluded_units = evidence_dir / "positive-excluded-units.jsonl"
         positive_exclusions = evidence_dir / "positive-exclusions.jsonl"
+        positive_excluded_roster = evidence_dir / "positive-excluded-roster.jsonl"
         _write_jsonl(positive_excluded_a, excluded_a_rows)
         _write_jsonl(positive_excluded_b, excluded_b_rows)
         _write_jsonl(positive_excluded_units, excluded_unit_rows)
@@ -276,10 +319,26 @@ def main() -> int:
             "reason": "self-test", "approved_by": "user",
             "approved_at": "2026-08-15T00:00:00Z", "decision_ref": "D-SELFTEST",
         }])
-        assert not verify_coverage(
+        excluded_roster_rows = [
+            json.loads(line)
+            for line in (evidence_dir / "reviewer_roster.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        for row in excluded_roster_rows:
+            row["snapshot_id"] = excluded_snapshot_id
+        _write_jsonl(positive_excluded_roster, excluded_roster_rows)
+        positive_excluded_snapshot = json.loads(
+            positive_excluded_snapshot_path.read_text(encoding="utf-8")
+        )
+        positive_excluded_snapshot["reviewer_roster_sha256"] = hashlib.sha256(
+            positive_excluded_roster.read_bytes()
+        ).hexdigest()
+        positive_excluded_snapshot_path.write_text(
+            json.dumps(positive_excluded_snapshot), encoding="utf-8"
+        )
+        assert not _verify_coverage(
             root, positive_excluded_snapshot_path, positive_excluded_path,
             positive_excluded_a, positive_excluded_b, positive_excluded_units,
-            positive_exclusions, workspace_units,
+            positive_exclusions, workspace_units, positive_excluded_roster,
         )
 
         dirty = root / "dirty.tmp"
@@ -320,6 +379,7 @@ def main() -> int:
         }])
         scoped_evidence = base / "scoped-evidence"
         scoped_summary = build(root, scoped_evidence, decisions, RUN_ID)
+        _bind_reviewer_roster(scoped_evidence, root)
         scoped_files = [
             json.loads(line) for line in (scoped_evidence / "files.jsonl").read_text(encoding="utf-8").splitlines()
         ]
@@ -525,6 +585,61 @@ def main() -> int:
         assert any("Inventory/Workspace" in error for error in verify_snapshot(
             fake_snapshot, files, [], head,
         ))
+
+        for relative in sorted(REQUIRED_ARTIFACTS):
+            artifact = root / relative
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text(f"# readiness fixture: {relative}\n", encoding="utf-8")
+        _git(root, "add", "--", *sorted(REQUIRED_ARTIFACTS))
+        _git(root, "commit", "-m", "add readiness fixtures")
+        tooling_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True,
+            capture_output=True, text=True,
+        ).stdout.strip()
+        validation_root = base / "readiness-validation"
+        validation_root.mkdir()
+        artifact_rows = []
+        validation_rows = []
+        for index, relative in enumerate(sorted(REQUIRED_ARTIFACTS)):
+            data = subprocess.run(
+                ["git", "show", f"{tooling_commit}:{relative}"], cwd=root,
+                check=True, capture_output=True,
+            ).stdout
+            artifact_rows.append({
+                "run_id": RUN_ID, "tooling_commit": tooling_commit,
+                "path": relative, "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            })
+            stdout_path = validation_root / f"{index:02d}.stdout"
+            stderr_path = validation_root / f"{index:02d}.stderr"
+            stdout_path.write_text("PASS\n", encoding="utf-8")
+            stderr_path.write_bytes(b"")
+            validation_rows.append({
+                "run_id": RUN_ID, "tooling_commit": tooling_commit,
+                "target": relative, "command": f"test {relative}",
+                "exit_code": 0, "stdout_path": str(stdout_path),
+                "stdout_sha256": hashlib.sha256(stdout_path.read_bytes()).hexdigest(),
+                "stderr_path": str(stderr_path),
+                "stderr_sha256": hashlib.sha256(stderr_path.read_bytes()).hexdigest(),
+                "started_at": "2026-08-15T00:00:00Z",
+                "ended_at": "2026-08-15T00:00:01Z",
+                "reviewer_id": "independent-reviewer",
+            })
+        readiness = {
+            "schema_version": 1, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
+            "run_id": RUN_ID, "tooling_commit": tooling_commit,
+            "artifacts": artifact_rows, "validation_runs": validation_rows,
+            "independent_review_status": "pass",
+            "independent_reviewer_id": "independent-reviewer",
+        }
+        readiness_path = base / "readiness.json"
+        readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+        assert not verify_readiness(root, readiness_path)
+        broken_readiness = copy.deepcopy(readiness)
+        broken_readiness["validation_runs"][0]["stdout_sha256"] = "0" * 64
+        broken_readiness_path = base / "readiness-broken.json"
+        broken_readiness_path.write_text(json.dumps(broken_readiness), encoding="utf-8")
+        assert any("stdout-Hash falsch" in error for error in verify_readiness(root, broken_readiness_path))
     print("self-test: OK")
     return 0
 

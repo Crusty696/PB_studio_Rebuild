@@ -147,6 +147,19 @@ Alternative Pfade teilen `feature_id`, besitzen verschiedene `path_id`.
 Runtimewerte referenzieren ausschliesslich existierende, hashvalidierte
 `evidence_id` aus `runtime_runs.jsonl`.
 
+## phase_minus_1_readiness.json
+
+```json
+{"schema_version":1,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"validation_runs":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","target":"tools/audit_feature_inventory.py","command":"pytest tests/audit/test_audit_feature_inventory.py","exit_code":0,"stdout_path":"absolute-outside-repo","stdout_sha256":"sha256","stderr_path":"absolute-outside-repo","stderr_sha256":"sha256","started_at":"ISO-8601","ended_at":"ISO-8601","reviewer_id":"REV-INDEPENDENT"}],"independent_review_status":"pass","independent_reviewer_id":"REV-INDEPENDENT"}
+```
+
+Artefaktmenge entspricht exakt sechs Plan-Harnesses plus deren sechs
+Contracttest-Dateien. Bytes/Hashes werden aus `tooling_commit`-Gitobjekten
+berechnet. Jeder Harness braucht hashgebundene externe Testoutputs mit Exit 0.
+Fehlendes Artefakt, Extra-Artefakt, falscher Hash oder fehlender unabhaengiger
+Review-PASS macht Readiness rot. Dieses Manifest ist Aktivierungsgate, kein
+Audit-Completion-Beleg.
+
 ## Completion
 
 Universum: jede Textzeile + Metadateneinheit pro Datei + Inhalts-/Integritaetseinheit
