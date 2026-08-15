@@ -90,6 +90,15 @@ class GateContractTests(unittest.TestCase):
         rows[0].pop("evidence")
         self.assertTrue(any("evidence fehlt" in error for error in self.errors(rows)))
 
+        (self.repo / "bad.md").write_bytes(b"Pflicht: \xff\n")
+        subprocess.run(["git", "add", "bad.md"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "non-utf8"], cwd=self.repo, check=True)
+        bad_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
+        with self.assertRaises(HARNESS.ContractError):
+            HARNESS.enumerate_universes(self.repo, bad_commit, self.RUN, self.SNAPSHOT)
+
     def test_tampered_binding_rejected(self) -> None:
         rows = self.dispositions()
         rows[0]["audited_commit"] = "0" * 40
