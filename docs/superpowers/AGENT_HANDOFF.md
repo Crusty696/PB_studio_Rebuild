@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+> ## AKTUELLSTE ÜBERGABE — Claude Code an Codex, 2026-08-15
+>
+> **Vollständige Übergabe:
+> [`HANDOFF-CLAUDE-AN-CODEX-2026-08-15.md`](./HANDOFF-CLAUDE-AN-CODEX-2026-08-15.md)**
+>
+> Wer nach dem 15.08.2026 an diesem Repository arbeitet, liest **zuerst** jenes
+> Dokument. Es enthält den Stand der Pacing-/Schnitt-Architektur (musik-
+> getriebener Schnitt statt Beat-Raster), alle 16 Commits der Sitzung mit
+> Messwerten, die offenen Entscheidungen des Nutzers — und einen Abschnitt mit
+> den Fehlern, die ich selbst gemacht habe, damit sie sich nicht wiederholen.
+>
+> Kopf-Stand: `b98010a` auf `main`, synchron mit `origin/main`.
+> Die fünf untrackten Pfade im Worktree gehören einer fremden Sitzung (D-089)
+> und wurden bewusst nicht angefasst.
+
 ## B-821/B-823/B-824 gefixt / B-825 aktiv 2026-08-14 (newest)
 
 - **B-824**: Stem-Pfade werden jetzt PROJEKTRELATIV gespeichert

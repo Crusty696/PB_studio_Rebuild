@@ -9,7 +9,7 @@ supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projec
 stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
 live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
 current_sequence_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-089-agy-rest-vor-b758.md
-updated: 2026-08-12
+updated: 2026-08-15
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -175,3 +175,17 @@ Stem`.
 - Jede Task einzeln committen und im Vault loggen (Hauptagent).
 - `fixed` setzt nur der User nach Live-Test.
 - Nur eine Task aus einem Bucket zur Zeit; Gates respektieren.
+
+## Übergabe an Codex, 2026-08-15
+
+Der Arbeitsstand dieser Sitzung ist vollständig dokumentiert in
+`docs/superpowers/HANDOFF-CLAUDE-AN-CODEX-2026-08-15.md`. Dort stehen die
+16 Commits mit Messwerten, die geänderte Schnitt-Architektur, die offenen
+Entscheidungen des Nutzers und die Fehler der Vorgänger-Sitzung.
+
+Offene Nutzer-Entscheidungen (nicht ohne Antwort umsetzen):
+- LLM-Modellwahl je Aufgabe (B-770 erzwingt derzeit ein Vision-Modell auch
+  für Text-Pacing, was jeden Auto-Edit 300 s Timeout kostet)
+- Multi-Modell-Pacing (Audio-Modell + Vision-Modell im Zusammenspiel)
+- B-832 Vibe-Feld: Notnagel oder ins Scoring einweben
+- „Timeline generieren": Vorschau belassen oder Schreibpfad geben
