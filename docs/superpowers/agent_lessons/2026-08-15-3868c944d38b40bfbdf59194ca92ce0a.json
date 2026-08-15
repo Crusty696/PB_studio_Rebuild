@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3868c944d38b40bfbdf59194ca92ce0a",
+  "recorded_at": "2026-08-15T14:06:39+00:00",
+  "session_id": "41d1df8fa8194109add3786c824ccc1a",
+  "head_at_start": "0601e580678c80231d497ba6a800043d35bf1adb",
+  "problem": "Feature- und Symbolmatrizen konnten gruen werden, obwohl referenzierte Runtime-Evidenz keinen Bezug zum behaupteten Feature, Symbol oder zur Achse hatte.",
+  "cause": "Freie Evidenz-Strings und selbst content-addressed Run-Datensaetze belegten nur die Existenz eines Laufs; ohne exakte Zielmengenbindung konnte derselbe Lauf beliebige Matrixzellen stuetzen.",
+  "rule": "Runtime-Evidenz muss content-addressed sowie an audited_commit, Auditlauf, gehashte Artefakte, covered_feature_paths, covered_symbol_ids und covered_axes gebunden sein; Validatoren pruefen jede FK inklusive Zielmitgliedschaft.",
+  "applies_to": "Audit-Ledger, Feature-State-Matrizen, Symbol-State-Ledger, Runtime-Verifikationsmanifeste"
+}
