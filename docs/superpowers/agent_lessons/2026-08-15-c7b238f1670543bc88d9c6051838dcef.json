@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c7b238f1670543bc88d9c6051838dcef",
+  "recorded_at": "2026-08-15T15:43:59+00:00",
+  "session_id": "1ae680ad370b46f0baa7818a7b27250b",
+  "head_at_start": "fa066f8c99fde132e3dcda29c4aaa19ea0e0ecdb",
+  "problem": "Runtime-Evidence konnte bisher aus frei geschriebenen, gehashten JSON-/PASS-Dateien stammen, ohne dass kanonischer Command oder Postcondition real ausgefuehrt wurde.",
+  "cause": "Vorhandener Validator pruefte Artefakthashes, hatte aber keinen selbst ausfuehrenden, commitgebundenen Runner und keine aus realem Trace abgeleitete Coverage.",
+  "rule": "Runtimebelege nur durch Runner erzeugen lassen, der Tool- und Auditcommit prueft, allowlisted Commands mit shell=False im detached Auditworktree ausfuehrt, Inputs/Outputs/Postcondition hasht und Feature-/Symbol-/Achsen-Coverage ausschliesslich aus gebundenem Trace ableitet; Reuse, Timeout und Pfadescape fail-closed testen.",
+  "applies_to": "Audit-Runtime-Evidenz, Live-Manifeste, Feature-/Symbol-State-Validierung"
+}
