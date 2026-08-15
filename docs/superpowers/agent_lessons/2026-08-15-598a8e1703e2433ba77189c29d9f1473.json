@@ -1,0 +1,10 @@
+{
+  "lesson_id": "598a8e1703e2433ba77189c29d9f1473",
+  "recorded_at": "2026-08-15T21:50:28+00:00",
+  "session_id": "41ff5e563c6b465485ebba073c3f1dd7",
+  "head_at_start": "ac10614b8e583d87eb74f07f66c07b9e663db409",
+  "problem": "Runtime-Authority aus tooling_commit konnte Contract- und Commitidentitaet nicht unabhaengig autorisieren und eine Literal-Selbstbindung waere zyklisch.",
+  "cause": "Policy und autorisierter tooling_commit lagen zuvor in derselben Hashdomäne; CLI-Contract-Pin war nur redundant, nicht eigenstaendig autoritativ.",
+  "rule": "Erzeuge Attestierung strikt in Reihenfolge audited_commit -> tooling_commit -> kanonischer Contract -> separater extern gepinnter authority_commit; Policy bindet Contract-SHA und alle Identitaetsfelder exakt, Runner quittiert Authority-Commit plus Policy-Blob.",
+  "applies_to": "Audit-Authority, Git-Attestierung, Runtime-Evidence, Supply-Chain-Vertraege"
+}

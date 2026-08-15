@@ -51,6 +51,11 @@ CONTRACT_FIELDS = {
     "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
 }
 ALLOWED_EXECUTORS = {"python"}
+AUTHORITY_POLICY_PATH = "config/audit_runtime_authority_policy.json"
+AUTHORITY_POLICY_FIELDS = {
+    "schema_version", "audit_contract_sha256", "plan_id", "run_id", "snapshot_id",
+    "audited_commit", "tooling_commit", "allow_same_audited_tooling_commit",
+}
 
 
 class ContractError(RuntimeError):
@@ -204,24 +209,42 @@ def _load_contract(evidence: Path, contract_path: Path) -> tuple[dict[str, Any],
 
 
 def _load_authority_policy(
-    repo: Path, tooling_commit: str, policy_path: str, expected_contract_sha256: str,
-    contract: dict[str, Any],
+    repo: Path, authority_commit: str, tooling_commit: str, policy_path: str,
+    expected_contract_sha256: str, contract: dict[str, Any],
 ) -> tuple[dict[str, Any], bytes, str]:
+    if not isinstance(authority_commit, str) or not SHA_RE.fullmatch(authority_commit):
+        raise ContractError("authority_commit muss voller SHA sein")
+    if authority_commit in {tooling_commit, contract.get("audited_commit")}:
+        raise ContractError("authority_commit muss von audited_commit und tooling_commit getrennt sein")
+    if _git(repo, "cat-file", "-e", f"{authority_commit}^{{commit}}", check=False).returncode != 0:
+        raise ContractError("authority_commit existiert nicht")
     if not isinstance(expected_contract_sha256, str) or not HASH_RE.fullmatch(expected_contract_sha256):
         raise ContractError("Authority expected_contract_sha256 ungueltig")
+    if policy_path != AUTHORITY_POLICY_PATH:
+        raise ContractError(f"Authority-Policy-Pfad muss fest {AUTHORITY_POLICY_PATH!r} sein")
+    result = _git(repo, "show", f"{authority_commit}:{policy_path}", check=False)
+    if result.returncode != 0:
+        raise ContractError("Authority-Policy fehlt im authority_commit")
+    authority = _parse_json(result.stdout, "Authority-Policy")
+    if set(authority) != AUTHORITY_POLICY_FIELDS or authority.get("schema_version") != 1:
+        raise ContractError("Authority-Policy Exact-Fields/schema_version falsch")
+    bindings = {
+        "audit_contract_sha256": expected_contract_sha256,
+        "plan_id": contract.get("plan_id"), "run_id": contract.get("run_id"),
+        "snapshot_id": contract.get("snapshot_id"),
+        "audited_commit": contract.get("audited_commit"),
+        "tooling_commit": contract.get("tooling_commit"),
+    }
     if contract.get("contract_sha256") != expected_contract_sha256:
         raise ContractError("Authority/Auditvertrag expected_contract_sha256 falsch")
-    if not isinstance(policy_path, str) or Path(policy_path).is_absolute() or ".." in Path(policy_path).parts:
-        raise ContractError("Authority-Policy-Pfad ungueltig")
-    result = _git(repo, "show", f"{tooling_commit}:{policy_path}", check=False)
-    if result.returncode != 0:
-        raise ContractError("Authority-Policy fehlt im tooling_commit")
-    authority = _parse_json(result.stdout, "Authority-Policy")
-    if authority.get("schema_version") != 1:
-        raise ContractError("Authority.schema_version muss exakt 1 sein")
+    for field, expected in bindings.items():
+        if authority.get(field) != expected:
+            raise ContractError(f"Authority-Policy Binding falsch: {field}")
+    if type(authority.get("allow_same_audited_tooling_commit")) is not bool:
+        raise ContractError("Authority-Policy allow_same_audited_tooling_commit muss bool sein")
     if contract.get("audited_commit") == contract.get("tooling_commit") and authority.get("allow_same_audited_tooling_commit") is not True:
         raise ContractError("audited_commit und tooling_commit sind gleich; Authority-Policy verbietet dies")
-    oid = _git(repo, "rev-parse", f"{tooling_commit}:{policy_path}").stdout.decode().strip()
+    oid = _git(repo, "rev-parse", f"{authority_commit}:{policy_path}").stdout.decode().strip()
     return authority, result.stdout, oid
 
 
@@ -813,7 +836,7 @@ def _remove_tree(path: Path) -> None:
 
 def run_scenario(
     *, repo_root: Path, evidence_root: Path, contract_path: Path,
-    expected_contract_sha256: str, authority_policy_path: str,
+    expected_contract_sha256: str, authority_commit: str, authority_policy_path: str,
     scenario_id: str, runtime_run_id: str,
 ) -> dict[str, Any]:
     repo = repo_root.resolve()
@@ -827,7 +850,7 @@ def run_scenario(
         raise ContractError("runtime_run_id ungueltig")
     contract, contract_bytes, refs = _load_contract(evidence, contract_path)
     authority, authority_bytes, authority_blob = _load_authority_policy(
-        repo, contract["tooling_commit"], authority_policy_path,
+        repo, authority_commit, contract["tooling_commit"], authority_policy_path,
         expected_contract_sha256, contract,
     )
     catalog_path, catalog_bytes = refs["scenario_catalog"]
@@ -1065,6 +1088,7 @@ def run_scenario(
             "snapshot_id": contract["snapshot_id"], "scenario_id": row["scenario_id"],
             "scenario_sha256": row["scenario_sha256"], "timestamp": timestamp,
             "authority": {"git_blob": authority_blob, "path": authority_policy_path,
+                          "authority_commit": authority_commit,
                           "sha256": _sha_bytes(authority_bytes), "policy": authority,
                           "expected_contract_sha256": expected_contract_sha256},
             "audit_contract": {"ref": f"runs/{runtime_run_id}/sealed/audit_contract.json",
@@ -1151,7 +1175,8 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--audit-contract", type=Path, required=True)
     parser.add_argument("--expected-contract-sha256", required=True)
-    parser.add_argument("--authority-policy-path", default="config/audit_runtime_authority_policy.json")
+    parser.add_argument("--authority-commit", required=True)
+    parser.add_argument("--authority-policy-path", default=AUTHORITY_POLICY_PATH)
     parser.add_argument("--scenario-id", required=True)
     parser.add_argument("--runtime-run-id", required=True)
     args = parser.parse_args()
@@ -1159,7 +1184,8 @@ def main() -> int:
         receipt = run_scenario(
             repo_root=args.root, evidence_root=args.evidence_root,
             contract_path=args.audit_contract, expected_contract_sha256=args.expected_contract_sha256,
-            authority_policy_path=args.authority_policy_path, scenario_id=args.scenario_id,
+            authority_commit=args.authority_commit, authority_policy_path=args.authority_policy_path,
+            scenario_id=args.scenario_id,
             runtime_run_id=args.runtime_run_id,
         )
     except ContractError as exc:
