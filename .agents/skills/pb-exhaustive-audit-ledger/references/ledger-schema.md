@@ -16,11 +16,56 @@ Git-Tree/Blobs, nie implizit aus Current HEAD oder gemischten Workingtree-Bytes.
 ## audit_contract.json
 
 ```json
-{"run_id":"RUN-001","audited_commit":"full-git-sha","snapshot_id":"sha256","frozen_at":"ISO-8601","max_age_seconds":"USER-DECISION-REQUIRED","requirements_universe_sha256":"sha256","trigger_universe_sha256":"sha256","reviewer_roster_sha256":"sha256","runtime_manifest_sha256":"sha256","symbol_states_sha256":"sha256"}
+{"schema_version":1,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"RUN-001","audited_commit":"full-40-char-sha","tooling_commit":"full-40-char-sha","snapshot_id":"sha256","frozen_at":"ISO-8601","expires_at":"ISO-8601","artifacts":{"requirements-universe":{"artifact_id":"sha256:...","ref":"requirements_universe.jsonl","sha256":"sha256","bytes":1,"record_count":1},"trigger-universe":{"artifact_id":"sha256:...","ref":"trigger_universe.jsonl","sha256":"sha256","bytes":1,"record_count":1},"feature-catalog":{"artifact_id":"sha256:...","ref":"features.jsonl","sha256":"sha256","bytes":1,"record_count":1},"symbol-catalog":{"artifact_id":"sha256:...","ref":"symbols.jsonl","sha256":"sha256","bytes":1,"record_count":1},"edge-catalog":{"artifact_id":"sha256:...","ref":"edges.jsonl","sha256":"sha256","bytes":1,"record_count":1},"runtime-scenario-catalog":{"artifact_id":"sha256:...","ref":"scenario_catalog.jsonl","sha256":"sha256","bytes":1,"record_count":1},"runtime-feature-universe":{"artifact_id":"sha256:...","ref":"runtime_feature_universe.jsonl","sha256":"sha256","bytes":1,"record_count":1},"runtime-symbol-universe":{"artifact_id":"sha256:...","ref":"runtime_symbol_universe.jsonl","sha256":"sha256","bytes":1,"record_count":1},"runtime-executor-manifest":{"artifact_id":"sha256:...","ref":"executor_manifest.json","sha256":"sha256","bytes":1,"record_count":1},"runtime-dependency-manifest":{"artifact_id":"sha256:...","ref":"dependency_manifest.json","sha256":"sha256","bytes":1,"record_count":1},"reviewer-trust-policy":{"artifact_id":"sha256:...","ref":"reviewer/trust_policy.json","sha256":"sha256","bytes":1,"record_count":1},"reviewer-contract":{"artifact_id":"sha256:...","ref":"reviewer/contract.json","sha256":"sha256","bytes":1,"record_count":1},"reviewer-readiness-binding":{"artifact_id":"sha256:...","ref":"reviewer/readiness_binding.json","sha256":"sha256","bytes":1,"record_count":1},"reviewer-spawn-journal":{"artifact_id":"sha256:...","ref":"reviewer/spawn_journal.json","sha256":"sha256","bytes":1,"record_count":1}},"contract_sha256":"canonical-body-sha256"}
 ```
 
-Im versiegelten Vertrag ist `max_age_seconds` eine positive Ganzzahl aus
-expliziter Userentscheidung. Placeholder darf kein Validatorgate passieren.
+Top-Level-Feldmenge und obige 14 Artifact-Keys sind exakt. Jeder Descriptor
+hat exakt `artifact_id`, `ref`, `sha256`, `bytes`, `record_count`.
+`contract_sha256` ist SHA-256 der kanonischen JSON-Bytes ohne dieses
+Self-Hashfeld. Ein roher Datei-SHA ist getrennt als
+`audit_contract_file_sha256` zu benennen und nie als Body-SHA zu akzeptieren.
+
+Gemeinsame `record_count`-Regel: `.jsonl` = Zahl geparster, nichtleerer
+JSON-Objektzeilen; `.json`-Array = Laenge; `.json`-Objekt mit `records`-Array =
+Laenge dieses Arrays; anderes gueltiges JSON = 1; andere regulaere Datei = 1.
+Parserfehler, Verzeichnis, Symlink, unsicherer Ref, Bytes-/Hash-/Count-Drift
+blockieren fail-closed.
+
+## evidence_contract.json
+
+Top-Level entspricht Auditcontract, nutzt `completed_at` statt
+`frozen_at`/`expires_at` und bindet `audit_contract_sha256` direkt. Acht
+statische Record-Shards sind exakt:
+
+```text
+feature-state
+feature-state-evidence
+symbol-state
+edge-state
+symbol-state-evidence
+reviewer-roster
+runtime-evidence
+delta-ledger
+```
+
+Dynamische Attachments stehen im selben flachen `artifacts`-Objekt:
+
+```text
+feature-proof:<evidence_id>
+symbol-proof:<evidence_id>
+runtime-proof:<evidence_id>
+reviewer-enrollment-receipt:<session_id>
+reviewer-enrollment-signature:<session_id>
+reviewer-signoff:<role>:<session_id>
+reviewer-signoff-signature:<role>:<session_id>
+```
+
+Exact-Closure ist Pflicht: Proofkeys entsprechen exakt ihren Evidence-Records;
+Enrollment-Receipt/-Signature-Paare exakt dem Roster; Signoff-/Signature-Paare
+exakt `reviewer-contract.required_signoffs`. Fehlendes, extra, orphan oder
+mehrfach konsumiertes Artefakt blockiert. Signoffs binden Readiness-Basis,
+nicht `evidence_contract_sha256`; Evidencecontract wird erst nach Signoffs
+versiegelt und erzeugt deshalb keinen Hashzyklus.
 
 Report-/Dokumentationscommits aendern `audited_commit` nicht. Jedes Delta
 zwischen `audited_commit` und Integrations-HEAD steht in `delta_ledger.jsonl`.
@@ -170,6 +215,19 @@ Behauptung. Validator oeffnet Artefakte, prueft Hash/Commit/Snapshot/Run und
 akzeptiert nur in-process Runner-Attestierung. Freie oder selbstgeschriebene
 PASS-Datei ist keine Evidenz.
 
+`runtime-evidence` ist eine kompakte, vom Runner atomar publizierte Projektion
+je Rich-Receipt, nicht je Symbol:
+
+```json
+{"evidence_id":"sha256:canonical-receipt","evidence_kind":"runtime","runtime_run_id":"LIVE-001","covered_feature_paths":["FEAT-001/preview"],"covered_symbol_ids":["SYM-services.x:f"],"covered_axes":["executed","result","live_evidence"],"proof_ref":"runs/LIVE-001/receipt.json","proof_sha256":"sha256","run_id":"RUN-001","audited_commit":"audited-sha","tooling_commit":"tooling-sha","snapshot_id":"sha256","timestamp":"ISO-8601","record_sha256":"sha256"}
+```
+
+`covered_feature_paths` bleibt Singleton. `covered_symbol_ids` ist eindeutig,
+sortiert und darf mehrere tatsaechlich beobachtete Symbole enthalten. Der
+Descriptor `runtime-proof:<evidence_id>` zeigt auf dasselbe Rich-Receipt.
+Validator berechnet Receipt-ID neu und vergleicht Projektion, Receipt, Feature-,
+Symbol- und Achsen-FKs exakt; keine kuenstlich duplizierte Evidence-ID.
+
 ## feature_states.jsonl
 
 ```json
@@ -185,16 +243,20 @@ Runtimewerte referenzieren ausschliesslich existierende, hashvalidierte
 ## phase_minus_1_readiness.json
 
 ```json
-{"schema_version":2,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","integration_head":"same-full-40-char-sha","matrix_version":1,"artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"reviewer_roster_path":"absolute-external-path","reviewer_roster_sha256":"sha256","signoffs":[{"role":"lead-v","reviewer_id":"REV-V","session_id":"session-v","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","basis_sha256":"sha256","verdict":"pass","signed_at":"ISO-8601"},{"role":"adversarial","reviewer_id":"REV-A","session_id":"session-a","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","basis_sha256":"sha256","verdict":"pass","signed_at":"ISO-8601"}]}
+{"schema_version":3,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","integration_head":"same-full-40-char-sha","matrix_version":1,"artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"reviewer_roster_path":"absolute-external-path","reviewer_roster_sha256":"sha256","attestation_bundle_path":"absolute-external-path"}
 ```
 
 Artefaktmenge entspricht exakt sechs Plan-Harnesses plus deren sechs
 Contracttest-Dateien. Bytes/Hashes werden aus `tooling_commit`-Gitobjekten
 berechnet. Validator ignoriert Manifest-Commands und fuehrt feste stdlib-
-`unittest`-Node-IDs selbst im detached tooling_commit-Worktree aus. Beide
-Signoffs binden dieselbe deterministische Basis aus Matrix, Artefakten, Commit
-und Rosterhash. Fehlendes/extra Artefakt, falscher Hash, alter Commit, fehlender
-Test-Node oder nicht unabhaengiger Signoff macht Readiness rot. Repo-eigene
+`unittest`-Node-IDs selbst im detached tooling_commit-Worktree aus. Readiness
+berechnet/zeigt zuerst dieselbe deterministische Basis aus Matrix, Artefakten,
+Commit und Rosterhash. Danach signieren Lead V und Adversarial diese Basis ueber
+`audit_reviewer_roster.py finalize`; Readiness ruft den kryptographisch
+gepinnten Attestation-Bundle-Validator auf. Inline-Signoffs oder frei gelieferte
+Reviewer-JSONs sind unzulaessig. Fehlendes/extra Artefakt, falscher Hash, alter
+Commit, fehlender Test-Node, falsche Basis/Signatur oder nicht unabhaengiger
+Signoff macht Readiness rot. Repo-eigene
 Tests bleiben ohne externen Trust Anchor nicht kryptographisch unverfaelschbar;
 deshalb sind Validator-PASS und dualer Review beide notwendig, nie allein
 hinreichend.
@@ -217,6 +279,11 @@ Sonst nur qualifizierte Teilraten und vollstaendiges Restledger.
 ## atomic_import.json
 
 Batchimport prueft zuerst alle Shardhashes, Roster, Snapshot, Universumsmengen
-und referenzielle Integritaet in temporaerem Ziel. Erst danach atomarer Rename
-zum Masterledger. Fehler laesst vorheriges Masterledger byteidentisch. Director
-editiert oder merged keine einzelnen Rangezeilen manuell.
+und referenzielle Integritaet in temporaerem Ziel. Nur acht statische
+Record-Shards werden JSONL-geparst; Attachments werden als regulaere Dateien
+ueber Descriptor, Hash, Bytes, Count und Exact-Closure geprueft. Import kopiert
+alle Shards, Attachments sowie Audit-/Evidence-/Atomic-Contracts unter ihren
+sicheren relativen `ref`-Pfaden und erhaelt Verzeichnisstruktur; Basename-
+Flattening ist verboten. Erst danach atomarer Rename zum Masterledger. Fehler
+laesst vorheriges Masterledger byteidentisch. Director editiert oder merged
+keine einzelnen Rangezeilen manuell.

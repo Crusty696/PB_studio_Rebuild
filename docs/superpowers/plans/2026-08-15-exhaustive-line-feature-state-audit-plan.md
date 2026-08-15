@@ -181,6 +181,7 @@ werden in separatem Abschlusscommit ins Repo uebernommen:
 ```text
 snapshot.json
 audit_contract.json
+evidence_contract.json
 delta_ledger.jsonl
 reviewer_roster.jsonl
 files.jsonl
@@ -208,6 +209,47 @@ completion.json
 atomic_import.json
 report.md
 ```
+
+### Gemeinsamer Contract V1 (verbindlich fuer Phase -1)
+
+Alle Harnesses lesen denselben flachen `audit_contract.json`. Seine exakte
+Artifactmenge ist die 14er-Union:
+
+```text
+requirements-universe, trigger-universe, feature-catalog,
+symbol-catalog, edge-catalog, runtime-scenario-catalog,
+runtime-feature-universe, runtime-symbol-universe,
+runtime-executor-manifest, runtime-dependency-manifest,
+reviewer-trust-policy, reviewer-contract,
+reviewer-readiness-binding, reviewer-spawn-journal
+```
+
+`evidence_contract.json` enthaelt exakt acht statische Record-Shards:
+`feature-state`, `feature-state-evidence`, `symbol-state`, `edge-state`,
+`symbol-state-evidence`, `reviewer-roster`, `runtime-evidence`, `delta-ledger`.
+Dazu kommen im selben flachen `artifacts`-Objekt ausschließlich dynamische
+Attachments `feature-proof:<evidence_id>`, `symbol-proof:<evidence_id>`,
+`runtime-proof:<evidence_id>`, `reviewer-enrollment-receipt:<session_id>`,
+`reviewer-enrollment-signature:<session_id>`,
+`reviewer-signoff:<role>:<session_id>` und
+`reviewer-signoff-signature:<role>:<session_id>`. Jede Menge besitzt inverse
+Exact-Closure; Orphans, Extras, Duplikate oder Mehrfachkonsum blockieren.
+
+Jeder Artifactdescriptor hat exakt `artifact_id`, `ref`, `sha256`, `bytes`,
+`record_count`. Count-Regel: JSONL = nichtleere JSON-Objektzeilen; JSON-Array =
+Laenge; JSON-Objekt mit `records`-Array = dessen Laenge; anderes gueltiges JSON
+oder andere regulaere Datei = 1. Nur statische Shards werden als JSONL geparst;
+Attachments werden byte-/hash-/count-/closure-geprueft und unter ihrem sicheren
+relativen Ref ohne Basename-Flattening atomar importiert.
+
+Runtime-Runner publiziert pro Rich-Receipt genau eine kompakte
+`runtime-evidence`-Projektion mit Singleton-Featurepfad, pluraler eindeutiger
+Symbolmenge, Achsen, Receipt-Ref/-SHA und allen Run-/Commit-/Snapshotbindungen.
+`runtime-proof:<evidence_id>` zeigt auf das unveraenderliche Rich-Receipt.
+Signoffs binden die deterministische Readiness-Basis, nicht den spaeteren
+Evidencecontract. Reihenfolge bleibt zyklusfrei: Audit-/Toolingcommit →
+Auditcontract → Authoritycommit → Enrollment/Records/Runtimeproofs →
+Readiness-Basis → zwei rollengetrennte Signoffs → Evidencecontract → Completion.
 
 Jeder Record bindet mindestens `run_id`, `audited_commit`, Snapshot-ID, Dateipfad,
 Datei-SHA, Reviewer-ID, Zeitstempel und Beleg. Zeilenranges: 100–200 Zeilen,
@@ -370,9 +412,11 @@ passieren.
 5. Delta-/TTL-Validator: exakte Git-Diff-Pfadmenge, Produktrelevanz,
    `audited_commit`, Integrations-HEAD und Ablaufzeit; Drift/TTL rot.
 6. Completion-/Atomic-Import-Harness: alle Shardhashes und referenziellen
-   Mengen erst im temporaeren Ziel pruefen, danach atomarer Rename; Fehler
-   laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot fuer
-   unqualifizierte Completion.
+   Mengen sowie globale Audit-/Evidence-Contract-Exact-Sets erst im temporaeren
+   Ziel pruefen. Acht statische Record-Shards plus alle dynamischen Attachments
+   unter ihren sicheren relativen Refs importieren, danach atomarer Rename;
+   Fehler laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot
+   fuer unqualifizierte Completion.
 
 Pflicht-Testmatrix je Harness:
 
