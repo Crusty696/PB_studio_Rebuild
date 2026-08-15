@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9c42ebb477d84ee8991cf72d089325c6",
+  "recorded_at": "2026-08-15T14:02:14+00:00",
+  "session_id": "44cefe0fc8b545828ee6103032275755",
+  "head_at_start": "0601e580678c80231d497ba6a800043d35bf1adb",
+  "problem": "Audit-Validator band Inventar und Review-Signoffs an Current HEAD und frei waehlbare reviewer_id; ein spaeterer Reportcommit invalidierte Revalidierung und Identitaetsunabhaengigkeit war spoofbar.",
+  "cause": "Zielcommit und Reviewer-Provenienz waren nicht als unveraenderliche, hashgebundene Primaerschluessel modelliert.",
+  "rule": "Vollstaendigkeitsaudits gegen expliziten audited_commit aus Git-Objekten revalidieren; Reviewer-Signoffs nur per FK auf hashgebundenes Roster akzeptieren und A/B ueber Session plus vollstaendige Parent-Lineage trennen. Gegenwarts-Workspace/External-Scope-Drift separat fail-closed pruefen.",
+  "applies_to": "Audit-Ledger, Coverage-Validatoren, Dual-Control-Reviews, reproduzierbare Abschlussberichte"
+}

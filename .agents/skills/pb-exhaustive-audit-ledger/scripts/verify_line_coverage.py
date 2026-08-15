@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -78,6 +80,126 @@ def _expected_unit_kinds(meta: dict) -> set[str]:
     return kinds
 
 
+def _reviewer_roster(
+    roster_path: Path,
+    snapshot: dict,
+    run_id: str,
+    audited_commit: str,
+    snapshot_id: str,
+) -> tuple[dict[str, dict], list[str]]:
+    errors: list[str] = []
+    if not roster_path.is_file():
+        return {}, ["Reviewer-Roster fehlt"]
+    roster_bytes = roster_path.read_bytes()
+    if snapshot.get("reviewer_roster_sha256") != _sha(roster_bytes):
+        errors.append("Reviewer-Roster-Hash stimmt nicht mit snapshot.json")
+    try:
+        rows = _jsonl(roster_path)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {}, errors + [f"Reviewer-Roster unlesbar: {exc}"]
+    if not rows:
+        errors.append("Reviewer-Roster ist leer")
+    roster: dict[str, dict] = {}
+    sessions: dict[str, str] = {}
+    required_text = ("reviewer_id", "session_id", "worktree", "branch", "commit_sha")
+    for index, row in enumerate(rows, 1):
+        label = f"Reviewer-Roster Zeile {index}"
+        if not isinstance(row, dict):
+            errors.append(f"{label}: JSON-Objekt erforderlich")
+            continue
+        if row.get("run_id") != run_id:
+            errors.append(f"{label}: run_id falsch")
+        if row.get("audited_commit") != audited_commit:
+            errors.append(f"{label}: audited_commit falsch")
+        if row.get("snapshot_id") != snapshot_id:
+            errors.append(f"{label}: snapshot_id falsch")
+        missing = [
+            field
+            for field in required_text
+            if not isinstance(row.get(field), str) or not row[field].strip()
+        ]
+        if missing:
+            errors.append(f"{label}: Pflichtfelder fehlen/ungueltig: {missing}")
+        reviewer_id = str(row.get("reviewer_id", ""))
+        session_id = str(row.get("session_id", ""))
+        if reviewer_id in roster:
+            errors.append(f"{label}: doppelte reviewer_id {reviewer_id!r}")
+        else:
+            roster[reviewer_id] = row
+        if session_id in sessions:
+            errors.append(
+                f"{label}: session_id {session_id!r} bereits Reviewer {sessions[session_id]!r} zugeordnet"
+            )
+        else:
+            sessions[session_id] = reviewer_id
+        if row.get("commit_sha") != audited_commit:
+            errors.append(f"{label}: commit_sha ist nicht audited_commit")
+        worktree = Path(str(row.get("worktree", "")))
+        if not worktree.is_absolute():
+            errors.append(f"{label}: worktree muss absoluter Pfad sein")
+        lineage = row.get("lineage_ids")
+        if not isinstance(lineage, list) or any(not isinstance(item, str) or not item for item in lineage):
+            errors.append(f"{label}: lineage_ids muss Liste nichtleerer Session-IDs sein")
+            lineage = []
+        if len(lineage) != len(set(lineage)):
+            errors.append(f"{label}: lineage_ids enthaelt Duplikate")
+        if session_id and session_id in lineage:
+            errors.append(f"{label}: eigene session_id darf nicht in lineage_ids stehen")
+        parent_id = row.get("parent_id")
+        if lineage:
+            if parent_id != lineage[-1]:
+                errors.append(f"{label}: parent_id muss letztem lineage_ids-Eintrag entsprechen")
+        elif parent_id is not None:
+            errors.append(f"{label}: Root-Reviewer braucht parent_id null")
+        claims = row.get("claims")
+        if (
+            not isinstance(claims, list)
+            or not claims
+            or any(not isinstance(claim, str) or not claim.strip() for claim in claims)
+            or len(claims) != len(set(claims))
+        ):
+            errors.append(f"{label}: claims muss eindeutige nichtleere String-Liste sein")
+        elif any(
+            claim.startswith(("/", "\\"))
+            or ".." in Path(claim.replace("\\", "/")).parts
+            for claim in claims
+        ):
+            errors.append(f"{label}: claims muessen relative Repo-Pfade/Globs sein")
+    return roster, errors
+
+
+def _identity_closure(reviewer: dict) -> set[str]:
+    return {str(reviewer.get("session_id", "")), *map(str, reviewer.get("lineage_ids") or [])} - {""}
+
+
+def _reviewer_claims_path(reviewer: dict, path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    return any(
+        fnmatch.fnmatchcase(normalized, str(claim).replace("\\", "/"))
+        for claim in reviewer.get("claims") or []
+    )
+
+
+def _independent_reviewers(
+    reviewer_ids_a: set[str],
+    reviewer_ids_b: set[str],
+    roster: dict[str, dict],
+) -> bool:
+    if reviewer_ids_a & reviewer_ids_b:
+        return False
+    closure_a = set().union(*(
+        _identity_closure(roster[reviewer])
+        for reviewer in reviewer_ids_a
+        if reviewer in roster
+    ))
+    closure_b = set().union(*(
+        _identity_closure(roster[reviewer])
+        for reviewer in reviewer_ids_b
+        if reviewer in roster
+    ))
+    return not bool(closure_a & closure_b)
+
+
 def verify(
     root: Path,
     snapshot_path: Path,
@@ -87,6 +209,7 @@ def verify(
     non_line_units: Path,
     exclusions_path: Path,
     workspace_units_path: Path,
+    reviewer_roster_path: Path,
 ) -> list[str]:
     inventory = _jsonl(inventory_path)
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -128,8 +251,30 @@ def verify(
         errors.append("Current Working Tree ist nicht clean")
     if snapshot.get("clean") is not True:
         errors.append("snapshot.json clean ist nicht true")
-    if snapshot.get("commit_sha") != head or any(row.get("commit_sha") != head for row in inventory):
-        errors.append("Current HEAD stimmt nicht mit Snapshot/Inventory")
+    audited_commit = str(snapshot.get("audited_commit", ""))
+    resolved_audited_commit = ""
+    if not audited_commit:
+        errors.append("snapshot.json audited_commit fehlt")
+    elif not re.fullmatch(r"[0-9a-f]{40}", audited_commit):
+        errors.append("audited_commit muss 40-stellige lowercase Git-SHA sein")
+    else:
+        try:
+            resolved_audited_commit = _run(
+                root, "rev-parse", "--verify", f"{audited_commit}^{{commit}}"
+            ).decode().strip()
+        except subprocess.CalledProcessError:
+            resolved_audited_commit = ""
+            errors.append(f"audited_commit existiert nicht als Commit: {audited_commit}")
+        if resolved_audited_commit and resolved_audited_commit != audited_commit:
+            errors.append("audited_commit muss vollstaendige kanonische Commit-SHA sein")
+    if snapshot.get("commit_sha") != audited_commit or any(
+        row.get("commit_sha") != audited_commit for row in inventory
+    ):
+        errors.append("Snapshot/Inventory commit_sha stimmt nicht mit audited_commit")
+    reviewer_roster, roster_errors = _reviewer_roster(
+        reviewer_roster_path, snapshot, run_id, audited_commit, computed_snapshot_id,
+    )
+    errors.extend(roster_errors)
     if any(row.get("run_id") != run_id for row in inventory + workspace_units):
         errors.append("Inventory/Workspace run_id weicht vom Snapshot ab")
     summary_expected = {
@@ -143,7 +288,8 @@ def verify(
         if snapshot.get(field) != expected:
             errors.append(f"snapshot.json {field} stimmt nicht: {snapshot.get(field)} != {expected}")
     current_tree: dict[str, tuple[str, str, str]] = {}
-    for raw in _run(root, "ls-tree", "-r", "-z", "--full-tree", "HEAD").split(b"\x00"):
+    treeish = resolved_audited_commit or head
+    for raw in _run(root, "ls-tree", "-r", "-z", "--full-tree", treeish).split(b"\x00"):
         if raw:
             meta, path_raw = raw.split(b"\t", 1)
             mode, object_type, object_id = meta.decode().split()
@@ -155,7 +301,9 @@ def verify(
     if git_inventory_paths != set(current_tree):
         missing = sorted(set(current_tree) - git_inventory_paths)
         extra = sorted(git_inventory_paths - set(current_tree))
-        errors.append(f"Inventory/HEAD-Pfadmenge driftet; missing={missing[:5]} extra={extra[:5]}")
+        errors.append(
+            f"Inventory/audited_commit-Pfadmenge driftet; missing={missing[:5]} extra={extra[:5]}"
+        )
     current_workspace = _discover_workspace_units(root, run_id)
     current_discovered = {
         (row.get("scope"), row.get("path")): row for row in current_workspace
@@ -310,7 +458,7 @@ def verify(
             blob = row.get("git_blob")
             current_entry = current_tree.get(str(path))
             if current_entry is None:
-                errors.append(f"{path}: fehlt in Current HEAD")
+                errors.append(f"{path}: fehlt in audited_commit")
                 continue
             current_mode, current_object_type, current_blob = current_entry
             if row.get("git_mode") != current_mode or row.get("git_object_type") != current_object_type:
@@ -319,7 +467,7 @@ def verify(
                 errors.append(f"{path}: Git-Blob/Gitlink-Target driftet")
             current_data = b"" if current_mode == "160000" else current_blobs[current_blob]
         if _sha(current_data) != row.get("sha256"):
-            errors.append(f"{path}: Current-HEAD-Inhalt driftet")
+            errors.append(f"{path}: audited_commit-Inhalt driftet")
         if current_mode == "160000":
             derived = {
                 "media": "gitlink", "encoding": None, "line_count": None,
@@ -358,7 +506,12 @@ def verify(
             if row.get("run_id") != run_id:
                 errors.append(f"{label}:{path}: falsche run_id")
             ranges[path].append(row)
-            reviewers[(label, path)].add(str(row.get("reviewer_id", "")))
+            reviewer_id = str(row.get("reviewer_id", ""))
+            reviewers[(label, path)].add(reviewer_id)
+            if reviewer_id not in reviewer_roster:
+                errors.append(f"{label}:{path}: reviewer_id fehlt im Reviewer-Roster")
+            elif not _reviewer_claims_path(reviewer_roster[reviewer_id], str(path)):
+                errors.append(f"{label}:{path}: Reviewer-Roster-Claims decken Pfad nicht ab")
             if row.get("file_sha256") != inv[path]["sha256"]:
                 errors.append(f"{label}:{path}: Ledger-SHA != Inventory-SHA")
             checks = row.get("checks") or {}
@@ -396,8 +549,10 @@ def verify(
     for path, meta in inv.items():
         if meta["media"] != "text" or meta["disposition"] != "direct-review" or not meta["line_count"]:
             continue
-        if reviewers[("A", path)] & reviewers[("B", path)]:
-            errors.append(f"{path}: Pass A/B haben gleichen Reviewer")
+        if not _independent_reviewers(
+            reviewers[("A", path)], reviewers[("B", path)], reviewer_roster,
+        ):
+            errors.append(f"{path}: Pass A/B haben gleiche Reviewer-Identity/Lineage")
         if len(reviewers[("A", path)]) != 1 or len(reviewers[("B", path)]) != 1:
             errors.append(f"{path}: pro Pass genau ein Reviewer erforderlich")
 
@@ -421,7 +576,15 @@ def verify(
             errors.append(f"non_line_units:{label}:{path}:{kind}: Checks unvollstaendig")
         if row.get("verdict") != "reviewed" or not row.get("signed_at") or not row.get("reviewer_id"):
             errors.append(f"non_line_units:{label}:{path}:{kind}: Signoff unvollstaendig")
-        unit_reviewers[(label, path, kind)].add(str(row.get("reviewer_id", "")))
+        reviewer_id = str(row.get("reviewer_id", ""))
+        unit_reviewers[(label, path, kind)].add(reviewer_id)
+        if reviewer_id not in reviewer_roster:
+            errors.append(f"non_line_units:{label}:{path}:{kind}: reviewer_id fehlt im Reviewer-Roster")
+        elif not _reviewer_claims_path(reviewer_roster[reviewer_id], str(path)):
+            errors.append(
+                f"non_line_units:{label}:{path}:{kind}: "
+                "Reviewer-Roster-Claims decken Pfad nicht ab"
+            )
         unit_counts[(label, path, kind)] += 1
 
     for path, meta in inv.items():
@@ -430,8 +593,12 @@ def verify(
         for kind in _expected_unit_kinds(meta):
             if unit_counts[("A", path, kind)] != 1 or unit_counts[("B", path, kind)] != 1:
                 errors.append(f"{path}:{kind}: genau eine Einheit pro Pass erforderlich")
-            if unit_reviewers[("A", path, kind)] & unit_reviewers[("B", path, kind)]:
-                errors.append(f"{path}:{kind}: Pass A/B haben gleichen Reviewer")
+            if not _independent_reviewers(
+                unit_reviewers[("A", path, kind)],
+                unit_reviewers[("B", path, kind)],
+                reviewer_roster,
+            ):
+                errors.append(f"{path}:{kind}: Pass A/B haben gleiche Reviewer-Identity/Lineage")
     return errors
 
 
@@ -445,10 +612,12 @@ def main() -> int:
     parser.add_argument("--non-line-units", type=Path, required=True)
     parser.add_argument("--exclusions", type=Path, required=True)
     parser.add_argument("--workspace-units", type=Path, required=True)
+    parser.add_argument("--reviewer-roster", type=Path, required=True)
     args = parser.parse_args()
     errors = verify(
         args.root.resolve(), args.snapshot, args.inventory, args.pass_a,
         args.pass_b, args.non_line_units, args.exclusions, args.workspace_units,
+        args.reviewer_roster,
     )
     print(json.dumps({"ok": not errors, "error_count": len(errors), "errors": errors}, ensure_ascii=False, indent=2))
     return 0 if not errors else 2
