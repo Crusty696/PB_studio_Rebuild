@@ -1,0 +1,10 @@
+{
+  "lesson_id": "899b53c0d4b84c51804e1dd5727444ab",
+  "recorded_at": "2026-08-15T15:29:19+00:00",
+  "session_id": "a88775c7551648a98c85943ade256eab",
+  "head_at_start": "4b94c2608ff6e3561a81580236235247e28122fa",
+  "problem": "Delta-/TTL-Gate darf bereitgestellte Delta-Zeilen nicht als vollstaendige Wahrheit akzeptieren.",
+  "cause": "Ein frei geschriebenes Delta-Manifest kann Pfade auslassen, wenn Validator keine kanonische Git-Diff-Menge selbst ableitet.",
+  "rule": "Delta-Gates muessen Basis- und Head-Commit kanonisch aufloesen, Git-Diff selbst erzeugen und exakte Mengen-, Bindungs-, TTL- und Produktrelevanzpruefung fail-closed ausfuehren.",
+  "applies_to": "Audit-Delta-, Freeze-, TTL- und Completion-Gates"
+}
