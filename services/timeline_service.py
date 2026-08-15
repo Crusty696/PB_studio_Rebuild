@@ -670,6 +670,92 @@ def repair_timeline_integrity(project_id: int) -> dict[str, int]:
                         row.source_end = expected_end
                         result["audio_duration_synced"] += 1
 
+        # B-843: Videospur bis ans Audio-Ende ziehen.
+        #
+        # Der Gap-Close-Pass oben schiebt Segmente nach LINKS (start = cursor)
+        # und verkuerzt damit die Videospur, ohne den entstehenden Schwanz zu
+        # fuellen. Livebefund 2026-08-15: der 64-Segmente-Lauf schloss 62
+        # Luecken und endete danach bei 330,015 s statt 337,137 s — die
+        # letzten 7,1 Sekunden Musik liefen ohne Bild, und der Export hat die
+        # Tonspur entsprechend mitgeschnitten.
+        #
+        # Repariert wird ueber das letzte ungelockte Segment: es wird so weit
+        # verlaengert, wie sein Quellclip hergibt. Reicht das Material nicht,
+        # bleibt eine Restluecke — die wird geloggt statt still hingenommen.
+        if video_rows and audio_rows:
+            audio_ende = max(
+                (float(r.end_time or 0.0) for r in audio_rows), default=0.0
+            )
+            video_ende = max(
+                (float(r.end_time or 0.0) for r in video_rows), default=0.0
+            )
+            fehlend = audio_ende - video_ende
+            if fehlend > 0.05:
+                # Erst rechnen, dann schreiben: die Luecke wird von hinten ueber
+                # mehrere Segmente verteilt, weil ein einzelner Clip selten
+                # genug Restmaterial hat (hier: 7,1s fehlend bei 10s-Clips).
+                # Geaendert wird nur, wenn sich die Luecke dadurch VOLLSTAENDIG
+                # schliessen laesst — ein Teilstueck anzuhaengen verschoebe nur
+                # Grenzen, ohne das Problem zu loesen.
+                sortiert = sorted(
+                    video_rows, key=lambda r: float(r.start_time or 0.0)
+                )
+                plan: list[tuple[object, float]] = []
+                rest = fehlend
+                for row in reversed(sortiert):
+                    if rest <= 0.05:
+                        break
+                    if bool(row.locked):
+                        # Ein gelockter Anker ist eine Nutzerentscheidung und
+                        # wird weder verlaengert noch verschoben.
+                        break
+                    clip_dauer = float(video_durations.get(row.media_id) or 0.0)
+                    if clip_dauer <= 0:
+                        continue
+                    frei = clip_dauer - float(row.source_end or 0.0)
+                    zuwachs = min(rest, max(0.0, frei))
+                    if zuwachs > 0.01:
+                        plan.append((row, zuwachs))
+                        rest -= zuwachs
+
+                if rest <= 0.05 and plan:
+                    # Von hinten anwenden: jede Verlaengerung schiebt alle
+                    # spaeteren Segmente um denselben Betrag nach rechts.
+                    verschoben = 0.0
+                    for row, zuwachs in plan:
+                        idx = sortiert.index(row)
+                        row.end_time = round(
+                            float(row.end_time or 0.0) + zuwachs + verschoben, 4
+                        )
+                        row.start_time = round(
+                            float(row.start_time or 0.0) + verschoben, 4
+                        )
+                        if row.source_end is not None:
+                            row.source_end = round(float(row.source_end) + zuwachs, 4)
+                        for spaeter in sortiert[idx + 1:]:
+                            spaeter.start_time = round(
+                                float(spaeter.start_time or 0.0) + zuwachs, 4
+                            )
+                            spaeter.end_time = round(
+                                float(spaeter.end_time or 0.0) + zuwachs, 4
+                            )
+                        verschoben += zuwachs
+                    result["video_tail_extended"] = round(fehlend - rest, 4)
+                    logger.info(
+                        "B-843: Videospur um %.3fs bis ans Audio-Ende "
+                        "verlaengert (%.3fs), verteilt auf %d Segmente.",
+                        fehlend - rest, audio_ende, len(plan),
+                    )
+                else:
+                    logger.warning(
+                        "B-843: Videospur endet %.3fs vor dem Audio (%.3fs "
+                        "statt %.3fs) und laesst sich mit dem vorhandenen "
+                        "Restmaterial nicht schliessen (%.3fs fehlen weiter). "
+                        "Nichts geaendert — das Video wird kuerzer als der "
+                        "Track.",
+                        fehlend, video_ende, audio_ende, rest,
+                    )
+
         session.commit()
 
     logger.info("Timeline-Integritaet repariert (project=%d): %s", project_id, result)

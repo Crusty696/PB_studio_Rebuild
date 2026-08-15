@@ -90,7 +90,13 @@ def test_e6_repair_parity_on_broken_rows(test_engine, monkeypatch):
 
     result = ts_mod.repair_timeline_integrity(pid)
 
-    # Rueckgabewert-Paritaet (Semantik der Vor-E6-Implementierung):
+    # Rueckgabewert-Paritaet (Semantik der Vor-E6-Implementierung).
+    # B-843: `video_tail_extended` kommt nur dazu, wenn die Videospur wirklich
+    # vor dem Audio endete und verlaengert werden konnte — hier ist das der
+    # Fall, weil das Szenario Luecken enthaelt und der Gap-Close die Spur
+    # verkuerzt. Der Schluessel wird deshalb separat geprueft, damit die
+    # Paritaet der sechs Bestandszaehler unveraendert nachweisbar bleibt.
+    tail = result.pop("video_tail_extended", None)
     assert result == {
         "video_duration_clamped": 2,      # Rows 1 + 3
         "video_overlaps_shifted": 0,
@@ -99,6 +105,9 @@ def test_e6_repair_parity_on_broken_rows(test_engine, monkeypatch):
         "audio_duplicates_removed": 1,    # Row b
         "audio_duration_synced": 1,       # Row a
     }
+    assert tail is None or tail > 0, (
+        "der Schluessel darf nur auftauchen, wenn tatsaechlich verlaengert wurde"
+    )
 
     with DBSession(test_engine) as s:
         video_rows = (
