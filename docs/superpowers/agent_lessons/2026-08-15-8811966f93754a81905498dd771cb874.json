@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8811966f93754a81905498dd771cb874",
+  "recorded_at": "2026-08-15T17:18:51+00:00",
+  "session_id": "38b90d8b304c48db9a4b595b2548bad0",
+  "head_at_start": "6f7487800daf34c7f310d1182a281e027087714a",
+  "problem": "Offline reviewer verification could pass caller-selected unkeyed or single-key trust inputs and finalize without revalidating live enrollment state.",
+  "cause": "Trust pins were supplied at runtime instead of fixed by a committed policy blob; roles shared one key; receipts omitted stable Registry/worktree rechecks.",
+  "rule": "Bind preflight inputs to an externally pinned authority-signed audit contract and committed tooling policy; use distinct role keys; fail closed; recheck stable Registry lineage, claims, worktree and receipt at signoff.",
+  "applies_to": "Audit reviewer enrollment, immutable receipts, signoff gates, readiness contracts"
+}
