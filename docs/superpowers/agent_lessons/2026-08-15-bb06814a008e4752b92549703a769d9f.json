@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bb06814a008e4752b92549703a769d9f",
+  "recorded_at": "2026-08-15T16:44:59+00:00",
+  "session_id": "7a82a6802f7e4d87b17552759fbce23c",
+  "head_at_start": "22b3950b502787bca0707c308b71cd01bc2775b2",
+  "problem": "Erster selbst ausfuehrender Runtime-Runner blieb adversarial umgehbar: Git-Checkout konnte Filter/Hooks anwenden, Scenario schrieb Trace selbst, Catalog autorisierte eigene Bindungen und Quellen konnten zwischen Hash und Publish wechseln.",
+  "cause": "Ausfuehrung, Identitaet und Beobachtung lagen teilweise im selben selbstattestierten Szenariovertrag statt in getrennten extern gepinnten Trust-Domaenen mit erneuter Bytepruefung.",
+  "rule": "Runtime-Attestierung braucht getrennte hookfreie Blob-Materialisierung fuer Produkt- und Toolingcommit, extern hashgepinnten Auditvertrag, runner-eigenen signierten Observation-Sink, Exact-Set-Universen sowie Rehash von Quellen, versiegelten Inputs, Materialisierungen und Outputs nach jedem Prozess und vor atomarem Publish.",
+  "applies_to": "Runtime-Evidence, Audit-Szenarien, Postcondition-Checker, content-addressed Livebelege"
+}
