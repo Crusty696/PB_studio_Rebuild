@@ -107,6 +107,26 @@ class GateContractTests(unittest.TestCase):
                 ("trigger-catalog", self.trigger_records),
             )
         }
+        proof_artifacts = {}
+        for prefix, rows in (
+            ("symbol-proof", self.evidence_records),
+            ("runtime-proof", self.runtime_records),
+        ):
+            for row in rows:
+                fields = [
+                    "evidence_id", "evidence_kind", "reviewer_id", "path",
+                    "source_blob_sha256",
+                ]
+                fields.append("symbol_id" if "symbol_id" in row else "edge_id")
+                proof = {field: row[field] for field in fields}
+                proof["schema_version"] = 1
+                data = HARNESS._canonical(proof)
+                target = self.repo / row["proof_ref"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                proof_artifacts[f"{prefix}:{row['evidence_id']}"] = HARNESS.file_contract_entry(
+                    data, row["proof_ref"]
+                )
         audit_core = {
             "schema_version": 1, "plan_id": self.PLAN, "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
@@ -151,6 +171,7 @@ class GateContractTests(unittest.TestCase):
                 "runtime-evidence": HARNESS.artifact_contract_entry(
                     self.runtime_records, "evidence/runtime.jsonl"
                 ),
+                **proof_artifacts,
             },
         }
         self.evidence_contract = HARNESS.seal_evidence_contract(evidence_core)
@@ -237,6 +258,7 @@ class GateContractTests(unittest.TestCase):
             expected_contract_sha256=self.contract_sha,
             evidence_contract=self.evidence_contract,
             expected_evidence_contract_sha256=self.evidence_contract_sha,
+            evidence_root=self.repo,
         )
 
     def test_positive_minimal(self) -> None:
@@ -558,6 +580,7 @@ class GateContractTests(unittest.TestCase):
             "--expected-audit-contract-sha256", self.contract_sha,
             "--evidence-contract", str(evidence_contract_path),
             "--expected-evidence-contract-sha256", self.evidence_contract_sha,
+            "--evidence-root", str(self.repo),
         ]
         self.assertEqual(0, HARNESS.main(args))
         missing_external_pin = args.copy()
