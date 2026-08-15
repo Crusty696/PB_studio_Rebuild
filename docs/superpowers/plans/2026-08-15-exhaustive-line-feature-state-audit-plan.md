@@ -559,9 +559,9 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py
   --reviewer-roster <evidence-dir>/reviewer_roster.jsonl
 ```
 
-Direkter CLI ist bis Live-Enrollment-Harness bewusst rot; erst
-`audit_reviewer_roster.py` darf nach realer Registry-/Worktree-Pruefung
-trusted Session-IDs in-process an Coverage-Validator uebergeben.
+Direkter CLI ist bis Live-Enrollment-Harness bewusst rot. Phase -1 muss einen
+neuen receiptgebundenen Entry-Point oder Ersatzvalidator implementieren;
+rohe Session-ID-Sets sind ausdruecklich verboten.
 
 ### Phase 5 — Kanten-, Vertrag- und Duplikatabgleich
 

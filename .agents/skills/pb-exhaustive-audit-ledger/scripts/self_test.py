@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
-from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, _basis, _run_test_node, verify_readiness
+from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, SIGNOFF_TRUST_BLOCKER, _basis, _run_test_node, verify_readiness
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
 from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
@@ -657,7 +657,7 @@ if __name__ == "__main__": unittest.main()
         readiness_path = base / "readiness.json"
         readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
         readiness_errors = verify_readiness(root, readiness_path)
-        assert not readiness_errors, readiness_errors
+        assert readiness_errors == [SIGNOFF_TRUST_BLOCKER], readiness_errors
         empty_test = base / "comment-only-test.py"
         empty_test.write_text("# no tests\n", encoding="utf-8")
         assert _run_test_node(base, str(empty_test), "test_positive_minimal", {}).returncode != 0

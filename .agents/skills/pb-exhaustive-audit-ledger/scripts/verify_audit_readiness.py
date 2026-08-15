@@ -26,6 +26,7 @@ COMMON_TESTS = (
     "test_tampered_binding_rejected", "test_duplicate_or_foreign_id_rejected",
 )
 REQUIRED_ARTIFACTS = {path for pair in REQUIRED_GATES.values() for path in pair[:2]}
+SIGNOFF_TRUST_BLOCKER = "Reviewer-Live-Enrollment/Receipt-Trust ist noch nicht implementiert"
 UNITTEST_LOADER = (
     "import importlib.util,sys,unittest;"
     "p,n=sys.argv[1],sys.argv[2];"
@@ -204,7 +205,8 @@ def verify_readiness(root: Path, manifest_path: Path) -> list[str]:
             errors.append("Signoff-Reviewer/Session muessen verschieden sein")
         if a.get("session_id") in (b.get("ancestor_session_ids") or []) or b.get("session_id") in (a.get("ancestor_session_ids") or []):
             errors.append("Signoff-Reviewer duerfen nicht Vorfahr/Nachfahre sein")
-    if not errors:
+    errors.append(SIGNOFF_TRUST_BLOCKER)
+    if not [error for error in errors if error != SIGNOFF_TRUST_BLOCKER]:
         errors.extend(_run_gates(root, commit))
     return errors
 
