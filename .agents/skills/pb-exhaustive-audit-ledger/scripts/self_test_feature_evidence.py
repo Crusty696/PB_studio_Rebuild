@@ -30,6 +30,7 @@ def _runtime_run(root: Path) -> dict:
         "run_id": RUN_ID,
         "runtime_run_id": "LIVE-001",
         "audited_commit": COMMIT,
+        "snapshot_id": SNAPSHOT_ID,
         "timestamp": "2026-08-15T14:00:00+00:00",
         "input": {"ref": "input.json", "sha256": _sha(input_path)},
         "command": {"argv": ["python", "verify.py"], "cwd": "."},
@@ -119,7 +120,23 @@ class FeatureEvidenceTests(unittest.TestCase):
             audited_commit=COMMIT,
             snapshot_id=SNAPSHOT_ID,
             run_id=RUN_ID,
+            trusted_execution_ids={self.runtime["runtime_run_id"]} if runtime is None else {row["runtime_run_id"] for row in runtime},
         )
+
+    def test_self_attested_runtime_is_rejected_without_runner(self) -> None:
+        errors = verify_feature_contract(
+            [self.feature], [self.requirement], [self.runtime], evidence_root=self.root,
+            audited_commit=COMMIT, snapshot_id=SNAPSHOT_ID, run_id=RUN_ID,
+        )
+        self.assertTrue(any("keine validatorseitige Runner-Attestierung" in error for error in errors), errors)
+
+    def test_one_runtime_run_cannot_claim_multiple_feature_paths(self) -> None:
+        runtime = json.loads(json.dumps(self.runtime))
+        runtime["covered_feature_paths"] = ["FEAT-001/ui", "FEAT-OTHER/ui"]
+        runtime["evidence_id"] = canonical_id(runtime)
+        row = _feature(runtime["evidence_id"])
+        errors = self.verify(matrix=[row], runtime=[runtime])
+        self.assertTrue(any("exakt einen Featurepfad" in error for error in errors), errors)
 
     def test_valid_contract_passes(self) -> None:
         self.assertEqual([], self.verify())

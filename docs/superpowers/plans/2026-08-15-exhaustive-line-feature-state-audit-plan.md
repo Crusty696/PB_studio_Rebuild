@@ -350,13 +350,17 @@ passieren.
 
 1. Requirements-/Trigger-Enumerator + Exact-Set-Validator: unabhaengige
    Universen, Hashbindung, fehlende/zusaetzliche/doppelte Disposition rot.
-2. Symbol-/Kanten-/Config-Contract-Validator: jede Funktion/Methode exakt
-   einmal; fehlendes Symbol, Caller oder Statevertrag rot.
-3. Content-addressed Runtime-Evidence-Validator: Manifest-/Artefaktdatei,
-   SHA256, Bytes, Command, Input, Exit-Code, Postcondition, Cleanup,
-   `audited_commit` und Snapshot werden real validiert; erfundene Ref rot.
-4. Reviewer-Roster-/Lineage-Validator: Session, Parent, Lineage, Worktree,
-   Branch, Commit und Claims; A/B gleiche Session oder Parent-Lineage rot.
+2. `tools/audit_symbol_contracts.py`: jede Funktion/Methode exakt einmal;
+   fehlendes Symbol, Caller, Kante oder Statevertrag rot.
+3. `tools/audit_runtime_evidence.py`: immutable Scenario-Katalog; Tool fuehrt
+   fest gebundene Commands selbst mit `shell=False` im detached Auditcommit-
+   Kontext aus, erfasst Exit/Output/Postcondition/Trace und leitet Coverage aus
+   Singleton-Featuretarget plus beobachteten Symbolen ab. Gehashte,
+   selbstgeschriebene PASS-Dateien oder `covered_*`-Arrays sind kein Beleg.
+4. `tools/audit_reviewer_roster.py`: Live-Enrollment gegen aktuelle
+   Session-Registry und reale Worktrees vor deren Release; hashgebundene
+   Session-Receipts fuer Finalgate. A/B gleiche Session oder direkte/indirekte
+   Vorfahrbeziehung rot. Gemeinsamer neutraler Director ohne Signoff erlaubt.
 5. Delta-/TTL-Validator: exakte Git-Diff-Pfadmenge, Produktrelevanz,
    `audited_commit`, Integrations-HEAD und Ablaufzeit; Drift/TTL rot.
 6. Completion-/Atomic-Import-Harness: alle Shardhashes und referenziellen
@@ -372,7 +376,9 @@ Pflicht-Testmatrix je Harness:
 - doppelte und fremde ID;
 - veraltete TTL/produktrelevantes Delta, falls anwendbar;
 - Crash/Fehler vor atomarem Swap mit Bytevergleich Altbestand;
-- gemeinsamer Parent/umbenannter Reviewer fuer Unabhaengigkeitsgate.
+- gleiche Session, umbenannter Reviewer, Vorfahr/Nachfahre und erfundene
+  Session/Worktree fuer Unabhaengigkeitsgate; gemeinsamer neutraler Director
+  als Positivfall.
 
 Phase--1-Gate: alle sechs Werkzeuge existieren, komplette Contracttests gruen,
 Negativtests beweisen rote Gates, Lead V plus Adversarial Reviewer liefern
@@ -543,15 +549,19 @@ nur abgeschlossene Batches atomar. Kein Sammellog am Wellenende.
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py `
   --root . `
-  --audited-commit <full-git-sha> `
   --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --pass-a <evidence-dir>/line_ranges_pass_a.jsonl `
   --pass-b <evidence-dir>/line_ranges_pass_b.jsonl `
   --non-line-units <evidence-dir>/non_line_units.jsonl `
   --exclusions <evidence-dir>/exclusions.jsonl `
-  --workspace-units <evidence-dir>/workspace_units.jsonl
+  --workspace-units <evidence-dir>/workspace_units.jsonl `
+  --reviewer-roster <evidence-dir>/reviewer_roster.jsonl
 ```
+
+Direkter CLI ist bis Live-Enrollment-Harness bewusst rot; erst
+`audit_reviewer_roster.py` darf nach realer Registry-/Worktree-Pruefung
+trusted Session-IDs in-process an Coverage-Validator uebergeben.
 
 ### Phase 5 — Kanten-, Vertrag- und Duplikatabgleich
 

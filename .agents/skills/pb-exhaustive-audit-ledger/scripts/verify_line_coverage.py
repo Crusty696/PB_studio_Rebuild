@@ -86,6 +86,7 @@ def _reviewer_roster(
     run_id: str,
     audited_commit: str,
     snapshot_id: str,
+    trusted_session_ids: set[str] | None,
 ) -> tuple[dict[str, dict], list[str]]:
     errors: list[str] = []
     if not roster_path.is_file():
@@ -122,6 +123,8 @@ def _reviewer_roster(
             errors.append(f"{label}: Pflichtfelder fehlen/ungueltig: {missing}")
         reviewer_id = str(row.get("reviewer_id", ""))
         session_id = str(row.get("session_id", ""))
+        if trusted_session_ids is None or session_id not in trusted_session_ids:
+            errors.append(f"{label}: keine Live-Enrollment-Attestierung fuer session_id")
         if reviewer_id in roster:
             errors.append(f"{label}: doppelte reviewer_id {reviewer_id!r}")
         else:
@@ -137,20 +140,20 @@ def _reviewer_roster(
         worktree = Path(str(row.get("worktree", "")))
         if not worktree.is_absolute():
             errors.append(f"{label}: worktree muss absoluter Pfad sein")
-        lineage = row.get("lineage_ids")
+        lineage = row.get("ancestor_session_ids")
         if not isinstance(lineage, list) or any(not isinstance(item, str) or not item for item in lineage):
-            errors.append(f"{label}: lineage_ids muss Liste nichtleerer Session-IDs sein")
+            errors.append(f"{label}: ancestor_session_ids muss Liste nichtleerer Session-IDs sein")
             lineage = []
         if len(lineage) != len(set(lineage)):
-            errors.append(f"{label}: lineage_ids enthaelt Duplikate")
+            errors.append(f"{label}: ancestor_session_ids enthaelt Duplikate")
         if session_id and session_id in lineage:
-            errors.append(f"{label}: eigene session_id darf nicht in lineage_ids stehen")
-        parent_id = row.get("parent_id")
+            errors.append(f"{label}: eigene session_id darf nicht in ancestor_session_ids stehen")
+        parent_id = row.get("parent_session_id")
         if lineage:
             if parent_id != lineage[-1]:
-                errors.append(f"{label}: parent_id muss letztem lineage_ids-Eintrag entsprechen")
+                errors.append(f"{label}: parent_session_id muss letztem ancestor_session_ids-Eintrag entsprechen")
         elif parent_id is not None:
-            errors.append(f"{label}: Root-Reviewer braucht parent_id null")
+            errors.append(f"{label}: Root-Reviewer braucht parent_session_id null")
         claims = row.get("claims")
         if (
             not isinstance(claims, list)
@@ -169,7 +172,7 @@ def _reviewer_roster(
 
 
 def _identity_closure(reviewer: dict) -> set[str]:
-    return {str(reviewer.get("session_id", "")), *map(str, reviewer.get("lineage_ids") or [])} - {""}
+    return {str(reviewer.get("session_id", "")), *map(str, reviewer.get("ancestor_session_ids") or [])} - {""}
 
 
 def _reviewer_claims_path(reviewer: dict, path: str) -> bool:
@@ -187,17 +190,13 @@ def _independent_reviewers(
 ) -> bool:
     if reviewer_ids_a & reviewer_ids_b:
         return False
-    closure_a = set().union(*(
-        _identity_closure(roster[reviewer])
-        for reviewer in reviewer_ids_a
-        if reviewer in roster
-    ))
-    closure_b = set().union(*(
-        _identity_closure(roster[reviewer])
-        for reviewer in reviewer_ids_b
-        if reviewer in roster
-    ))
-    return not bool(closure_a & closure_b)
+    rows_a = [roster[reviewer] for reviewer in reviewer_ids_a if reviewer in roster]
+    rows_b = [roster[reviewer] for reviewer in reviewer_ids_b if reviewer in roster]
+    return not any(
+        a.get("session_id") in (b.get("ancestor_session_ids") or [])
+        or b.get("session_id") in (a.get("ancestor_session_ids") or [])
+        for a in rows_a for b in rows_b
+    )
 
 
 def verify(
@@ -210,6 +209,7 @@ def verify(
     exclusions_path: Path,
     workspace_units_path: Path,
     reviewer_roster_path: Path,
+    trusted_session_ids: set[str] | None = None,
 ) -> list[str]:
     inventory = _jsonl(inventory_path)
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -273,6 +273,7 @@ def verify(
         errors.append("Snapshot/Inventory commit_sha stimmt nicht mit audited_commit")
     reviewer_roster, roster_errors = _reviewer_roster(
         reviewer_roster_path, snapshot, run_id, audited_commit, computed_snapshot_id,
+        trusted_session_ids,
     )
     errors.extend(roster_errors)
     if any(row.get("run_id") != run_id for row in inventory + workspace_units):

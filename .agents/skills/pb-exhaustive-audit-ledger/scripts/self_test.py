@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
-from verify_audit_readiness import REQUIRED_ARTIFACTS, verify_readiness
+from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, _basis, verify_readiness
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
 from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
@@ -19,7 +19,12 @@ RUN_ID = "SELFTEST-RUN"
 
 def verify_coverage(*args: Path) -> list[str]:
     snapshot_path = Path(args[1])
-    return _verify_coverage(*args, snapshot_path.parent / "reviewer_roster.jsonl")
+    roster_path = snapshot_path.parent / "reviewer_roster.jsonl"
+    sessions = {
+        str(json.loads(line).get("session_id", ""))
+        for line in roster_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    }
+    return _verify_coverage(*args, roster_path, trusted_session_ids=sessions)
 
 
 def _git(root: Path, *args: str) -> None:
@@ -50,8 +55,8 @@ def _bind_reviewer_roster(evidence_dir: Path, root: Path) -> Path:
             "snapshot_id": snapshot_id,
             "reviewer_id": f"reviewer-{label}",
             "session_id": f"session-{label}",
-            "parent_id": f"director-{label}",
-            "lineage_ids": [f"root-{label}", f"director-{label}"],
+            "parent_session_id": f"director-{label}",
+            "ancestor_session_ids": [f"root-{label}", f"director-{label}"],
             "worktree": str((root.parent / f"reviewer-{label}").resolve()),
             "branch": f"audit/{label}",
             "commit_sha": audited_commit,
@@ -339,6 +344,7 @@ def main() -> int:
             root, positive_excluded_snapshot_path, positive_excluded_path,
             positive_excluded_a, positive_excluded_b, positive_excluded_units,
             positive_exclusions, workspace_units, positive_excluded_roster,
+            trusted_session_ids={str(row["session_id"]) for row in excluded_roster_rows},
         )
 
         dirty = root / "dirty.tmp"
@@ -586,21 +592,41 @@ def main() -> int:
             fake_snapshot, files, [], head,
         ))
 
-        for relative in sorted(REQUIRED_ARTIFACTS):
-            artifact = root / relative
-            artifact.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text(f"# readiness fixture: {relative}\n", encoding="utf-8")
+        tool_source = "def validate(value):\n    return isinstance(value, dict) and set(value) == {'valid'} and value.get('valid') is True\n"
+        common_tests = """
+import importlib.util
+import unittest
+from pathlib import Path
+
+TOOL = Path(__file__).parents[2] / {tool_name!r}
+spec = importlib.util.spec_from_file_location("gate_tool", TOOL)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class GateContractTests(unittest.TestCase):
+    def test_positive_minimal(self): self.assertTrue(module.validate({{"valid": True}}))
+    def test_missing_required_rejected(self): self.assertFalse(module.validate({{}}))
+    def test_tampered_binding_rejected(self): self.assertFalse(module.validate({{"valid": False}}))
+    def test_duplicate_or_foreign_id_rejected(self): self.assertFalse(module.validate({{"valid": True, "foreign": True}}))
+    def {specific}(self): self.assertFalse(module.validate(None))
+
+if __name__ == "__main__": unittest.main()
+"""
+        for _, (tool_path, test_path, specific) in sorted(REQUIRED_GATES.items()):
+            tool = root / tool_path
+            tool.parent.mkdir(parents=True, exist_ok=True)
+            tool.write_text(tool_source, encoding="utf-8")
+            test = root / test_path
+            test.parent.mkdir(parents=True, exist_ok=True)
+            test.write_text(common_tests.format(tool_name=tool_path, specific=specific), encoding="utf-8")
         _git(root, "add", "--", *sorted(REQUIRED_ARTIFACTS))
         _git(root, "commit", "-m", "add readiness fixtures")
         tooling_commit = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=root, check=True,
             capture_output=True, text=True,
         ).stdout.strip()
-        validation_root = base / "readiness-validation"
-        validation_root.mkdir()
         artifact_rows = []
-        validation_rows = []
-        for index, relative in enumerate(sorted(REQUIRED_ARTIFACTS)):
+        for relative in sorted(REQUIRED_ARTIFACTS):
             data = subprocess.run(
                 ["git", "show", f"{tooling_commit}:{relative}"], cwd=root,
                 check=True, capture_output=True,
@@ -610,36 +636,33 @@ def main() -> int:
                 "path": relative, "bytes": len(data),
                 "sha256": hashlib.sha256(data).hexdigest(),
             })
-            stdout_path = validation_root / f"{index:02d}.stdout"
-            stderr_path = validation_root / f"{index:02d}.stderr"
-            stdout_path.write_text("PASS\n", encoding="utf-8")
-            stderr_path.write_bytes(b"")
-            validation_rows.append({
-                "run_id": RUN_ID, "tooling_commit": tooling_commit,
-                "target": relative, "command": f"test {relative}",
-                "exit_code": 0, "stdout_path": str(stdout_path),
-                "stdout_sha256": hashlib.sha256(stdout_path.read_bytes()).hexdigest(),
-                "stderr_path": str(stderr_path),
-                "stderr_sha256": hashlib.sha256(stderr_path.read_bytes()).hexdigest(),
-                "started_at": "2026-08-15T00:00:00Z",
-                "ended_at": "2026-08-15T00:00:01Z",
-                "reviewer_id": "independent-reviewer",
-            })
+        readiness_roster = base / "readiness-roster.jsonl"
+        roster_rows = [
+            {"run_id": RUN_ID, "reviewer_id": "lead-v", "session_id": "session-lead", "ancestor_session_ids": ["director"], "commit_sha": tooling_commit},
+            {"run_id": RUN_ID, "reviewer_id": "adversarial", "session_id": "session-adversarial", "ancestor_session_ids": ["director"], "commit_sha": tooling_commit},
+        ]
+        _write_jsonl(readiness_roster, roster_rows)
+        roster_sha = hashlib.sha256(readiness_roster.read_bytes()).hexdigest()
         readiness = {
-            "schema_version": 1, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
-            "run_id": RUN_ID, "tooling_commit": tooling_commit,
-            "artifacts": artifact_rows, "validation_runs": validation_rows,
-            "independent_review_status": "pass",
-            "independent_reviewer_id": "independent-reviewer",
+            "schema_version": 2, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
+            "run_id": RUN_ID, "tooling_commit": tooling_commit, "integration_head": tooling_commit,
+            "matrix_version": 1, "artifacts": artifact_rows,
+            "reviewer_roster_path": str(readiness_roster), "reviewer_roster_sha256": roster_sha,
         }
+        basis = _basis(readiness, artifact_rows, roster_sha)
+        readiness["signoffs"] = [
+            {"role": "lead-v", "reviewer_id": "lead-v", "session_id": "session-lead", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:00Z"},
+            {"role": "adversarial", "reviewer_id": "adversarial", "session_id": "session-adversarial", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:01Z"},
+        ]
         readiness_path = base / "readiness.json"
         readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
-        assert not verify_readiness(root, readiness_path)
+        readiness_errors = verify_readiness(root, readiness_path)
+        assert not readiness_errors, readiness_errors
         broken_readiness = copy.deepcopy(readiness)
-        broken_readiness["validation_runs"][0]["stdout_sha256"] = "0" * 64
+        broken_readiness["signoffs"][1]["session_id"] = "session-lead"
         broken_readiness_path = base / "readiness-broken.json"
         broken_readiness_path.write_text(json.dumps(broken_readiness), encoding="utf-8")
-        assert any("stdout-Hash falsch" in error for error in verify_readiness(root, broken_readiness_path))
+        assert any("Signoff-Bindung" in error for error in verify_readiness(root, broken_readiness_path))
     print("self-test: OK")
     return 0
 

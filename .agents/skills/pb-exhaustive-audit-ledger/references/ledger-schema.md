@@ -62,25 +62,27 @@ Anzahl sind Teil von `snapshot.json` und `snapshot_id`.
 ## exclusions.jsonl
 
 ```json
-{"run_id":"RUN-001","exclusion_id":"EX-001","path":"vendor/x.py","reason":"...","approved_by":"user","approved_at":"ISO-8601","decision_ref":"D-..."}
+{"run_id":"RUN-001","audited_commit":"audited-sha","snapshot_id":"sha256","exclusion_id":"EX-001","path":"vendor/x.py","reason":"...","approved_by":"user","approved_at":"ISO-8601","decision_ref":"D-..."}
 ```
 
 ## reviewer_roster.jsonl
 
 ```json
-{"run_id":"RUN-001","reviewer_id":"REV-1","session_id":"session-uuid","parent_session_id":"director-session","ancestor_session_ids":["director-session"],"worktree":"absolute-path","branch":"codex/audit-a","commit_sha":"audited-sha","claims":["services/**"],"roster_signed_at":"ISO-8601"}
+{"run_id":"RUN-001","audited_commit":"audited-sha","snapshot_id":"sha256","reviewer_id":"REV-1","session_id":"session-uuid","parent_session_id":"director-session","ancestor_session_ids":["director-session"],"worktree":"absolute-path-at-enrollment","branch":"codex/audit-a","commit_sha":"audited-sha","claims":["@audit/RUN-001/shards/REV-1/**"],"review_scope":["services/**"],"session_receipt_ref":"session_receipts/session-uuid.json","session_receipt_sha256":"sha256","roster_signed_at":"ISO-8601"}
 ```
 
 Pass A/B derselben Einheit brauchen unterschiedliche `reviewer_id` und
 `session_id`; keiner darf Vorfahr/Nachfahre des anderen sein oder dessen
-Worktree/Claim teilen. Gemeinsamer Director ist zulassig, hat aber keinen
-Range-Signoff. Rosterhash ist Teil des Auditvertrags. Freie Namen in
-Rangezeilen reichen nicht.
+Worktree/Ausgabe-Shard teilen. `review_scope` darf fuer gleiche Quelle
+ueberlappen; `claims` bezeichnet ausschliesslich disjunkte Output-Shards.
+Gemeinsamer neutraler Director ist zulassig, hat aber keinen Range-Signoff.
+Receipt entsteht nur durch Live-Enrollment gegen Registry und realen Worktree;
+freies JSON reicht nicht. Rosterhash ist Teil des Auditvertrags.
 
 ## line_ranges_pass_a.jsonl / pass_b
 
 ```json
-{"run_id":"RUN-001","snapshot_id":"sha256","pass":"A","reviewer_id":"agent-id","path":"services/x.py","file_sha256":"file-sha","start_line":1,"end_line":10,"range_sha256":"optional","checks":{"semantics":"done","errors":"done","state":"done","threading":"done","io_db_gpu":"done","wiring":"done"},"finding_ids":[],"verdict":"reviewed","signed_at":"ISO-8601"}
+{"run_id":"RUN-001","audited_commit":"audited-sha","snapshot_id":"sha256","pass":"A","reviewer_id":"agent-id","path":"services/x.py","file_sha256":"file-sha","start_line":1,"end_line":10,"range_sha256":"optional","checks":{"semantics":"done","errors":"done","state":"done","threading":"done","io_db_gpu":"done","wiring":"done"},"finding_ids":[],"verdict":"reviewed","signed_at":"ISO-8601"}
 ```
 
 Ranges pro Datei: Start 1, Ende EOF, keine Luecke/Ueberlappung. Pass A/B Reviewer
@@ -94,7 +96,7 @@ Pflicht fuer jede direkt gepruefte Binaerdatei und jede leere Textdatei, je ein
 Eintrag fuer Pass A und B:
 
 ```json
-{"run_id":"RUN-001","snapshot_id":"sha256","pass":"A","reviewer_id":"agent-id","path":"resources/x.bin","unit_kind":"binary-content","file_sha256":"file-sha","checks":{"identity":"done","format":"done","provenance":"done","consumer":"done","integrity":"done"},"verdict":"reviewed","signed_at":"ISO-8601"}
+{"run_id":"RUN-001","audited_commit":"audited-sha","snapshot_id":"sha256","pass":"A","reviewer_id":"agent-id","path":"resources/x.bin","unit_kind":"binary-content","file_sha256":"file-sha","checks":{"identity":"done","format":"done","provenance":"done","consumer":"done","integrity":"done"},"verdict":"reviewed","signed_at":"ISO-8601"}
 ```
 
 Jede direkt gepruefte Datei braucht `metadata`. Zusaetzlich je nach Typ:
@@ -128,17 +130,20 @@ Vertrag und Begruendung. Symbol-State ist nicht aus Feature-State ableitbar.
 ## runtime_runs.jsonl
 
 ```json
-{"run_id":"RUN-001","evidence_id":"EVID-001","audited_commit":"audited-sha","snapshot_id":"sha256","started_at":"ISO-8601","finished_at":"ISO-8601","command":{"argv":["python","run.py"],"cwd":"absolute-isolated-path","env_manifest_sha256":"sha256"},"input_manifest":{"path":"absolute-path","sha256":"sha256"},"exit_code":0,"artifacts":[{"path":"absolute-path","sha256":"sha256","bytes":123}],"postconditions":[{"kind":"db-query","expected":"done","actual":"done","artifact_sha256":"sha256"}],"log":{"path":"absolute-path","sha256":"sha256"},"process_cleanup":{"expected":0,"actual":0},"manifest_sha256":"sha256"}
+{"run_id":"RUN-001","runtime_run_id":"LIVE-001","evidence_id":"sha256:canonical-record","audited_commit":"audited-sha","snapshot_id":"sha256","scenario_id":"SCN-FEAT-001-preview-result","scenario_sha256":"sha256","timestamp":"ISO-8601","input":{"ref":"inputs/SCN.json","sha256":"sha256"},"command":{"argv":["python","tests/runtime/scn.py"],"cwd":"."},"exit":{"code":0,"ref":"runs/LIVE-001.log","sha256":"sha256"},"postcondition":{"ref":"runs/LIVE-001-post.json","sha256":"sha256","result":"pass"},"artifacts":[],"covered_feature_paths":["FEAT-001/preview"],"covered_symbol_ids":["SYM-services.x:f"],"covered_axes":["executed","result","live_evidence"]}
 ```
 
-Validator oeffnet jedes referenzierte Manifest/Artefakt, prueft Hash, Bytezahl,
-Commit, Snapshot, Run, Command, Exit-Code und Postconditions. Nicht vorhandene
-Datei oder freie `ref`-Zeichenfolge ist keine Evidenz.
+`scenario_catalog.jsonl` bindet Scenario, Singleton-Featurepfad, erlaubte
+Achsen/Symbole, Command/Input und Postcondition-Checker an audited/tooling
+Commit. Runner fuehrt Command selbst aus; Runtimezeile ist Output, nicht
+Behauptung. Validator oeffnet Artefakte, prueft Hash/Commit/Snapshot/Run und
+akzeptiert nur in-process Runner-Attestierung. Freie oder selbstgeschriebene
+PASS-Datei ist keine Evidenz.
 
 ## feature_states.jsonl
 
 ```json
-{"run_id":"RUN-001","feature_id":"FEAT-001","path_id":"preview","universe_ids":["TRIG-ui-main-001"],"name":"Videoanalyse starten","user_surface":"ui","trigger":"button","handler":"ui/x.py:10","service":"services/x.py:20","worker":"N-A","state_store":"database/models.py:1","config_keys":[],"expected_result":"Analyse sichtbar","evidence_age":"audited-commit","verdict":"not-checked","blockers":[],"not_checked":["executed"],"snapshot_id":"sha256","commit_sha":"audited-sha","reviewer_id":"REV-1","signed_at":"ISO-8601","states":{"executed":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","reason":"nicht ausgefuehrt","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"result":{"value":"YES","evidence":[{"kind":"runtime-manifest","evidence_id":"EVID-001","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]}},"overall_state":"not-checked"}
+{"run_id":"RUN-001","feature_id":"FEAT-001","path_id":"preview","universe_ids":["TRIG-ui-main-001"],"name":"Videoanalyse starten","user_surface":"ui","trigger":"button","handler":"ui/x.py:10","service":"services/x.py:20","worker":"N-A","state_store":"database/models.py:1","config_keys":[],"expected_result":"Analyse sichtbar","evidence_age":"audited-commit","verdict":"not-checked","blockers":[],"not_checked":["declared","configured","wired","reachable","enabled","executed","result","persisted","restart_safe","error","cancel","retry","cleanup","GPU","DB","UI","live_evidence"],"snapshot_id":"sha256","commit_sha":"audited-sha","reviewer_id":"REV-1","signed_at":"ISO-8601","states":{"declared":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"configured":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"wired":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"reachable":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"enabled":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"executed":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht ausgefuehrt","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"result":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht ausgefuehrt","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"persisted":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"restart_safe":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"error":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht erzwungen","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"cancel":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht erzwungen","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"retry":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht erzwungen","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"cleanup":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht geprueft","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"GPU":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht beobachtet","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"DB":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht beobachtet","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"UI":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"nicht beobachtet","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]},"live_evidence":{"value":"UNKNOWN","evidence":[{"kind":"not-checked","ref":"pending","reason":"kein Live-Lauf","run_id":"RUN-001","commit_sha":"audited-sha","timestamp":"ISO-8601"}]}},"overall_state":"not-checked"}
 ```
 
 Alle 17 Achsen muessen vorhanden sein. Evidence ist Objekt, kein freier String.
@@ -150,15 +155,19 @@ Runtimewerte referenzieren ausschliesslich existierende, hashvalidierte
 ## phase_minus_1_readiness.json
 
 ```json
-{"schema_version":1,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"validation_runs":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","target":"tools/audit_feature_inventory.py","command":"pytest tests/audit/test_audit_feature_inventory.py","exit_code":0,"stdout_path":"absolute-outside-repo","stdout_sha256":"sha256","stderr_path":"absolute-outside-repo","stderr_sha256":"sha256","started_at":"ISO-8601","ended_at":"ISO-8601","reviewer_id":"REV-INDEPENDENT"}],"independent_review_status":"pass","independent_reviewer_id":"REV-INDEPENDENT"}
+{"schema_version":2,"plan_id":"PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","integration_head":"same-full-40-char-sha","matrix_version":1,"artifacts":[{"run_id":"READINESS-001","tooling_commit":"full-40-char-sha","path":"tools/audit_feature_inventory.py","bytes":123,"sha256":"sha256"}],"reviewer_roster_path":"absolute-external-path","reviewer_roster_sha256":"sha256","signoffs":[{"role":"lead-v","reviewer_id":"REV-V","session_id":"session-v","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","basis_sha256":"sha256","verdict":"pass","signed_at":"ISO-8601"},{"role":"adversarial","reviewer_id":"REV-A","session_id":"session-a","run_id":"READINESS-001","tooling_commit":"full-40-char-sha","basis_sha256":"sha256","verdict":"pass","signed_at":"ISO-8601"}]}
 ```
 
 Artefaktmenge entspricht exakt sechs Plan-Harnesses plus deren sechs
 Contracttest-Dateien. Bytes/Hashes werden aus `tooling_commit`-Gitobjekten
-berechnet. Jeder Harness braucht hashgebundene externe Testoutputs mit Exit 0.
-Fehlendes Artefakt, Extra-Artefakt, falscher Hash oder fehlender unabhaengiger
-Review-PASS macht Readiness rot. Dieses Manifest ist Aktivierungsgate, kein
-Audit-Completion-Beleg.
+berechnet. Validator ignoriert Manifest-Commands und fuehrt feste stdlib-
+`unittest`-Node-IDs selbst im detached tooling_commit-Worktree aus. Beide
+Signoffs binden dieselbe deterministische Basis aus Matrix, Artefakten, Commit
+und Rosterhash. Fehlendes/extra Artefakt, falscher Hash, alter Commit, fehlender
+Test-Node oder nicht unabhaengiger Signoff macht Readiness rot. Repo-eigene
+Tests bleiben ohne externen Trust Anchor nicht kryptographisch unverfaelschbar;
+deshalb sind Validator-PASS und dualer Review beide notwendig, nie allein
+hinreichend.
 
 ## Completion
 

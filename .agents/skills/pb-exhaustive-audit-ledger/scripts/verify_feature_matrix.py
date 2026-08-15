@@ -65,7 +65,8 @@ def _verify_ref_hash(root: Path, item: object, label: str) -> list[str]:
 
 
 def verify_runtime_runs(
-    rows: list[dict[str, Any]], *, evidence_root: Path, audited_commit: str, run_id: str,
+    rows: list[dict[str, Any]], *, evidence_root: Path, audited_commit: str, snapshot_id: str,
+    run_id: str, trusted_execution_ids: set[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     errors: list[str] = []
     indexed: dict[str, dict[str, Any]] = {}
@@ -83,6 +84,8 @@ def verify_runtime_runs(
             errors.append(f"{label}: run_id weicht vom Auditlauf ab")
         if row.get("audited_commit") != audited_commit:
             errors.append(f"{label}: audited_commit weicht vom Zielcommit ab")
+        if row.get("snapshot_id") != snapshot_id:
+            errors.append(f"{label}: snapshot_id weicht vom Audit-Snapshot ab")
         runtime_run_id = str(row.get("runtime_run_id", "")).strip()
         if not runtime_run_id:
             errors.append(f"{label}: runtime_run_id fehlt")
@@ -90,6 +93,8 @@ def verify_runtime_runs(
             errors.append(f"{label}: runtime_run_id doppelt")
         else:
             seen_runtime_run_ids.add(runtime_run_id)
+        if trusted_execution_ids is None or runtime_run_id not in trusted_execution_ids:
+            errors.append(f"{label}: keine validatorseitige Runner-Attestierung")
         if not _valid_timestamp(row.get("timestamp")):
             errors.append(f"{label}: timestamp fehlt/ist nicht timezone-aware ISO-8601")
         errors.extend(_verify_ref_hash(evidence_root, row.get("input"), f"{label}/input"))
@@ -120,6 +125,8 @@ def verify_runtime_runs(
                 errors.append(f"{label}: {field} fehlt/leer/enthaelt Duplikate")
             elif not all(isinstance(item, str) and item for item in values):
                 errors.append(f"{label}: {field} enthaelt ungueltigen Wert")
+        if isinstance(row.get("covered_feature_paths"), list) and len(row["covered_feature_paths"]) != 1:
+            errors.append(f"{label}: covered_feature_paths muss exakt einen Featurepfad enthalten")
         covered_axes = row.get("covered_axes")
         if isinstance(covered_axes, list) and any(axis not in AXES for axis in covered_axes):
             errors.append(f"{label}: covered_axes enthaelt unbekannte Achse")
@@ -175,10 +182,12 @@ def verify_feature_contract(
     matrix: list[dict[str, Any]], requirements: list[dict[str, Any]],
     runtime_rows: list[dict[str, Any]], *, evidence_root: Path,
     audited_commit: str, snapshot_id: str, run_id: str,
+    trusted_execution_ids: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     runtime_runs, runtime_errors = verify_runtime_runs(
-        runtime_rows, evidence_root=evidence_root, audited_commit=audited_commit, run_id=run_id,
+        runtime_rows, evidence_root=evidence_root, audited_commit=audited_commit,
+        snapshot_id=snapshot_id, run_id=run_id, trusted_execution_ids=trusted_execution_ids,
     )
     errors.extend(runtime_errors)
 
@@ -365,15 +374,17 @@ def verify(path: Path, current_head: str, snapshot_id: str, run_id: str) -> list
 
 def verify_snapshot(
     snapshot: dict[str, Any], inventory: list[dict[str, Any]],
-    workspace_units: list[dict[str, Any]], current_head: str,
+    workspace_units: list[dict[str, Any]], audited_commit: str,
 ) -> list[str]:
     rows_without_snapshot = [{key: value for key, value in row.items() if key != "snapshot_id"} for row in inventory]
     computed_snapshot_id = _snapshot_basis(rows_without_snapshot, workspace_units)
     errors = []
     if not snapshot.get("run_id"):
         errors.append("Snapshot-run_id fehlt")
-    if snapshot.get("commit_sha") != current_head:
-        errors.append("Snapshot-Commit ist nicht Current HEAD")
+    if snapshot.get("commit_sha") != audited_commit:
+        errors.append("Snapshot-Commit ist nicht audited_commit")
+    if snapshot.get("audited_commit") not in (None, audited_commit):
+        errors.append("Snapshot-audited_commit widerspricht commit_sha")
     if snapshot.get("snapshot_id") != computed_snapshot_id:
         errors.append("Snapshot stimmt nicht mit Inventory/Workspace-Scope")
     return errors
@@ -419,15 +430,24 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path, required=True)
     args = parser.parse_args()
     root = args.root.resolve()
-    current_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip()
     snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
+    audited_commit = str(snapshot.get("audited_commit") or snapshot.get("commit_sha") or "")
     inventory, inventory_errors = _load_jsonl(args.inventory, "Inventory")
     workspace_units, workspace_errors = _load_jsonl(args.workspace_units, "Workspace")
     matrix, matrix_errors = _load_jsonl(args.matrix, "Featurematrix")
     requirements, requirement_errors = _load_jsonl(args.requirements_triggers, "Requirements")
     runtime_rows, runtime_errors = _load_jsonl(args.runtime_runs, "Runtime-Runs")
     errors = inventory_errors + workspace_errors + matrix_errors + requirement_errors + runtime_errors
-    errors.extend(verify_snapshot(snapshot, inventory, workspace_units, current_head))
+    try:
+        resolved = subprocess.check_output(
+            ["git", "rev-parse", "--verify", f"{audited_commit}^{{commit}}"], cwd=root,
+            stderr=subprocess.STDOUT,
+        ).decode().strip()
+        if resolved != audited_commit:
+            errors.append("audited_commit ist nicht kanonischer Gitcommit")
+    except subprocess.CalledProcessError:
+        errors.append("audited_commit existiert nicht als Gitcommit")
+    errors.extend(verify_snapshot(snapshot, inventory, workspace_units, audited_commit))
     errors.extend(_verify_bound_file(snapshot, args.requirements_triggers, "requirements_triggers", requirements))
     errors.extend(_verify_bound_file(snapshot, args.runtime_runs, "runtime_runs", runtime_rows))
     errors.extend(verify_feature_contract(

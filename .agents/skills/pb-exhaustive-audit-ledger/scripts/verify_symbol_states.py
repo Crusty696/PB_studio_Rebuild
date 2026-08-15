@@ -127,7 +127,8 @@ def main() -> int:
             errors.append(f"Snapshot-{prefix}_count stimmt nicht")
     runtime_index, runtime_errors = verify_runtime_runs(
         runtime, evidence_root=args.evidence_root.resolve(),
-        audited_commit=str(snapshot.get("commit_sha", "")), run_id=str(snapshot.get("run_id", "")),
+        audited_commit=str(snapshot.get("commit_sha", "")), snapshot_id=str(snapshot.get("snapshot_id", "")),
+        run_id=str(snapshot.get("run_id", "")), trusted_execution_ids=None,
     )
     errors.extend(runtime_errors)
     errors.extend(verify_symbol_contract(

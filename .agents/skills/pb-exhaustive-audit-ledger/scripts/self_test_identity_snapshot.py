@@ -45,8 +45,8 @@ class IdentityAndSnapshotTest(unittest.TestCase):
                 "audited_commit": self.audited_commit,
                 "reviewer_id": "reviewer-a",
                 "session_id": "session-a",
-                "parent_id": "director-a",
-                "lineage_ids": ["root-a", "director-a"],
+                "parent_session_id": "director-a",
+                "ancestor_session_ids": ["root-a", "director-a"],
                 "worktree": "C:/audit/a",
                 "branch": "audit/a",
                 "commit_sha": self.audited_commit,
@@ -57,8 +57,8 @@ class IdentityAndSnapshotTest(unittest.TestCase):
                 "audited_commit": self.audited_commit,
                 "reviewer_id": "reviewer-b",
                 "session_id": "session-b",
-                "parent_id": "director-b",
-                "lineage_ids": ["root-b", "director-b"],
+                "parent_session_id": "director-b",
+                "ancestor_session_ids": ["root-b", "director-b"],
                 "worktree": "C:/audit/b",
                 "branch": "audit/b",
                 "commit_sha": self.audited_commit,
@@ -153,6 +153,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
             self.evidence / "exclusions.jsonl",
             self.evidence / "workspace_units.jsonl",
             self.roster,
+            trusted_session_ids={"session-a", "session-b"},
         )
 
     def test_report_commit_does_not_invalidate_audited_commit(self) -> None:
@@ -163,8 +164,8 @@ class IdentityAndSnapshotTest(unittest.TestCase):
 
         self.assertEqual([], self._verify())
 
-    def test_shared_parent_lineage_is_not_independent(self) -> None:
-        self.roster_rows[1]["lineage_ids"] = ["root-a", "director-b"]
+    def test_shared_neutral_ancestor_is_allowed(self) -> None:
+        self.roster_rows[1]["ancestor_session_ids"] = ["root-a", "director-b"]
         _write_jsonl(self.roster, self.roster_rows)
         snapshot_path = self.evidence / "snapshot.json"
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -175,7 +176,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
 
         errors = self._verify()
 
-        self.assertTrue(any("Lineage" in error for error in errors), errors)
+        self.assertEqual([], errors)
 
     def test_roster_hash_is_bound(self) -> None:
         self.roster_rows[0]["claims"] = ["other.py"]
@@ -198,7 +199,6 @@ class IdentityAndSnapshotTest(unittest.TestCase):
         errors = self._verify()
 
         self.assertTrue(any("session_id" in error for error in errors), errors)
-        self.assertTrue(any("Identity/Lineage" in error for error in errors), errors)
 
     def test_unknown_reviewer_is_rejected(self) -> None:
         rows = [

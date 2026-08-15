@@ -72,15 +72,20 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/build_inventory.py `
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py `
-  --root . --audited-commit <full-git-sha> `
+  --root . `
   --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --pass-a <evidence-dir>/line_ranges_pass_a.jsonl `
   --pass-b <evidence-dir>/line_ranges_pass_b.jsonl `
   --non-line-units <evidence-dir>/non_line_units.jsonl `
   --exclusions <evidence-dir>/exclusions.jsonl `
-  --workspace-units <evidence-dir>/workspace_units.jsonl
+  --workspace-units <evidence-dir>/workspace_units.jsonl `
+  --reviewer-roster <evidence-dir>/reviewer_roster.jsonl
 ```
+
+   Dieser aktuelle CLI-Aufruf ist absichtlich fail-closed: ohne in-process
+   Live-Enrollment-Attestierung aus dem noch fehlenden
+   `tools/audit_reviewer_roster.py` kann er keinen Completion-PASS liefern.
 
 11. Feature-IDs aus UI-Aktionen, Shortcuts, automatischen Triggern, CLI-/Script-
    Entrypoints und Backend-Aktionen bilden. Nicht eine Feature-ID pro Datei erfinden.
@@ -99,12 +104,19 @@ python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_line_coverage.py
 
 ```powershell
 python .agents/skills/pb-exhaustive-audit-ledger/scripts/verify_feature_matrix.py `
-  --root . --audited-commit <full-git-sha> `
+  --root . `
   --snapshot <evidence-dir>/snapshot.json `
   --inventory <evidence-dir>/files.jsonl `
   --workspace-units <evidence-dir>/workspace_units.jsonl `
-  --matrix <evidence-dir>/feature_states.jsonl
+  --matrix <evidence-dir>/feature_states.jsonl `
+  --requirements-triggers <evidence-dir>/requirements_triggers.jsonl `
+  --runtime-runs <evidence-dir>/runtime_runs.jsonl `
+  --evidence-root <evidence-dir>
 ```
+
+   Auch dieser CLI ist bis zum fehlenden, selbst ausfuehrenden
+   `tools/audit_runtime_evidence.py` bewusst fail-closed. Gehashte,
+   selbstgeschriebene PASS-Dateien sind keine Runner-Attestierung.
 
 16. Findings getrennt challengen. Automatische Kandidaten sind kein Befund.
 17. Abschluss nur bei allen Phase--1-Validatoren Exit 0, identischem
