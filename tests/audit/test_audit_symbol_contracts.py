@@ -91,8 +91,9 @@ class GateContractTests(unittest.TestCase):
                 "proof_ref": f"proof/{edge['edge_id']}.json", **binding,
             }))
         self.trigger_records = [HARNESS.seal_record({
-            "source_id": "TRIG-DUMMY", "source_kind": "support",
-            "path": "unrelated.py", "detail": "unrelated", **binding,
+            "source_id": "TRIG-DUMMY", "source_kind": "entrypoint",
+            "path": "unrelated.py", "line": 1, "column": 0,
+            "detail": "unrelated", "source_blob_sha256": "a" * 64, **binding,
         })]
         self.manifests = {
             kind: HARNESS.make_artifact_manifest(
@@ -272,6 +273,71 @@ class GateContractTests(unittest.TestCase):
         )
         self.assertEqual(before, after, "Enumerator darf Dirty-Workingtree nicht lesen")
         self.assertEqual([], self.errors(self.states(), self.edge_states()))
+
+    def test_resealed_trigger_schema_and_source_kind_matrix_rejected(self) -> None:
+        base_triggers = copy.deepcopy(self.trigger_records)
+        base_audit = copy.deepcopy(self.audit_contract)
+        base_evidence = copy.deepcopy(self.evidence_contract)
+
+        def validate(triggers):
+            manifest = HARNESS.make_artifact_manifest(
+                "trigger-catalog", triggers, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            audit = copy.deepcopy(base_audit)
+            audit["artifacts"]["trigger-universe"] = HARNESS.artifact_contract_entry(
+                triggers, "evidence/triggers.jsonl"
+            )
+            audit = HARNESS.seal_audit_contract({
+                key: value for key, value in audit.items() if key != "contract_sha256"
+            })
+            evidence = copy.deepcopy(base_evidence)
+            evidence["audit_contract_sha256"] = audit["contract_sha256"]
+            evidence = HARNESS.seal_evidence_contract({
+                key: value for key, value in evidence.items()
+                if key != "evidence_contract_sha256"
+            })
+            return HARNESS.validate_contracts(
+                self.symbols, self.edges, self.states(), self.edge_states(),
+                run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+                feature_records=self.feature_records,
+                feature_manifest=self.manifests["feature-catalog"],
+                runtime_records=self.runtime_records,
+                runtime_manifest=self.manifests["runtime-evidence"],
+                reviewer_records=self.reviewer_records,
+                reviewer_manifest=self.manifests["reviewer-roster"],
+                evidence_records=self.evidence_records,
+                evidence_manifest=self.manifests["symbol-evidence"],
+                trigger_records=triggers, trigger_manifest=manifest,
+                audit_contract=audit,
+                expected_contract_sha256=audit["contract_sha256"],
+                evidence_contract=evidence,
+                expected_evidence_contract_sha256=evidence["evidence_contract_sha256"],
+                evidence_root=self.repo,
+            )
+
+        for value in ([], {}, [["entrypoint"]], [None], True, 1, None, "", " ", "foreign"):
+            triggers = copy.deepcopy(base_triggers)
+            triggers[0]["source_kind"] = value
+            triggers[0] = HARNESS.seal_record(triggers[0])
+            self.assertTrue(
+                any("source_kind ungueltig" in error for error in validate(triggers)),
+                repr(value),
+            )
+
+        for operation in ("extra", "missing"):
+            triggers = copy.deepcopy(base_triggers)
+            if operation == "extra":
+                triggers[0]["foreign"] = {"nested": ["field"]}
+            else:
+                triggers[0].pop("detail")
+            triggers[0] = HARNESS.seal_record(triggers[0])
+            self.assertTrue(
+                any("Schemafelder nicht exakt" in error for error in validate(triggers)),
+                operation,
+            )
 
     def test_missing_required_rejected(self) -> None:
         states = self.states()
@@ -830,8 +896,9 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any("ohne kanonischen Trigger" in error for error in self.errors(states, self.edge_states())))
         trigger = HARNESS.seal_record({
             "source_id": "TRIG-EXPLICIT", "source_kind": "entrypoint",
-            "path": target["path"], "detail": target["qualified_name"],
-            "target_symbol_id": target["symbol_id"], "run_id": self.RUN,
+            "path": target["path"], "line": target["line_start"], "column": 0,
+            "detail": target["qualified_name"],
+            "source_blob_sha256": target["source_blob_sha256"], "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
             "snapshot_id": self.SNAPSHOT, "signed_at": self.SIGNED,
         })

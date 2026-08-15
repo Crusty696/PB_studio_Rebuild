@@ -58,6 +58,14 @@ TRIGGER_CALLS = {
     "listen": "db-callback",
     "add_listener": "db-callback",
 }
+TRIGGER_SOURCE_KINDS = {
+    "batch-entrypoint", "batch-label", "callback", "cli", "db-callback",
+    "decorator-hook", "entrypoint", "main-guard", "powershell-entrypoint",
+    "powershell-function", "powershell-parameter", "qt-action", "qt-button",
+    "qt-connect", "qt-shortcut", "qt-signal-emit", "qt-ui-signal",
+    "qt-ui-surface", "qt-ui-widget", "registry", "shutdown", "sql-trigger",
+    "startup", "timer",
+}
 LIFECYCLE_NAMES = {
     "main": "entrypoint", "startup": "startup", "shutdown": "shutdown",
     "closeEvent": "shutdown", "showEvent": "startup", "timerEvent": "timer",
@@ -78,6 +86,10 @@ def _canonical(value: Any) -> bytes:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _enum_value(value: Any, allowed: set[str]) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value in allowed
 
 
 def _without(row: dict[str, Any], *fields: str) -> dict[str, Any]:
@@ -1012,7 +1024,7 @@ def validate_exact_set(
             errors.append(f"Disposition Zeile {number}: Run-/Commit-/Snapshotbindung falsch")
         if row.get("universe_sha256") != digests.get(kind):
             errors.append(f"Disposition Zeile {number}: Universumshash falsch")
-        if row.get("disposition") not in DISPOSITIONS:
+        if not _enum_value(row.get("disposition"), DISPOSITIONS):
             errors.append(f"Disposition Zeile {number}: disposition ungueltig")
         for field in ("feature_id", "path_id", "evidence_id", "reviewer_id", "signed_at", "source_blob_sha256"):
             if not row.get(field):

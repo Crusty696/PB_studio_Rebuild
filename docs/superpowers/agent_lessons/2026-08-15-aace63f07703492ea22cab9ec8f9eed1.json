@@ -1,0 +1,10 @@
+{
+  "lesson_id": "aace63f07703492ea22cab9ec8f9eed1",
+  "recorded_at": "2026-08-15T23:01:09+00:00",
+  "session_id": "824b9aed49e242a5a57e02549a4133d3",
+  "head_at_start": "f3e11dc1abd056172ca804d32513c8b5578e6181",
+  "problem": "Extern resealte Feature-State-Dispositionen und Triggeruniversen konnten mit nicht hashbaren Discriminator-Typen crashen oder strukturell fremde Triggerfelder akzeptieren.",
+  "cause": "Direkte Set-Membership lief vor Typpruefung; Triggerartefakte hatten keine exakte kanonische Row-Schema- und source_kind-Pruefung.",
+  "rule": "Jeden Discriminator vor Membership als getrimmten nichtleeren String validieren; cross-tool Universen mit identischem Enum und exaktem Row-Feldsatz pruefen, wobei Negativtests Audit- und Evidence-Contracts vollstaendig neu versiegeln.",
+  "applies_to": "Hashgebundene Audit-State- und Cross-Tool-Universumsvalidatoren"
+}
