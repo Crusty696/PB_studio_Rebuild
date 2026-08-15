@@ -474,6 +474,91 @@ class GateContractTests(unittest.TestCase):
             self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
         self.assertTrue(any("Schemafelder nicht exakt" in error for error in errors))
 
+    def test_evidence_inverse_closure_unique_lists_and_state_fks_rejected(self) -> None:
+        states = self.states()
+        evidence_id = states[0]["caller_contract"]["evidence_ids"][0]
+        states[0]["caller_contract"]["evidence_ids"] = [evidence_id, evidence_id]
+        self.assertTrue(any("Duplikat" in error for error in self.errors(states, self.edge_states())))
+
+        states = self.states()
+        states[0]["reviewer_id"] = "REV-FOREIGN"
+        states[0]["signed_at"] = "2026-08-15T13:00:00+00:00"
+        errors = self.errors(states, self.edge_states())
+        self.assertTrue(any("Evidence-Reviewer-FK" in error for error in errors))
+        self.assertTrue(any("Evidence-signed_at-FK" in error for error in errors))
+
+        edges = self.edge_states()
+        edges[0]["reviewer_id"] = "REV-FOREIGN"
+        edges[0]["signed_at"] = "2026-08-15T13:00:00+00:00"
+        errors = self.errors(self.states(), edges)
+        self.assertTrue(any("Evidence-Reviewer-FK" in error for error in errors))
+        self.assertTrue(any("Evidence-signed_at-FK" in error for error in errors))
+
+        states = self.states()
+        runtime_state = next(row for row in states if row["disposition"] == "runtime")
+        runtime_state["reviewer_id"] = "REV-FOREIGN"
+        runtime_state["signed_at"] = "2026-08-15T13:00:00+00:00"
+        errors = self.errors(states, self.edge_states())
+        self.assertTrue(any("Runtime-Evidence-Reviewer-FK" in error for error in errors))
+        self.assertTrue(any("Runtime-Evidence-signed_at-FK" in error for error in errors))
+
+        orphan = copy.deepcopy(self.evidence_records[0])
+        orphan["evidence_id"], orphan["proof_ref"] = "E-ORPHAN", "proof/orphan.json"
+        orphan = HARNESS.seal_record(orphan)
+        records = [*self.evidence_records, orphan]
+        proof = {field: orphan[field] for field in (
+            "evidence_id", "evidence_kind", "reviewer_id", "path",
+            "source_blob_sha256", "symbol_id",
+        )}
+        proof["schema_version"] = 1
+        data = HARNESS._canonical(proof)
+        (self.repo / orphan["proof_ref"]).write_bytes(data)
+        contract = copy.deepcopy(self.evidence_contract)
+        contract["artifacts"]["symbol-state-evidence"] = HARNESS.artifact_contract_entry(
+            records, "evidence/symbol-state-evidence.jsonl"
+        )
+        contract["artifacts"]["symbol-proof:E-ORPHAN"] = HARNESS.file_contract_entry(
+            data, orphan["proof_ref"]
+        )
+        contract = HARNESS.seal_evidence_contract({
+            key: value for key, value in contract.items()
+            if key != "evidence_contract_sha256"
+        })
+        old_records, old_manifest = self.evidence_records, self.manifests["symbol-evidence"]
+        old_contract, old_sha = self.evidence_contract, self.evidence_contract_sha
+        self.evidence_records = records
+        self.manifests["symbol-evidence"] = HARNESS.make_artifact_manifest(
+            "symbol-evidence", records, run_id=self.RUN, audited_commit=self.commit,
+            tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+        )
+        self.evidence_contract, self.evidence_contract_sha = contract, contract["evidence_contract_sha256"]
+        try:
+            errors = self.errors(self.states(), self.edge_states())
+        finally:
+            self.evidence_records, self.manifests["symbol-evidence"] = old_records, old_manifest
+            self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
+        self.assertTrue(any("Evidence-Closure" in error for error in errors))
+
+        for prefix in ("symbol-proof", "runtime-proof"):
+            contract = copy.deepcopy(self.evidence_contract)
+            descriptor = next(
+                value for key, value in contract["artifacts"].items()
+                if key.startswith(f"{prefix}:")
+            )
+            contract["artifacts"][f"{prefix}:FOREIGN"] = copy.deepcopy(descriptor)
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_contract, self.evidence_contract_sha = (
+                contract, contract["evidence_contract_sha256"]
+            )
+            try:
+                errors = self.errors(self.states(), self.edge_states())
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
+            self.assertTrue(any(f"{prefix}-Key-Exact-Set" in error for error in errors))
+
     def test_incoming_edge_must_target_symbol(self) -> None:
         states = self.states()
         target = states[0]

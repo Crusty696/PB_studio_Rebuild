@@ -904,6 +904,20 @@ def validate_contracts(
         errors.append("Reviewer-Roster ist leer")
     if not evidence_ids:
         errors.append("Evidence-Universum ist leer")
+    for prefix, records in (
+        ("symbol-proof", evidence_records), ("runtime-proof", runtime_records),
+    ):
+        expected_proofs = {f"{prefix}:{row.get('evidence_id', '')}" for row in records}
+        actual_proofs = {
+            key for key in evidence_contract.get("artifacts", {})
+            if isinstance(key, str) and key.startswith(f"{prefix}:")
+        }
+        if actual_proofs != expected_proofs:
+            errors.append(
+                f"{prefix}-Key-Exact-Set verletzt: "
+                f"fehlend={sorted(expected_proofs - actual_proofs)!r}, "
+                f"extra={sorted(actual_proofs - expected_proofs)!r}"
+            )
 
     for number, runtime in enumerate(runtime_records, 1):
         label = f"Runtime-Evidence Zeile {number}"
@@ -991,21 +1005,32 @@ def validate_contracts(
         if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("source_blob_sha256", ""))):
             errors.append(f"{label}: source_blob_sha256 ungueltig")
 
+    evidence_consumers: set[str] = set()
+
     def validate_evidence(
         values: object, label: str, *, symbol_id: str | None = None,
-        edge_id: str | None = None,
+        edge_id: str | None = None, reviewer_id: object = None,
+        signed_at: object = None,
     ) -> None:
         if not isinstance(values, list) or not values:
             errors.append(f"{label}: Evidence-IDs fehlen")
-        elif any(not isinstance(value, str) or value not in evidence_ids for value in values):
-            errors.append(f"{label}: unbekannte Evidence-ID")
+        elif (
+            any(not isinstance(value, str) or value not in evidence_ids for value in values)
+            or len(values) != len(set(values))
+        ):
+            errors.append(f"{label}: unbekannte Evidence-ID oder Duplikat")
         else:
             for value in values:
+                evidence_consumers.add(value)
                 evidence = artifact_indexes[3][value]
                 if symbol_id is not None and evidence.get("symbol_id") != symbol_id:
                     errors.append(f"{label}: Evidence-Symbol-FK falsch")
                 if edge_id is not None and evidence.get("edge_id") != edge_id:
                     errors.append(f"{label}: Evidence-Kanten-FK falsch")
+                if evidence.get("reviewer_id") != reviewer_id:
+                    errors.append(f"{label}: Evidence-Reviewer-FK falsch")
+                if evidence.get("signed_at") != signed_at:
+                    errors.append(f"{label}: Evidence-signed_at-FK falsch")
 
     seen_symbols: set[str] = set()
     runtime_consumers: dict[str, int] = {}
@@ -1041,7 +1066,10 @@ def validate_contracts(
         if not isinstance(caller, dict) or caller.get("kind") not in {"incoming-edges", "framework-hook", "entrypoint", "unreferenced"}:
             errors.append(f"{label}: Caller-/Frameworkvertrag fehlt")
         else:
-            validate_evidence(caller.get("evidence_ids"), f"{label}/Caller", symbol_id=symbol_id)
+            validate_evidence(
+                caller.get("evidence_ids"), f"{label}/Caller", symbol_id=symbol_id,
+                reviewer_id=row.get("reviewer_id"), signed_at=row.get("signed_at"),
+            )
             caller_edges = caller.get("edge_ids")
             incoming = {
                 edge_id for edge_id, edge in edge_map.items()
@@ -1081,7 +1109,8 @@ def validate_contracts(
                 else:
                     validate_evidence(
                         cell.get("evidence_ids"), f"{label}/Vertrag {key}",
-                        symbol_id=symbol_id,
+                        symbol_id=symbol_id, reviewer_id=row.get("reviewer_id"),
+                        signed_at=row.get("signed_at"),
                     )
         disposition = row.get("disposition")
         if disposition not in SYMBOL_DISPOSITIONS:
@@ -1101,6 +1130,10 @@ def validate_contracts(
                     runtime_consumers[evidence_id] = runtime_consumers.get(evidence_id, 0) + 1
                     if artifact_indexes[1][evidence_id].get("symbol_id") != symbol_id:
                         errors.append(f"{label}: Runtime-Evidence-Symbol-FK falsch")
+                    if artifact_indexes[1][evidence_id].get("reviewer_id") != row.get("reviewer_id"):
+                        errors.append(f"{label}: Runtime-Evidence-Reviewer-FK falsch")
+                    if artifact_indexes[1][evidence_id].get("signed_at") != row.get("signed_at"):
+                        errors.append(f"{label}: Runtime-Evidence-signed_at-FK falsch")
         if disposition == "non-runtime":
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
@@ -1111,6 +1144,13 @@ def validate_contracts(
                 errors.append(f"{label}: Non-Runtime-Vertrag referenziert unbekannte Evidence-ID")
             elif artifact_indexes[3][contract["evidence_id"]].get("symbol_id") != symbol_id:
                 errors.append(f"{label}: Non-Runtime-Evidence-Symbol-FK falsch")
+            else:
+                evidence_consumers.add(contract["evidence_id"])
+                evidence = artifact_indexes[3][contract["evidence_id"]]
+                if evidence.get("reviewer_id") != row.get("reviewer_id"):
+                    errors.append(f"{label}: Non-Runtime-Evidence-Reviewer-FK falsch")
+                if evidence.get("signed_at") != row.get("signed_at"):
+                    errors.append(f"{label}: Non-Runtime-Evidence-signed_at-FK falsch")
         if disposition == "unknown" and not row.get("unknown_reason"):
             errors.append(f"{label}: UNKNOWN ohne Grund")
 
@@ -1142,7 +1182,10 @@ def validate_contracts(
             errors.append(f"{label}: UNKNOWN-Kante ohne Grund")
         if row.get("reviewer_id") not in reviewer_ids:
             errors.append(f"{label}: unbekannter Reviewer")
-        validate_evidence(row.get("evidence_ids"), label, edge_id=edge_id)
+        validate_evidence(
+            row.get("evidence_ids"), label, edge_id=edge_id,
+            reviewer_id=row.get("reviewer_id"), signed_at=row.get("signed_at"),
+        )
 
     if set(symbol_map) != seen_symbols:
         errors.append(
@@ -1154,6 +1197,9 @@ def validate_contracts(
             "Kanten-Exact-Set verletzt: "
             f"fehlend={sorted(set(edge_map) - seen_edges)!r}, extra={sorted(seen_edges - set(edge_map))!r}"
         )
+    orphan_evidence = evidence_ids - evidence_consumers
+    if orphan_evidence:
+        errors.append(f"Symbol-/Edge-Evidence-Closure verletzt: orphan={sorted(orphan_evidence)!r}")
     orphan_runtime = runtime_evidence_ids - set(runtime_consumers)
     duplicate_runtime = sorted(
         evidence_id for evidence_id, count in runtime_consumers.items() if count != 1

@@ -271,6 +271,70 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any("Proof-Semantik/FK" in error for error in validate(self.evidence, contract)))
         target.write_bytes(original)
 
+    def test_feature_source_grouping_and_proof_key_closure_rejected(self) -> None:
+        original_catalog, original_manifest = self.feature_catalog, self.feature_manifest
+        for source_ids, token in (
+            ([], "source_ids fehlt/leer/doppelt"),
+            ([original_catalog[0]["source_ids"][0]] * 2, "source_ids fehlt/leer/doppelt"),
+            (["FOREIGN-SOURCE"], "fremde source_ids"),
+            (original_catalog[0]["source_ids"][1:], "unclaimed"),
+        ):
+            catalog = copy.deepcopy(original_catalog)
+            catalog[0]["source_ids"] = source_ids
+            catalog[0] = HARNESS.seal_record(catalog[0])
+            self.feature_catalog = catalog
+            self.feature_manifest = HARNESS.make_artifact_manifest(
+                "feature-catalog", catalog, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            try:
+                errors = self.errors(self.dispositions())
+            finally:
+                self.feature_catalog, self.feature_manifest = original_catalog, original_manifest
+            self.assertTrue(any(token in error for error in errors), token)
+
+        catalog = copy.deepcopy(original_catalog)
+        overlap = copy.deepcopy(catalog[0])
+        overlap["feature_id"], overlap["path_id"] = "FEAT-OVERLAP", "secondary"
+        overlap["source_ids"] = [catalog[0]["source_ids"][0]]
+        overlap["catalog_id"] = "sha256:" + hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in overlap.items() if key not in {"catalog_id", "record_sha256"}},
+                sort_keys=True, separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        catalog.append(HARNESS.seal_record(overlap))
+        self.feature_catalog = catalog
+        self.feature_manifest = HARNESS.make_artifact_manifest(
+            "feature-catalog", catalog, run_id=self.RUN, audited_commit=self.commit,
+            tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+        )
+        try:
+            errors = self.errors(self.dispositions())
+        finally:
+            self.feature_catalog, self.feature_manifest = original_catalog, original_manifest
+        self.assertTrue(any("ueberlappt" in error for error in errors))
+        self.assertTrue(any("unused" in error for error in errors))
+
+        contract = copy.deepcopy(self.evidence_contract)
+        descriptor = next(
+            value for key, value in contract["artifacts"].items()
+            if key.startswith("feature-proof:")
+        )
+        contract["artifacts"]["feature-proof:FOREIGN"] = copy.deepcopy(descriptor)
+        contract = HARNESS.seal_evidence_contract({
+            key: value for key, value in contract.items()
+            if key != "evidence_contract_sha256"
+        })
+        old_contract, old_sha = self.evidence_contract, self.evidence_contract_sha
+        self.evidence_contract, self.evidence_contract_sha = contract, contract["evidence_contract_sha256"]
+        try:
+            errors = self.errors(self.dispositions())
+        finally:
+            self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
+        self.assertTrue(any("Feature-Proof-Key-Exact-Set" in error for error in errors))
+
     def test_missing_required_rejected(self) -> None:
         rows = self.dispositions()
         rows[0].pop("evidence_id")

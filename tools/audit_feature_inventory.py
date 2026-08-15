@@ -886,6 +886,19 @@ def validate_exact_set(
         snapshot_id=snapshot_id,
     )
     errors.extend(feature_errors + evidence_errors + reviewer_errors)
+    expected_feature_proofs = {
+        f"feature-proof:{row.get('evidence_id', '')}" for row in evidence_records
+    }
+    actual_feature_proofs = {
+        key for key in evidence_contract.get("artifacts", {})
+        if isinstance(key, str) and key.startswith("feature-proof:")
+    }
+    if actual_feature_proofs != expected_feature_proofs:
+        errors.append(
+            "Feature-Proof-Key-Exact-Set verletzt: "
+            f"fehlend={sorted(expected_feature_proofs - actual_feature_proofs)!r}, "
+            f"extra={sorted(actual_feature_proofs - expected_feature_proofs)!r}"
+        )
     for number, row in enumerate(evidence_records, 1):
         allowed = {
             "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
@@ -918,11 +931,33 @@ def validate_exact_set(
         if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("source_blob_sha256", ""))):
             errors.append(f"Feature-Evidence Zeile {number}: source_blob_sha256 ungueltig")
     feature_pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    catalog_source_owners: dict[str, tuple[str, str]] = {}
+    canonical_source_ids = {
+        str(row.get("source_id", "")) for rows in universes.values() for row in rows
+    }
     for row in features_by_id.values():
         pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
         if not all(pair) or pair in feature_pairs:
             errors.append("Featurekatalog: Feature-/Pfad-ID fehlt/doppelt")
         feature_pairs[pair] = row
+        source_ids = row.get("source_ids")
+        if (
+            not isinstance(source_ids, list) or not source_ids
+            or any(not isinstance(source_id, str) or not source_id for source_id in source_ids)
+            or len(source_ids) != len(set(source_ids))
+        ):
+            errors.append(f"Featurekatalog {pair!r}: source_ids fehlt/leer/doppelt")
+            continue
+        foreign = set(source_ids) - canonical_source_ids
+        if foreign:
+            errors.append(f"Featurekatalog {pair!r}: fremde source_ids {sorted(foreign)!r}")
+        for source_id in source_ids:
+            owner = catalog_source_owners.get(source_id)
+            if owner is not None and owner != pair:
+                errors.append(
+                    f"Featurekatalog: source_id {source_id!r} ueberlappt {owner!r}/{pair!r}"
+                )
+            catalog_source_owners[source_id] = pair
     if not expected_requirements:
         errors.append("Requirements-Universum ist leer")
     if not expected_triggers:
@@ -942,6 +977,7 @@ def validate_exact_set(
                 errors.append(f"{kind}/{key[1]}: Universumsbindung manipuliert")
 
     seen: set[tuple[str, str]] = set()
+    disposition_sources: dict[tuple[str, str], set[str]] = {}
     for number, row in enumerate(dispositions, 1):
         kind = str(row.get("universe", ""))
         source_id = str(row.get("source_id", ""))
@@ -966,6 +1002,7 @@ def validate_exact_set(
             if not row.get(field):
                 errors.append(f"Disposition Zeile {number}: {field} fehlt")
         pair = (str(row.get("feature_id", "")), str(row.get("path_id", "")))
+        disposition_sources.setdefault(pair, set()).add(source_id)
         catalog = feature_pairs.get(pair)
         if catalog is None:
             errors.append(f"Disposition Zeile {number}: Featurekatalog-FK fehlt")
@@ -997,6 +1034,19 @@ def validate_exact_set(
             "Requirements-/Trigger-Exact-Set verletzt: "
             f"fehlend={sorted(set(expected) - seen)!r}, extra={sorted(seen - set(expected))!r}"
         )
+    for pair, catalog in feature_pairs.items():
+        raw_claims = catalog.get("source_ids")
+        claimed = (
+            set(raw_claims) if isinstance(raw_claims, list)
+            and all(isinstance(value, str) for value in raw_claims) else set()
+        )
+        consumed = disposition_sources.get(pair, set())
+        if claimed != consumed:
+            errors.append(
+                f"Featurekatalog {pair!r}: Source-Exact-Set verletzt: "
+                f"unused={sorted(claimed - consumed)!r}, "
+                f"unclaimed={sorted(consumed - claimed)!r}"
+            )
     return errors
 
 
