@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bb918a5d42e74773ac79c4d67c75d3cd",
+  "recorded_at": "2026-08-15T21:51:39+00:00",
+  "session_id": "711755d4d6ab4918bb2bc0c789adedc4",
+  "head_at_start": "44931e929bc6794428806b8273c5e00948d0945c",
+  "problem": "Neu versiegelte State- und Catalog-Artefakte konnten unbekannte Felder tragen; Feature-Evidence konnte ungenutzt oder mehrfach konsumiert bleiben",
+  "cause": "Validatoren prueften erforderliche Einzelwerte, aber keine exakten Top-Level-/Contract-Feldmengen und keine inverse Consumer-Kardinalitaet fuer Feature-Evidence",
+  "rule": "Extern gepinnte Hashes ersetzen keine Schema- oder Closure-Pruefung: jedes Audit-Record-Schema als exakte Feldmenge validieren und fuer Evidenceuniversen exakt einen zulaessigen Consumer pro ID erzwingen",
+  "applies_to": "Feature-State, Feature-Catalog, Symbol-State, Edge-State, Symbol-Contracts, Evidence-Closure"
+}

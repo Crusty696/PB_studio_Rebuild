@@ -1037,6 +1037,19 @@ def validate_contracts(
     for number, row in enumerate(states, 1):
         symbol_id = str(row.get("symbol_id", ""))
         label = f"Symbol-State Zeile {number}/{symbol_id}"
+        state_fields = {
+            "symbol_id", "path", "qualified_name", "kind", "line_start", "line_end",
+            "source_blob_sha256", "run_id", "audited_commit", "tooling_commit",
+            "snapshot_id", "symbols_sha256", "edges_sha256", "role", "feature_ids",
+            "reviewer_id", "caller_contract", "contracts", "disposition",
+            "runtime_evidence_ids", "signed_at",
+        }
+        if row.get("disposition") == "non-runtime":
+            state_fields.add("non_runtime_contract")
+        if row.get("disposition") == "unknown":
+            state_fields.add("unknown_reason")
+        if set(row) != state_fields:
+            errors.append(f"{label}: Schemafelder nicht exakt")
         if symbol_id in seen_symbols:
             errors.append(f"{label}: doppelte symbol_id")
         seen_symbols.add(symbol_id)
@@ -1102,11 +1115,15 @@ def validate_contracts(
         if not isinstance(contracts, dict):
             errors.append(f"{label}: contracts fehlt")
         else:
+            if set(contracts) != set(CONTRACT_KEYS):
+                errors.append(f"{label}: Contract-Objekt Felder nicht exakt")
             for key in CONTRACT_KEYS:
                 cell = contracts.get(key)
                 if not isinstance(cell, dict) or cell.get("status") not in {"reviewed", "n-a", "unknown"}:
                     errors.append(f"{label}: Vertrag {key} fehlt/ungueltig")
                 else:
+                    if set(cell) != {"status", "evidence_ids"}:
+                        errors.append(f"{label}: Vertrag {key} Schemafelder nicht exakt")
                     validate_evidence(
                         cell.get("evidence_ids"), f"{label}/Vertrag {key}",
                         symbol_id=symbol_id, reviewer_id=row.get("reviewer_id"),
@@ -1158,6 +1175,16 @@ def validate_contracts(
     for number, row in enumerate(edge_states, 1):
         edge_id = str(row.get("edge_id", ""))
         label = f"Kanten-State Zeile {number}/{edge_id}"
+        edge_fields = {
+            "edge_id", "path", "line", "column", "edge_kind", "source_symbol_id",
+            "target", "target_symbol_id", "source_blob_sha256", "run_id",
+            "audited_commit", "tooling_commit", "snapshot_id", "symbols_sha256",
+            "edges_sha256", "disposition", "reviewer_id", "evidence_ids", "signed_at",
+        }
+        if row.get("disposition") == "unknown":
+            edge_fields.add("unknown_reason")
+        if set(row) != edge_fields:
+            errors.append(f"{label}: Schemafelder nicht exakt")
         if edge_id in seen_edges:
             errors.append(f"{label}: doppelte edge_id")
         seen_edges.add(edge_id)

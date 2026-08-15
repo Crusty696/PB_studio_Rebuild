@@ -335,6 +335,133 @@ class GateContractTests(unittest.TestCase):
             self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
         self.assertTrue(any("Feature-Proof-Key-Exact-Set" in error for error in errors))
 
+    def test_resealed_feature_evidence_closure_and_exact_fields_rejected(self) -> None:
+        def bind_outputs(rows, evidence=None, contract=None):
+            evidence = evidence or self.evidence
+            contract = copy.deepcopy(contract or self.evidence_contract)
+            contract["artifacts"]["feature-state"] = HARNESS.artifact_contract_entry(
+                rows, "evidence/feature-state.jsonl"
+            )
+            contract["artifacts"]["feature-state-evidence"] = HARNESS.artifact_contract_entry(
+                evidence, "evidence/feature-state-evidence.jsonl"
+            )
+            return HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+        for operation in ("extra", "missing"):
+            rows = self.dispositions()
+            if operation == "extra":
+                rows[0]["unexpected"] = True
+            else:
+                rows[0].pop("reviewer_id")
+            contract = bind_outputs(rows)
+            self.evidence_contract, self.evidence_contract_sha = contract, contract["evidence_contract_sha256"]
+            try:
+                errors = self.errors(rows)
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+            self.assertTrue(any("Schemafelder nicht exakt" in error for error in errors), operation)
+
+        for operation in ("extra", "missing"):
+            catalog = copy.deepcopy(self.feature_catalog)
+            core = {
+                key: value for key, value in catalog[0].items()
+                if key not in {"catalog_id", "record_sha256"}
+            }
+            if operation == "extra":
+                core["unexpected"] = True
+            else:
+                core.pop("name")
+            core["catalog_id"] = "sha256:" + hashlib.sha256(
+                json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            catalog = [HARNESS.seal_record(core)]
+            audit = copy.deepcopy(self.audit_contract)
+            audit["artifacts"]["feature-catalog"] = HARNESS.artifact_contract_entry(
+                catalog, "evidence/features.jsonl"
+            )
+            audit = HARNESS.seal_audit_contract({
+                key: value for key, value in audit.items() if key != "contract_sha256"
+            })
+            evidence_contract = copy.deepcopy(original_contract)
+            evidence_contract["audit_contract_sha256"] = audit["contract_sha256"]
+            evidence_contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in evidence_contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            old_catalog, old_manifest = self.feature_catalog, self.feature_manifest
+            old_audit, old_audit_sha = self.audit_contract, self.contract_sha
+            self.feature_catalog = catalog
+            self.feature_manifest = HARNESS.make_artifact_manifest(
+                "feature-catalog", catalog, run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+            )
+            self.audit_contract, self.contract_sha = audit, audit["contract_sha256"]
+            self.evidence_contract = evidence_contract
+            self.evidence_contract_sha = evidence_contract["evidence_contract_sha256"]
+            try:
+                errors = self.errors(self.dispositions())
+            finally:
+                self.feature_catalog, self.feature_manifest = old_catalog, old_manifest
+                self.audit_contract, self.contract_sha = old_audit, old_audit_sha
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+            self.assertTrue(any("Featurekatalog: Schemafelder nicht exakt" in error for error in errors), operation)
+
+        evidence = copy.deepcopy(self.evidence)
+        core = {
+            key: value for key, value in evidence[0].items()
+            if key not in {"evidence_id", "record_sha256"}
+        }
+        core["proof_ref"] = "proof/orphan-feature.json"
+        core["evidence_id"] = "sha256:" + hashlib.sha256(
+            json.dumps(core, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        orphan = HARNESS.seal_record(core)
+        evidence.append(orphan)
+        proof = {field: orphan[field] for field in (
+            "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
+            "reviewer_id", "path", "source_blob_sha256",
+        )}
+        proof["schema_version"] = 1
+        data = HARNESS._canonical(proof)
+        (self.repo / orphan["proof_ref"]).write_bytes(data)
+        rows = self.dispositions()
+        contract = copy.deepcopy(original_contract)
+        contract["artifacts"][f"feature-proof:{orphan['evidence_id']}"] = (
+            HARNESS.file_contract_entry(data, orphan["proof_ref"])
+        )
+        contract = bind_outputs(rows, evidence, contract)
+        old_evidence, old_manifest = self.evidence, self.evidence_manifest
+        self.evidence = evidence
+        self.evidence_manifest = HARNESS.make_artifact_manifest(
+            "feature-state-evidence", evidence, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.evidence_contract, self.evidence_contract_sha = contract, contract["evidence_contract_sha256"]
+        try:
+            errors = self.errors(rows)
+        finally:
+            self.evidence, self.evidence_manifest = old_evidence, old_manifest
+            self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+        self.assertTrue(any("Feature-Evidence-Consumer-Closure" in error for error in errors))
+
+        for operation in ("multi", "foreign"):
+            rows = self.dispositions()
+            rows[1]["evidence_id"] = (
+                rows[0]["evidence_id"] if operation == "multi" else "EVIDENCE-FOREIGN"
+            )
+            contract = bind_outputs(rows)
+            self.evidence_contract, self.evidence_contract_sha = contract, contract["evidence_contract_sha256"]
+            try:
+                errors = self.errors(rows)
+            finally:
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+            self.assertTrue(any("Feature-Evidence-Consumer-Closure" in error for error in errors), operation)
+
     def test_missing_required_rejected(self) -> None:
         rows = self.dispositions()
         rows[0].pop("evidence_id")
