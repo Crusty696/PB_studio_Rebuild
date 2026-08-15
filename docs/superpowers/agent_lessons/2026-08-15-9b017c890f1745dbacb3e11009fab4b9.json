@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9b017c890f1745dbacb3e11009fab4b9",
+  "recorded_at": "2026-08-15T18:30:08+00:00",
+  "session_id": "38b90d8b304c48db9a4b595b2548bad0",
+  "head_at_start": "6f7487800daf34c7f310d1182a281e027087714a",
+  "problem": "A crash between Signoff payload creation and signature publication permanently blocked finalize retry; a completed exact Signoff also could not be idempotently recovered.",
+  "cause": "Finalize treated any existing payload or signature as an undifferentiated immutable collision instead of distinguishing half-orphan from a valid complete pair.",
+  "rule": "Under Registry and roster locks, quarantine XOR signoff artifacts atomically; recover a complete pair only after role-key signature, exact schema, timestamp, and all immutable bindings validate; otherwise fail closed without overwriting evidence.",
+  "applies_to": "Crash-safe signed artifact publication and idempotent audit finalization"
+}
