@@ -33,6 +33,9 @@ def test_product_instantiation_passes_flag():
     import services.pacing_service as ps
     src = inspect.getsource(ps)
     idx = src.index("_studio_brain_pipeline = PacingPipeline(")
-    window = src[idx:idx + 1000]
+    # B-842: Fenster von 1000 auf 1600 Zeichen. Die Instanzierung ist durch
+    # motiv_gedaechtnis + Begruendungskommentar laenger geworden; der Vertrag
+    # (use_brain_v3 und Konfidenz werden durchgereicht) ist unveraendert.
+    window = src[idx:idx + 1600]
     assert "use_brain_v3=True" in window
     assert "brain_v3_min_confidence=" in window

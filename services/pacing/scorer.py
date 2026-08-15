@@ -78,6 +78,14 @@ class AudioContext:
     # NEUBAU-VOLLINTEGRATION T2.5.4 (optional, None = Fallback):
     at_stem_energies: "Mapping[str, float] | None" = None   # L1-normalisiert
     at_dominant_stem: str | None = None                      # stem_section_aggregator
+    # B-842 Roter Faden (optional, None = Term neutral):
+    # Gesamtlaenge des Tracks. Zusammen mit at_timestamp_sec ergibt sie die
+    # relative Position, aus der der Spannungsbogen seine Zielintensitaet
+    # ableitet. Ohne diesen Wert bleibt der Term exakt 0, damit Alt-Aufrufer
+    # unveraendert bleiben.
+    at_track_duration_sec: float | None = None
+    # Motivgruppe dieser Stelle (gleiche Section-Art = gleiche Gruppe).
+    at_motiv_gruppe: int | None = None
     at_audio_mood_vec: np.ndarray | None = None              # audio_mood_vector (1152d)
     at_rms_curve: np.ndarray | None = None                   # audio_video_curves (100ms)
     # AV-Pacing-Snapshot am Cut-Punkt (av_pacing_data, 0.4s-Raster). Skalare,
@@ -508,6 +516,16 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     # NEUBAU-VOLLINTEGRATION T2.5.4: Stem-Klasse<->Shot-Klasse-Bonus
     # (compute_stem_class_bonus liefert bereits 0.0/0.15)
     "w_stem_class": 1.0,
+    # B-842 Roter Faden: Spannungsbogen ueber die Tracklaenge und
+    # Wiedererkennung der Bildwelt je Section-Art. Der Term lag zuvor
+    # ausschliesslich im Legacy-Matcher und war damit im tatsaechlich
+    # benutzten Studio-Brain-Pfad wirkungslos.
+    # Das Gewicht ist an der gemessenen Score-Spanne ausgerichtet: zwischen
+    # bestem und zehntbestem Kandidaten liegen 0,0325. roter_faden_bonus
+    # liefert etwa -0,015 bis +0,025, mal 1.0 bleibt der Beitrag also in
+    # derselben Groessenordnung — er kann benachbarte Kandidaten drehen, ohne
+    # die tragenden Kriterien zu ueberstimmen.
+    "w_roter_faden": 1.0,
 }
 
 
@@ -517,6 +535,7 @@ class PacingScorer:
         weights: Mapping[str, float] | None = None,
         weights_profile: str | None = None,
         pattern_lookup: Callable[..., Any] | None = None,
+        motiv_gedaechtnis: Any | None = None,
     ) -> None:
         """Args:
             weights: full or partial override map of weight names (`w_role`, `w_style`, ...).
@@ -537,6 +556,9 @@ class PacingScorer:
         """
         self._weights = self._resolve_weights(weights, weights_profile)
         self._pattern_lookup = pattern_lookup
+        # B-842: geteiltes Motiv-Gedaechtnis eines Auto-Edit-Laufs. None heisst,
+        # der Motiv-Anteil des roten Fadens bleibt 0.
+        self._motiv_gedaechtnis = motiv_gedaechtnis
 
     @staticmethod
     def _resolve_weights(
@@ -659,11 +681,27 @@ class PacingScorer:
         collision_contrib = -(w["w_collision"] * collision_mag)
         freshness_contrib = -(w["w_freshness"] * staleness_penalty(clip, recent))
 
+        # B-842: Spannungsbogen und Motiv-Wiedererkennung. Ohne
+        # at_track_duration_sec bleibt der Term exakt 0 — Alt-Aufrufer, die den
+        # Kontext nicht fuellen, verhalten sich damit unveraendert.
+        roter_faden_contrib = 0.0
+        if ctx.at_track_duration_sec and ctx.at_track_duration_sec > 0:
+            from services.pacing.roter_faden import roter_faden_bonus
+
+            roter_faden_contrib = w.get("w_roter_faden", 1.0) * roter_faden_bonus(
+                track_position=ctx.at_timestamp_sec / ctx.at_track_duration_sec,
+                clip_intensitaet=clip.motion_score,
+                motiv_gruppe=ctx.at_motiv_gruppe,
+                style_bucket=clip.style_bucket_id,
+                gedaechtnis=self._motiv_gedaechtnis,
+            )
+
         total = (
             role_contrib + style_contrib + mood_video_contrib + mood_audio_contrib
             + genre_contrib + key_contrib + tension_contrib + energy_contrib
             + spectral_contrib + groove_contrib + pacing_contrib + memory_contrib
             + stem_class_contrib + collision_contrib + freshness_contrib
+            + roter_faden_contrib
         )
         contribs: dict[str, float] = {
             "role": role_contrib,
@@ -681,6 +719,7 @@ class PacingScorer:
             "stem_class": stem_class_contrib,
             "collision": collision_contrib,
             "freshness": freshness_contrib,
+            "roter_faden": roter_faden_contrib,
         }
         # Scorer does NOT clip to [0, 1] — test_negative_score_allowed verifies this.
         return float(total), contribs

@@ -485,6 +485,22 @@ def load_av_pacing_curves(session, audio_track_id: int) -> "AVPacingCurves | Non
     )
 
 
+def _motiv_gruppe_aus_typ(section_type: str | None) -> "int | None":
+    """B-842: stabile Motivgruppe aus der Section-Art.
+
+    Gleiche Section-Art heisst gleiche Gruppe und damit dieselbe Bildwelt —
+    jeder Refrain bekommt das Aussehen des ersten. Die Nummer ist der Index in
+    der sortierten Liste der bekannten Typen, also ueber Laeufe hinweg stabil.
+    """
+    if not section_type:
+        return None
+    from services.pacing.roter_faden import TAKTE_PRO_SECTION
+
+    typen = sorted(TAKTE_PRO_SECTION)
+    typ = str(section_type).upper()
+    return typen.index(typ) if typ in typen else None
+
+
 def build_audio_context(
     seg_start_sec: float,
     seg_section_type: str | None,
@@ -494,6 +510,7 @@ def build_audio_context(
     stem_energies: dict | None = None,
     dominant_stem: str | None = None,
     av_pacing: "AVPacingCurves | None" = None,
+    track_duration_sec: float | None = None,
 ) -> AudioContext:
     """Baut einen AudioContext-Snapshot für einen Cut-Punkt.
 
@@ -597,6 +614,11 @@ def build_audio_context(
         # audio_mood_vector braucht Shot-Klassen-Centroids (SigLIP-Text,
         # prozess-gecacht); ohne Centroids/Stems bleiben die Felder None
         # und der Scorer nutzt seine Fallback-Terme.
+        # B-842 Roter Faden: Tracklaenge fuer den Spannungsbogen und
+        # Motivgruppe aus der Section-Art. Ohne Tracklaenge bleibt der Term im
+        # Scorer exakt 0.
+        at_track_duration_sec=track_duration_sec,
+        at_motiv_gruppe=_motiv_gruppe_aus_typ(seg_section_type),
         at_stem_energies=stem_energies,
         at_dominant_stem=dominant_stem,
         at_audio_mood_vec=_build_audio_mood_vec(stem_energies, section_lower),

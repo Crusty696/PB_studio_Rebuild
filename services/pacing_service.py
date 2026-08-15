@@ -1444,6 +1444,10 @@ def _auto_edit_phase3_inner(
                 scorer=PacingScorer(
                     weights_profile="default",
                     pattern_lookup=LearnedPatternLookup(nullpool_session),
+                    # B-842: dasselbe Gedaechtnis wie der Legacy-Matcher, damit
+                    # die Bildwelt einer Section-Art auch dann wiederkehrt,
+                    # wenn die Wahl ueber select_best laeuft.
+                    motiv_gedaechtnis=_motiv_gedaechtnis,
                 ),
                 decision_recorder=DecisionRecorder(
                     session_factory=nullpool_session,
@@ -1635,6 +1639,9 @@ def _auto_edit_phase3_inner(
                         stem_energies=_sb_stem_e,
                         dominant_stem=_sb_dom,
                         av_pacing=_studio_brain_av_pacing,
+                        # B-842: ohne die Tracklaenge bleibt der Rote-Faden-Term
+                        # im Scorer neutral — er braucht die relative Position.
+                        track_duration_sec=total_duration,
                     )
                     # Cycle 14 Option A: Build ClipFeatures pro Clip mit der
                     # Scene die zum aktuellen clip_offsets[vid] passt — nicht
@@ -1711,6 +1718,14 @@ def _auto_edit_phase3_inner(
                             # B-371: gewaehlte Scene als predecessor fuer das
                             # naechste Segment merken (Style/Collision-Signal).
                             _sb_predecessor = _sb_result.chosen
+                            # B-842: die gewaehlte Bildwelt ins Motiv-Gedaechtnis.
+                            # Ohne diesen Eintrag lernt der Studio-Brain-Pfad
+                            # nichts und der Motiv-Anteil bliebe dauerhaft 0.
+                            if _motiv_gedaechtnis is not None:
+                                _motiv_gedaechtnis.merken(
+                                    _sb_ctx.at_motiv_gruppe,
+                                    getattr(_sb_result.chosen, "style_bucket_id", None),
+                                )
                 except (ImportError, RuntimeError, AttributeError, KeyError) as _sb_loop_exc:
                     logger.debug(
                         "Studio-Brain select_best fehlgeschlagen für seg=%.2f, falle "
