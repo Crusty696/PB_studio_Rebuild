@@ -124,7 +124,10 @@ Teamname: **PB Studio Exhaustive Audit Team**.
 
 Technische Grenze: vier gleichzeitige Slots inklusive Hauptagent. Daher maximal
 drei Worker parallel pro Welle. Mehr Rollen werden in sequenziellen Wellen
-besetzt; keine Behauptung unbegrenzter Parallelitaet.
+besetzt; keine Behauptung unbegrenzter Parallelitaet. Gesamtzahl eingesetzter
+Agenten/Subagenten ist nicht auf diese vier Slots begrenzt: Director skaliert
+Roster über beliebig viele rotierende Wellen, sobald zusätzlicher disjunkter
+Scope oder unabhängiger Gegenbeweis Nutzen bringt.
 
 | Rolle | Exklusiver Besitz | Aufgaben |
 |---|---|---|
@@ -146,6 +149,12 @@ Arbeitsregel:
 - Pass-B-Reviewer darf nicht Pass A derselben Datei sein.
 - Cross-Layer-Track hat einen Verifier als alleinigen Workflowowner, ohne
   Dateiownership der statischen Reviewer zu ueberschreiben.
+- Leads dürfen abgegrenzte Subagenten einsetzen. Parent bleibt für Scope,
+  Evidenzqualität und sauberen Handoff verantwortlich; Parent/Child teilen nie
+  denselben Worktree und bearbeiten nie dieselbe Ledger-Einheit gleichzeitig.
+- Zusätzliche Besetzung ist Pflicht, wenn Warteschlange sonst Spezialgebiete
+  vermischt, Pass-A/Pass-B-Unabhängigkeit verletzt oder Runtime-Gegenbeweis
+  ohne zweiten Spezialisten bliebe.
 
 ---
 
