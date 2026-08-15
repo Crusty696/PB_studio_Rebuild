@@ -86,7 +86,6 @@ def _reviewer_roster(
     run_id: str,
     audited_commit: str,
     snapshot_id: str,
-    trusted_session_ids: set[str] | None,
 ) -> tuple[dict[str, dict], list[str]]:
     errors: list[str] = []
     if not roster_path.is_file():
@@ -123,8 +122,6 @@ def _reviewer_roster(
             errors.append(f"{label}: Pflichtfelder fehlen/ungueltig: {missing}")
         reviewer_id = str(row.get("reviewer_id", ""))
         session_id = str(row.get("session_id", ""))
-        if trusted_session_ids is None or session_id not in trusted_session_ids:
-            errors.append(f"{label}: keine Live-Enrollment-Attestierung fuer session_id")
         if reviewer_id in roster:
             errors.append(f"{label}: doppelte reviewer_id {reviewer_id!r}")
         else:
@@ -168,6 +165,15 @@ def _reviewer_roster(
             for claim in claims
         ):
             errors.append(f"{label}: claims muessen relative Repo-Pfade/Globs sein")
+        review_scope = row.get("review_scope")
+        if (
+            not isinstance(review_scope, list) or not review_scope
+            or any(not isinstance(scope, str) or not scope.strip() for scope in review_scope)
+            or len(review_scope) != len(set(review_scope))
+        ):
+            errors.append(f"{label}: review_scope muss eindeutige nichtleere String-Liste sein")
+    if rows:
+        errors.append("Reviewer-Live-Enrollment-Harness fehlt; Rosterdatei allein ist keine Identitaetsattestierung")
     return roster, errors
 
 
@@ -179,7 +185,7 @@ def _reviewer_claims_path(reviewer: dict, path: str) -> bool:
     normalized = path.replace("\\", "/")
     return any(
         fnmatch.fnmatchcase(normalized, str(claim).replace("\\", "/"))
-        for claim in reviewer.get("claims") or []
+        for claim in reviewer.get("review_scope") or []
     )
 
 
@@ -209,7 +215,6 @@ def verify(
     exclusions_path: Path,
     workspace_units_path: Path,
     reviewer_roster_path: Path,
-    trusted_session_ids: set[str] | None = None,
 ) -> list[str]:
     inventory = _jsonl(inventory_path)
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -273,7 +278,6 @@ def verify(
         errors.append("Snapshot/Inventory commit_sha stimmt nicht mit audited_commit")
     reviewer_roster, roster_errors = _reviewer_roster(
         reviewer_roster_path, snapshot, run_id, audited_commit, computed_snapshot_id,
-        trusted_session_ids,
     )
     errors.extend(roster_errors)
     if any(row.get("run_id") != run_id for row in inventory + workspace_units):

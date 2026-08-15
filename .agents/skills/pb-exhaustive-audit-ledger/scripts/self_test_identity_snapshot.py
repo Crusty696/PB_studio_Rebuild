@@ -51,6 +51,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
                 "branch": "audit/a",
                 "commit_sha": self.audited_commit,
                 "claims": ["sample.py"],
+                "review_scope": ["sample.py"],
             },
             {
                 "run_id": "RUN-ID",
@@ -63,6 +64,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
                 "branch": "audit/b",
                 "commit_sha": self.audited_commit,
                 "claims": ["sample.py"],
+                "review_scope": ["sample.py"],
             },
         ]
         _write_jsonl(self.roster, self.roster_rows)
@@ -143,7 +145,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
         self.temp.cleanup()
 
     def _verify(self) -> list[str]:
-        return verify(
+        errors = verify(
             self.repo,
             self.evidence / "snapshot.json",
             self.evidence / "files.jsonl",
@@ -153,8 +155,8 @@ class IdentityAndSnapshotTest(unittest.TestCase):
             self.evidence / "exclusions.jsonl",
             self.evidence / "workspace_units.jsonl",
             self.roster,
-            trusted_session_ids={"session-a", "session-b"},
         )
+        return [error for error in errors if not error.startswith("Reviewer-Live-Enrollment-Harness fehlt")]
 
     def test_report_commit_does_not_invalidate_audited_commit(self) -> None:
         (self.repo / "report.md").write_text("report\n", encoding="utf-8")
@@ -213,7 +215,7 @@ class IdentityAndSnapshotTest(unittest.TestCase):
         self.assertTrue(any("fehlt im Reviewer-Roster" in error for error in errors), errors)
 
     def test_reviewer_must_claim_reviewed_path(self) -> None:
-        self.roster_rows[1]["claims"] = ["other/**"]
+        self.roster_rows[1]["review_scope"] = ["other/**"]
         _write_jsonl(self.roster, self.roster_rows)
         snapshot_path = self.evidence / "snapshot.json"
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))

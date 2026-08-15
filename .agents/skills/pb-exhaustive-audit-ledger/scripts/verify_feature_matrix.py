@@ -66,7 +66,7 @@ def _verify_ref_hash(root: Path, item: object, label: str) -> list[str]:
 
 def verify_runtime_runs(
     rows: list[dict[str, Any]], *, evidence_root: Path, audited_commit: str, snapshot_id: str,
-    run_id: str, trusted_execution_ids: set[str] | None = None,
+    run_id: str,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     errors: list[str] = []
     indexed: dict[str, dict[str, Any]] = {}
@@ -93,8 +93,6 @@ def verify_runtime_runs(
             errors.append(f"{label}: runtime_run_id doppelt")
         else:
             seen_runtime_run_ids.add(runtime_run_id)
-        if trusted_execution_ids is None or runtime_run_id not in trusted_execution_ids:
-            errors.append(f"{label}: keine validatorseitige Runner-Attestierung")
         if not _valid_timestamp(row.get("timestamp")):
             errors.append(f"{label}: timestamp fehlt/ist nicht timezone-aware ISO-8601")
         errors.extend(_verify_ref_hash(evidence_root, row.get("input"), f"{label}/input"))
@@ -132,6 +130,8 @@ def verify_runtime_runs(
             errors.append(f"{label}: covered_axes enthaelt unbekannte Achse")
     if not rows:
         errors.append("Runtime-Runs-Manifest ist leer")
+    else:
+        errors.append("Runtime-Runner-Harness fehlt; Dateimanifest allein ist keine Ausfuehrungsattestierung")
     return indexed, errors
 
 
@@ -182,12 +182,11 @@ def verify_feature_contract(
     matrix: list[dict[str, Any]], requirements: list[dict[str, Any]],
     runtime_rows: list[dict[str, Any]], *, evidence_root: Path,
     audited_commit: str, snapshot_id: str, run_id: str,
-    trusted_execution_ids: set[str] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     runtime_runs, runtime_errors = verify_runtime_runs(
         runtime_rows, evidence_root=evidence_root, audited_commit=audited_commit,
-        snapshot_id=snapshot_id, run_id=run_id, trusted_execution_ids=trusted_execution_ids,
+        snapshot_id=snapshot_id, run_id=run_id,
     )
     errors.extend(runtime_errors)
 

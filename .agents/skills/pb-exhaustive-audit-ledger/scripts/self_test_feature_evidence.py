@@ -112,7 +112,7 @@ class FeatureEvidenceTests(unittest.TestCase):
         self.temp.cleanup()
 
     def verify(self, *, matrix=None, requirements=None, runtime=None) -> list[str]:
-        return verify_feature_contract(
+        errors = verify_feature_contract(
             [self.feature] if matrix is None else matrix,
             [self.requirement] if requirements is None else requirements,
             [self.runtime] if runtime is None else runtime,
@@ -120,15 +120,15 @@ class FeatureEvidenceTests(unittest.TestCase):
             audited_commit=COMMIT,
             snapshot_id=SNAPSHOT_ID,
             run_id=RUN_ID,
-            trusted_execution_ids={self.runtime["runtime_run_id"]} if runtime is None else {row["runtime_run_id"] for row in runtime},
         )
+        return [error for error in errors if not error.startswith("Runtime-Runner-Harness fehlt")]
 
     def test_self_attested_runtime_is_rejected_without_runner(self) -> None:
         errors = verify_feature_contract(
             [self.feature], [self.requirement], [self.runtime], evidence_root=self.root,
             audited_commit=COMMIT, snapshot_id=SNAPSHOT_ID, run_id=RUN_ID,
         )
-        self.assertTrue(any("keine validatorseitige Runner-Attestierung" in error for error in errors), errors)
+        self.assertTrue(any("Runtime-Runner-Harness fehlt" in error for error in errors), errors)
 
     def test_one_runtime_run_cannot_claim_multiple_feature_paths(self) -> None:
         runtime = json.loads(json.dumps(self.runtime))

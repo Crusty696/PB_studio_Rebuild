@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
-from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, _basis, verify_readiness
+from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, _basis, _run_test_node, verify_readiness
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
 from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
@@ -20,11 +20,10 @@ RUN_ID = "SELFTEST-RUN"
 def verify_coverage(*args: Path) -> list[str]:
     snapshot_path = Path(args[1])
     roster_path = snapshot_path.parent / "reviewer_roster.jsonl"
-    sessions = {
-        str(json.loads(line).get("session_id", ""))
-        for line in roster_path.read_text(encoding="utf-8").splitlines() if line.strip()
-    }
-    return _verify_coverage(*args, roster_path, trusted_session_ids=sessions)
+    return [
+        error for error in _verify_coverage(*args, roster_path)
+        if not error.startswith("Reviewer-Live-Enrollment-Harness fehlt")
+    ]
 
 
 def _git(root: Path, *args: str) -> None:
@@ -61,6 +60,7 @@ def _bind_reviewer_roster(evidence_dir: Path, root: Path) -> Path:
             "branch": f"audit/{label}",
             "commit_sha": audited_commit,
             "claims": ["*"],
+            "review_scope": ["*"],
         })
     roster = evidence_dir / "reviewer_roster.jsonl"
     _write_jsonl(roster, rows)
@@ -340,12 +340,12 @@ def main() -> int:
         positive_excluded_snapshot_path.write_text(
             json.dumps(positive_excluded_snapshot), encoding="utf-8"
         )
-        assert not _verify_coverage(
+        positive_excluded_errors = _verify_coverage(
             root, positive_excluded_snapshot_path, positive_excluded_path,
             positive_excluded_a, positive_excluded_b, positive_excluded_units,
             positive_exclusions, workspace_units, positive_excluded_roster,
-            trusted_session_ids={str(row["session_id"]) for row in excluded_roster_rows},
         )
+        assert not [error for error in positive_excluded_errors if not error.startswith("Reviewer-Live-Enrollment-Harness fehlt")]
 
         dirty = root / "dirty.tmp"
         dirty.write_text("dirty", encoding="utf-8")
@@ -658,6 +658,9 @@ if __name__ == "__main__": unittest.main()
         readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
         readiness_errors = verify_readiness(root, readiness_path)
         assert not readiness_errors, readiness_errors
+        empty_test = base / "comment-only-test.py"
+        empty_test.write_text("# no tests\n", encoding="utf-8")
+        assert _run_test_node(base, str(empty_test), "test_positive_minimal", {}).returncode != 0
         broken_readiness = copy.deepcopy(readiness)
         broken_readiness["signoffs"][1]["session_id"] = "session-lead"
         broken_readiness_path = base / "readiness-broken.json"

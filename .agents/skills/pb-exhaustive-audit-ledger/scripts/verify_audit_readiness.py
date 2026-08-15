@@ -26,6 +26,15 @@ COMMON_TESTS = (
     "test_tampered_binding_rejected", "test_duplicate_or_foreign_id_rejected",
 )
 REQUIRED_ARTIFACTS = {path for pair in REQUIRED_GATES.values() for path in pair[:2]}
+UNITTEST_LOADER = (
+    "import importlib.util,sys,unittest;"
+    "p,n=sys.argv[1],sys.argv[2];"
+    "s=importlib.util.spec_from_file_location('pb_gate_contract',p);"
+    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
+    "q=unittest.defaultTestLoader.loadTestsFromName(n,m);"
+    "r=unittest.TextTestRunner(verbosity=2).run(q);"
+    "raise SystemExit(0 if r.wasSuccessful() and r.testsRun==1 else 2)"
+)
 
 
 def _sha(data: bytes) -> str:
@@ -88,6 +97,13 @@ def _load_roster(path: Path, expected_sha: str, run_id: str, commit: str) -> tup
     return roster, errors
 
 
+def _run_test_node(cwd: Path, test_path: str, node: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-B", "-c", UNITTEST_LOADER, test_path, f"GateContractTests.{node}"],
+        cwd=cwd, env=env, capture_output=True, text=True, timeout=120,
+    )
+
+
 def _run_gates(root: Path, commit: str) -> list[str]:
     errors: list[str] = []
     env = {**os.environ, "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -97,10 +113,7 @@ def _run_gates(root: Path, commit: str) -> list[str]:
             subprocess.run(["git", "worktree", "add", "--detach", str(worktree), commit], cwd=root, check=True, capture_output=True, timeout=60)
             for gate, (_, test_path, specific) in sorted(REQUIRED_GATES.items()):
                 for node in (*COMMON_TESTS, specific):
-                    result = subprocess.run(
-                        [sys.executable, "-B", test_path, f"GateContractTests.{node}"],
-                        cwd=worktree, env=env, capture_output=True, text=True, timeout=120,
-                    )
+                    result = _run_test_node(worktree, test_path, node, env)
                     if result.returncode != 0:
                         tail = (result.stdout + result.stderr)[-800:].replace("\n", " | ")
                         errors.append(f"Gate {gate}/{node}: echter Testlauf Exit {result.returncode}: {tail}")
@@ -108,8 +121,12 @@ def _run_gates(root: Path, commit: str) -> list[str]:
             errors.append(f"Detached tooling_commit-Testlauf fehlgeschlagen: {exc}")
         finally:
             if worktree.exists():
-                subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=root, capture_output=True)
-            subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True)
+                removed = subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=root, capture_output=True)
+                if removed.returncode != 0:
+                    errors.append("Detached Worktree konnte nicht entfernt werden")
+            pruned = subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True)
+            if pruned.returncode != 0:
+                errors.append("Git-Worktree-Prune fehlgeschlagen")
     return errors
 
 
