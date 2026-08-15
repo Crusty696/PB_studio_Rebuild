@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f22d6954d23a4ed9b8262010623f77ec",
+  "recorded_at": "2026-08-15T14:28:45+00:00",
+  "session_id": "14e10a99c5154a1ea6757e7400d735a0",
+  "head_at_start": "862c9a75789f504f6c457c07b1272a0357d23fdd",
+  "problem": "Audit-Readiness akzeptierte selbstattestierte PASS-Dateien, nicht ausgefuehrte Commands und eine vom Plan abweichende Harnessmenge.",
+  "cause": "Gate validierte nur Manifestfelder und Hashes, ohne kanonische Commands am tooling_commit selbst auszufuehren oder Contracts aus einer gemeinsamen Quelle abzuleiten.",
+  "rule": "Readiness-Gates muessen kanonische Tests selbst am fixierten Commit ausfuehren, Exact-Sets aus einer gemeinsamen Vertragsquelle nutzen und Reviewer/Runtime-Provenienz gegen reale, hashgebundene Identitaeten validieren.",
+  "applies_to": "Audit-Harnesses, Readiness-Gates, Runtime-Evidenz, Reviewer-Roster"
+}
