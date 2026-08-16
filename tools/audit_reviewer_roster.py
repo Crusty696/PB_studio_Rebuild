@@ -19,7 +19,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__ in {None, ""}:
@@ -43,6 +43,25 @@ ROLE_SET = {"lead-v", "adversarial"}
 SPAWN_ROLE_SET = ROLE_SET | {"neutral-director"}
 SHARD_RE = re.compile(r"^@audit/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(?:[A-Za-z0-9._-]+/)*\*\*$")
 SCOPE_RE = re.compile(r"^(?:[A-Za-z0-9._-]+/)+(?:[A-Za-z0-9._-]+/)*\*\*$")
+PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+AUDIT_ARTIFACT_KEYS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract",
+    "reviewer-readiness-binding", "reviewer-spawn-journal",
+}
+REVIEWER_ARTIFACT_KEYS = {
+    "reviewer-trust-policy", "reviewer-contract",
+    "reviewer-readiness-binding", "reviewer-spawn-journal",
+}
+DESCRIPTOR_FIELDS = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 
 
 class ContractError(RuntimeError):
@@ -219,14 +238,79 @@ def _stable_session(session: dict[str, Any]) -> dict[str, Any]:
     return {key: session[key] for key in sorted(keys)}
 
 
-def _record_count(raw: bytes) -> int:
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError):
-        return sum(bool(line.strip()) for line in raw.splitlines())
-    if isinstance(value, dict) and isinstance(value.get("records"), list):
-        return len(value["records"])
+def _safe_ref(value: Any) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise ContractError("Artifact-Ref ist nicht safe-relative")
+    ref = PurePosixPath(value)
+    if (
+        ref.is_absolute()
+        or ref.as_posix() != value
+        or any(part in {"", ".", ".."} for part in ref.parts)
+        or any(
+            ":" in part
+            or part.endswith((".", " "))
+            or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+            for part in ref.parts
+        )
+    ):
+        raise ContractError("Artifact-Ref ist nicht safe-relative")
+    return value
+
+
+def _record_count(ref: str, raw: bytes) -> int:
+    suffix = PurePosixPath(_safe_ref(ref)).suffix.lower()
+    if suffix == ".jsonl":
+        try:
+            lines = raw.decode("utf-8").splitlines()
+            rows = [json.loads(line) for line in lines if line.strip()]
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ContractError("JSONL-Artifact ist nicht parsebar") from exc
+        if any(not isinstance(row, dict) for row in rows):
+            raise ContractError("JSONL-Artifactzeile muss Objekt sein")
+        return len(rows)
+    if suffix == ".json":
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ContractError("JSON-Artifact ist nicht parsebar") from exc
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, dict) and isinstance(value.get("records"), list):
+            return len(value["records"])
+        return 1
     return 1
+
+
+def artifact_descriptor(ref: str, raw: bytes) -> dict[str, Any]:
+    """Build exact deterministic Common-Contract descriptor for existing bytes."""
+    safe_ref = _safe_ref(ref)
+    digest = _sha(raw)
+    return {
+        "artifact_id": f"sha256:{digest}",
+        "ref": safe_ref,
+        "sha256": digest,
+        "bytes": len(raw),
+        "record_count": _record_count(safe_ref, raw),
+    }
+
+
+def _validate_descriptor(key: str, item: Any) -> None:
+    if not isinstance(item, dict) or set(item) != DESCRIPTOR_FIELDS:
+        raise ContractError(f"audit_contract Artifactdescriptor {key} falsch")
+    _safe_ref(item.get("ref"))
+    digest = item.get("sha256")
+    if (
+        not isinstance(digest, str)
+        or not SHA_RE.fullmatch(digest)
+        or item.get("artifact_id") != f"sha256:{digest}"
+        or not isinstance(item.get("bytes"), int)
+        or isinstance(item.get("bytes"), bool)
+        or item["bytes"] < 0
+        or not isinstance(item.get("record_count"), int)
+        or isinstance(item.get("record_count"), bool)
+        or item["record_count"] < 0
+    ):
+        raise ContractError(f"audit_contract Artifactdescriptor {key} falsch")
 
 
 def _load_audit_contract(
@@ -235,51 +319,58 @@ def _load_audit_contract(
     tooling_commit: str, policy_raw: bytes,
     reviewer_contract_path: Path, readiness_path: Path, spawn_path: Path,
 ) -> tuple[dict[str, Any], str]:
-    value, file_sha = _load_signed_json(
+    value, audit_contract_file_sha256 = _load_signed_json(
         path, signature, authority_key, authority_pin,
         AUDIT_CONTRACT_NAMESPACE, authority_identity,
     )
     fields = {"schema_version", "plan_id", "run_id", "audited_commit",
               "tooling_commit", "snapshot_id", "frozen_at", "expires_at",
               "artifacts", "contract_sha256"}
-    if set(value) != fields or value.get("schema_version") != 1:
+    if (
+        set(value) != fields
+        or value.get("schema_version") != 1
+        or value.get("plan_id") != PLAN_ID
+    ):
         raise ContractError("audit_contract Schema/Feldmenge falsch")
     _valid_timestamp(value["frozen_at"], "frozen_at")
     _valid_timestamp(value["expires_at"], "expires_at")
     if datetime.fromisoformat(value["expires_at"]) <= datetime.fromisoformat(value["frozen_at"]):
         raise ContractError("audit_contract expires_at ist nicht nach frozen_at")
     body = {key: item for key, item in value.items() if key != "contract_sha256"}
-    if value["contract_sha256"] != _sha(_canonical(body)):
+    audit_contract_body_sha256 = _sha(_canonical(body))
+    if value["contract_sha256"] != audit_contract_body_sha256:
         raise ContractError("audit_contract Self-Hash falsch")
-    if not SHA_RE.fullmatch(expected_sha256) or file_sha != expected_sha256:
-        raise ContractError("audit_contract weicht von extern erwarteter SHA ab")
-    expected_keys = {"reviewer-trust-policy", "reviewer-contract",
-                     "reviewer-readiness-binding", "reviewer-spawn-journal"}
+    if (
+        not isinstance(expected_sha256, str)
+        or not SHA_RE.fullmatch(expected_sha256)
+        or audit_contract_body_sha256 != expected_sha256
+    ):
+        raise ContractError("audit_contract weicht von extern erwarteter Body-SHA ab")
+    if audit_contract_file_sha256 != _sha(_canonical(value) + b"\n"):
+        raise ContractError("audit_contract_file_sha256 weicht von kanonischer Datei ab")
     artifacts = value.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != expected_keys:
-        raise ContractError("audit_contract Preflight-Artefaktmenge falsch")
+    if not isinstance(artifacts, dict) or set(artifacts) != AUDIT_ARTIFACT_KEYS:
+        raise ContractError("audit_contract globale Artefaktmenge falsch")
     sources = {
-        "reviewer-trust-policy": policy_raw,
-        "reviewer-contract": reviewer_contract_path.read_bytes(),
-        "reviewer-readiness-binding": readiness_path.read_bytes(),
-        "reviewer-spawn-journal": spawn_path.read_bytes(),
+        "reviewer-trust-policy": ("reviewer/trust_policy.json", policy_raw),
+        "reviewer-contract": ("reviewer/contract.json", reviewer_contract_path.read_bytes()),
+        "reviewer-readiness-binding": (
+            "reviewer/readiness_binding.json", readiness_path.read_bytes()
+        ),
+        "reviewer-spawn-journal": (
+            "reviewer/spawn_journal.json", spawn_path.read_bytes()
+        ),
     }
     for key, item in artifacts.items():
-        descriptor_fields = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
-        if not isinstance(item, dict) or set(item) != descriptor_fields:
-            raise ContractError(f"audit_contract Artifactdescriptor {key} falsch")
-        ref = item["ref"]
-        if (not isinstance(ref, str) or not ref or Path(ref).is_absolute()
-                or ".." in Path(ref).parts or "\\" in ref):
-            raise ContractError(f"audit_contract Ref {key} ist nicht safe-relative")
-        raw = sources[key]
-        digest = _sha(raw)
-        if (item["artifact_id"] != f"sha256:{digest}" or item["sha256"] != digest
-                or item["bytes"] != len(raw) or item["record_count"] != _record_count(raw)):
+        _validate_descriptor(key, item)
+        if key not in REVIEWER_ARTIFACT_KEYS:
+            continue
+        expected_ref, raw = sources[key]
+        if item != artifact_descriptor(expected_ref, raw):
             raise ContractError(f"audit_contract Artifact-FK {key} falsch")
     if value["tooling_commit"] != tooling_commit:
         raise ContractError("audit_contract tooling_commit falsch")
-    return value, file_sha
+    return value, audit_contract_file_sha256
 
 
 class _FileLock:
@@ -639,6 +730,135 @@ def _read_roster(path: Path) -> list[dict[str, Any]]:
     if any(not isinstance(row, dict) for row in rows):
         raise ContractError("Rosterzeile muss Objekt sein")
     return rows
+
+
+def export_reviewer_evidence_attachments(
+    roster_path: Path,
+    receipts_dir: Path,
+    attestations_dir: Path,
+    reviewer_contract: dict[str, Any],
+    *,
+    basis_sha256: str,
+) -> dict[str, dict[str, Any]]:
+    """Describe reviewer-owned attachments; never authorize an evidence contract."""
+    if not isinstance(basis_sha256, str) or not SHA_RE.fullmatch(basis_sha256):
+        raise ContractError("basis_sha256 ungueltig")
+    rows = _read_roster(roster_path)
+    reviewers = reviewer_contract.get("reviewers")
+    required = reviewer_contract.get("required_signoffs")
+    if not isinstance(reviewers, list) or not isinstance(required, list):
+        raise ContractError("Reviewer-Contract fuer Attachment-Export ungueltig")
+    reviewer_contract_file_sha256 = _sha(_canonical(reviewer_contract) + b"\n")
+    reviewer_by_id: dict[str, dict[str, Any]] = {}
+    for spec in reviewers:
+        if (
+            not isinstance(spec, dict)
+            or not isinstance(spec.get("reviewer_id"), str)
+            or not isinstance(spec.get("session_id"), str)
+            or spec["reviewer_id"] in reviewer_by_id
+        ):
+            raise ContractError("Reviewer-Contract Reviewer ungueltig/doppelt")
+        reviewer_by_id[spec["reviewer_id"]] = spec
+    row_by_id = {row.get("reviewer_id"): row for row in rows}
+    if len(row_by_id) != len(rows) or set(row_by_id) != set(reviewer_by_id):
+        raise ContractError("Roster/Reviewer-Contract Attachment-Menge nicht exakt")
+
+    attachments: dict[str, dict[str, Any]] = {}
+    expected_receipt_files: set[str] = set()
+    for reviewer_id, row in row_by_id.items():
+        spec = reviewer_by_id[reviewer_id]
+        session_id = spec["session_id"]
+        receipt_ref = row.get("session_receipt_ref")
+        signature_ref = row.get("session_receipt_signature_ref")
+        if (
+            row.get("session_id") != session_id
+            or receipt_ref != f"{session_id}.json"
+            or signature_ref != f"{session_id}.json.sig"
+        ):
+            raise ContractError("Roster Attachment-Refs/Session falsch")
+        expected_receipt_files |= {receipt_ref, signature_ref}
+        receipt_path = receipts_dir / receipt_ref
+        signature_path = receipts_dir / signature_ref
+        receipt_raw = receipt_path.read_bytes()
+        signature_raw = signature_path.read_bytes()
+        if _sha(receipt_raw) != row.get("session_receipt_sha256"):
+            raise ContractError("Roster Receipt-SHA/Attachment falsch")
+        attachments[f"reviewer-enrollment-receipt:{session_id}"] = artifact_descriptor(
+            f"reviewer/receipts/{receipt_ref}", receipt_raw,
+        )
+        attachments[f"reviewer-enrollment-signature:{session_id}"] = artifact_descriptor(
+            f"reviewer/receipts/{signature_ref}", signature_raw,
+        )
+    actual_receipt_files = {
+        path.name for path in receipts_dir.iterdir() if path.is_file()
+    }
+    if actual_receipt_files != expected_receipt_files:
+        raise ContractError("Enrollment-Attachment-Dateimenge nicht exakt")
+
+    expected_signoff_files: set[str] = set()
+    seen_required: set[tuple[str, str]] = set()
+    for item in required:
+        if not isinstance(item, dict) or set(item) != {"reviewer_id", "role"}:
+            raise ContractError("required_signoff fuer Attachment-Export ungueltig")
+        reviewer_id, role = item["reviewer_id"], item["role"]
+        spec = reviewer_by_id.get(reviewer_id)
+        if (
+            spec is None
+            or spec.get("role") != role
+            or role not in ROLE_SET
+            or (reviewer_id, role) in seen_required
+        ):
+            raise ContractError("required_signoff Reviewer/Rolle falsch/doppelt")
+        seen_required.add((reviewer_id, role))
+        session_id = spec["session_id"]
+        name = f"{role}-{session_id}.json"
+        signature_name = name + ".sig"
+        expected_signoff_files |= {name, signature_name}
+        path = attestations_dir / name
+        signature_path = attestations_dir / signature_name
+        raw = path.read_bytes()
+        signature_raw = signature_path.read_bytes()
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ContractError("Signoff-Attachment unlesbar") from exc
+        expected_fields = {
+            "schema_version", "run_id", "reviewer_id", "session_id", "role",
+            "basis_sha256", "verdict", "contract_sha256",
+            "enrollment_receipt_sha256", "signed_at",
+        }
+        row = row_by_id[reviewer_id]
+        if (
+            not isinstance(value, dict)
+            or set(value) != expected_fields
+            or value.get("schema_version") != 1
+            or value.get("run_id") != reviewer_contract.get("run_id")
+            or value.get("reviewer_id") != reviewer_id
+            or value.get("session_id") != session_id
+            or value.get("role") != role
+            or value.get("basis_sha256") != basis_sha256
+            or value.get("verdict") != "pass"
+            or value.get("contract_sha256") != reviewer_contract_file_sha256
+            or value.get("enrollment_receipt_sha256")
+                != row.get("session_receipt_sha256")
+            or _canonical(value) + b"\n" != raw
+        ):
+            raise ContractError("Signoff-Attachment ID/Rolle/Basis falsch")
+        _valid_timestamp(value["signed_at"], "signed_at")
+        attachments[f"reviewer-signoff:{role}:{session_id}"] = artifact_descriptor(
+            f"reviewer/attestations/{name}", raw,
+        )
+        attachments[
+            f"reviewer-signoff-signature:{role}:{session_id}"
+        ] = artifact_descriptor(
+            f"reviewer/attestations/{signature_name}", signature_raw,
+        )
+    actual_signoff_files = {
+        path.name for path in attestations_dir.iterdir() if path.is_file()
+    }
+    if actual_signoff_files != expected_signoff_files:
+        raise ContractError("Signoff-Attachment-Dateimenge nicht exakt")
+    return {key: attachments[key] for key in sorted(attachments)}
 
 
 def _row_from_receipt(receipt: dict[str, Any], receipt_ref: str, receipt_sha: str,

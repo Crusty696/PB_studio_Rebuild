@@ -266,22 +266,26 @@ class GateContractTests(unittest.TestCase):
         self.binding_sha = roster._sha(self.binding_path.read_bytes())
         policy_raw = roster._canonical(self.policy) + b"\n"
         sources = {
-            "reviewer-trust-policy": (roster.TRUST_POLICY_PATH, policy_raw),
-            "reviewer-contract": ("reviewer-contract.json", self.contract_path.read_bytes()),
+            "reviewer-trust-policy": ("reviewer/trust_policy.json", policy_raw),
+            "reviewer-contract": ("reviewer/contract.json", self.contract_path.read_bytes()),
             "reviewer-readiness-binding": (
-                "reviewer-readiness-binding.json", self.binding_path.read_bytes()
+                "reviewer/readiness_binding.json", self.binding_path.read_bytes()
             ),
-            "reviewer-spawn-journal": ("reviewer-spawn-journal.json", self.spawn_path.read_bytes()),
+            "reviewer-spawn-journal": (
+                "reviewer/spawn_journal.json", self.spawn_path.read_bytes()
+            ),
         }
+        for key in sorted(roster.AUDIT_ARTIFACT_KEYS - set(sources)):
+            sources[key] = (f"common/{key}.json", roster._canonical({"kind": key}) + b"\n")
         artifacts = {}
         for key, (ref, raw) in sources.items():
             digest = roster._sha(raw)
             artifacts[key] = {
                 "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
-                "bytes": len(raw), "record_count": roster._record_count(raw),
+                "bytes": len(raw), "record_count": roster._record_count(ref, raw),
             }
         audit_contract = {
-            "schema_version": 1, "plan_id": "PB-STUDIO-AUDIT-PHASE-MINUS-1",
+            "schema_version": 1, "plan_id": roster.PLAN_ID,
             "run_id": "RUN-1", "audited_commit": self.commit,
             "tooling_commit": self.tooling_commit, "snapshot_id": "snapshot-1",
             "frozen_at": "2026-08-15T00:00:00+00:00",
@@ -292,7 +296,8 @@ class GateContractTests(unittest.TestCase):
             self.audit_contract_path, audit_contract,
             roster.AUDIT_CONTRACT_NAMESPACE, "authority",
         )
-        self.audit_contract_sha = roster._sha(self.audit_contract_path.read_bytes())
+        self.audit_contract_sha = audit_contract["contract_sha256"]
+        self.audit_contract_file_sha = roster._sha(self.audit_contract_path.read_bytes())
 
     def _trust_args(self) -> dict:
         return {
@@ -444,7 +449,7 @@ class GateContractTests(unittest.TestCase):
     def test_preflight_audit_contract_external_sha_and_artifact_fk_are_exact(self) -> None:
         bad_args = self._trust_args()
         bad_args["expected_audit_contract_sha256"] = "0" * 64
-        with self.assertRaisesRegex(roster.ContractError, "extern erwarteter SHA"):
+        with self.assertRaisesRegex(roster.ContractError, "extern erwarteter Body-SHA"):
             roster.enroll(
                 root=self.repo, session_id=self.lead["id"], receipts_dir=self.receipts,
                 roster_path=self.roster_path, signing_key=self.keys["spawn"], **bad_args,
@@ -456,8 +461,140 @@ class GateContractTests(unittest.TestCase):
         self._signed(
             self.audit_contract_path, value, roster.AUDIT_CONTRACT_NAMESPACE, "authority"
         )
-        self.audit_contract_sha = roster._sha(self.audit_contract_path.read_bytes())
+        self.audit_contract_sha = value["contract_sha256"]
+        self.audit_contract_file_sha = roster._sha(self.audit_contract_path.read_bytes())
         self.assertTrue(self._verify())
+
+    def test_audit_contract_requires_exact_global_fourteen_keys(self) -> None:
+        for mutation in ("missing", "extra"):
+            with self.subTest(mutation=mutation):
+                value = json.loads(self.audit_contract_path.read_text(encoding="utf-8"))
+                if mutation == "missing":
+                    del value["artifacts"]["requirements-universe"]
+                else:
+                    value["artifacts"]["foreign"] = dict(
+                        value["artifacts"]["requirements-universe"]
+                    )
+                body = {key: item for key, item in value.items() if key != "contract_sha256"}
+                value["contract_sha256"] = roster._sha(roster._canonical(body))
+                self._signed(
+                    self.audit_contract_path, value,
+                    roster.AUDIT_CONTRACT_NAMESPACE, "authority",
+                )
+                self.audit_contract_sha = value["contract_sha256"]
+                self.assertTrue(self._verify())
+                self._write_trust()
+
+    def test_external_pin_is_body_sha_not_raw_file_sha(self) -> None:
+        self.assertNotEqual(self.audit_contract_sha, self.audit_contract_file_sha)
+        bad = self._trust_args()
+        bad["expected_audit_contract_sha256"] = self.audit_contract_file_sha
+        with self.assertRaisesRegex(roster.ContractError, "Body-SHA"):
+            roster.enroll(
+                root=self.repo, session_id=self.lead["id"], receipts_dir=self.receipts,
+                roster_path=self.roster_path, signing_key=self.keys["spawn"], **bad,
+            )
+
+    def test_descriptor_schema_and_own_bytes_are_fail_closed(self) -> None:
+        mutations = (
+            lambda item: item.update(extra=True),
+            lambda item: item.update(sha256="0" * 64),
+            lambda item: item.update(record_count=True),
+            lambda item: item.update(ref="reviewer/renamed-contract.json"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                value = json.loads(self.audit_contract_path.read_text(encoding="utf-8"))
+                mutate(value["artifacts"]["reviewer-contract"])
+                body = {key: item for key, item in value.items() if key != "contract_sha256"}
+                value["contract_sha256"] = roster._sha(roster._canonical(body))
+                self._signed(
+                    self.audit_contract_path, value,
+                    roster.AUDIT_CONTRACT_NAMESPACE, "authority",
+                )
+                self.audit_contract_sha = value["contract_sha256"]
+                self.assertTrue(self._verify())
+                self._write_trust()
+
+    def test_other_domain_descriptors_are_structural_not_reopened_by_reviewer(self) -> None:
+        self._enroll_all()
+        value = json.loads(self.audit_contract_path.read_text(encoding="utf-8"))
+        descriptor = value["artifacts"]["requirements-universe"]
+        descriptor["sha256"] = "1" * 64
+        descriptor["artifact_id"] = "sha256:" + descriptor["sha256"]
+        descriptor["bytes"] = 999
+        descriptor["record_count"] = 77
+        body = {key: item for key, item in value.items() if key != "contract_sha256"}
+        value["contract_sha256"] = roster._sha(roster._canonical(body))
+        self._signed(
+            self.audit_contract_path, value,
+            roster.AUDIT_CONTRACT_NAMESPACE, "authority",
+        )
+        self.audit_contract_sha = value["contract_sha256"]
+        self.assertEqual([], self._verify())
+
+    def test_record_count_common_matrix(self) -> None:
+        cases = (
+            ("x.jsonl", b'{"a":1}\n\n{"b":2}\n', 2),
+            ("x.json", b"[1,2,3]", 3),
+            ("x.json", b'{"records":[{},{}]}', 2),
+            ("x.json", b'{"other":true}', 1),
+            ("x.bin", b"not-json", 1),
+        )
+        for ref, raw, expected in cases:
+            with self.subTest(ref=ref, raw=raw):
+                self.assertEqual(expected, roster._record_count(ref, raw))
+        for ref, raw in (("x.jsonl", b"[]\n"), ("x.json", b"{")):
+            with self.subTest(ref=ref, raw=raw):
+                with self.assertRaises(roster.ContractError):
+                    roster._record_count(ref, raw)
+
+    def test_evidence_attachment_export_has_exact_receipt_and_signoff_closure(self) -> None:
+        rows = self._enroll_all()
+        basis = "a" * 64
+        for session, role in ((self.lead, "lead-v"), (self.adversarial, "adversarial")):
+            roster.finalize_signoff(
+                root=self.repo, session_id=session["id"], role=role,
+                basis_sha256=basis, verdict="pass", roster_path=self.roster_path,
+                receipts_dir=self.receipts, attestations_dir=self.attestations,
+                signing_key=self.keys[role], **self._trust_args(),
+            )
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        attachments = roster.export_reviewer_evidence_attachments(
+            self.roster_path, self.receipts, self.attestations, contract,
+            basis_sha256=basis,
+        )
+        expected_keys = set()
+        for row in rows:
+            sid = row["session_id"]
+            expected_keys |= {
+                f"reviewer-enrollment-receipt:{sid}",
+                f"reviewer-enrollment-signature:{sid}",
+            }
+        for required in contract["required_signoffs"]:
+            sid = next(
+                spec["session_id"] for spec in contract["reviewers"]
+                if spec["reviewer_id"] == required["reviewer_id"]
+            )
+            role = required["role"]
+            expected_keys |= {
+                f"reviewer-signoff:{role}:{sid}",
+                f"reviewer-signoff-signature:{role}:{sid}",
+            }
+        self.assertEqual(expected_keys, set(attachments))
+        self.assertTrue(all(set(item) == roster.DESCRIPTOR_FIELDS for item in attachments.values()))
+        with self.assertRaisesRegex(roster.ContractError, "Basis"):
+            roster.export_reviewer_evidence_attachments(
+                self.roster_path, self.receipts, self.attestations, contract,
+                basis_sha256="b" * 64,
+            )
+        orphan = self.attestations / "orphan.json"
+        orphan.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(roster.ContractError, "Dateimenge"):
+            roster.export_reviewer_evidence_attachments(
+                self.roster_path, self.receipts, self.attestations, contract,
+                basis_sha256=basis,
+            )
 
     def test_exact_pair_assignment_bijection_rejects_duplicate_reviewer(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
