@@ -679,6 +679,12 @@ def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
         )
         if result.returncode != 0:
             tree_kill_error = result.stderr.decode(errors="replace").strip() or result.stdout.decode(errors="replace").strip()
+            missing_process = any(
+                marker in tree_kill_error.casefold()
+                for marker in ("not found", "nicht gefunden", "no running instance")
+            )
+            if process.poll() is not None and missing_process:
+                tree_kill_error = None
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -1333,13 +1339,20 @@ def _validate_receipt_for_projection(
     if target.get("descriptor_sha256") != _sha_bytes(descriptor_bytes) or target.get("report") != report:
         raise ContractError("Rich Receipt Target Descriptor/Report falsch")
     source = target.get("source")
+    source_path = row["target"].get("path")
+    posix_target_path = PurePosixPath(source_path) if isinstance(source_path, str) else None
     if (
         not isinstance(source, dict) or set(source) != {"commit", "path", "git_blob", "sha256"}
         or source.get("commit") != receipt["audited_commit"]
         or not SHA_RE.fullmatch(str(source.get("git_blob", "")))
         or not HASH_RE.fullmatch(str(source.get("sha256", "")))
-        or source.get("path") != row["target"].get("path")
+        or not isinstance(source_path, str)
+        or "\\" in source_path or ":" in source_path
+        or posix_target_path is None or posix_target_path.is_absolute()
+        or any(part in {"", ".", ".."} for part in posix_target_path.parts)
+        or source.get("path") != source_path
         or descriptor.get("audited_commit") != receipt["audited_commit"]
+        or descriptor.get("target_path") != source_path
         or descriptor.get("target_ref") != source.get("path")
         or descriptor.get("target_git_blob") != source.get("git_blob")
         or descriptor.get("target_sha256") != source.get("sha256")
@@ -1353,6 +1366,14 @@ def _validate_receipt_for_projection(
         )
     ):
         raise ContractError("Rich Receipt Target Source-Bindung falsch")
+    target_blob = _git(repo, "rev-parse", f"{receipt['audited_commit']}:{source_path}", check=False)
+    target_raw = _git(repo, "show", f"{receipt['audited_commit']}:{source_path}", check=False)
+    if (
+        target_blob.returncode != 0 or target_raw.returncode != 0
+        or target_blob.stdout.decode().strip() != source["git_blob"]
+        or _sha_bytes(target_raw.stdout) != source["sha256"]
+    ):
+        raise ContractError("Rich Receipt Target replacement-freie Gitbytes falsch")
 
     artifact_rows = receipt.get("artifacts")
     if not isinstance(artifact_rows, list) or len(artifact_rows) != len(row.get("artifacts", [])):
@@ -1831,7 +1852,7 @@ def run_scenario(
             raise ContractError("Scenario.target ist kein gebundener audited_commit-Blob")
         descriptor = {
             "schema_version": 1, "audited_commit": contract["audited_commit"],
-            "target_path": str(target_path), "target_ref": target_ref,
+            "target_path": target_ref, "target_ref": target_ref,
             "target_git_blob": target_blob.stdout.decode().strip(), "target_sha256": _sha(target_path),
             "argv": target_args, "feature_target": row["feature_target"],
             "inputs": {name: str(path) for name, path in sorted(input_paths.items())},
