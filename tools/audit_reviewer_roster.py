@@ -18,9 +18,12 @@ import sys
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Any
+from collections.abc import Mapping
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -69,6 +72,14 @@ class ContractError(RuntimeError):
 
 
 EnrollmentError = ContractError
+
+
+@dataclass(frozen=True)
+class VerifiedReviewerAttachmentSnapshot:
+    """Immutable verified attachment bytes plus their deterministic descriptors."""
+
+    descriptors: Mapping[str, Mapping[str, Any]]
+    payloads: Mapping[str, bytes]
 
 
 def _canonical(value: Any) -> bytes:
@@ -732,17 +743,91 @@ def _read_roster(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _public_key_snapshot(
+    path: Path, expected_sha256: str, role: str,
+) -> bytes:
+    try:
+        raw = path.read_bytes()
+        public_line = raw.decode("utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise ContractError(f"{role} Public-Key unlesbar") from exc
+    if (
+        not SHA_RE.fullmatch(expected_sha256)
+        or _sha(raw) != expected_sha256
+        or not public_line.startswith(("ssh-ed25519 ", "ssh-rsa ", "ecdsa-sha2-"))
+    ):
+        raise ContractError(f"{role} Public-Key passt nicht zum Trust-Pin")
+    return raw
+
+
+def _verify_signature_snapshot(
+    payload: bytes,
+    signature: bytes,
+    public_key: bytes,
+    expected_public_key_sha256: str,
+    namespace: str,
+    identity: str,
+) -> None:
+    """Verify exact captured bytes; never reread mutable source attachments."""
+    _ssh_available()
+    if _sha(public_key) != expected_public_key_sha256:
+        raise ContractError("Public-Key-Snapshot weicht vom Trust-Pin ab")
+    try:
+        public_line = public_key.decode("utf-8").strip()
+        signature_text = signature.decode("ascii")
+    except UnicodeError as exc:
+        raise ContractError("Public-Key-/Signatur-Snapshot unlesbar") from exc
+    signature_lines = signature_text.splitlines()
+    if (
+        not signature_text.endswith("\n")
+        or len(signature_lines) < 3
+        or signature_lines[0] != "-----BEGIN SSH SIGNATURE-----"
+        or signature_lines[-1] != "-----END SSH SIGNATURE-----"
+        or any(not re.fullmatch(r"[A-Za-z0-9+/=]+", line) for line in signature_lines[1:-1])
+        or "\n".join(signature_lines) + "\n" != signature_text
+    ):
+        raise ContractError("OpenSSH-Signatur-Snapshot ist nicht kanonisch")
+    with tempfile.TemporaryDirectory(prefix="pb-audit-attachment-snapshot-") as temp:
+        base = Path(temp)
+        signature_path = base / "payload.sig"
+        allowed = base / "allowed_signers"
+        signature_path.write_bytes(signature)
+        allowed.write_text(f"{identity} {public_line}\n", encoding="utf-8")
+        _run(
+            base, "ssh-keygen", "-Y", "verify", "-f", str(allowed),
+            "-I", identity, "-n", namespace, "-s", str(signature_path),
+            input_bytes=payload,
+        )
+
+
 def export_reviewer_evidence_attachments(
+    root: Path,
+    tooling_commit: str,
     roster_path: Path,
     receipts_dir: Path,
     attestations_dir: Path,
     reviewer_contract: dict[str, Any],
     *,
     basis_sha256: str,
-) -> dict[str, dict[str, Any]]:
+    spawn_public_key_path: Path,
+    lead_v_public_key_path: Path,
+    adversarial_public_key_path: Path,
+) -> VerifiedReviewerAttachmentSnapshot:
     """Describe reviewer-owned attachments; never authorize an evidence contract."""
     if not isinstance(basis_sha256, str) or not SHA_RE.fullmatch(basis_sha256):
         raise ContractError("basis_sha256 ungueltig")
+    policy, _policy_sha, _policy_blob = load_trust_policy(root.resolve(), tooling_commit)
+    key_paths = {
+        "spawn": spawn_public_key_path,
+        "lead-v": lead_v_public_key_path,
+        "adversarial": adversarial_public_key_path,
+    }
+    key_snapshots = {
+        role: _public_key_snapshot(
+            path, policy["identities"][role]["public_key_sha256"], role,
+        )
+        for role, path in key_paths.items()
+    }
     rows = _read_roster(roster_path)
     reviewers = reviewer_contract.get("reviewers")
     required = reviewer_contract.get("required_signoffs")
@@ -764,6 +849,14 @@ def export_reviewer_evidence_attachments(
         raise ContractError("Roster/Reviewer-Contract Attachment-Menge nicht exakt")
 
     attachments: dict[str, dict[str, Any]] = {}
+    payloads: dict[str, bytes] = {}
+
+    def capture(key: str, ref: str, payload: bytes) -> None:
+        if key in attachments or ref in payloads:
+            raise ContractError("Reviewer-Attachment Key/Ref doppelt")
+        attachments[key] = artifact_descriptor(ref, payload)
+        payloads[ref] = payload
+
     expected_receipt_files: set[str] = set()
     for reviewer_id, row in row_by_id.items():
         spec = reviewer_by_id[reviewer_id]
@@ -783,11 +876,33 @@ def export_reviewer_evidence_attachments(
         signature_raw = signature_path.read_bytes()
         if _sha(receipt_raw) != row.get("session_receipt_sha256"):
             raise ContractError("Roster Receipt-SHA/Attachment falsch")
-        attachments[f"reviewer-enrollment-receipt:{session_id}"] = artifact_descriptor(
-            f"reviewer/receipts/{receipt_ref}", receipt_raw,
+        try:
+            receipt = json.loads(receipt_raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ContractError("Enrollment-Receipt-Snapshot unlesbar") from exc
+        if (
+            not isinstance(receipt, dict)
+            or _canonical(receipt) + b"\n" != receipt_raw
+            or receipt.get("schema_version") != SCHEMA_VERSION
+            or receipt.get("run_id") != reviewer_contract.get("run_id")
+            or receipt.get("reviewer_id") != reviewer_id
+            or receipt.get("session_id") != session_id
+            or receipt.get("role") != spec.get("role")
+            or receipt.get("contract_sha256") != reviewer_contract_file_sha256
+        ):
+            raise ContractError("Enrollment-Receipt Contract/ID/Rolle falsch")
+        spawn_identity = policy["identities"]["spawn"]
+        _verify_signature_snapshot(
+            receipt_raw, signature_raw, key_snapshots["spawn"],
+            spawn_identity["public_key_sha256"], ENROLLMENT_NAMESPACE,
+            spawn_identity["openssh_identity"],
         )
-        attachments[f"reviewer-enrollment-signature:{session_id}"] = artifact_descriptor(
-            f"reviewer/receipts/{signature_ref}", signature_raw,
+        capture(
+            f"reviewer-enrollment-receipt:{session_id}", receipt_ref, receipt_raw,
+        )
+        capture(
+            f"reviewer-enrollment-signature:{session_id}",
+            signature_ref, signature_raw,
         )
     actual_receipt_files = {
         path.name for path in receipts_dir.iterdir() if path.is_file()
@@ -845,20 +960,29 @@ def export_reviewer_evidence_attachments(
         ):
             raise ContractError("Signoff-Attachment ID/Rolle/Basis falsch")
         _valid_timestamp(value["signed_at"], "signed_at")
-        attachments[f"reviewer-signoff:{role}:{session_id}"] = artifact_descriptor(
-            f"reviewer/attestations/{name}", raw,
+        identity = policy["identities"][role]
+        _verify_signature_snapshot(
+            raw, signature_raw, key_snapshots[role],
+            identity["public_key_sha256"], SIGNOFF_NAMESPACE,
+            identity["openssh_identity"],
         )
-        attachments[
-            f"reviewer-signoff-signature:{role}:{session_id}"
-        ] = artifact_descriptor(
-            f"reviewer/attestations/{signature_name}", signature_raw,
+        capture(
+            f"reviewer-signoff:{role}:{session_id}", name, raw,
+        )
+        capture(
+            f"reviewer-signoff-signature:{role}:{session_id}",
+            signature_name, signature_raw,
         )
     actual_signoff_files = {
         path.name for path in attestations_dir.iterdir() if path.is_file()
     }
     if actual_signoff_files != expected_signoff_files:
         raise ContractError("Signoff-Attachment-Dateimenge nicht exakt")
-    return {key: attachments[key] for key in sorted(attachments)}
+    frozen_descriptors = MappingProxyType({
+        key: MappingProxyType(dict(attachments[key])) for key in sorted(attachments)
+    })
+    frozen_payloads = MappingProxyType({key: payloads[key] for key in sorted(payloads)})
+    return VerifiedReviewerAttachmentSnapshot(frozen_descriptors, frozen_payloads)
 
 
 def _row_from_receipt(receipt: dict[str, Any], receipt_ref: str, receipt_sha: str,
