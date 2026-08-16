@@ -60,6 +60,14 @@ REVIEWER_ARTIFACT_KEYS = {
     "reviewer-readiness-binding", "reviewer-spawn-journal",
 }
 DESCRIPTOR_FIELDS = {"artifact_id", "ref", "sha256", "bytes", "record_count"}
+ROSTER_FIELDS = {
+    "run_id", "audited_commit", "snapshot_id", "reviewer_id", "session_id",
+    "role", "parent_session_id", "ancestor_session_ids", "worktree", "branch",
+    "commit_sha", "claims", "review_scope", "session_receipt_ref",
+    "session_receipt_sha256", "session_receipt_signature_ref", "contract_sha256",
+    "spawn_journal_sha256", "tooling_commit", "trust_policy_blob_sha256",
+    "readiness_binding_sha256", "roster_signed_at",
+}
 WINDOWS_RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
     *(f"COM{number}" for number in range(1, 10)),
@@ -743,6 +751,73 @@ def _read_roster(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_canonical_roster_snapshot(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        text = raw.decode("utf-8")
+        lines = text.splitlines()
+        rows = [json.loads(line) for line in lines]
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("Roster-Snapshot unlesbar") from exc
+    if not rows or any(not isinstance(row, dict) for row in rows):
+        raise ContractError("Roster-Snapshot braucht Objektzeilen")
+    if b"".join(_canonical(row) + b"\n" for row in rows) != raw:
+        raise ContractError("Roster-Snapshot ist nicht kanonisch")
+    string_fields = ROSTER_FIELDS - {
+        "parent_session_id", "ancestor_session_ids", "claims", "review_scope",
+    }
+    sha_fields = {
+        "session_receipt_sha256", "contract_sha256", "spawn_journal_sha256",
+        "trust_policy_blob_sha256", "readiness_binding_sha256",
+    }
+    for row in rows:
+        if set(row) != ROSTER_FIELDS:
+            raise ContractError("Rosterzeile Feldmenge falsch")
+        if any(
+            not isinstance(row[field], str) or not row[field].strip()
+            for field in string_fields
+        ):
+            raise ContractError("Rosterzeile Stringtyp falsch")
+        if row["role"] not in ROLE_SET or not SESSION_RE.fullmatch(row["session_id"]):
+            raise ContractError("Rosterzeile Rolle/session_id falsch")
+        if any(not SHA_RE.fullmatch(row[field]) for field in sha_fields):
+            raise ContractError("Rosterzeile SHA-Feld falsch")
+        parent = row["parent_session_id"]
+        if parent is not None and (
+            not isinstance(parent, str) or not SESSION_RE.fullmatch(parent)
+        ):
+            raise ContractError("Rosterzeile parent_session_id falsch")
+        for field in ("ancestor_session_ids", "claims", "review_scope"):
+            value = row[field]
+            if (
+                not isinstance(value, list)
+                or any(not isinstance(item, str) or not item for item in value)
+                or len(value) != len(set(value))
+            ):
+                raise ContractError(f"Rosterzeile {field} Typ/Menge falsch")
+    return rows
+
+
+def _file_snapshot(path: Path, label: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise ContractError(f"{label} unlesbar") from exc
+
+
+def _directory_snapshot(directory: Path, label: str) -> dict[str, bytes]:
+    try:
+        paths = sorted(directory.iterdir(), key=lambda path: path.name)
+    except OSError as exc:
+        raise ContractError(f"{label}-Verzeichnis unlesbar") from exc
+    snapshots: dict[str, bytes] = {}
+    for path in paths:
+        if path.is_symlink():
+            raise ContractError(f"{label} darf keinen Symlink enthalten")
+        if path.is_file():
+            snapshots[path.name] = _file_snapshot(path, f"{label} {path.name}")
+    return snapshots
+
+
 def _public_key_snapshot(
     path: Path, expected_sha256: str, role: str,
 ) -> bytes:
@@ -812,12 +887,25 @@ def export_reviewer_evidence_attachments(
     spawn_public_key_path: Path,
     lead_v_public_key_path: Path,
     adversarial_public_key_path: Path,
+    contract_path: Path,
+    contract_signature: Path,
+    spawn_journal_path: Path,
+    spawn_journal_signature: Path,
+    readiness_binding_path: Path,
+    readiness_binding_signature: Path,
+    expected_readiness_binding_sha256: str,
+    audit_contract_path: Path,
+    audit_contract_signature: Path,
+    expected_audit_contract_sha256: str,
+    authority_public_key_path: Path,
 ) -> VerifiedReviewerAttachmentSnapshot:
     """Describe reviewer-owned attachments; never authorize an evidence contract."""
     if not isinstance(basis_sha256, str) or not SHA_RE.fullmatch(basis_sha256):
         raise ContractError("basis_sha256 ungueltig")
-    policy, _policy_sha, _policy_blob = load_trust_policy(root.resolve(), tooling_commit)
+    root = root.resolve()
+    policy, _policy_sha, _policy_blob = load_trust_policy(root, tooling_commit)
     key_paths = {
+        "authority": authority_public_key_path,
         "spawn": spawn_public_key_path,
         "lead-v": lead_v_public_key_path,
         "adversarial": adversarial_public_key_path,
@@ -828,12 +916,78 @@ def export_reviewer_evidence_attachments(
         )
         for role, path in key_paths.items()
     }
-    rows = _read_roster(roster_path)
+    roster_raw = _file_snapshot(roster_path, "Roster")
+    rows = _read_canonical_roster_snapshot(roster_raw)
+    trust_files = {
+        "contract.json": _file_snapshot(contract_path, "Reviewer-Contract"),
+        "contract.json.sig": _file_snapshot(contract_signature, "Reviewer-Contract-Signatur"),
+        "spawn.json": _file_snapshot(spawn_journal_path, "Spawn-Journal"),
+        "spawn.json.sig": _file_snapshot(spawn_journal_signature, "Spawn-Journal-Signatur"),
+        "readiness.json": _file_snapshot(readiness_binding_path, "Readiness-Binding"),
+        "readiness.json.sig": _file_snapshot(
+            readiness_binding_signature, "Readiness-Binding-Signatur"
+        ),
+        "audit.json": _file_snapshot(audit_contract_path, "Audit-Contract"),
+        "audit.json.sig": _file_snapshot(
+            audit_contract_signature, "Audit-Contract-Signatur"
+        ),
+    }
+    receipt_snapshots = _directory_snapshot(receipts_dir, "Enrollment-Attachment")
+    attestation_snapshots = _directory_snapshot(
+        attestations_dir, "Signoff-Attachment"
+    )
+    with tempfile.TemporaryDirectory(prefix="pb-audit-reviewer-export-") as temp:
+        snapshot_root = Path(temp)
+        snapshot_roster = snapshot_root / "reviewer_roster.jsonl"
+        snapshot_receipts = snapshot_root / "receipts"
+        snapshot_attestations = snapshot_root / "attestations"
+        snapshot_receipts.mkdir()
+        snapshot_attestations.mkdir()
+        snapshot_roster.write_bytes(roster_raw)
+        for name, raw in receipt_snapshots.items():
+            (snapshot_receipts / name).write_bytes(raw)
+        for name, raw in attestation_snapshots.items():
+            (snapshot_attestations / name).write_bytes(raw)
+        for name, raw in trust_files.items():
+            (snapshot_root / name).write_bytes(raw)
+        for role, raw in key_snapshots.items():
+            (snapshot_root / f"{role}.pub").write_bytes(raw)
+        errors = verify_attestation_bundle(
+            root, snapshot_roster, snapshot_receipts, snapshot_attestations,
+            basis_sha256=basis_sha256,
+            contract_path=snapshot_root / "contract.json",
+            contract_signature=snapshot_root / "contract.json.sig",
+            spawn_journal_path=snapshot_root / "spawn.json",
+            spawn_journal_signature=snapshot_root / "spawn.json.sig",
+            readiness_binding_path=snapshot_root / "readiness.json",
+            readiness_binding_signature=snapshot_root / "readiness.json.sig",
+            expected_readiness_binding_sha256=expected_readiness_binding_sha256,
+            tooling_commit=tooling_commit,
+            audit_contract_path=snapshot_root / "audit.json",
+            audit_contract_signature=snapshot_root / "audit.json.sig",
+            expected_audit_contract_sha256=expected_audit_contract_sha256,
+            authority_public_key_path=snapshot_root / "authority.pub",
+            spawn_public_key_path=snapshot_root / "spawn.pub",
+            lead_v_public_key_path=snapshot_root / "lead-v.pub",
+            adversarial_public_key_path=snapshot_root / "adversarial.pub",
+        )
+    if errors:
+        raise ContractError("Reviewer-Attachment-Export Trust-Gate rot: " + "; ".join(errors))
+    try:
+        signed_reviewer_contract = json.loads(trust_files["contract.json"].decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("Reviewer-Contract-Snapshot unlesbar") from exc
+    if (
+        not isinstance(reviewer_contract, dict)
+        or reviewer_contract != signed_reviewer_contract
+        or _canonical(reviewer_contract) + b"\n" != trust_files["contract.json"]
+    ):
+        raise ContractError("Reviewer-Contract-Argument weicht vom signierten Snapshot ab")
     reviewers = reviewer_contract.get("reviewers")
     required = reviewer_contract.get("required_signoffs")
     if not isinstance(reviewers, list) or not isinstance(required, list):
         raise ContractError("Reviewer-Contract fuer Attachment-Export ungueltig")
-    reviewer_contract_file_sha256 = _sha(_canonical(reviewer_contract) + b"\n")
+    reviewer_contract_file_sha256 = _sha(trust_files["contract.json"])
     reviewer_by_id: dict[str, dict[str, Any]] = {}
     for spec in reviewers:
         if (
@@ -870,10 +1024,10 @@ def export_reviewer_evidence_attachments(
         ):
             raise ContractError("Roster Attachment-Refs/Session falsch")
         expected_receipt_files |= {receipt_ref, signature_ref}
-        receipt_path = receipts_dir / receipt_ref
-        signature_path = receipts_dir / signature_ref
-        receipt_raw = receipt_path.read_bytes()
-        signature_raw = signature_path.read_bytes()
+        receipt_raw = receipt_snapshots.get(receipt_ref)
+        signature_raw = receipt_snapshots.get(signature_ref)
+        if not isinstance(receipt_raw, bytes) or not isinstance(signature_raw, bytes):
+            raise ContractError("Enrollment-Attachment-Snapshot fehlt")
         if _sha(receipt_raw) != row.get("session_receipt_sha256"):
             raise ContractError("Roster Receipt-SHA/Attachment falsch")
         try:
@@ -904,9 +1058,7 @@ def export_reviewer_evidence_attachments(
             f"reviewer-enrollment-signature:{session_id}",
             signature_ref, signature_raw,
         )
-    actual_receipt_files = {
-        path.name for path in receipts_dir.iterdir() if path.is_file()
-    }
+    actual_receipt_files = set(receipt_snapshots)
     if actual_receipt_files != expected_receipt_files:
         raise ContractError("Enrollment-Attachment-Dateimenge nicht exakt")
 
@@ -929,10 +1081,10 @@ def export_reviewer_evidence_attachments(
         name = f"{role}-{session_id}.json"
         signature_name = name + ".sig"
         expected_signoff_files |= {name, signature_name}
-        path = attestations_dir / name
-        signature_path = attestations_dir / signature_name
-        raw = path.read_bytes()
-        signature_raw = signature_path.read_bytes()
+        raw = attestation_snapshots.get(name)
+        signature_raw = attestation_snapshots.get(signature_name)
+        if not isinstance(raw, bytes) or not isinstance(signature_raw, bytes):
+            raise ContractError("Signoff-Attachment-Snapshot fehlt")
         try:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc:
@@ -973,9 +1125,7 @@ def export_reviewer_evidence_attachments(
             f"reviewer-signoff-signature:{role}:{session_id}",
             signature_name, signature_raw,
         )
-    actual_signoff_files = {
-        path.name for path in attestations_dir.iterdir() if path.is_file()
-    }
+    actual_signoff_files = set(attestation_snapshots)
     if actual_signoff_files != expected_signoff_files:
         raise ContractError("Signoff-Attachment-Dateimenge nicht exakt")
     frozen_descriptors = MappingProxyType({

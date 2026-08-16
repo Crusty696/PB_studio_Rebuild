@@ -561,14 +561,7 @@ class GateContractTests(unittest.TestCase):
                 signing_key=self.keys[role], **self._trust_args(),
             )
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
-        snapshot = roster.export_reviewer_evidence_attachments(
-            self.repo, self.tooling_commit,
-            self.roster_path, self.receipts, self.attestations, contract,
-            basis_sha256=basis,
-            spawn_public_key_path=self.public_keys["spawn"],
-            lead_v_public_key_path=self.public_keys["lead-v"],
-            adversarial_public_key_path=self.public_keys["adversarial"],
-        )
+        snapshot = self._export_attachment_snapshot(contract, basis)
         attachments = snapshot.descriptors
         expected_keys = set()
         for row in rows:
@@ -589,26 +582,38 @@ class GateContractTests(unittest.TestCase):
             }
         self.assertEqual(expected_keys, set(attachments))
         self.assertTrue(all(set(item) == roster.DESCRIPTOR_FIELDS for item in attachments.values()))
-        with self.assertRaisesRegex(roster.ContractError, "Basis"):
-            roster.export_reviewer_evidence_attachments(
-                self.repo, self.tooling_commit,
-                self.roster_path, self.receipts, self.attestations, contract,
-                basis_sha256="b" * 64,
-                spawn_public_key_path=self.public_keys["spawn"],
-                lead_v_public_key_path=self.public_keys["lead-v"],
-                adversarial_public_key_path=self.public_keys["adversarial"],
-            )
+        with self.assertRaises(roster.ContractError):
+            self._export_attachment_snapshot(contract, "b" * 64)
         orphan = self.attestations / "orphan.json"
         orphan.write_text("{}\n", encoding="utf-8")
         with self.assertRaisesRegex(roster.ContractError, "Dateimenge"):
-            roster.export_reviewer_evidence_attachments(
-                self.repo, self.tooling_commit,
-                self.roster_path, self.receipts, self.attestations, contract,
-                basis_sha256=basis,
-                spawn_public_key_path=self.public_keys["spawn"],
-                lead_v_public_key_path=self.public_keys["lead-v"],
-                adversarial_public_key_path=self.public_keys["adversarial"],
-            )
+            self._export_attachment_snapshot(contract, basis)
+
+    def _export_attachment_snapshot(self, contract: dict, basis: str):
+        trust = self._trust_args()
+        return roster.export_reviewer_evidence_attachments(
+            self.repo, self.tooling_commit,
+            self.roster_path, self.receipts, self.attestations, contract,
+            basis_sha256=basis,
+            spawn_public_key_path=self.public_keys["spawn"],
+            lead_v_public_key_path=self.public_keys["lead-v"],
+            adversarial_public_key_path=self.public_keys["adversarial"],
+            contract_path=trust["contract_path"],
+            contract_signature=trust["contract_signature"],
+            spawn_journal_path=trust["spawn_journal_path"],
+            spawn_journal_signature=trust["spawn_journal_signature"],
+            readiness_binding_path=trust["readiness_binding_path"],
+            readiness_binding_signature=trust["readiness_binding_signature"],
+            expected_readiness_binding_sha256=trust[
+                "expected_readiness_binding_sha256"
+            ],
+            audit_contract_path=trust["audit_contract_path"],
+            audit_contract_signature=trust["audit_contract_signature"],
+            expected_audit_contract_sha256=trust[
+                "expected_audit_contract_sha256"
+            ],
+            authority_public_key_path=trust["authority_public_key_path"],
+        )
 
     def _signed_attachment_snapshot(self, basis: str = "a" * 64):
         rows = self._enroll_all()
@@ -620,14 +625,7 @@ class GateContractTests(unittest.TestCase):
                 signing_key=self.keys[role], **self._trust_args(),
             )
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
-        snapshot = roster.export_reviewer_evidence_attachments(
-            self.repo, self.tooling_commit,
-            self.roster_path, self.receipts, self.attestations, contract,
-            basis_sha256=basis,
-            spawn_public_key_path=self.public_keys["spawn"],
-            lead_v_public_key_path=self.public_keys["lead-v"],
-            adversarial_public_key_path=self.public_keys["adversarial"],
-        )
+        snapshot = self._export_attachment_snapshot(contract, basis)
         return rows, contract, snapshot
 
     def test_attachment_export_rejects_enrollment_and_signoff_signature_tamper(self) -> None:
@@ -642,15 +640,72 @@ class GateContractTests(unittest.TestCase):
                 original = path.read_bytes()
                 path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
                 with self.assertRaises(roster.ContractError):
-                    roster.export_reviewer_evidence_attachments(
-                        self.repo, self.tooling_commit,
-                        self.roster_path, self.receipts, self.attestations, contract,
-                        basis_sha256="a" * 64,
-                        spawn_public_key_path=self.public_keys["spawn"],
-                        lead_v_public_key_path=self.public_keys["lead-v"],
-                        adversarial_public_key_path=self.public_keys["adversarial"],
-                    )
+                    self._export_attachment_snapshot(contract, "a" * 64)
                 path.write_bytes(original)
+
+    def test_attachment_export_hostile_roster_types_fail_closed_without_crash(self) -> None:
+        self._signed_attachment_snapshot()
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        original = [json.loads(line) for line in self.roster_path.read_text().splitlines()]
+        mutations: list[tuple[str, object]] = [
+            (field, hostile)
+            for field in sorted(roster.ROSTER_FIELDS)
+            for hostile in ([], {})
+        ]
+        for field, hostile in mutations:
+            with self.subTest(field=field, hostile=type(hostile).__name__):
+                rows = [dict(row) for row in original]
+                rows[0][field] = hostile
+                self.roster_path.write_bytes(
+                    b"".join(roster._canonical(row) + b"\n" for row in rows)
+                )
+                with self.assertRaises(roster.ContractError):
+                    self._export_attachment_snapshot(contract, "a" * 64)
+        for field in sorted(roster.ROSTER_FIELDS):
+            with self.subTest(missing=field):
+                rows = [dict(row) for row in original]
+                rows[0].pop(field)
+                self.roster_path.write_bytes(
+                    b"".join(roster._canonical(row) + b"\n" for row in rows)
+                )
+                with self.assertRaises(roster.ContractError):
+                    self._export_attachment_snapshot(contract, "a" * 64)
+        rows = [dict(row) for row in original]
+        rows[0]["extra"] = True
+        self.roster_path.write_bytes(
+            b"".join(roster._canonical(row) + b"\n" for row in rows)
+        )
+        with self.assertRaises(roster.ContractError):
+            self._export_attachment_snapshot(contract, "a" * 64)
+        self.roster_path.write_bytes(
+            b"".join(roster._canonical(row) + b"\n" for row in original)
+        )
+
+    def test_forged_resealed_roster_cannot_reach_completion_closure(self) -> None:
+        self._signed_attachment_snapshot()
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        original = [json.loads(line) for line in self.roster_path.read_text().splitlines()]
+        for field, value in (
+            ("role", "adversarial"), ("run_id", "FORGED-RUN"),
+            ("audited_commit", "f" * 40), ("tooling_commit", "f" * 40),
+            ("snapshot_id", "FORGED-SNAPSHOT"),
+            ("contract_sha256", "f" * 64), ("reviewer_id", "REV-FORGED"),
+            ("session_id", "f" * 32),
+            ("session_receipt_ref", "forged.json"),
+            ("session_receipt_signature_ref", "forged.json.sig"),
+            ("session_receipt_sha256", "f" * 64),
+        ):
+            with self.subTest(field=field):
+                rows = [dict(row) for row in original]
+                rows[0][field] = value
+                self.roster_path.write_bytes(
+                    b"".join(roster._canonical(row) + b"\n" for row in rows)
+                )
+                with self.assertRaises(roster.ContractError):
+                    self._export_attachment_snapshot(contract, "a" * 64)
+        self.roster_path.write_bytes(
+            b"".join(roster._canonical(row) + b"\n" for row in original)
+        )
 
     def test_verified_snapshot_passes_real_completion_closure_without_reread(self) -> None:
         rows, contract, snapshot = self._signed_attachment_snapshot()
