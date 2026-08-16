@@ -1,0 +1,10 @@
+{
+  "lesson_id": "eb2e4763354e497b8afdf847849b5c71",
+  "recorded_at": "2026-08-16T02:10:31+00:00",
+  "session_id": "71e3af7af4b9414ea2cd2151ba937547",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Runtimebeleg spiegelte Target-Pfad/Blob/SHA nur zwischen selbst behaupteten Feldern; Windows-Timeout wertete taskkill-PID-not-found trotz zwischenzeitlichem Normalende als Cleanup-Fehler.",
+  "cause": "Vertrauensidentitaet wurde nicht erneut aus replacement-freien Gitobjekten abgeleitet; Cleanup-Entscheidung nutzte Prozesszustand vor statt nach taskkill.",
+  "rule": "An Vertrauensgrenzen Identitaet aus extern gepinnten Rohbytes ableiten, nie aus Feldgleichheit. Bei Lifecycle-TOCTOU Zustand nach Aktion neu beobachten und nur eng attestierte Terminalfaelle akzeptieren; lebende Prozesse und andere Fehler bleiben fail-closed.",
+  "applies_to": "Runtime-Evidence-Validatoren, Git-Provenienz, Prozessbaum-Timeout-Cleanup"
+}

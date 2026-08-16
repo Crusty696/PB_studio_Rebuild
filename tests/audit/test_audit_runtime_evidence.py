@@ -51,7 +51,7 @@ run_dir = Path(os.environ["PB_AUDIT_RUN_DIR"])
 print("scenario-ok")
 '''
 
-HARNESS = r'''import hashlib,json,runpy,sys,time,pkgutil,typing,weakref,_weakrefset
+HARNESS = r'''import hashlib,json,os,runpy,sys,time,pkgutil,typing,weakref,_weakrefset
 from pathlib import Path
 descriptor_path, report_path = map(Path, sys.argv[1:3])
 descriptor_bytes = descriptor_path.read_bytes()
@@ -60,7 +60,8 @@ before = set(sys.modules)
 started = time.time_ns()
 exit_code = 0
 try:
-    runpy.run_path(descriptor["target_path"], run_name="__main__")
+    target_path = Path(os.environ["PB_AUDIT_ROOT"]) / descriptor["target_path"]
+    runpy.run_path(target_path, run_name="__main__")
 except SystemExit as exc:
     exit_code = int(exc.code or 0)
 loaded = []
@@ -498,6 +499,91 @@ class GateContractTests(unittest.TestCase):
                 tampered, _json_bytes(tampered) + b"\n", run_dir,
                 **self.projection_trust(),
             )
+
+    def test_resealed_target_descriptor_outside_path_and_fake_git_identity_rejected(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        descriptor_path = run_dir / "target_descriptor.json"
+        report_path = run_dir / "harness_report.json"
+        trace_path = run_dir / "trace.jsonl"
+        original_descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        original_report = json.loads(report_path.read_text(encoding="utf-8"))
+        original_events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+        cases = (
+            ("outside-path", {"target_path": "../outside.py"}, {}),
+            ("fake-blob", {"target_git_blob": "0" * 40}, {"git_blob": "0" * 40}),
+            ("fake-sha", {"target_sha256": "0" * 64}, {"sha256": "0" * 64}),
+        )
+        for label, descriptor_changes, source_changes in cases:
+            with self.subTest(case=label):
+                descriptor = {**original_descriptor, **descriptor_changes}
+                descriptor_bytes = _json_bytes(descriptor) + b"\n"
+                descriptor_path.chmod(0o666)
+                descriptor_path.write_bytes(descriptor_bytes)
+                descriptor_sha = hashlib.sha256(descriptor_bytes).hexdigest()
+
+                report = {**original_report, "descriptor_sha256": descriptor_sha}
+                report_bytes = _json_bytes(report) + b"\n"
+                report_path.chmod(0o666)
+                report_path.write_bytes(report_bytes)
+
+                events = json.loads(json.dumps(original_events))
+                for event in events:
+                    if event.get("axis") == "executed":
+                        event["descriptor_sha256"] = descriptor_sha
+                trace_bytes = b"".join(_json_bytes(event) + b"\n" for event in events)
+                trace_path.chmod(0o666)
+                trace_path.write_bytes(trace_bytes)
+
+                tampered = json.loads(json.dumps(receipt))
+                tampered["target"]["descriptor_sha256"] = descriptor_sha
+                tampered["target"]["report"] = report
+                tampered["target"]["source"].update(source_changes)
+                tampered["trace"]["sha256"] = hashlib.sha256(trace_bytes).hexdigest()
+                tampered["trace"]["bytes"] = len(trace_bytes)
+                integrity = self.tool._snapshot_files(run_dir)
+                integrity.pop("receipt.json")
+                integrity.pop("projection.json")
+                tampered["final_integrity_sha256"] = self.tool.canonical_sha256(integrity)
+                tampered["evidence_id"] = self.tool.canonical_evidence_id(tampered)
+                with self.assertRaisesRegex(self.tool.ContractError, "Target.*(Pfad|Git|Source)"):
+                    self.tool.build_runtime_projection(
+                        tampered, _json_bytes(tampered) + b"\n", run_dir,
+                        **self.projection_trust(),
+                    )
+
+    @unittest.skipUnless(os.name == "nt", "Windows taskkill TOCTOU contract")
+    def test_timeout_process_normal_exit_between_poll_and_taskkill_twenty_times(self) -> None:
+        class NearBoundaryProcess:
+            pid = 424242
+            def __init__(self) -> None:
+                self.polls = 0
+            def poll(self):
+                self.polls += 1
+                return None if self.polls == 1 else 0
+            def kill(self) -> None:
+                raise OSError("already exited")
+            def wait(self, timeout: float):
+                return 0
+        taskkill_not_found = subprocess.CompletedProcess(
+            ["taskkill"], 128, stdout=b"", stderr=b"ERROR: process not found",
+        )
+        with mock.patch.object(self.tool.subprocess, "run", return_value=taskkill_not_found):
+            for _ in range(20):
+                self.tool._kill_process_tree(NearBoundaryProcess())
+            class StillLiveProcess(NearBoundaryProcess):
+                def poll(self):
+                    return None
+                def kill(self) -> None:
+                    return None
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht attestierbar"):
+                self.tool._kill_process_tree(StillLiveProcess())
+        taskkill_access_denied = subprocess.CompletedProcess(
+            ["taskkill"], 5, stdout=b"", stderr=b"ERROR: access denied",
+        )
+        with mock.patch.object(self.tool.subprocess, "run", return_value=taskkill_access_denied):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht attestierbar"):
+                self.tool._kill_process_tree(NearBoundaryProcess())
 
     def test_projection_export_rejects_missing_orphan_duplicate_and_receipt_tamper(self) -> None:
         cases = ("missing", "orphan", "duplicate", "receipt-tamper")
