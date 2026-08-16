@@ -241,6 +241,13 @@ class GateContractTests(unittest.TestCase):
             expected_authority_commit=expected_authority_commit or self.authority_commit,
             authority_policy_path=authority_policy_path, scenario_id=scenario_id, runtime_run_id=runtime_run_id)
 
+    def projection_trust(self) -> dict:
+        return {
+            "repo_root": self.repo,
+            "expected_contract_sha256": self.expected_contract_sha256,
+            "expected_authority_commit": self.authority_commit,
+        }
+
     def test_positive_minimal(self) -> None:
         receipt = self.run_valid()
         self.assertEqual(receipt["covered_feature_paths"], ["FEAT-001/main"])
@@ -315,24 +322,51 @@ class GateContractTests(unittest.TestCase):
                     self.run_valid(runtime_run_id=f"LIVE-DESCRIPTOR-{index}")
                 self.write_contract()
 
-    def _synthetic_receipt_with_symbols(self) -> tuple[dict, bytes]:
+    def _minimal_forged_receipt(self) -> tuple[dict, bytes]:
         receipt = {
             "plan_id": "PLAN", "run_id": "RUN-001", "runtime_run_id": "LIVE-SYNTH",
             "audited_commit": "1" * 40, "tooling_commit": "2" * 40,
             "snapshot_id": "snapshot-001", "scenario_id": "SCN-001",
             "timestamp": "2026-08-16T00:00:00+00:00",
             "covered_feature_paths": ["FEAT-001/main"],
-            "covered_symbol_ids": ["SYM-A", "SYM-B"],
+            "covered_symbol_ids": [],
             "covered_axes": ["executed", "live_evidence", "result"],
         }
         receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
         return receipt, _json_bytes(receipt) + b"\n"
 
-    def test_projection_api_two_symbols_and_every_field_tamper_rejected(self) -> None:
-        receipt, receipt_bytes = self._synthetic_receipt_with_symbols()
-        projection = self.tool.build_runtime_projection(receipt, receipt_bytes)
-        self.assertEqual(projection["covered_symbol_ids"], ["SYM-A", "SYM-B"])
-        self.tool.validate_runtime_projection(projection, receipt, receipt_bytes)
+    def test_minimal_forged_receipt_cannot_authorize_projection_or_export(self) -> None:
+        receipt, receipt_bytes = self._minimal_forged_receipt()
+        forged_run = self.evidence / "runs" / "LIVE-SYNTH"
+        forged_run.mkdir(parents=True)
+        with self.assertRaisesRegex(self.tool.ContractError, "Rich Receipt.*Exact-Fields"):
+            self.tool.build_runtime_projection(receipt, receipt_bytes, forged_run, **self.projection_trust())
+        projection = {
+            "evidence_id": receipt["evidence_id"], "evidence_kind": "runtime",
+            "runtime_run_id": receipt["runtime_run_id"],
+            "covered_feature_paths": receipt["covered_feature_paths"],
+            "covered_symbol_ids": [], "covered_axes": receipt["covered_axes"],
+            "proof_ref": "runs/LIVE-SYNTH/receipt.json",
+            "proof_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+            "run_id": receipt["run_id"], "audited_commit": receipt["audited_commit"],
+            "tooling_commit": receipt["tooling_commit"], "snapshot_id": receipt["snapshot_id"],
+            "timestamp": receipt["timestamp"],
+        }
+        projection["record_sha256"] = self.tool.canonical_sha256(projection)
+        (forged_run / "receipt.json").write_bytes(receipt_bytes)
+        (forged_run / "projection.json").write_bytes(_json_bytes(projection) + b"\n")
+        (self.evidence / "runtime_runs.jsonl").write_bytes(receipt_bytes)
+        with self.assertRaisesRegex(self.tool.ContractError, "Rich Receipt.*Exact-Fields"):
+            self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
+
+    def test_projection_api_every_field_tamper_rejected_against_full_rich_receipt(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        receipt_bytes = (run_dir / "receipt.json").read_bytes()
+        projection = json.loads((run_dir / "projection.json").read_text(encoding="utf-8"))
+        self.tool.validate_runtime_projection(
+            projection, receipt, receipt_bytes, run_dir, **self.projection_trust(),
+        )
         mutations = {
             "evidence_id": "sha256:" + "0" * 64,
             "evidence_kind": "foreign", "runtime_run_id": "LIVE-X",
@@ -352,7 +386,60 @@ class GateContractTests(unittest.TestCase):
                         tampered, omit={"record_sha256"},
                     )
                 with self.assertRaises(self.tool.ContractError):
-                    self.tool.validate_runtime_projection(tampered, receipt, receipt_bytes)
+                    self.tool.validate_runtime_projection(
+                        tampered, receipt, receipt_bytes, run_dir, **self.projection_trust(),
+                    )
+
+    def test_plural_symbol_projection_is_capacity_only_without_external_observer(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        receipt["covered_symbol_ids"] = ["SYM-A", "SYM-B"]
+        receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
+        receipt_bytes = _json_bytes(receipt) + b"\n"
+        with self.assertRaisesRegex(self.tool.ContractError, "Symbol-Observer.*nicht implementiert"):
+            self.tool.build_runtime_projection(
+                receipt, receipt_bytes, run_dir, **self.projection_trust(),
+            )
+
+    def test_projection_export_requires_external_contract_and_authority_pins(self) -> None:
+        self.run_valid()
+        with self.assertRaises(TypeError):
+            self.tool.export_runtime_evidence(self.evidence)
+        with self.assertRaisesRegex(self.tool.ContractError, "externer Contract-Pin"):
+            self.tool.export_runtime_evidence(
+                self.evidence, repo_root=self.repo,
+                expected_contract_sha256="0" * 64,
+                expected_authority_commit=self.authority_commit,
+            )
+        with self.assertRaisesRegex(self.tool.ContractError, "externer Authority-Pin"):
+            self.tool.export_runtime_evidence(
+                self.evidence, repo_root=self.repo,
+                expected_contract_sha256=self.expected_contract_sha256,
+                expected_authority_commit="0" * 40,
+            )
+
+    def test_full_rich_receipt_trust_components_reject_resealed_tamper(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        mutations = {
+            "authority": lambda row: row["authority"]["policy"].update({"run_id": "FORGED"}),
+            "audit_contract": lambda row: row["audit_contract"].update({"contract_sha256": "0" * 64}),
+            "scenario": lambda row: row.update({"scenario_sha256": "0" * 64}),
+            "runner": lambda row: row["runner"].update({"sha256": "0" * 64}),
+            "trace": lambda row: row["trace"].update({"sha256": "0" * 64}),
+            "postcondition": lambda row: row["postcondition"].update({"result": "forged"}),
+            "final_integrity": lambda row: row.update({"final_integrity_sha256": "0" * 64}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                tampered = json.loads(json.dumps(receipt))
+                mutate(tampered)
+                tampered["evidence_id"] = self.tool.canonical_evidence_id(tampered)
+                tampered_bytes = _json_bytes(tampered) + b"\n"
+                with self.assertRaises(self.tool.ContractError):
+                    self.tool.build_runtime_projection(
+                        tampered, tampered_bytes, run_dir, **self.projection_trust(),
+                    )
 
     def test_projection_export_rejects_missing_orphan_duplicate_and_receipt_tamper(self) -> None:
         cases = ("missing", "orphan", "duplicate", "receipt-tamper")
@@ -378,7 +465,7 @@ class GateContractTests(unittest.TestCase):
                         receipt_path.chmod(0o666)
                         receipt_path.write_bytes(_json_bytes(receipt) + b"\n")
                     with self.assertRaises(self.tool.ContractError):
-                        self.tool.export_runtime_evidence(self.evidence)
+                        self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
                 finally:
                     self.tool._remove_tree(self.evidence)
                     self.setUp()
@@ -399,7 +486,7 @@ class GateContractTests(unittest.TestCase):
         self.run_valid()
         shard = self.evidence / "runtime-evidence.jsonl"
         expected = shard.read_bytes()
-        self.tool.export_runtime_evidence(self.evidence)
+        self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
         self.assertEqual(shard.read_bytes(), expected)
         original_replace = self.tool.os.replace
         def fail_shard(source: object, target: object) -> None:
@@ -408,7 +495,7 @@ class GateContractTests(unittest.TestCase):
             original_replace(source, target)
         with mock.patch.object(self.tool.os, "replace", side_effect=fail_shard):
             with self.assertRaisesRegex(OSError, "replace-crash"):
-                self.tool.export_runtime_evidence(self.evidence)
+                self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
         self.assertEqual(shard.read_bytes(), expected)
 
     def test_missing_required_rejected(self) -> None:
@@ -563,9 +650,12 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(self.tool.ContractError, "Modul"): self.run_valid()
 
     def test_symbol_runtime_claim_fails_closed_without_external_observer(self) -> None:
-        row = self.valid_scenario(); row["allowed_symbol_ids"] = ["SYM-X"]
+        row = self.valid_scenario(); row["allowed_symbol_ids"] = ["SYM-X", "SYM-Y"]
         row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
-        self.write_jsonl(self.symbol_path,[{"symbol_id":"SYM-X","feature_paths":["FEAT-001/main"]}]); self.write_catalog([row]); self.refresh_contract()
+        self.write_jsonl(self.symbol_path,[
+            {"symbol_id":"SYM-X","feature_paths":["FEAT-001/main"]},
+            {"symbol_id":"SYM-Y","feature_paths":["FEAT-001/main"]},
+        ]); self.write_catalog([row]); self.refresh_contract()
         with self.assertRaisesRegex(self.tool.ContractError, "Symbol.*Observer"): self.run_valid()
 
     def test_postcondition_trace_tamper_rejected(self) -> None:
