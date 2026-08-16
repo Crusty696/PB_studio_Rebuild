@@ -17,6 +17,15 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPO_ROOT / "tools" / "audit_runtime_evidence.py"
 
+GLOBAL_ARTIFACT_KEYS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract",
+    "reviewer-readiness-binding", "reviewer-spawn-journal",
+}
+
 
 def _load_tool():
     spec = importlib.util.spec_from_file_location("audit_runtime_evidence", TOOL_PATH)
@@ -124,6 +133,16 @@ class GateContractTests(unittest.TestCase):
         self.executor_path = self.evidence / "executors.json"
         self.dependency_path = self.evidence / "dependencies.json"
         self.contract_path = self.evidence / "audit_contract.json"
+        runtime_keys = {
+            "runtime-scenario-catalog", "runtime-feature-universe",
+            "runtime-symbol-universe", "runtime-executor-manifest",
+            "runtime-dependency-manifest",
+        }
+        self.other_artifacts = {}
+        for key in sorted(GLOBAL_ARTIFACT_KEYS - runtime_keys):
+            path = self.evidence / f"{key}.json"
+            path.write_text("{}\n", encoding="utf-8")
+            self.other_artifacts[key] = path
         self.write_jsonl(self.feature_path, [{"feature_id": "FEAT-001", "path_id": "main"}])
         self.symbol_path.write_text("", encoding="utf-8")
         self.executor_path.write_bytes(_json_bytes({"python": {"path": sys.executable, "sha256": _sha(Path(sys.executable)), "version": sys.version}}) + b"\n")
@@ -173,6 +192,7 @@ class GateContractTests(unittest.TestCase):
                 "runtime-symbol-universe":artifact(self.symbol_path,len(self.symbol_path.read_text().splitlines())),
                 "runtime-executor-manifest":artifact(self.executor_path,1),
                 "runtime-dependency-manifest":artifact(self.dependency_path,1),
+                **{key: artifact(path, 1) for key, path in self.other_artifacts.items()},
             },
         }
         contract.update(overrides)
@@ -251,6 +271,145 @@ class GateContractTests(unittest.TestCase):
         self.assertEqual(receipt["authority"]["git_blob"], expected_blob)
         self.assertEqual(receipt["authority"]["sha256"], hashlib.sha256(policy_bytes).hexdigest())
         self.assertIn(b"scenario-ok", (self.evidence / receipt["stdout"]["ref"]).read_bytes())
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        projection = json.loads((run_dir / "projection.json").read_text(encoding="utf-8"))
+        self.assertEqual(projection["evidence_id"], receipt["evidence_id"])
+        self.assertEqual(projection["covered_feature_paths"], ["FEAT-001/main"])
+        self.assertEqual(projection["covered_symbol_ids"], [])
+        self.assertEqual(projection["proof_ref"], "runs/LIVE-001/receipt.json")
+        self.assertEqual(projection["proof_sha256"], _sha(run_dir / "receipt.json"))
+        exported = (self.evidence / "runtime-evidence.jsonl").read_bytes()
+        self.assertEqual(exported, _json_bytes(projection) + b"\n")
+
+    def test_global_contract_artifact_exact_set_missing_and_extra_rejected(self) -> None:
+        for mutation in ("missing", "extra"):
+            with self.subTest(mutation=mutation):
+                contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+                if mutation == "missing":
+                    del contract["artifacts"]["feature-catalog"]
+                else:
+                    contract["artifacts"]["foreign"] = next(iter(contract["artifacts"].values()))
+                contract["contract_sha256"] = self.tool.canonical_sha256(contract, omit={"contract_sha256"})
+                self.contract_path.write_bytes(_json_bytes(contract) + b"\n")
+                self.expected_contract_sha256 = contract["contract_sha256"]
+                self.write_authority_policy(contract)
+                with self.assertRaisesRegex(self.tool.ContractError, "Exact-Set"):
+                    self.run_valid(runtime_run_id=f"LIVE-{mutation.upper()}")
+                self.write_contract()
+
+    def test_exact_five_runtime_descriptors_are_individually_validated(self) -> None:
+        runtime_keys = (
+            "runtime-scenario-catalog", "runtime-feature-universe",
+            "runtime-symbol-universe", "runtime-executor-manifest",
+            "runtime-dependency-manifest",
+        )
+        for index, key in enumerate(runtime_keys):
+            with self.subTest(key=key):
+                contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+                contract["artifacts"][key]["record_count"] += 1
+                contract["contract_sha256"] = self.tool.canonical_sha256(contract, omit={"contract_sha256"})
+                self.contract_path.write_bytes(_json_bytes(contract) + b"\n")
+                self.expected_contract_sha256 = contract["contract_sha256"]
+                self.write_authority_policy(contract)
+                with self.assertRaisesRegex(self.tool.ContractError, "record_count"):
+                    self.run_valid(runtime_run_id=f"LIVE-DESCRIPTOR-{index}")
+                self.write_contract()
+
+    def _synthetic_receipt_with_symbols(self) -> tuple[dict, bytes]:
+        receipt = {
+            "plan_id": "PLAN", "run_id": "RUN-001", "runtime_run_id": "LIVE-SYNTH",
+            "audited_commit": "1" * 40, "tooling_commit": "2" * 40,
+            "snapshot_id": "snapshot-001", "scenario_id": "SCN-001",
+            "timestamp": "2026-08-16T00:00:00+00:00",
+            "covered_feature_paths": ["FEAT-001/main"],
+            "covered_symbol_ids": ["SYM-A", "SYM-B"],
+            "covered_axes": ["executed", "live_evidence", "result"],
+        }
+        receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
+        return receipt, _json_bytes(receipt) + b"\n"
+
+    def test_projection_api_two_symbols_and_every_field_tamper_rejected(self) -> None:
+        receipt, receipt_bytes = self._synthetic_receipt_with_symbols()
+        projection = self.tool.build_runtime_projection(receipt, receipt_bytes)
+        self.assertEqual(projection["covered_symbol_ids"], ["SYM-A", "SYM-B"])
+        self.tool.validate_runtime_projection(projection, receipt, receipt_bytes)
+        mutations = {
+            "evidence_id": "sha256:" + "0" * 64,
+            "evidence_kind": "foreign", "runtime_run_id": "LIVE-X",
+            "covered_feature_paths": ["FEAT-X/main"],
+            "covered_symbol_ids": ["SYM-X"], "covered_axes": ["executed"],
+            "proof_ref": "runs/LIVE-X/receipt.json", "proof_sha256": "0" * 64,
+            "run_id": "RUN-X", "audited_commit": "3" * 40,
+            "tooling_commit": "4" * 40, "snapshot_id": "snapshot-X",
+            "timestamp": "2026-08-16T01:00:00+00:00", "record_sha256": "0" * 64,
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                tampered = dict(projection)
+                tampered[field] = value
+                if field != "record_sha256":
+                    tampered["record_sha256"] = self.tool.canonical_sha256(
+                        tampered, omit={"record_sha256"},
+                    )
+                with self.assertRaises(self.tool.ContractError):
+                    self.tool.validate_runtime_projection(tampered, receipt, receipt_bytes)
+
+    def test_projection_export_rejects_missing_orphan_duplicate_and_receipt_tamper(self) -> None:
+        cases = ("missing", "orphan", "duplicate", "receipt-tamper")
+        for case in cases:
+            with self.subTest(case=case):
+                try:
+                    self.run_valid()
+                    run_dir = self.evidence / "runs" / "LIVE-001"
+                    if case == "missing":
+                        projection_path = run_dir / "projection.json"
+                        projection_path.chmod(0o666)
+                        projection_path.unlink()
+                    elif case == "orphan":
+                        orphan = self.evidence / "runs" / "LIVE-ORPHAN"
+                        shutil.copytree(run_dir, orphan)
+                    elif case == "duplicate":
+                        ledger = self.evidence / "runtime_runs.jsonl"
+                        ledger.write_bytes(ledger.read_bytes() * 2)
+                    else:
+                        receipt_path = run_dir / "receipt.json"
+                        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                        receipt["snapshot_id"] = "tampered"
+                        receipt_path.chmod(0o666)
+                        receipt_path.write_bytes(_json_bytes(receipt) + b"\n")
+                    with self.assertRaises(self.tool.ContractError):
+                        self.tool.export_runtime_evidence(self.evidence)
+                finally:
+                    self.tool._remove_tree(self.evidence)
+                    self.setUp()
+
+    def test_projection_write_crash_leaves_no_published_run(self) -> None:
+        original = self.tool._durable_write
+        def crash_projection(path: Path, data: bytes) -> None:
+            if path.name == "projection.json":
+                raise OSError("projection-crash")
+            original(path, data)
+        with mock.patch.object(self.tool, "_durable_write", side_effect=crash_projection):
+            with self.assertRaisesRegex(OSError, "projection-crash"):
+                self.run_valid()
+        self.assertFalse((self.evidence / "runs" / "LIVE-001").exists())
+        self.assertFalse((self.evidence / "runtime_runs.jsonl").exists())
+
+    def test_projection_export_is_deterministic_and_atomic_failure_preserves_old_bytes(self) -> None:
+        self.run_valid()
+        shard = self.evidence / "runtime-evidence.jsonl"
+        expected = shard.read_bytes()
+        self.tool.export_runtime_evidence(self.evidence)
+        self.assertEqual(shard.read_bytes(), expected)
+        original_replace = self.tool.os.replace
+        def fail_shard(source: object, target: object) -> None:
+            if Path(target).name == "runtime-evidence.jsonl":
+                raise OSError("replace-crash")
+            original_replace(source, target)
+        with mock.patch.object(self.tool.os, "replace", side_effect=fail_shard):
+            with self.assertRaisesRegex(OSError, "replace-crash"):
+                self.tool.export_runtime_evidence(self.evidence)
+        self.assertEqual(shard.read_bytes(), expected)
 
     def test_missing_required_rejected(self) -> None:
         row = self.valid_scenario(); del row["postcondition"]
