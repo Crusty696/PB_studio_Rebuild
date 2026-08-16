@@ -1,0 +1,10 @@
+{
+  "lesson_id": "eb67a233a8b24c35b18a007394e1d8ae",
+  "recorded_at": "2026-08-16T01:52:03+00:00",
+  "session_id": "9f19fde9669f467e96e8d4ba7be2332f",
+  "head_at_start": "3d5356d93fef88ed6846accda8237e3cab9d8e5f",
+  "problem": "A partial Windows-safe path check blocked classic device names but still accepted CONIN$/CONOUT$, superscript COM/LPT aliases, reserved characters, controls, and device stems padded before extensions.",
+  "cause": "The validator enumerated familiar examples instead of implementing the complete per-segment Windows reserved-name and reserved-character semantics.",
+  "rule": "For cross-version Windows-safe refs, implement one explicit segment predicate matching canonical reserved semantics and regression-test the full alias, character, control-byte, ADS, trailing-alias, traversal, and valid-nested matrices.",
+  "applies_to": "Windows path validation, artifact imports, archive extraction, cross-version Python tooling"
+}

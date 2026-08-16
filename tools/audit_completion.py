@@ -58,11 +58,14 @@ SHARD_SPEC_FIELDS = {
 SAFE_IMPORT_ID = re.compile(r"IMPORT-[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
 FULL_SHA256 = re.compile(r"[0-9a-f]{64}")
 FULL_COMMIT = re.compile(r"[0-9a-f]{40}")
-WINDOWS_RESERVED_NAMES = {
-    "CON", "PRN", "AUX", "NUL",
-    *(f"COM{number}" for number in range(1, 10)),
-    *(f"LPT{number}" for number in range(1, 10)),
-}
+WINDOWS_RESERVED_CHARS = frozenset(chr(number) for number in range(32)) | frozenset(
+    '\"*:<>?|\\'
+)
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"COM{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"}
+    | {f"LPT{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"}
+)
 ATTACHMENT_KEY = re.compile(
     r"(?:feature-proof|symbol-proof|runtime-proof):[^\s]+"
     r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
@@ -139,18 +142,22 @@ def _aware_time(value: Any, label: str) -> datetime:
     return parsed
 
 
+def _windows_reserved_segment(part: str) -> bool:
+    if part.endswith((".", " ")):
+        return True
+    if WINDOWS_RESERVED_CHARS.intersection(part):
+        return True
+    device_stem = part.partition(".")[0].rstrip(" ").upper()
+    return device_stem in WINDOWS_RESERVED_NAMES
+
+
 def _safe_ref(relative: Any) -> PurePosixPath:
     if not isinstance(relative, str) or not relative or "\\" in relative:
         raise CompletionError(f"Artifact-Ref ungueltig: {relative!r}")
     ref = PurePosixPath(relative)
     if ref.is_absolute() or any(part in {"", ".", ".."} for part in ref.parts):
         raise CompletionError(f"Artifact-Ref ungueltig: {relative!r}")
-    windows_unsafe = any(
-        ":" in part
-        or part.endswith((".", " "))
-        or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
-        for part in ref.parts
-    )
+    windows_unsafe = any(_windows_reserved_segment(part) for part in ref.parts)
     if relative != ref.as_posix() or windows_unsafe:
         raise CompletionError(f"Artifact-Ref nicht kanonisch: {relative!r}")
     return ref

@@ -358,25 +358,37 @@ class GateContractTests(unittest.TestCase):
             self.do_import()
 
     def test_windows_unsafe_refs_rejected_without_breaking_nested_refs(self) -> None:
-        self.assertEqual(
+        for valid in (
             "attachments/runtime/RE-1.json",
-            completion._safe_ref("attachments/runtime/RE-1.json").as_posix(),
-        )
-        for unsafe in (
+            "nested/.hidden/COM10/LPT0/normal space.txt",
+        ):
+            with self.subTest(valid=valid):
+                self.assertEqual(valid, completion._safe_ref(valid).as_posix())
+        unsafe_refs = [
             "dir/name:stream",
             "a/b:c/d",
             "dir/trailing.",
             "dir/trailing ",
-            "CON",
-            "dir/prn.txt",
-            "a/AUX/b",
-            "dir/nul.json",
-            "COM1",
-            "nested/lpt1.log",
-        ):
-            with self.subTest(unsafe=unsafe):
-                with self.assertRaises(CompletionError):
-                    completion._safe_ref(unsafe)
+            "a/./b",
+            "a/../b",
+            *(f"dir/name{character}value" for character in '*?\"<>|'),
+            *(f"dir/control-{chr(number)}-value" for number in range(32)),
+        ]
+        device_names = (
+            "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+            *(f"COM{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),
+            *(f"LPT{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),
+        )
+        for device in device_names:
+            unsafe_refs.extend((device, f"dir/{device.lower()}.txt", f"nested/{device} .log/end"))
+        accepted: list[str] = []
+        for unsafe in unsafe_refs:
+            try:
+                completion._safe_ref(unsafe)
+            except CompletionError:
+                continue
+            accepted.append(repr(unsafe))
+        self.assertEqual([], accepted)
 
     def test_proof_sha_is_mandatory_and_runtime_proof_cannot_have_two_authorities(self) -> None:
         path = self.bundle / "records/feature-state-evidence.jsonl"
