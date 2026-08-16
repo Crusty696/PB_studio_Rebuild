@@ -1,0 +1,10 @@
+{
+  "lesson_id": "fe08a061d6f04569af28ed025f1783f4",
+  "recorded_at": "2026-08-16T00:14:35+00:00",
+  "session_id": "6f6096cf47544b98957b3f774745423d",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Reviewer-Preflight verwechselte externen Auditcontract-Pin mit rohem Datei-SHA und akzeptierte nur vier lokale statt vierzehn globale Artifactkeys.",
+  "cause": "Reviewer-Harness modellierte Auditcontract als isolierten Reviewer-Teilvertrag; _load_signed_json lieferte nur Datei-SHA, waehrend Common Contract V1 kanonischen Body-SHA als Autoritaet definiert.",
+  "rule": "Shard-Validatoren muessen globale Contract-Keymenge und Descriptorschema exakt pruefen, externe Pins gegen kanonischen Body ohne Self-Hash vergleichen, rohe Datei-SHAs separat benennen und nur eigene Shard-Bytes inhaltlich revalidieren.",
+  "applies_to": "Audit-Preflight, Common Contract V1, Reviewer-/Feature-/Runtime-/Completion-Shards"
+}
