@@ -100,11 +100,6 @@ class GateContractTests(unittest.TestCase):
             audited_commit=self.commit, tooling_commit=self.TOOLING,
             snapshot_id=self.SNAPSHOT,
         )
-        self.evidence_manifest = HARNESS.make_artifact_manifest(
-            "feature-state-evidence", self.evidence, run_id=self.RUN,
-            audited_commit=self.commit, tooling_commit=self.TOOLING,
-            snapshot_id=self.SNAPSHOT,
-        )
         proof_artifacts = {}
         for row in self.evidence:
             proof = {field: row[field] for field in (
@@ -119,7 +114,20 @@ class GateContractTests(unittest.TestCase):
             proof_artifacts[f"feature-proof:{row['evidence_id']}"] = HARNESS.file_contract_entry(
                 data, row["proof_ref"]
             )
+            row["proof_sha256"] = hashlib.sha256(data).hexdigest()
+            row.update(HARNESS.seal_record(row))
+        self.evidence_manifest = HARNESS.make_artifact_manifest(
+            "feature-state-evidence", self.evidence, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
         audit_artifacts = {
+            key: HARNESS.file_contract_entry(
+                b"{}", f"evidence/global/audit/{key}.json"
+            )
+            for key in HARNESS.AUDIT_ARTIFACT_KEYS
+        }
+        audit_artifacts.update({
             "requirements-universe": HARNESS.artifact_contract_entry(
                 self.requirements, "evidence/requirements.jsonl"
             ),
@@ -129,7 +137,7 @@ class GateContractTests(unittest.TestCase):
             "feature-catalog": HARNESS.artifact_contract_entry(
                 self.feature_catalog, "evidence/features.jsonl"
             ),
-        }
+        })
         core = {
             "schema_version": 1, "plan_id": self.PLAN, "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
@@ -145,6 +153,12 @@ class GateContractTests(unittest.TestCase):
             "audit_contract_sha256": self.contract_sha,
             "completed_at": self.SIGNED,
             "artifacts": {
+                **{
+                    key: HARNESS.file_contract_entry(
+                        b"{}", f"evidence/global/evidence/{key}.json"
+                    )
+                    for key in HARNESS.EVIDENCE_ARTIFACT_KEYS
+                },
                 "feature-state": HARNESS.artifact_contract_entry(
                     self.dispositions(), "evidence/feature-state.jsonl"
                 ),
@@ -211,6 +225,42 @@ class GateContractTests(unittest.TestCase):
         self.assertEqual(before, after, "Enumerator darf Dirty-Workingtree nicht lesen")
         self.assertEqual([], self.errors(self.dispositions()))
 
+    def test_global_contract_exact_sets_required(self) -> None:
+        self.assertTrue(HARNESS.validate_audit_contract(
+            [], self.contract_sha, plan_id=self.PLAN, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        ))
+        for key in HARNESS.AUDIT_ARTIFACT_KEYS:
+            contract = copy.deepcopy(self.audit_contract)
+            del contract["artifacts"][key]
+            contract = HARNESS.seal_audit_contract({
+                name: value for name, value in contract.items() if name != "contract_sha256"
+            })
+            errors = HARNESS.validate_audit_contract(
+                contract, contract["contract_sha256"], plan_id=self.PLAN,
+                run_id=self.RUN, audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            self.assertTrue(any("Exact-Set" in error for error in errors), key)
+        for foreign_key in (
+            "foreign-static", "reviewer-enrollment-receipt:bad:session",
+        ):
+            contract = copy.deepcopy(self.evidence_contract)
+            contract["artifacts"][foreign_key] = HARNESS.file_contract_entry(
+                b"{}", "evidence/foreign.json"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                name: value for name, value in contract.items()
+                if name != "evidence_contract_sha256"
+            })
+            errors = HARNESS.validate_evidence_contract(
+                contract, contract["evidence_contract_sha256"], self.audit_contract,
+                plan_id=self.PLAN, run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+            )
+            self.assertTrue(any("Exact-Set" in error for error in errors), foreign_key)
+
     def test_resealed_feature_disposition_type_matrix_rejected(self) -> None:
         base_contract = copy.deepcopy(self.evidence_contract)
         for value in ([], {}, [["feature"]], [None], True, 1, None, "", " ", "foreign"):
@@ -260,10 +310,13 @@ class GateContractTests(unittest.TestCase):
                 evidence_root=self.repo,
             )
 
-        for value, token in ((" ", "evidence_kind"), (".", "proof_ref"),
-                             ("proof/missing.json", "Proof-Datei fehlt")):
+        for field, value, token in (
+            ("evidence_kind", " ", "evidence_kind"),
+            ("proof_ref", ".", "proof_ref"),
+            ("proof_ref", "proof/missing.json", "Proof-Datei fehlt"),
+            ("proof_sha256", "e" * 64, "proof_sha256"),
+        ):
             rows = copy.deepcopy(self.evidence)
-            field = "evidence_kind" if value == " " else "proof_ref"
             rows[0][field] = value
             rows[0] = HARNESS.seal_record(rows[0])
             self.assertTrue(any(token in error for error in validate(rows)), value)

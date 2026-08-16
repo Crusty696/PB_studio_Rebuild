@@ -39,6 +39,45 @@ TRIGGER_ROW_FIELDS = {
     "snapshot_id", "signed_at", "record_sha256",
 }
 PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+AUDIT_ARTIFACT_KEYS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract", "reviewer-readiness-binding",
+    "reviewer-spawn-journal",
+}
+EVIDENCE_ARTIFACT_KEYS = {
+    "feature-state", "feature-state-evidence", "symbol-state", "edge-state",
+    "symbol-state-evidence", "reviewer-roster", "runtime-evidence", "delta-ledger",
+}
+ATTACHMENT_KEY = re.compile(
+    r"(?:feature-proof|symbol-proof|runtime-proof):[^\s]+"
+    r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
+    r"|reviewer-signoff(?:-signature)?:[^:\s]+:[^:\s]+"
+)
+RUNTIME_PROJECTION_FIELDS = {
+    "evidence_id", "evidence_kind", "runtime_run_id", "covered_feature_paths",
+    "covered_symbol_ids", "covered_axes", "proof_ref", "proof_sha256", "run_id",
+    "audited_commit", "tooling_commit", "snapshot_id", "timestamp", "record_sha256",
+}
+KNOWN_AXES = {
+    "declared", "configured", "wired", "reachable", "enabled", "executed",
+    "result", "persisted", "restart_safe", "error", "cancel", "retry",
+    "cleanup", "GPU", "DB", "UI", "live_evidence",
+}
+RICH_RECEIPT_REQUIRED_FIELDS = {
+    "plan_id", "run_id", "runtime_run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "scenario_id", "scenario_sha256", "timestamp", "authority",
+    "audit_contract", "scenario_catalog", "sealed_contract_inputs",
+    "materialization", "runner", "environment", "observer", "input", "inputs",
+    "harness", "target", "stdout", "stderr", "exit", "trace", "postcondition",
+    "artifacts", "covered_feature_paths", "covered_symbol_ids", "covered_axes",
+    "final_integrity_sha256", "evidence_id",
+}
+RICH_RECEIPT_OPTIONAL_FIELDS = {
+    "forced_state", "observed_surfaces", "restart", "reopen",
+}
 SUPPORTED_SQL_DIALECT = "sqlite"
 
 
@@ -163,7 +202,8 @@ def _proof_errors(
     errors: list[str] = []
     ref = row.get("proof_ref")
     key = f"{prefix}:{row.get('evidence_id', '')}"
-    descriptor = contract.get("artifacts", {}).get(key)
+    artifacts = contract.get("artifacts")
+    descriptor = artifacts.get(key) if isinstance(artifacts, dict) else None
     if not isinstance(descriptor, dict):
         return [f"{label}: Proof-Descriptor {key} fehlt"]
     if descriptor.get("ref") != ref:
@@ -185,6 +225,8 @@ def _proof_errors(
     except OSError as exc:
         return errors + [f"{label}: Proof nicht lesbar: {exc}"]
     digest = _sha(data)
+    if row.get("proof_sha256") != digest:
+        errors.append(f"{label}: proof_sha256 weicht von Proof-Datei ab")
     if descriptor.get("bytes") != len(data):
         errors.append(f"{label}: Proof bytes weichen ab")
     if descriptor.get("sha256") != digest or descriptor.get("artifact_id") != f"sha256:{digest}":
@@ -199,6 +241,47 @@ def _proof_errors(
         if proof != expected:
             errors.append(f"{label}: Proof-Semantik/FK weicht ab")
     return errors
+
+
+def _runtime_receipt(
+    row: dict[str, Any], contract: dict[str, Any], evidence_root: Path, label: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    errors: list[str] = []
+    ref = row.get("proof_ref")
+    key = f"runtime-proof:{row.get('evidence_id', '')}"
+    artifacts = contract.get("artifacts")
+    descriptor = artifacts.get(key) if isinstance(artifacts, dict) else None
+    if not isinstance(descriptor, dict):
+        return None, [f"{label}: evidence_id/Proof-Descriptor {key} fehlt"]
+    if descriptor.get("ref") != ref:
+        errors.append(f"{label}: Proof-Descriptor ref weicht ab")
+    if not _safe_ref(ref):
+        return None, errors + [f"{label}: proof_ref ungueltig"]
+    try:
+        root = evidence_root.resolve(strict=True)
+        target = (root / str(ref)).resolve(strict=False)
+        target.relative_to(root)
+    except (FileNotFoundError, OSError, ValueError):
+        return None, errors + [f"{label}: Proof-Pfad ausserhalb Evidence-Root/Root fehlt"]
+    if not target.is_file():
+        return None, errors + [f"{label}: Rich-Receipt fehlt/ist keine regulaere Datei"]
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        return None, errors + [f"{label}: Rich-Receipt nicht lesbar: {exc}"]
+    digest = _sha(data)
+    expected_descriptor = file_contract_entry(data, str(ref))
+    if descriptor != expected_descriptor:
+        errors.append(f"{label}: Rich-Receipt Descriptor/Hash/Bytes/Count falsch")
+    if row.get("proof_sha256") != digest:
+        errors.append(f"{label}: proof_sha256 weicht von Rich-Receipt ab")
+    try:
+        receipt = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, errors + [f"{label}: Rich-Receipt ist kein UTF-8-JSON"]
+    if not isinstance(receipt, dict):
+        return None, errors + [f"{label}: Rich-Receipt muss Objekt sein"]
+    return receipt, errors
 
 
 def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
@@ -219,17 +302,45 @@ def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
             errors.append(f"{row_label}: artifact_id ungueltig")
         if not _safe_ref(entry.get("ref")):
             errors.append(f"{row_label}: ref nicht sicher/relativ")
-        if not isinstance(entry.get("bytes"), int) or entry.get("bytes", -1) < 0:
+        if type(entry.get("bytes")) is not int or entry.get("bytes", -1) < 0:
             errors.append(f"{row_label}: bytes ungueltig")
-        if not isinstance(entry.get("record_count"), int) or entry.get("record_count", -1) < 0:
+        if type(entry.get("record_count")) is not int or entry.get("record_count", -1) < 0:
             errors.append(f"{row_label}: record_count ungueltig")
     return errors
+
+
+def _is_attachment_key(key: object) -> bool:
+    return isinstance(key, str) and ATTACHMENT_KEY.fullmatch(key) is not None
+
+
+def _contract_key_errors(artifacts: object, *, evidence: bool) -> list[str]:
+    if not isinstance(artifacts, dict):
+        return ["Contract-Artifact-Exact-Set verletzt: artifacts kein Objekt"]
+    actual = set(artifacts)
+    expected = EVIDENCE_ARTIFACT_KEYS if evidence else AUDIT_ARTIFACT_KEYS
+    if evidence:
+        actual_static = actual & EVIDENCE_ARTIFACT_KEYS
+        unknown = {key for key in actual - EVIDENCE_ARTIFACT_KEYS if not _is_attachment_key(key)}
+        missing = expected - actual_static
+        extra = unknown
+    else:
+        missing = expected - actual
+        extra = actual - expected
+    if not missing and not extra:
+        return []
+    label = "Evidence" if evidence else "Audit"
+    return [
+        f"{label}-Artifact-Exact-Set verletzt: "
+        f"fehlend={sorted(missing)!r}, extra={sorted(extra, key=str)!r}"
+    ]
 
 
 def validate_audit_contract(
     contract: dict[str, Any], expected_contract_sha256: str, *, plan_id: str,
     run_id: str, audited_commit: str, tooling_commit: str, snapshot_id: str,
 ) -> list[str]:
+    if not isinstance(contract, dict):
+        return ["audit_contract: Objekt erwartet"]
     errors: list[str] = []
     expected_fields = {
         "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
@@ -258,6 +369,7 @@ def validate_audit_contract(
         errors.append("audit_contract: frozen_at liegt in Zukunft")
     elif now > expires:
         errors.append("audit_contract: TTL abgelaufen")
+    errors.extend(_contract_key_errors(contract.get("artifacts"), evidence=False))
     errors.extend(_validate_artifact_entries(contract.get("artifacts"), "audit_contract"))
     return errors
 
@@ -267,6 +379,8 @@ def validate_evidence_contract(
     plan_id: str, run_id: str, audited_commit: str, tooling_commit: str,
     snapshot_id: str,
 ) -> list[str]:
+    if not isinstance(contract, dict):
+        return ["evidence_contract: Objekt erwartet"]
     errors: list[str] = []
     expected_fields = {
         "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
@@ -294,6 +408,7 @@ def validate_evidence_contract(
     now = datetime.now(timezone.utc)
     if completed is None or frozen is None or expires is None or not (frozen <= completed <= expires and completed <= now):
         errors.append("evidence_contract: completed_at ausser Zeitgrenze")
+    errors.extend(_contract_key_errors(contract.get("artifacts"), evidence=True))
     errors.extend(_validate_artifact_entries(contract.get("artifacts"), "evidence_contract"))
     return errors
 
@@ -879,6 +994,8 @@ def validate_contracts(
     evidence_contract: dict[str, Any], expected_evidence_contract_sha256: str,
     evidence_root: Path,
 ) -> list[str]:
+    if not isinstance(audit_contract, dict) or not isinstance(evidence_contract, dict):
+        return ["Audit-/Evidence-Contract muss Objekt sein"]
     errors: list[str] = []
     errors.extend(validate_audit_contract(
         audit_contract, expected_contract_sha256, plan_id=PLAN_ID, run_id=run_id,
@@ -899,13 +1016,14 @@ def validate_contracts(
         (edge_states, evidence_contract, "edge-state", "Kanten-State", True),
         (evidence_records, evidence_contract, "symbol-state-evidence", "Symbol-Evidence", True),
         (reviewer_records, evidence_contract, "reviewer-roster", "Reviewer-Roster", True),
-        (runtime_records, evidence_contract, "runtime-evidence", "Runtime-Evidence", True),
+        (runtime_records, evidence_contract, "runtime-evidence", "Runtime-Evidence", False),
     ):
         errors.extend(_artifact_binding_errors(records, contract, key, label))
-        errors.extend(_record_time_errors(
-            records, audit_contract, label,
-            evidence_contract.get("completed_at") if is_output else None,
-        ))
+        if key != "runtime-evidence":
+            errors.extend(_record_time_errors(
+                records, audit_contract, label,
+                evidence_contract.get("completed_at") if is_output else None,
+            ))
     symbol_map = {row["symbol_id"]: row for row in expected_symbols}
     edge_map = {row["edge_id"]: row for row in expected_edges}
     if len(symbol_map) != len(expected_symbols):
@@ -939,6 +1057,12 @@ def validate_contracts(
     known_feature_ids = {
         str(row.get("feature_id", "")) for row in artifact_indexes[0].values()
         if row.get("feature_id")
+    }
+    known_feature_paths = {
+        f"{row.get('feature_id')}/{row.get('path_id')}"
+        for row in artifact_indexes[0].values()
+        if isinstance(row.get("feature_id"), str) and row.get("feature_id")
+        and isinstance(row.get("path_id"), str) and row.get("path_id")
     }
     runtime_evidence_ids = set(artifact_indexes[1])
     reviewer_ids = set(artifact_indexes[2])
@@ -1005,49 +1129,110 @@ def validate_contracts(
                 f"extra={sorted(actual_proofs - expected_proofs)!r}"
             )
 
+    runtime_coverages: dict[str, tuple[set[str], str]] = {}
     for number, runtime in enumerate(runtime_records, 1):
         label = f"Runtime-Evidence Zeile {number}"
-        expected_fields = {
-            "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
-            "source_blob_sha256", "proof_ref", "run_id", "audited_commit",
-            "tooling_commit", "snapshot_id", "signed_at", "record_sha256",
-        }
-        if set(runtime) != expected_fields:
+        if set(runtime) != RUNTIME_PROJECTION_FIELDS:
             errors.append(f"{label}: Schemafelder nicht exakt")
         if runtime.get("evidence_kind") != "runtime":
             errors.append(f"{label}: evidence_kind ungueltig")
         _validate_binding(
             runtime, label, run_id, audited_commit, tooling_commit, snapshot_id, errors,
         )
-        source = symbol_map.get(str(runtime.get("symbol_id", "")))
-        if source is None:
-            errors.append(f"{label}: fremde symbol_id")
-        elif (
-            runtime.get("path") != source.get("path")
-            or runtime.get("source_blob_sha256") != source.get("source_blob_sha256")
+        evidence_id = runtime.get("evidence_id")
+        runtime_run_id = runtime.get("runtime_run_id")
+        feature_paths = runtime.get("covered_feature_paths")
+        symbol_ids = runtime.get("covered_symbol_ids")
+        axes = runtime.get("covered_axes")
+        valid_features = (
+            isinstance(feature_paths, list) and len(feature_paths) == 1
+            and isinstance(feature_paths[0], str) and feature_paths[0] in known_feature_paths
+        )
+        valid_symbols = (
+            isinstance(symbol_ids, list) and bool(symbol_ids)
+            and all(isinstance(symbol_id, str) and symbol_id in symbol_map for symbol_id in symbol_ids)
+            and symbol_ids == sorted(set(symbol_ids))
+        )
+        valid_axes = (
+            isinstance(axes, list) and bool(axes)
+            and all(isinstance(axis, str) and axis in KNOWN_AXES for axis in axes)
+            and axes == sorted(set(axes))
+        )
+        if not isinstance(evidence_id, str) or not evidence_id.startswith("sha256:"):
+            errors.append(f"{label}: evidence_id ungueltig")
+        if not isinstance(runtime_run_id, str) or not runtime_run_id.strip():
+            errors.append(f"{label}: runtime_run_id ungueltig")
+        if not valid_features:
+            errors.append(f"{label}: covered_feature_paths muss bekannter Singleton sein")
+        if not valid_symbols:
+            errors.append(f"{label}: covered_symbol_ids fehlt/fremd/unsortiert/doppelt")
+        if not valid_axes:
+            errors.append(f"{label}: covered_axes fehlt/fremd/unsortiert/doppelt")
+        timestamp = _timestamp(runtime.get("timestamp"))
+        frozen = _timestamp(audit_contract.get("frozen_at"))
+        expires = _timestamp(audit_contract.get("expires_at"))
+        completed = _timestamp(evidence_contract.get("completed_at"))
+        if (
+            timestamp is None or frozen is None or expires is None or completed is None
+            or not (frozen <= timestamp <= completed <= expires)
         ):
-            errors.append(f"{label}: Source-Pfad/Blob falsch")
-        if runtime.get("reviewer_id") not in reviewer_ids:
-            errors.append(f"{label}: Reviewer-FK fehlt")
-        if not _safe_ref(runtime.get("proof_ref")):
-            errors.append(f"{label}: proof_ref ungueltig")
-        if not re.fullmatch(r"[0-9a-f]{64}", str(runtime.get("source_blob_sha256", ""))):
-            errors.append(f"{label}: source_blob_sha256 ungueltig")
-        proof_expected = {field: runtime.get(field) for field in (
-            "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
-            "source_blob_sha256",
-        ) if field in runtime}
-        proof_expected["schema_version"] = 1
-        errors.extend(_proof_errors(
-            runtime, evidence_contract, evidence_root, prefix="runtime-proof",
-            expected=proof_expected, label=label,
-        ))
+            errors.append(f"{label}: timestamp ausser Zeitgrenze")
+        receipt, receipt_errors = _runtime_receipt(
+            runtime, evidence_contract, evidence_root, label,
+        )
+        errors.extend(receipt_errors)
+        if receipt is not None:
+            receipt_fields = set(receipt)
+            missing_receipt_fields = RICH_RECEIPT_REQUIRED_FIELDS - receipt_fields
+            extra_receipt_fields = receipt_fields - (
+                RICH_RECEIPT_REQUIRED_FIELDS | RICH_RECEIPT_OPTIONAL_FIELDS
+            )
+            if missing_receipt_fields or extra_receipt_fields:
+                errors.append(
+                    f"{label}: Rich-Receipt Schemafelder nicht exakt: "
+                    f"fehlend={sorted(missing_receipt_fields)!r}, "
+                    f"extra={sorted(extra_receipt_fields)!r}"
+                )
+            if receipt.get("plan_id") != PLAN_ID:
+                errors.append(f"{label}: Rich-Receipt plan_id falsch")
+            for field in (
+                "authority", "audit_contract", "scenario_catalog", "materialization",
+                "runner", "environment", "observer", "input", "harness", "target",
+                "stdout", "stderr", "exit", "trace", "postcondition",
+            ):
+                if not isinstance(receipt.get(field), dict):
+                    errors.append(f"{label}: Rich-Receipt {field} muss Objekt sein")
+            for field in ("sealed_contract_inputs", "inputs", "artifacts"):
+                if not isinstance(receipt.get(field), list):
+                    errors.append(f"{label}: Rich-Receipt {field} muss Liste sein")
+            for field in ("scenario_sha256", "final_integrity_sha256"):
+                if not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get(field, ""))):
+                    errors.append(f"{label}: Rich-Receipt {field} ungueltig")
+            if not isinstance(receipt.get("scenario_id"), str) or not receipt["scenario_id"].strip():
+                errors.append(f"{label}: Rich-Receipt scenario_id ungueltig")
+            canonical_receipt_id = "sha256:" + _sha(
+                _canonical(_without(receipt, "evidence_id"))
+            )
+            if receipt.get("evidence_id") != canonical_receipt_id:
+                errors.append(f"{label}: Rich-Receipt evidence_id nicht kanonisch")
+            if evidence_id != canonical_receipt_id:
+                errors.append(f"{label}: Projektion evidence_id weicht von Rich-Receipt ab")
+            for field in (
+                "runtime_run_id", "covered_feature_paths", "covered_symbol_ids",
+                "covered_axes", "run_id", "audited_commit", "tooling_commit",
+                "snapshot_id", "timestamp",
+            ):
+                if runtime.get(field) != receipt.get(field):
+                    errors.append(f"{label}: Projektion/Receipt {field} weicht ab")
+        if isinstance(evidence_id, str) and valid_symbols and valid_features:
+            runtime_coverages[evidence_id] = (set(symbol_ids), feature_paths[0])
 
     for number, evidence in enumerate(evidence_records, 1):
         label = f"Symbol-Evidence Zeile {number}"
         allowed = {
             "evidence_id", "evidence_kind", "symbol_id", "edge_id", "reviewer_id",
             "path", "source_blob_sha256", "signed_at", "proof_ref",
+            "proof_sha256",
             "run_id", "audited_commit", "tooling_commit", "snapshot_id",
             "record_sha256",
         }
@@ -1074,6 +1259,8 @@ def validate_contracts(
         proof_ref = evidence.get("proof_ref")
         if not _safe_ref(proof_ref):
             errors.append(f"{label}: proof_ref ungueltig")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get("proof_sha256", ""))):
+            errors.append(f"{label}: proof_sha256 ungueltig")
         expected_kind = "symbol-review" if has_symbol else "edge-review"
         if evidence.get("evidence_kind") != expected_kind:
             errors.append(f"{label}: evidence_kind ungueltig")
@@ -1119,7 +1306,8 @@ def validate_contracts(
                     errors.append(f"{label}: Evidence-signed_at-FK falsch")
 
     seen_symbols: set[str] = set()
-    runtime_consumers: dict[str, int] = {}
+    runtime_consumers: dict[tuple[str, str], int] = {}
+    states_by_symbol: dict[str, dict[str, Any]] = {}
     for number, row in enumerate(states, 1):
         symbol_id = str(row.get("symbol_id", ""))
         label = f"Symbol-State Zeile {number}/{symbol_id}"
@@ -1139,6 +1327,7 @@ def validate_contracts(
         if symbol_id in seen_symbols:
             errors.append(f"{label}: doppelte symbol_id")
         seen_symbols.add(symbol_id)
+        states_by_symbol[symbol_id] = row
         source = symbol_map.get(symbol_id)
         if source is None:
             errors.append(f"{label}: fremde symbol_id")
@@ -1250,13 +1439,11 @@ def validate_contracts(
                     if not isinstance(evidence_id, str) or evidence_id not in runtime_evidence_ids:
                         errors.append(f"{label}: unbekannte Runtime-Evidence-ID")
                         continue
-                    runtime_consumers[evidence_id] = runtime_consumers.get(evidence_id, 0) + 1
-                    if artifact_indexes[1][evidence_id].get("symbol_id") != symbol_id:
+                    pair = (evidence_id, symbol_id)
+                    runtime_consumers[pair] = runtime_consumers.get(pair, 0) + 1
+                    covered = runtime_coverages.get(evidence_id)
+                    if covered is None or symbol_id not in covered[0]:
                         errors.append(f"{label}: Runtime-Evidence-Symbol-FK falsch")
-                    if artifact_indexes[1][evidence_id].get("reviewer_id") != row.get("reviewer_id"):
-                        errors.append(f"{label}: Runtime-Evidence-Reviewer-FK falsch")
-                    if artifact_indexes[1][evidence_id].get("signed_at") != row.get("signed_at"):
-                        errors.append(f"{label}: Runtime-Evidence-signed_at-FK falsch")
         if disposition == "non-runtime":
             if row.get("runtime_evidence_ids") not in ([], None):
                 errors.append(f"{label}: Non-Runtime-Disposition mit Runtime-Evidence-ID")
@@ -1353,14 +1540,29 @@ def validate_contracts(
     orphan_evidence = evidence_ids - evidence_consumers
     if orphan_evidence:
         errors.append(f"Symbol-/Edge-Evidence-Closure verletzt: orphan={sorted(orphan_evidence)!r}")
-    orphan_runtime = runtime_evidence_ids - set(runtime_consumers)
+    expected_runtime_pairs = {
+        (evidence_id, symbol_id)
+        for evidence_id, (symbol_ids, _feature_path) in runtime_coverages.items()
+        for symbol_id in symbol_ids
+    }
+    actual_runtime_pairs = set(runtime_consumers)
     duplicate_runtime = sorted(
-        evidence_id for evidence_id, count in runtime_consumers.items() if count != 1
+        pair for pair, count in runtime_consumers.items() if count != 1
     )
-    if orphan_runtime or duplicate_runtime:
+    orphan_runtime = sorted(expected_runtime_pairs - actual_runtime_pairs)
+    foreign_runtime = sorted(actual_runtime_pairs - expected_runtime_pairs)
+    for evidence_id, (covered_symbols, feature_path) in runtime_coverages.items():
+        feature_id = feature_path.split("/", 1)[0]
+        for symbol_id in covered_symbols:
+            state = states_by_symbol.get(symbol_id)
+            if state is None or feature_id not in (state.get("feature_ids") or []):
+                errors.append(
+                    f"Runtime-Evidence {evidence_id}: Symbol {symbol_id} nicht an Featurepfad {feature_path} gebunden"
+                )
+    if orphan_runtime or foreign_runtime or duplicate_runtime:
         errors.append(
             "Runtime-Evidence-Exact-Set verletzt: "
-            f"orphan={sorted(orphan_runtime)!r}, mehrfach={duplicate_runtime!r}"
+            f"orphan={orphan_runtime!r}, fremd={foreign_runtime!r}, mehrfach={duplicate_runtime!r}"
         )
     if not expected_symbols:
         errors.append("Symboluniversum ist leer")

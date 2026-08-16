@@ -29,6 +29,23 @@ from typing import Any, Iterable
 
 DISPOSITIONS = {"feature", "support", "dead-candidate"}
 PLAN_ID = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+AUDIT_ARTIFACT_KEYS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract", "reviewer-readiness-binding",
+    "reviewer-spawn-journal",
+}
+EVIDENCE_ARTIFACT_KEYS = {
+    "feature-state", "feature-state-evidence", "symbol-state", "edge-state",
+    "symbol-state-evidence", "reviewer-roster", "runtime-evidence", "delta-ledger",
+}
+ATTACHMENT_KEY = re.compile(
+    r"(?:feature-proof|symbol-proof|runtime-proof):[^\s]+"
+    r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
+    r"|reviewer-signoff(?:-signature)?:[^:\s]+:[^:\s]+"
+)
 SUPPORTED_SQL_DIALECT = "sqlite"
 NORMATIVE = re.compile(
     r"\b(muss|muessen|müssen|pflicht|required|must|shall|darf\s+nicht|forbidden)\b",
@@ -176,7 +193,8 @@ def _proof_errors(
     errors: list[str] = []
     ref = row.get("proof_ref")
     key = f"{prefix}:{row.get('evidence_id', '')}"
-    descriptor = contract.get("artifacts", {}).get(key)
+    artifacts = contract.get("artifacts")
+    descriptor = artifacts.get(key) if isinstance(artifacts, dict) else None
     if not isinstance(descriptor, dict):
         return [f"{label}: Proof-Descriptor {key} fehlt"]
     if descriptor.get("ref") != ref:
@@ -198,6 +216,8 @@ def _proof_errors(
     except OSError as exc:
         return errors + [f"{label}: Proof nicht lesbar: {exc}"]
     digest = _sha(data)
+    if row.get("proof_sha256") != digest:
+        errors.append(f"{label}: proof_sha256 weicht von Proof-Datei ab")
     if descriptor.get("bytes") != len(data):
         errors.append(f"{label}: Proof bytes weichen ab")
     if descriptor.get("sha256") != digest or descriptor.get("artifact_id") != f"sha256:{digest}":
@@ -233,17 +253,45 @@ def _validate_artifact_entries(artifacts: object, label: str) -> list[str]:
             errors.append(f"{row_label}: artifact_id ungueltig")
         if not _safe_ref(entry.get("ref")):
             errors.append(f"{row_label}: ref nicht sicher/relativ")
-        if not isinstance(entry.get("bytes"), int) or entry.get("bytes", -1) < 0:
+        if type(entry.get("bytes")) is not int or entry.get("bytes", -1) < 0:
             errors.append(f"{row_label}: bytes ungueltig")
-        if not isinstance(entry.get("record_count"), int) or entry.get("record_count", -1) < 0:
+        if type(entry.get("record_count")) is not int or entry.get("record_count", -1) < 0:
             errors.append(f"{row_label}: record_count ungueltig")
     return errors
+
+
+def _is_attachment_key(key: object) -> bool:
+    return isinstance(key, str) and ATTACHMENT_KEY.fullmatch(key) is not None
+
+
+def _contract_key_errors(artifacts: object, *, evidence: bool) -> list[str]:
+    if not isinstance(artifacts, dict):
+        return ["Contract-Artifact-Exact-Set verletzt: artifacts kein Objekt"]
+    actual = set(artifacts)
+    expected = EVIDENCE_ARTIFACT_KEYS if evidence else AUDIT_ARTIFACT_KEYS
+    if evidence:
+        actual_static = actual & EVIDENCE_ARTIFACT_KEYS
+        unknown = {key for key in actual - EVIDENCE_ARTIFACT_KEYS if not _is_attachment_key(key)}
+        missing = expected - actual_static
+        extra = unknown
+    else:
+        missing = expected - actual
+        extra = actual - expected
+    if not missing and not extra:
+        return []
+    label = "Evidence" if evidence else "Audit"
+    return [
+        f"{label}-Artifact-Exact-Set verletzt: "
+        f"fehlend={sorted(missing)!r}, extra={sorted(extra, key=str)!r}"
+    ]
 
 
 def validate_audit_contract(
     contract: dict[str, Any], expected_contract_sha256: str, *, plan_id: str,
     run_id: str, audited_commit: str, tooling_commit: str, snapshot_id: str,
 ) -> list[str]:
+    if not isinstance(contract, dict):
+        return ["audit_contract: Objekt erwartet"]
     errors: list[str] = []
     expected_fields = {
         "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
@@ -272,6 +320,7 @@ def validate_audit_contract(
         errors.append("audit_contract: frozen_at liegt in Zukunft")
     elif now > expires:
         errors.append("audit_contract: TTL abgelaufen")
+    errors.extend(_contract_key_errors(contract.get("artifacts"), evidence=False))
     errors.extend(_validate_artifact_entries(contract.get("artifacts"), "audit_contract"))
     return errors
 
@@ -281,6 +330,8 @@ def validate_evidence_contract(
     plan_id: str, run_id: str, audited_commit: str, tooling_commit: str,
     snapshot_id: str,
 ) -> list[str]:
+    if not isinstance(contract, dict):
+        return ["evidence_contract: Objekt erwartet"]
     errors: list[str] = []
     expected_fields = {
         "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
@@ -308,6 +359,7 @@ def validate_evidence_contract(
     now = datetime.now(timezone.utc)
     if completed is None or frozen is None or expires is None or not (frozen <= completed <= expires and completed <= now):
         errors.append("evidence_contract: completed_at ausser Zeitgrenze")
+    errors.extend(_contract_key_errors(contract.get("artifacts"), evidence=True))
     errors.extend(_validate_artifact_entries(contract.get("artifacts"), "evidence_contract"))
     return errors
 
@@ -372,7 +424,7 @@ def validate_artifact(
                 errors.append(f"{label}: catalog_id nicht inhaltsadressiert")
         if kind == "feature-state-evidence":
             expected_id = "sha256:" + _sha(
-                _canonical(_without(row, "evidence_id", "record_sha256"))
+                _canonical(_without(row, "evidence_id", "proof_sha256", "record_sha256"))
             )
             if item_id != expected_id:
                 errors.append(f"{label}: evidence_id nicht inhaltsadressiert")
@@ -855,6 +907,8 @@ def validate_exact_set(
     evidence_contract: dict[str, Any], expected_evidence_contract_sha256: str,
     evidence_root: Path,
 ) -> list[str]:
+    if not isinstance(audit_contract, dict) or not isinstance(evidence_contract, dict):
+        return ["Audit-/Evidence-Contract muss Objekt sein"]
     errors: list[str] = []
     errors.extend(validate_audit_contract(
         audit_contract, expected_contract_sha256, plan_id=PLAN_ID, run_id=run_id,
@@ -915,6 +969,7 @@ def validate_exact_set(
         allowed = {
             "evidence_id", "evidence_kind", "source_id", "feature_id", "path_id",
             "reviewer_id", "path", "source_blob_sha256", "signed_at", "proof_ref",
+            "proof_sha256",
             "run_id", "audited_commit", "tooling_commit", "snapshot_id",
             "record_sha256",
         }
@@ -929,6 +984,8 @@ def validate_exact_set(
         proof_ref = row.get("proof_ref")
         if not _safe_ref(proof_ref):
             errors.append(f"Feature-Evidence Zeile {number}: proof_ref ungueltig")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(row.get("proof_sha256", ""))):
+            errors.append(f"Feature-Evidence Zeile {number}: proof_sha256 ungueltig")
         if row.get("evidence_kind") != "source-review":
             errors.append(f"Feature-Evidence Zeile {number}: evidence_kind ungueltig")
         proof_expected = {field: row.get(field) for field in (
