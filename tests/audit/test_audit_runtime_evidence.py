@@ -441,6 +441,64 @@ class GateContractTests(unittest.TestCase):
                         tampered, tampered_bytes, run_dir, **self.projection_trust(),
                     )
 
+    def test_provenance_materialization_and_trace_type_seven_repros(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        cases = {
+            "harness-source": lambda row: row["harness"].update({
+                "source": {"path": "forged.py", "git_blob": "0" * 40,
+                           "sha256": "0" * 64, "commit": self.tooling_commit},
+            }),
+            "harness-executor": lambda row: row["harness"].update({
+                "executor": {"path": "C:/forged/python.exe", "sha256": "0" * 64,
+                             "version": "forged"},
+            }),
+            "checker-source": lambda row: row["postcondition"]["checker"].update({
+                "source": {"path": "forged.py", "git_blob": "0" * 40,
+                           "sha256": "0" * 64, "commit": self.tooling_commit},
+            }),
+            "checker-executor": lambda row: row["postcondition"]["checker"].update({
+                "executor": {"path": "C:/forged/python.exe", "sha256": "0" * 64,
+                             "version": "forged"},
+            }),
+            "materialization-audited": lambda row: row["materialization"]["audited"].update({
+                "files": 999, "manifest_sha256": "0" * 64,
+            }),
+            "materialization-tooling": lambda row: row["materialization"]["tooling"].update({
+                "files": 999, "manifest_sha256": "0" * 64,
+            }),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(label=label):
+                tampered = json.loads(json.dumps(receipt))
+                mutate(tampered)
+                tampered["evidence_id"] = self.tool.canonical_evidence_id(tampered)
+                with self.assertRaises(self.tool.ContractError):
+                    self.tool.build_runtime_projection(
+                        tampered, _json_bytes(tampered) + b"\n", run_dir,
+                        **self.projection_trust(),
+                    )
+
+        trace_path = run_dir / "trace.jsonl"
+        events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+        events[0]["axis"] = []
+        trace_bytes = b"".join(_json_bytes(event) + b"\n" for event in events)
+        trace_path.chmod(0o666)
+        trace_path.write_bytes(trace_bytes)
+        tampered = json.loads(json.dumps(receipt))
+        tampered["trace"]["sha256"] = hashlib.sha256(trace_bytes).hexdigest()
+        tampered["trace"]["bytes"] = len(trace_bytes)
+        integrity = self.tool._snapshot_files(run_dir)
+        integrity.pop("receipt.json")
+        integrity.pop("projection.json")
+        tampered["final_integrity_sha256"] = self.tool.canonical_sha256(integrity)
+        tampered["evidence_id"] = self.tool.canonical_evidence_id(tampered)
+        with self.assertRaisesRegex(self.tool.ContractError, "Trace.*Achse"):
+            self.tool.build_runtime_projection(
+                tampered, _json_bytes(tampered) + b"\n", run_dir,
+                **self.projection_trust(),
+            )
+
     def test_projection_export_rejects_missing_orphan_duplicate_and_receipt_tamper(self) -> None:
         cases = ("missing", "orphan", "duplicate", "receipt-tamper")
         for case in cases:
