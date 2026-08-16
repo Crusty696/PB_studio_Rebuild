@@ -1,0 +1,10 @@
+{
+  "lesson_id": "60db663dad0c40df9b846303b896e1da",
+  "recorded_at": "2026-08-16T00:12:31+00:00",
+  "session_id": "71e3af7af4b9414ea2cd2151ba937547",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Parallele Runtime-Runs publizierten Run-Verzeichnisse vor Erwerb des gemeinsamen Ledger-Locks; Exact-Set-Export sah dadurch transiente Orphans.",
+  "cause": "Run-spezifische Locks schützten nur gleiche runtime_run_id; globaler Lock begann erst beim Rich-Ledger-Append, nachdem unterschiedliche Run-Verzeichnisse bereits sichtbar waren.",
+  "rule": "Run-Verzeichnis und davon abgeleitete Ledger unter einem globalen Publish-Lock serialisieren; Run-Verzeichnis vor Referenzledger veröffentlichen, jede Ledger-Datei einzeln atomar ersetzen und keine unmögliche Cross-File-Atomizität behaupten.",
+  "applies_to": "Runtime-Evidence-Runner, immutable Run-Directories, Rich-/Projection-Ledger, parallele Publisher"
+}

@@ -46,6 +46,14 @@ CONTRACT_ARTIFACTS = {
     "executor_manifest": "runtime-executor-manifest",
     "dependency_manifest": "runtime-dependency-manifest",
 }
+GLOBAL_CONTRACT_ARTIFACTS = {
+    "requirements-universe", "trigger-universe", "feature-catalog",
+    "symbol-catalog", "edge-catalog", "runtime-scenario-catalog",
+    "runtime-feature-universe", "runtime-symbol-universe",
+    "runtime-executor-manifest", "runtime-dependency-manifest",
+    "reviewer-trust-policy", "reviewer-contract",
+    "reviewer-readiness-binding", "reviewer-spawn-journal",
+}
 CONTRACT_FIELDS = {
     "schema_version", "plan_id", "run_id", "audited_commit", "tooling_commit",
     "snapshot_id", "frozen_at", "expires_at", "artifacts", "contract_sha256",
@@ -55,6 +63,12 @@ AUTHORITY_POLICY_PATH = "config/audit_runtime_authority_policy.json"
 AUTHORITY_POLICY_FIELDS = {
     "schema_version", "audit_contract_sha256", "plan_id", "run_id", "snapshot_id",
     "audited_commit", "tooling_commit", "allow_same_audited_tooling_commit",
+}
+PROJECTION_FIELDS = {
+    "evidence_id", "evidence_kind", "runtime_run_id",
+    "covered_feature_paths", "covered_symbol_ids", "covered_axes",
+    "proof_ref", "proof_sha256", "run_id", "audited_commit",
+    "tooling_commit", "snapshot_id", "timestamp", "record_sha256",
 }
 
 
@@ -165,9 +179,19 @@ def _read_bound_ref(evidence: Path, record: object, label: str) -> tuple[Path, b
         raise ContractError(f"Auditvertrag/{label}: SHA256 stimmt nicht")
     if set(record) != {"artifact_id", "ref", "sha256", "bytes", "record_count"}:
         raise ContractError(f"Auditvertrag/{label}: Artifact-Schema falsch")
-    if record.get("artifact_id") != f"sha256:{expected}" or record.get("bytes") != len(data):
+    if (
+        record.get("artifact_id") != f"sha256:{expected}"
+        or type(record.get("bytes")) is not int
+        or record.get("bytes") != len(data)
+    ):
         raise ContractError(f"Auditvertrag/{label}: artifact_id/bytes falsch")
-    count = len(data.decode("utf-8").splitlines())
+    if label in {
+        "runtime-scenario-catalog", "runtime-feature-universe", "runtime-symbol-universe",
+    }:
+        count = len(_parse_jsonl(data, f"Auditvertrag/{label}", allow_empty=True))
+    else:
+        _parse_json(data, f"Auditvertrag/{label}")
+        count = 1
     if type(record.get("record_count")) is not int or record["record_count"] != count:
         raise ContractError(f"Auditvertrag/{label}: record_count falsch")
     return path, data
@@ -204,7 +228,7 @@ def _load_contract(evidence: Path, contract_path: Path) -> tuple[dict[str, Any],
     if timestamps["expires_at"] <= now:
         raise ContractError("audit_contract ist abgelaufen")
     artifacts = contract.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != set(CONTRACT_ARTIFACTS.values()):
+    if not isinstance(artifacts, dict) or set(artifacts) != GLOBAL_CONTRACT_ARTIFACTS:
         raise ContractError("audit_contract.artifacts hat falsche Exact-Set-Menge")
     refs = {name: _read_bound_ref(evidence, artifacts[key], key) for name, key in CONTRACT_ARTIFACTS.items()}
     return contract, data, refs
@@ -723,6 +747,177 @@ def _validate_harness_report(
     return report
 
 
+def _validated_projection_list(
+    receipt: dict[str, Any], field: str, *, singleton: bool = False,
+) -> list[str]:
+    value = receipt.get(field)
+    if (
+        not isinstance(value, list)
+        or (singleton and len(value) != 1)
+        or any(not isinstance(item, str) or not item.strip() or item != item.strip() for item in value)
+        or value != sorted(set(value))
+    ):
+        suffix = " und genau einen Wert" if singleton else ""
+        raise ContractError(f"Runtime-Receipt {field} muss sortierte eindeutige Stringliste{suffix} sein")
+    return value
+
+
+def _validate_receipt_for_projection(receipt: dict[str, Any], receipt_bytes: bytes) -> None:
+    if receipt_bytes != _canonical_bytes(receipt) + b"\n":
+        raise ContractError("Runtime-Receipt ist nicht kanonisch serialisiert")
+    runtime_run_id = receipt.get("runtime_run_id")
+    if not isinstance(runtime_run_id, str) or not ID_RE.fullmatch(runtime_run_id):
+        raise ContractError("Runtime-Receipt runtime_run_id ungueltig")
+    for field in ("run_id", "snapshot_id", "timestamp"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise ContractError(f"Runtime-Receipt {field} fehlt/ungueltig")
+    for field in ("audited_commit", "tooling_commit"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not SHA_RE.fullmatch(value):
+            raise ContractError(f"Runtime-Receipt {field} muss voller SHA sein")
+    try:
+        timestamp = datetime.fromisoformat(receipt["timestamp"])
+    except ValueError as exc:
+        raise ContractError("Runtime-Receipt timestamp ungueltig") from exc
+    if timestamp.tzinfo is None:
+        raise ContractError("Runtime-Receipt timestamp braucht Zeitzone")
+    _validated_projection_list(receipt, "covered_feature_paths", singleton=True)
+    _validated_projection_list(receipt, "covered_symbol_ids")
+    axes = _validated_projection_list(receipt, "covered_axes")
+    if not set(axes).issubset(KNOWN_AXES):
+        raise ContractError("Runtime-Receipt covered_axes enthaelt unbekannte Achse")
+    expected_evidence_id = canonical_evidence_id(receipt)
+    if receipt.get("evidence_id") != expected_evidence_id:
+        raise ContractError("Runtime-Receipt evidence_id ist nicht kanonisch")
+
+
+def build_runtime_projection(receipt: dict[str, Any], receipt_bytes: bytes) -> dict[str, Any]:
+    """Build exact compact runtime-evidence row from one canonical rich receipt."""
+    _validate_receipt_for_projection(receipt, receipt_bytes)
+    runtime_run_id = receipt["runtime_run_id"]
+    projection: dict[str, Any] = {
+        "evidence_id": receipt["evidence_id"],
+        "evidence_kind": "runtime",
+        "runtime_run_id": runtime_run_id,
+        "covered_feature_paths": list(receipt["covered_feature_paths"]),
+        "covered_symbol_ids": list(receipt["covered_symbol_ids"]),
+        "covered_axes": list(receipt["covered_axes"]),
+        "proof_ref": f"runs/{runtime_run_id}/receipt.json",
+        "proof_sha256": _sha_bytes(receipt_bytes),
+        "run_id": receipt["run_id"],
+        "audited_commit": receipt["audited_commit"],
+        "tooling_commit": receipt["tooling_commit"],
+        "snapshot_id": receipt["snapshot_id"],
+        "timestamp": receipt["timestamp"],
+    }
+    projection["record_sha256"] = canonical_sha256(projection)
+    return projection
+
+
+def validate_runtime_projection(
+    projection: dict[str, Any], receipt: dict[str, Any], receipt_bytes: bytes,
+) -> None:
+    """Fail closed unless projection exactly represents supplied rich receipt bytes."""
+    if not isinstance(projection, dict) or set(projection) != PROJECTION_FIELDS:
+        raise ContractError("Runtime-Projection Exact-Fields falsch")
+    seal = projection.get("record_sha256")
+    if not isinstance(seal, str) or not HASH_RE.fullmatch(seal):
+        raise ContractError("Runtime-Projection record_sha256 ungueltig")
+    if seal != canonical_sha256(projection, omit={"record_sha256"}):
+        raise ContractError("Runtime-Projection record_sha256 stimmt nicht")
+    expected = build_runtime_projection(receipt, receipt_bytes)
+    if projection != expected:
+        raise ContractError("Runtime-Projection stimmt nicht exakt mit Rich Receipt ueberein")
+
+
+def _read_projection_pair(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    receipt_path = run_dir / "receipt.json"
+    projection_path = run_dir / "projection.json"
+    if not receipt_path.is_file() or not projection_path.is_file():
+        raise ContractError(f"Runtime-Run {run_dir.name}: Receipt/Projection fehlt")
+    receipt_bytes = receipt_path.read_bytes()
+    receipt = _parse_json(receipt_bytes, f"Runtime-Run {run_dir.name} Receipt")
+    if receipt.get("runtime_run_id") != run_dir.name:
+        raise ContractError(f"Runtime-Run {run_dir.name}: Verzeichnis/Receipt-ID falsch")
+    projection_bytes = projection_path.read_bytes()
+    projection = _parse_json(projection_bytes, f"Runtime-Run {run_dir.name} Projection")
+    validate_runtime_projection(projection, receipt, receipt_bytes)
+    if projection_bytes != _canonical_bytes(projection) + b"\n":
+        raise ContractError(f"Runtime-Run {run_dir.name}: Projection nicht kanonisch serialisiert")
+    return receipt, projection
+
+
+def _replace_bytes_atomic(path: Path, data: bytes, prefix: str) -> None:
+    descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=path.parent)
+    os.close(descriptor)
+    temp_path = Path(name)
+    try:
+        _durable_write(temp_path, data)
+        os.replace(temp_path, path)
+        _fsync_directory(path.parent)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _export_runtime_evidence_locked(evidence: Path) -> list[dict[str, Any]]:
+    runs_root = evidence / "runs"
+    ledger = evidence / "runtime_runs.jsonl"
+    if not runs_root.is_dir() or not ledger.is_file():
+        raise ContractError("Runtime-Export braucht runs/ und runtime_runs.jsonl")
+    ledger_bytes = ledger.read_bytes()
+    ledger_rows = _parse_jsonl(ledger_bytes, "runtime_runs.jsonl")
+    if ledger_bytes != b"".join(_canonical_bytes(row) + b"\n" for row in ledger_rows):
+        raise ContractError("runtime_runs.jsonl ist nicht kanonisch serialisiert")
+    ledger_by_id: dict[str, dict[str, Any]] = {}
+    evidence_ids: set[str] = set()
+    for row in ledger_rows:
+        runtime_run_id = row.get("runtime_run_id")
+        evidence_id = row.get("evidence_id")
+        if (
+            not isinstance(runtime_run_id, str)
+            or not ID_RE.fullmatch(runtime_run_id)
+            or runtime_run_id in ledger_by_id
+        ):
+            raise ContractError("runtime_runs.jsonl hat fehlende/doppelte runtime_run_id")
+        if not isinstance(evidence_id, str) or evidence_id in evidence_ids:
+            raise ContractError("runtime_runs.jsonl hat fehlende/doppelte evidence_id")
+        ledger_by_id[runtime_run_id] = row
+        evidence_ids.add(evidence_id)
+    run_dirs: dict[str, Path] = {}
+    for child in runs_root.iterdir():
+        lock_id = child.name[1:-5] if child.name.startswith(".") and child.name.endswith(".lock") else ""
+        if child.is_file() and ID_RE.fullmatch(lock_id):
+            continue
+        if child.is_symlink() or not child.is_dir() or not ID_RE.fullmatch(child.name) or child.name in run_dirs:
+            raise ContractError(f"Runtime-Run-Pfad ungueltig: {child.name}")
+        run_dirs[child.name] = child
+    if set(run_dirs) != set(ledger_by_id):
+        raise ContractError("Runtime-Run-Verzeichnisse und Rich Ledger sind keine Exact-Set-Menge")
+    projections: list[dict[str, Any]] = []
+    for runtime_run_id in sorted(run_dirs):
+        receipt, projection = _read_projection_pair(run_dirs[runtime_run_id])
+        if receipt != ledger_by_id[runtime_run_id]:
+            raise ContractError(f"Runtime-Run {runtime_run_id}: Receipt und Rich Ledger unterscheiden sich")
+        projections.append(projection)
+    payload = b"".join(_canonical_bytes(row) + b"\n" for row in projections)
+    _replace_bytes_atomic(evidence / "runtime-evidence.jsonl", payload, "runtime-evidence-")
+    return projections
+
+
+def export_runtime_evidence(evidence_root: Path) -> list[dict[str, Any]]:
+    """Atomically reconstruct static projection shard from immutable run dirs."""
+    evidence = evidence_root.resolve()
+    if not evidence.is_dir():
+        raise ContractError("evidence_root fehlt")
+    lock = evidence / ".runtime_runs.lock"
+    lock_payload = _create_ledger_lock(lock)
+    try:
+        return _export_runtime_evidence_locked(evidence)
+    finally:
+        _release_lock(lock, lock_payload)
+
+
 def _existing_runtime_ids(ledger: Path) -> tuple[set[str], set[str]]:
     if not ledger.exists():
         return set(), set()
@@ -808,25 +1003,48 @@ def _create_ledger_lock(path: Path) -> bytes:
             time.sleep(0.02)
 
 
-def _append_ledger_atomic(ledger: Path, receipt: dict[str, Any]) -> None:
+def _publish_run_and_ledgers(
+    stage_run: Path, final_run: Path, ledger: Path, receipt: dict[str, Any],
+) -> None:
+    """Serialize run-dir publication and per-file atomic ledger replacements.
+
+    Run directory is published before ledgers because projections point into it.
+    Rich and compact ledgers are each atomic files, but deliberately not claimed
+    as one impossible cross-file atomic transaction. If compact export fails
+    after rich-ledger commit, immutable run + rich ledger remain recoverable by
+    ``export_runtime_evidence``.
+    """
     lock = ledger.parent / ".runtime_runs.lock"
     lock_payload = _create_ledger_lock(lock)
     temp_path: Path | None = None
+    published = False
+    ledger_committed = False
     try:
         runtime_ids, evidence_ids = _existing_runtime_ids(ledger)
         if receipt["runtime_run_id"] in runtime_ids or receipt["evidence_id"] in evidence_ids:
             raise ContractError("Runtime-Receipt bereits im Ledger vorhanden")
         if _scenario_already_recorded(ledger, receipt["scenario_id"]):
             raise ContractError("Scenario wurde bereits ausgefuehrt; Evidence-Reuse verboten")
+        if final_run.exists():
+            raise ContractError(f"runtime_run_id {receipt['runtime_run_id']!r} bereits vorhanden")
         existing = ledger.read_bytes() if ledger.exists() else b""
         if existing and not existing.endswith(b"\n"):
             raise ContractError("runtime_runs.jsonl endet nicht mit Newline")
+        os.replace(stage_run, final_run)
+        _fsync_directory(final_run.parent)
+        published = True
         descriptor, name = tempfile.mkstemp(prefix="runtime-runs-", suffix=".tmp", dir=ledger.parent)
         os.close(descriptor)
         temp_path = Path(name)
         _durable_write(temp_path, existing + _canonical_bytes(receipt) + b"\n")
         os.replace(temp_path, ledger)
         _fsync_directory(ledger.parent)
+        ledger_committed = True
+        _export_runtime_evidence_locked(ledger.parent)
+    except Exception:
+        if published and not ledger_committed:
+            _remove_tree(final_run)
+        raise
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
@@ -1160,22 +1378,27 @@ def run_scenario(
         receipt["evidence_id"] = canonical_evidence_id(receipt)
         if receipt["evidence_id"] in evidence_ids:
             raise ContractError("evidence_id bereits vorhanden")
-        _durable_write(stage_run / "receipt.json", _canonical_bytes(receipt) + b"\n")
+        receipt_bytes = _canonical_bytes(receipt) + b"\n"
+        _durable_write(stage_run / "receipt.json", receipt_bytes)
+        projection = build_runtime_projection(receipt, receipt_bytes)
+        _durable_write(stage_run / "projection.json", _canonical_bytes(projection) + b"\n")
+        os.chmod(stage_run / "receipt.json", 0o444)
+        os.chmod(stage_run / "projection.json", 0o444)
         _assert_sources_unchanged(source_hashes)
-        _assert_snapshot(stage_run, {**final_integrity, "receipt.json": _sha(stage_run / "receipt.json")}, "Finale Rehash")
+        _assert_snapshot(
+            stage_run,
+            {
+                **final_integrity,
+                "receipt.json": _sha(stage_run / "receipt.json"),
+                "projection.json": _sha(stage_run / "projection.json"),
+            },
+            "Finale Rehash",
+        )
         _fsync_tree(stage_run)
 
         _remove_tree(audited_root)
         _remove_tree(tooling_root)
-        if final_run.exists():
-            raise ContractError(f"runtime_run_id {runtime_run_id!r} bereits vorhanden")
-        os.replace(stage_run, final_run)
-        _fsync_directory(runs_root)
-        try:
-            _append_ledger_atomic(ledger, receipt)
-        except Exception:
-            _remove_tree(final_run)
-            raise
+        _publish_run_and_ledgers(stage_run, final_run, ledger, receipt)
         success = True
         return receipt
     finally:
