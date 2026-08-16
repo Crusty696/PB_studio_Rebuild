@@ -46,6 +46,11 @@ ATTACHMENT_KEY = re.compile(
     r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
     r"|reviewer-signoff(?:-signature)?:[^:\s]+:[^:\s]+"
 )
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 SUPPORTED_SQL_DIALECT = "sqlite"
 NORMATIVE = re.compile(
     r"\b(muss|muessen|müssen|pflicht|required|must|shall|darf\s+nicht|forbidden)\b",
@@ -183,7 +188,18 @@ def _safe_ref(value: object) -> bool:
     if not isinstance(value, str) or not value or "\\" in value:
         return False
     path = PurePosixPath(value)
-    return path != PurePosixPath(".") and not path.is_absolute() and ".." not in path.parts
+    if (
+        path == PurePosixPath(".") or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        return False
+    windows_unsafe = any(
+        ":" in part
+        or part.endswith((".", " "))
+        or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+        for part in path.parts
+    )
+    return value == path.as_posix() and not windows_unsafe
 
 
 def _proof_errors(

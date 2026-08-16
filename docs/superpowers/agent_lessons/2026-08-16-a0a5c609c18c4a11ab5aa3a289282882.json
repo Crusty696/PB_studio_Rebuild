@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a0a5c609c18c4a11ab5aa3a289282882",
+  "recorded_at": "2026-08-16T00:47:40+00:00",
+  "session_id": "21e0390348f84780b53939809a004a62",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Feature-/Symbol-Proofvalidatoren akzeptierten Windows-Alias-/ADS-Refs; Runtime-Projektion band Receiptbytes, erlaubte aber beliebigen proof_ref statt Runner-Publishpfad.",
+  "cause": "Lokale _safe_ref-Pruefung modellierte nur POSIX-Traversal; Runtime-Receipt-Validierung verglich Descriptor und Inhalt, nicht die normative Pfadableitung aus runtime_run_id.",
+  "rule": "Jeder vor Dateizugriff akzeptierte Ref muss dieselbe Windows-segmentsensitive Policy wie Completion anwenden; Runner-Evidenz braucht zusaetzlich einen aus ihrer Identitaet deterministisch abgeleiteten kanonischen Publishpfad.",
+  "applies_to": "Feature-/Symbol-Proofs, Runtime-Receipts, Evidence-Attachments, Windows-Imports"
+}
