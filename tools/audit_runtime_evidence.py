@@ -70,6 +70,23 @@ PROJECTION_FIELDS = {
     "proof_ref", "proof_sha256", "run_id", "audited_commit",
     "tooling_commit", "snapshot_id", "timestamp", "record_sha256",
 }
+RICH_RECEIPT_FIELDS = {
+    "plan_id", "run_id", "runtime_run_id", "audited_commit", "tooling_commit",
+    "snapshot_id", "scenario_id", "scenario_sha256", "timestamp", "authority",
+    "audit_contract", "scenario_catalog", "sealed_contract_inputs",
+    "materialization", "runner", "environment", "observer", "input", "inputs",
+    "harness", "target", "stdout", "stderr", "exit", "trace", "postcondition",
+    "artifacts", "covered_feature_paths", "covered_symbol_ids", "covered_axes",
+    "final_integrity_sha256", "evidence_id",
+}
+RICH_RECEIPT_OPTIONAL_FIELDS = {
+    "forced_state", "observed_surfaces", "restart", "reopen",
+}
+SEALED_INPUT_NAMES = {
+    "audit_contract", "authority", "runner", "scenario_catalog",
+    "feature_universe", "symbol_universe", "executor_manifest",
+    "dependency_manifest",
+}
 
 
 class ContractError(RuntimeError):
@@ -167,6 +184,15 @@ def _parse_jsonl(data: bytes, label: str, *, allow_empty: bool = False) -> list[
     return rows
 
 
+def _descriptor_record_count(data: bytes, label: str) -> int:
+    if label in {
+        "runtime-scenario-catalog", "runtime-feature-universe", "runtime-symbol-universe",
+    }:
+        return len(_parse_jsonl(data, f"Auditvertrag/{label}", allow_empty=True))
+    _parse_json(data, f"Auditvertrag/{label}")
+    return 1
+
+
 def _read_bound_ref(evidence: Path, record: object, label: str) -> tuple[Path, bytes]:
     if not isinstance(record, dict):
         raise ContractError(f"Auditvertrag/{label}: Objekt fehlt")
@@ -185,13 +211,7 @@ def _read_bound_ref(evidence: Path, record: object, label: str) -> tuple[Path, b
         or record.get("bytes") != len(data)
     ):
         raise ContractError(f"Auditvertrag/{label}: artifact_id/bytes falsch")
-    if label in {
-        "runtime-scenario-catalog", "runtime-feature-universe", "runtime-symbol-universe",
-    }:
-        count = len(_parse_jsonl(data, f"Auditvertrag/{label}", allow_empty=True))
-    else:
-        _parse_json(data, f"Auditvertrag/{label}")
-        count = 1
+    count = _descriptor_record_count(data, label)
     if type(record.get("record_count")) is not int or record["record_count"] != count:
         raise ContractError(f"Auditvertrag/{label}: record_count falsch")
     return path, data
@@ -762,13 +782,72 @@ def _validated_projection_list(
     return value
 
 
-def _validate_receipt_for_projection(receipt: dict[str, Any], receipt_bytes: bytes) -> None:
+def _run_ref_file(run_dir: Path, ref: object, label: str) -> Path:
+    prefix = f"runs/{run_dir.name}/"
+    if not isinstance(ref, str) or not ref.startswith(prefix):
+        raise ContractError(f"{label}: Run-Ref falsch")
+    relative = ref[len(prefix):]
+    if not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
+        raise ContractError(f"{label}: Run-Ref ungueltig")
+    path = _contained(run_dir, run_dir / relative, label)
+    if not path.is_file():
+        raise ContractError(f"{label}: Datei fehlt")
+    return path
+
+
+def _file_binding(
+    run_dir: Path, record: object, fields: set[str], label: str,
+) -> tuple[Path, bytes]:
+    if not isinstance(record, dict) or set(record) != fields:
+        raise ContractError(f"{label}: Exact-Fields falsch")
+    path = _run_ref_file(run_dir, record.get("ref"), label)
+    data = path.read_bytes()
+    if (
+        type(record.get("bytes")) is not int
+        or record["bytes"] != len(data)
+        or not isinstance(record.get("sha256"), str)
+        or not HASH_RE.fullmatch(record["sha256"])
+        or record["sha256"] != _sha_bytes(data)
+    ):
+        raise ContractError(f"{label}: Bytes/SHA falsch")
+    return path, data
+
+
+def _provenance_shape(value: object, commit: str, label: str) -> None:
+    if not isinstance(value, dict) or set(value) != {"commit", "executor", "source"}:
+        raise ContractError(f"{label}: Provenienzfelder falsch")
+    if value.get("commit") != commit:
+        raise ContractError(f"{label}: Commitbindung falsch")
+    executor, source = value.get("executor"), value.get("source")
+    if not isinstance(executor, dict) or set(executor) != {"path", "sha256", "version"}:
+        raise ContractError(f"{label}: Executor-Provenienz falsch")
+    if not isinstance(executor.get("sha256"), str) or not HASH_RE.fullmatch(executor["sha256"]):
+        raise ContractError(f"{label}: Executor-SHA falsch")
+    if not isinstance(source, dict) or set(source) != {"path", "git_blob", "sha256", "commit"}:
+        raise ContractError(f"{label}: Source-Provenienz falsch")
+    if source.get("commit") != commit or not HASH_RE.fullmatch(str(source.get("sha256", ""))):
+        raise ContractError(f"{label}: Source-Bindung falsch")
+
+
+def _validate_receipt_for_projection(
+    receipt: dict[str, Any], receipt_bytes: bytes, run_dir: Path, *,
+    repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
+) -> None:
+    keys = set(receipt)
+    if not RICH_RECEIPT_FIELDS.issubset(keys) or not keys.issubset(
+        RICH_RECEIPT_FIELDS | RICH_RECEIPT_OPTIONAL_FIELDS
+    ):
+        raise ContractError("Rich Receipt Exact-Fields falsch")
     if receipt_bytes != _canonical_bytes(receipt) + b"\n":
         raise ContractError("Runtime-Receipt ist nicht kanonisch serialisiert")
     runtime_run_id = receipt.get("runtime_run_id")
     if not isinstance(runtime_run_id, str) or not ID_RE.fullmatch(runtime_run_id):
         raise ContractError("Runtime-Receipt runtime_run_id ungueltig")
-    for field in ("run_id", "snapshot_id", "timestamp"):
+    if run_dir.name != runtime_run_id or run_dir.is_symlink() or not run_dir.is_dir():
+        raise ContractError("Runtime-Receipt Run-Verzeichnisbindung falsch")
+    if any(path.is_symlink() for path in run_dir.rglob("*")):
+        raise ContractError("Runtime-Receipt Run-Verzeichnis enthaelt Symlink")
+    for field in ("plan_id", "run_id", "snapshot_id", "scenario_id", "timestamp"):
         value = receipt.get(field)
         if not isinstance(value, str) or not value.strip() or value != value.strip():
             raise ContractError(f"Runtime-Receipt {field} fehlt/ungueltig")
@@ -783,7 +862,11 @@ def _validate_receipt_for_projection(receipt: dict[str, Any], receipt_bytes: byt
     if timestamp.tzinfo is None:
         raise ContractError("Runtime-Receipt timestamp braucht Zeitzone")
     _validated_projection_list(receipt, "covered_feature_paths", singleton=True)
-    _validated_projection_list(receipt, "covered_symbol_ids")
+    symbols = _validated_projection_list(receipt, "covered_symbol_ids")
+    if symbols:
+        raise ContractError(
+            "trusted externer Symbol-Observer ist nicht implementiert; plural Symbols sind nur Adapterkapazitaet"
+        )
     axes = _validated_projection_list(receipt, "covered_axes")
     if not set(axes).issubset(KNOWN_AXES):
         raise ContractError("Runtime-Receipt covered_axes enthaelt unbekannte Achse")
@@ -791,10 +874,399 @@ def _validate_receipt_for_projection(receipt: dict[str, Any], receipt_bytes: byt
     if receipt.get("evidence_id") != expected_evidence_id:
         raise ContractError("Runtime-Receipt evidence_id ist nicht kanonisch")
 
+    forced = sorted({"error", "cancel", "retry"} & set(axes))
+    expected_optional: set[str] = set()
+    if forced:
+        expected_optional.add("forced_state")
+    surfaces = sorted(set(SURFACE_OBSERVERS) & set(axes))
+    if surfaces:
+        expected_optional.add("observed_surfaces")
+    if "restart_safe" in axes:
+        expected_optional.update({"restart", "reopen"})
+    if keys - RICH_RECEIPT_FIELDS != expected_optional:
+        raise ContractError("Rich Receipt optionale Zustandsfelder falsch")
+    if forced and (len(forced) != 1 or receipt.get("forced_state") != forced[0]):
+        raise ContractError("Rich Receipt forced_state falsch")
+    if surfaces and receipt.get("observed_surfaces") != surfaces:
+        raise ContractError("Rich Receipt observed_surfaces falsch")
+    if "restart_safe" in axes and (receipt.get("restart") is not True or receipt.get("reopen") is not True):
+        raise ContractError("Rich Receipt Restart/Reopen falsch")
 
-def build_runtime_projection(receipt: dict[str, Any], receipt_bytes: bytes) -> dict[str, Any]:
+    integrity = _snapshot_files(run_dir)
+    integrity.pop("receipt.json", None)
+    integrity.pop("projection.json", None)
+    if receipt.get("final_integrity_sha256") != canonical_sha256(integrity):
+        raise ContractError("Rich Receipt final_integrity_sha256 stimmt nicht")
+
+    sealed_rows = receipt.get("sealed_contract_inputs")
+    if not isinstance(sealed_rows, list):
+        raise ContractError("Rich Receipt sealed_contract_inputs fehlt")
+    sealed: dict[str, tuple[dict[str, Any], bytes]] = {}
+    for item in sealed_rows:
+        name = item.get("name") if isinstance(item, dict) else None
+        fields = {"name", "ref", "sha256", "git_blob"} if name == "authority" else {"name", "ref", "sha256"}
+        if (
+            not isinstance(name, str) or name in sealed or set(item) != fields
+            or not isinstance(item.get("sha256"), str) or not HASH_RE.fullmatch(item["sha256"])
+        ):
+            raise ContractError("Rich Receipt sealed_contract_inputs Record falsch/doppelt")
+        path = _run_ref_file(run_dir, item.get("ref"), f"Sealed {name}")
+        data = path.read_bytes()
+        if _sha_bytes(data) != item["sha256"]:
+            raise ContractError(f"Sealed {name}: SHA falsch")
+        sealed[name] = (item, data)
+    if set(sealed) != SEALED_INPUT_NAMES:
+        raise ContractError("Rich Receipt sealed_contract_inputs Exact-Set falsch")
+
+    audit_info = receipt.get("audit_contract")
+    if not isinstance(audit_info, dict) or set(audit_info) != {"ref", "sha256", "contract_sha256"}:
+        raise ContractError("Rich Receipt audit_contract Felder falsch")
+    if audit_info.get("ref") != sealed["audit_contract"][0]["ref"] or audit_info.get("sha256") != sealed["audit_contract"][0]["sha256"]:
+        raise ContractError("Rich Receipt audit_contract/Sealed-Bindung falsch")
+    contract = _parse_json(sealed["audit_contract"][1], "Sealed Auditvertrag")
+    if set(contract) != CONTRACT_FIELDS or contract.get("schema_version") != 1:
+        raise ContractError("Sealed Auditvertrag Exact-Fields/schema_version falsch")
+    contract_sha = canonical_sha256(contract, omit={"contract_sha256"})
+    if contract.get("contract_sha256") != contract_sha or audit_info.get("contract_sha256") != contract_sha:
+        raise ContractError("Sealed Auditvertrag Body-SHA falsch")
+    for field in ("plan_id", "run_id", "snapshot_id", "audited_commit", "tooling_commit"):
+        if contract.get(field) != receipt.get(field):
+            raise ContractError(f"Rich Receipt Auditvertrag-Bindung falsch: {field}")
+    contract_artifacts = contract.get("artifacts")
+    if not isinstance(contract_artifacts, dict) or set(contract_artifacts) != GLOBAL_CONTRACT_ARTIFACTS:
+        raise ContractError("Sealed Auditvertrag Artifact-Exact-Set falsch")
+    for internal_name, artifact_key in CONTRACT_ARTIFACTS.items():
+        descriptor = contract_artifacts.get(artifact_key)
+        data = sealed[internal_name][1]
+        if not isinstance(descriptor, dict) or set(descriptor) != {"artifact_id", "ref", "sha256", "bytes", "record_count"}:
+            raise ContractError(f"Sealed Auditvertrag Descriptor falsch: {artifact_key}")
+        digest = _sha_bytes(data)
+        if (
+            descriptor.get("artifact_id") != f"sha256:{digest}"
+            or descriptor.get("sha256") != digest
+            or type(descriptor.get("bytes")) is not int
+            or descriptor["bytes"] != len(data)
+            or type(descriptor.get("record_count")) is not int
+            or descriptor["record_count"] != _descriptor_record_count(data, artifact_key)
+        ):
+            raise ContractError(f"Sealed Auditvertrag Descriptor-Bindung falsch: {artifact_key}")
+
+    authority_info = receipt.get("authority")
+    authority_fields = {
+        "git_blob", "path", "authority_commit", "expected_authority_commit",
+        "sha256", "policy", "expected_contract_sha256", "trust_boundary",
+    }
+    if not isinstance(authority_info, dict) or set(authority_info) != authority_fields:
+        raise ContractError("Rich Receipt Authority Exact-Fields falsch")
+    authority_record, authority_bytes = sealed["authority"]
+    authority_policy = _parse_json(authority_bytes, "Sealed Authority")
+    if authority_info.get("policy") != authority_policy or authority_info.get("sha256") != _sha_bytes(authority_bytes):
+        raise ContractError("Rich Receipt Authority-Bytes/Policy falsch")
+    if authority_info.get("git_blob") != authority_record.get("git_blob") or not SHA_RE.fullmatch(str(authority_info.get("git_blob", ""))):
+        raise ContractError("Rich Receipt Authority-Gitblob falsch")
+    if authority_info.get("path") != AUTHORITY_POLICY_PATH:
+        raise ContractError("Rich Receipt Authority-Pfad falsch")
+    authority_commit = authority_info.get("authority_commit")
+    if (
+        not isinstance(authority_commit, str) or not SHA_RE.fullmatch(authority_commit)
+        or authority_info.get("expected_authority_commit") != authority_commit
+        or authority_commit in {receipt["audited_commit"], receipt["tooling_commit"]}
+    ):
+        raise ContractError("Rich Receipt Authority-Commitbindung falsch")
+    if set(authority_policy) != AUTHORITY_POLICY_FIELDS or authority_policy.get("schema_version") != 1:
+        raise ContractError("Rich Receipt Authority-Policy Exact-Fields falsch")
+    authority_bindings = {
+        "audit_contract_sha256": contract_sha, "plan_id": receipt["plan_id"],
+        "run_id": receipt["run_id"], "snapshot_id": receipt["snapshot_id"],
+        "audited_commit": receipt["audited_commit"], "tooling_commit": receipt["tooling_commit"],
+    }
+    if any(authority_policy.get(field) != value for field, value in authority_bindings.items()):
+        raise ContractError("Rich Receipt Authority-Policy Bindings falsch")
+    if authority_info.get("expected_contract_sha256") != contract_sha:
+        raise ContractError("Rich Receipt Authority Contract-Pin falsch")
+    if authority_info.get("trust_boundary") != "trusted-external-authority-pin-required; compromised-external-pin-not-detected":
+        raise ContractError("Rich Receipt Authority Trust-Boundary falsch")
+    repo = repo_root.resolve()
+    if not (repo / ".git").exists():
+        raise ContractError("Projection-Trust repo_root ist kein Git-Worktree")
+    if not HASH_RE.fullmatch(str(expected_contract_sha256)) or contract_sha != expected_contract_sha256:
+        raise ContractError("Projection-Trust externer Contract-Pin falsch")
+    if not SHA_RE.fullmatch(str(expected_authority_commit)) or authority_commit != expected_authority_commit:
+        raise ContractError("Projection-Trust externer Authority-Pin falsch")
+    authority_git = _git(repo, "show", f"{expected_authority_commit}:{AUTHORITY_POLICY_PATH}", check=False)
+    if authority_git.returncode != 0 or authority_git.stdout != authority_bytes:
+        raise ContractError("Projection-Trust Authority-Gitbytes falsch")
+    authority_oid = _git(repo, "rev-parse", f"{expected_authority_commit}:{AUTHORITY_POLICY_PATH}", check=False)
+    if authority_oid.returncode != 0 or authority_oid.stdout.decode().strip() != authority_info["git_blob"]:
+        raise ContractError("Projection-Trust Authority-Gitblob falsch")
+
+    scenario_info = receipt.get("scenario_catalog")
+    if not isinstance(scenario_info, dict) or set(scenario_info) != {"ref", "sha256"}:
+        raise ContractError("Rich Receipt scenario_catalog Felder falsch")
+    if scenario_info != {"ref": sealed["scenario_catalog"][0]["ref"], "sha256": sealed["scenario_catalog"][0]["sha256"]}:
+        raise ContractError("Rich Receipt Scenario-Katalog/Sealed-Bindung falsch")
+    catalog = _load_catalog(sealed["scenario_catalog"][1])
+    features, symbol_map = _feature_and_symbol_sets(
+        sealed["feature_universe"][1], sealed["symbol_universe"][1],
+    )
+    _validate_catalog_exact_set(catalog, features, symbol_map)
+    row = catalog.get(receipt["scenario_id"])
+    if row is None or row.get("scenario_sha256") != receipt.get("scenario_sha256"):
+        raise ContractError("Rich Receipt Scenario-ID/SHA falsch")
+    _validate_contract_bindings(row, contract)
+    _validate_target_sets(row, features, symbol_map)
+    if (
+        receipt["covered_feature_paths"] != [row.get("feature_target")]
+        or receipt["covered_symbol_ids"] != sorted(row.get("allowed_symbol_ids", []))
+        or receipt["covered_axes"] != sorted(set(row.get("allowed_axes", [])))
+    ):
+        raise ContractError("Rich Receipt Scenario-Coverage falsch")
+
+    runner = receipt.get("runner")
+    if not isinstance(runner, dict) or set(runner) != {"path", "ref", "tooling_commit", "sha256", "shell"}:
+        raise ContractError("Rich Receipt Runner Exact-Fields falsch")
+    if (
+        runner.get("path") != "tools/audit_runtime_evidence.py"
+        or runner.get("tooling_commit") != receipt["tooling_commit"]
+        or runner.get("shell") is not False
+        or runner.get("ref") != sealed["runner"][0]["ref"]
+        or runner.get("sha256") != sealed["runner"][0]["sha256"]
+    ):
+        raise ContractError("Rich Receipt Runner-Bindung falsch")
+    runner_git = _git(
+        repo, "show", f"{receipt['tooling_commit']}:tools/audit_runtime_evidence.py", check=False,
+    )
+    if runner_git.returncode != 0 or runner_git.stdout != sealed["runner"][1]:
+        raise ContractError("Projection-Trust Runner-Gitbytes falsch")
+    if _git(repo, "cat-file", "-e", f"{receipt['audited_commit']}^{{commit}}", check=False).returncode != 0:
+        raise ContractError("Projection-Trust audited_commit fehlt")
+
+    materialization = receipt.get("materialization")
+    if not isinstance(materialization, dict) or set(materialization) != {"method", "audited", "tooling"} or materialization.get("method") != "git-cat-file":
+        raise ContractError("Rich Receipt Materialization falsch")
+    for name, commit in (("audited", receipt["audited_commit"]), ("tooling", receipt["tooling_commit"])):
+        item = materialization.get(name)
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"commit", "files", "manifest_sha256", "method"}
+            or item.get("commit") != commit or item.get("method") != "git-cat-file"
+            or type(item.get("files")) is not int or item["files"] < 1
+            or not HASH_RE.fullmatch(str(item.get("manifest_sha256", "")))
+        ):
+            raise ContractError(f"Rich Receipt Materialization {name} falsch")
+
+    environment = receipt.get("environment")
+    environment_fields = {
+        "python_no_user_site", "python_safe_path", "python_flags", "path",
+        "executor_manifest_sha256", "dependency_manifest_sha256",
+        "required_modules", "dependency_manifest",
+    }
+    dependencies = _parse_json(sealed["dependency_manifest"][1], "Sealed Dependency-Manifest")
+    if not isinstance(environment, dict) or set(environment) != environment_fields:
+        raise ContractError("Rich Receipt Environment Exact-Fields falsch")
+    if (
+        environment.get("python_no_user_site") is not True
+        or environment.get("python_safe_path") is not True
+        or environment.get("python_flags") != ["-I", "-S"]
+        or environment.get("executor_manifest_sha256") != sealed["executor_manifest"][0]["sha256"]
+        or environment.get("dependency_manifest_sha256") != sealed["dependency_manifest"][0]["sha256"]
+        or environment.get("dependency_manifest") != dependencies
+        or environment.get("required_modules") != row.get("required_modules")
+    ):
+        raise ContractError("Rich Receipt Environment-Bindung falsch")
+
+    observer = receipt.get("observer")
+    observer_fields = {"source", "pid", "start_ns", "end_ns", "events", "threat_boundary", "cryptographic_anti_tamper"}
+    if not isinstance(observer, dict) or set(observer) != observer_fields:
+        raise ContractError("Rich Receipt Observer Exact-Fields falsch")
+    if (
+        observer.get("source") != "harness-controlled"
+        or observer.get("threat_boundary") != "shared-interpreter-no-cryptographic-anti-tamper"
+        or observer.get("cryptographic_anti_tamper") is not False
+        or any(type(observer.get(field)) is not int for field in ("pid", "start_ns", "end_ns", "events"))
+        or observer["start_ns"] > observer["end_ns"]
+    ):
+        raise ContractError("Rich Receipt Observer-Bindung falsch")
+
+    stdout_path, _ = _file_binding(run_dir, receipt.get("stdout"), {"ref", "bytes", "sha256"}, "Runtime stdout")
+    stderr_path, _ = _file_binding(run_dir, receipt.get("stderr"), {"ref", "bytes", "sha256"}, "Runtime stderr")
+    del stdout_path, stderr_path
+    exit_record = receipt.get("exit")
+    _file_binding(run_dir, exit_record, {"code", "ref", "bytes", "sha256"}, "Runtime exit")
+    if type(exit_record.get("code")) is not int or exit_record["code"] not in row.get("expected_exit_codes", [0]):
+        raise ContractError("Rich Receipt Exit-Code falsch")
+
+    trace_record = receipt.get("trace")
+    _, trace_bytes = _file_binding(run_dir, trace_record, {"ref", "bytes", "sha256", "owner"}, "Runtime trace")
+    if trace_record.get("owner") != "runner-from-trusted-harness-report":
+        raise ContractError("Rich Receipt Trace-Owner falsch")
+    events = _parse_jsonl(trace_bytes, "Runtime trace")
+    if len(events) != observer["events"] or sorted(event.get("axis") for event in events) != axes:
+        raise ContractError("Rich Receipt Trace-Achsen/Eventzahl falsch")
+    for event in events:
+        if event.get("feature_path") != row.get("feature_target") or event.get("axis") not in axes:
+            raise ContractError("Rich Receipt Trace-Feature/Achse falsch")
+        expected_observer = "trusted-tooling-harness" if event.get("axis") == "executed" else "runner-postcondition"
+        if event.get("observer") != expected_observer:
+            raise ContractError("Rich Receipt Trace-Observer falsch")
+        expected_fields = (
+            {"observer", "source", "event", "feature_path", "axis", "pid", "start_ns", "end_ns", "descriptor_sha256"}
+            if event.get("axis") == "executed"
+            else {"observer", "event", "feature_path", "axis", "pid", "time_ns"}
+        )
+        if set(event) != expected_fields:
+            raise ContractError("Rich Receipt Trace-Event Exact-Fields falsch")
+        if event.get("axis") == "executed" and (
+            event.get("source") != "harness-controlled"
+            or event.get("event") != "target-completed"
+            or event.get("pid") != observer["pid"]
+            or event.get("start_ns") != observer["start_ns"]
+            or event.get("end_ns") != observer["end_ns"]
+        ):
+            raise ContractError("Rich Receipt Executed-Trace-Bindung falsch")
+        if event.get("axis") != "executed" and (
+            event.get("event") != "pass" or type(event.get("pid")) is not int
+            or type(event.get("time_ns")) is not int
+        ):
+            raise ContractError("Rich Receipt Postcondition-Trace-Bindung falsch")
+
+    post_record = receipt.get("postcondition")
+    _, post_bytes = _file_binding(
+        run_dir, post_record,
+        {"ref", "bytes", "sha256", "result", "checker_exit_code", "checker"},
+        "Runtime postcondition",
+    )
+    post_payload = _parse_json(post_bytes, "Runtime postcondition payload")
+    if set(post_payload) != {"exit_code", "stdout_sha256", "stderr_sha256", "result"}:
+        raise ContractError("Rich Receipt Postcondition-Payload Felder falsch")
+    post_stdout = run_dir / "postcondition.stdout.bin"
+    post_stderr = run_dir / "postcondition.stderr.bin"
+    if not post_stdout.is_file() or not post_stderr.is_file():
+        raise ContractError("Rich Receipt Postcondition stdout/stderr fehlt")
+    if (
+        post_record.get("result") != "pass" or post_record.get("checker_exit_code") != 0
+        or post_payload.get("exit_code") != 0 or post_payload.get("result") != "pass"
+        or post_payload.get("stdout_sha256") != _sha(post_stdout)
+        or post_payload.get("stderr_sha256") != _sha(post_stderr)
+    ):
+        raise ContractError("Rich Receipt Postcondition-Bindung falsch")
+    _provenance_shape(post_record.get("checker"), receipt["tooling_commit"], "Postcondition")
+
+    inputs = receipt.get("inputs")
+    if not isinstance(inputs, list) or len(inputs) != len(row.get("inputs", [])):
+        raise ContractError("Rich Receipt Inputs falsch")
+    expected_inputs = {item.get("name"): item for item in row["inputs"]}
+    seen_input_names: set[str] = set()
+    for item in inputs:
+        if not isinstance(item, dict) or set(item) != {"name", "source_ref", "ref", "sha256"}:
+            raise ContractError("Rich Receipt Input-Record falsch")
+        expected = expected_inputs.get(item.get("name"))
+        if item.get("name") in seen_input_names:
+            raise ContractError("Rich Receipt Input-Name doppelt")
+        seen_input_names.add(item.get("name"))
+        path = _run_ref_file(run_dir, item.get("ref"), f"Runtime Input {item.get('name')}")
+        if expected is None or item.get("source_ref") != expected.get("ref") or item.get("sha256") != expected.get("sha256") or _sha(path) != item.get("sha256"):
+            raise ContractError("Rich Receipt Input-Bindung falsch")
+    aggregate = receipt.get("input")
+    expected_aggregate = (
+        {"ref": inputs[0]["ref"], "sha256": inputs[0]["sha256"]}
+        if len(inputs) == 1 else {"ref": "multiple", "sha256": canonical_sha256(inputs)}
+    )
+    if aggregate != expected_aggregate:
+        raise ContractError("Rich Receipt Input-Aggregat falsch")
+
+    harness = receipt.get("harness")
+    if not isinstance(harness, dict) or set(harness) != {"argv", "cwd", "timeout_seconds", "commit", "executor", "source"}:
+        raise ContractError("Rich Receipt Harness Exact-Fields falsch")
+    if harness.get("argv") != row["harness"].get("argv") or harness.get("cwd") != row["harness"].get("cwd"):
+        raise ContractError("Rich Receipt Harness Scenario-Bindung falsch")
+    expected_harness_timeout = float(row["harness"].get("timeout_seconds", row["timeout_seconds"]))
+    if harness.get("timeout_seconds") != expected_harness_timeout:
+        raise ContractError("Rich Receipt Harness Timeout-Bindung falsch")
+    _provenance_shape({key: harness[key] for key in ("commit", "executor", "source")}, receipt["tooling_commit"], "Harness")
+
+    descriptor_path = run_dir / "target_descriptor.json"
+    if not descriptor_path.is_file():
+        raise ContractError("Rich Receipt Target-Descriptor fehlt")
+    descriptor_bytes = descriptor_path.read_bytes()
+    descriptor = _parse_json(descriptor_bytes, "Target-Descriptor")
+    target = receipt.get("target")
+    if not isinstance(target, dict) or set(target) != {"descriptor_sha256", "report", "source"}:
+        raise ContractError("Rich Receipt Target Exact-Fields falsch")
+    report_path = run_dir / "harness_report.json"
+    if not report_path.is_file():
+        raise ContractError("Rich Receipt Harness-Report fehlt")
+    report = _parse_json(report_path.read_bytes(), "Harness-Report")
+    if set(descriptor) != {
+        "schema_version", "audited_commit", "target_path", "target_ref",
+        "target_git_blob", "target_sha256", "argv", "feature_target", "inputs",
+    } or descriptor.get("schema_version") != 1:
+        raise ContractError("Rich Receipt Target-Descriptor Exact-Fields falsch")
+    if set(report) != {
+        "schema_version", "descriptor_sha256", "target_exit_code",
+        "started_ns", "ended_ns", "loaded_modules",
+    } or report.get("schema_version") != 1 or report.get("target_exit_code") != 0:
+        raise ContractError("Rich Receipt Harness-Report Exact-Fields/Status falsch")
+    if (
+        not isinstance(report.get("loaded_modules"), list)
+        or any(type(report.get(field)) is not int for field in ("started_ns", "ended_ns"))
+        or report["started_ns"] > report["ended_ns"]
+    ):
+        raise ContractError("Rich Receipt Harness-Report Zeiten/Module falsch")
+    descriptor_inputs = descriptor.get("inputs")
+    if not isinstance(descriptor_inputs, dict):
+        raise ContractError("Rich Receipt Target-Descriptor Inputs falsch")
+    if target.get("descriptor_sha256") != _sha_bytes(descriptor_bytes) or target.get("report") != report:
+        raise ContractError("Rich Receipt Target Descriptor/Report falsch")
+    source = target.get("source")
+    if (
+        not isinstance(source, dict) or set(source) != {"commit", "path", "git_blob", "sha256"}
+        or source.get("commit") != receipt["audited_commit"]
+        or not SHA_RE.fullmatch(str(source.get("git_blob", "")))
+        or not HASH_RE.fullmatch(str(source.get("sha256", "")))
+        or source.get("path") != row["target"].get("path")
+        or descriptor.get("audited_commit") != receipt["audited_commit"]
+        or descriptor.get("target_ref") != source.get("path")
+        or descriptor.get("target_git_blob") != source.get("git_blob")
+        or descriptor.get("target_sha256") != source.get("sha256")
+        or descriptor.get("argv") != row["target"].get("argv")
+        or descriptor.get("feature_target") != row.get("feature_target")
+        or set(descriptor_inputs) != {item.get("name") for item in row.get("inputs", [])}
+        or report.get("descriptor_sha256") != target.get("descriptor_sha256")
+        or any(
+            event.get("descriptor_sha256") != target.get("descriptor_sha256")
+            for event in events if event.get("axis") == "executed"
+        )
+    ):
+        raise ContractError("Rich Receipt Target Source-Bindung falsch")
+
+    artifact_rows = receipt.get("artifacts")
+    if not isinstance(artifact_rows, list) or len(artifact_rows) != len(row.get("artifacts", [])):
+        raise ContractError("Rich Receipt Artifacts falsch")
+    expected_artifacts = {item.get("name"): item for item in row["artifacts"]}
+    seen_artifact_names: set[str] = set()
+    for item in artifact_rows:
+        if not isinstance(item, dict) or set(item) != {"name", "ref", "bytes", "sha256"}:
+            raise ContractError("Rich Receipt Artifact-Record falsch")
+        expected = expected_artifacts.get(item.get("name"))
+        if item.get("name") in seen_artifact_names:
+            raise ContractError("Rich Receipt Artifact-Name doppelt")
+        seen_artifact_names.add(item.get("name"))
+        _file_binding(run_dir, item, {"name", "ref", "bytes", "sha256"}, f"Runtime Artifact {item.get('name')}")
+        if expected is None or item.get("ref") != f"runs/{run_dir.name}/{expected.get('ref')}":
+            raise ContractError("Rich Receipt Artifact-Scenario-Bindung falsch")
+
+
+def build_runtime_projection(
+    receipt: dict[str, Any], receipt_bytes: bytes, run_dir: Path, *,
+    repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
+) -> dict[str, Any]:
     """Build exact compact runtime-evidence row from one canonical rich receipt."""
-    _validate_receipt_for_projection(receipt, receipt_bytes)
+    _validate_receipt_for_projection(
+        receipt, receipt_bytes, run_dir, repo_root=repo_root,
+        expected_contract_sha256=expected_contract_sha256,
+        expected_authority_commit=expected_authority_commit,
+    )
     runtime_run_id = receipt["runtime_run_id"]
     projection: dict[str, Any] = {
         "evidence_id": receipt["evidence_id"],
@@ -817,6 +1289,8 @@ def build_runtime_projection(receipt: dict[str, Any], receipt_bytes: bytes) -> d
 
 def validate_runtime_projection(
     projection: dict[str, Any], receipt: dict[str, Any], receipt_bytes: bytes,
+    run_dir: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str,
 ) -> None:
     """Fail closed unless projection exactly represents supplied rich receipt bytes."""
     if not isinstance(projection, dict) or set(projection) != PROJECTION_FIELDS:
@@ -826,12 +1300,19 @@ def validate_runtime_projection(
         raise ContractError("Runtime-Projection record_sha256 ungueltig")
     if seal != canonical_sha256(projection, omit={"record_sha256"}):
         raise ContractError("Runtime-Projection record_sha256 stimmt nicht")
-    expected = build_runtime_projection(receipt, receipt_bytes)
+    expected = build_runtime_projection(
+        receipt, receipt_bytes, run_dir, repo_root=repo_root,
+        expected_contract_sha256=expected_contract_sha256,
+        expected_authority_commit=expected_authority_commit,
+    )
     if projection != expected:
         raise ContractError("Runtime-Projection stimmt nicht exakt mit Rich Receipt ueberein")
 
 
-def _read_projection_pair(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def _read_projection_pair(
+    run_dir: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     receipt_path = run_dir / "receipt.json"
     projection_path = run_dir / "projection.json"
     if not receipt_path.is_file() or not projection_path.is_file():
@@ -842,7 +1323,11 @@ def _read_projection_pair(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]
         raise ContractError(f"Runtime-Run {run_dir.name}: Verzeichnis/Receipt-ID falsch")
     projection_bytes = projection_path.read_bytes()
     projection = _parse_json(projection_bytes, f"Runtime-Run {run_dir.name} Projection")
-    validate_runtime_projection(projection, receipt, receipt_bytes)
+    validate_runtime_projection(
+        projection, receipt, receipt_bytes, run_dir, repo_root=repo_root,
+        expected_contract_sha256=expected_contract_sha256,
+        expected_authority_commit=expected_authority_commit,
+    )
     if projection_bytes != _canonical_bytes(projection) + b"\n":
         raise ContractError(f"Runtime-Run {run_dir.name}: Projection nicht kanonisch serialisiert")
     return receipt, projection
@@ -860,7 +1345,10 @@ def _replace_bytes_atomic(path: Path, data: bytes, prefix: str) -> None:
         temp_path.unlink(missing_ok=True)
 
 
-def _export_runtime_evidence_locked(evidence: Path) -> list[dict[str, Any]]:
+def _export_runtime_evidence_locked(
+    evidence: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str,
+) -> list[dict[str, Any]]:
     runs_root = evidence / "runs"
     ledger = evidence / "runtime_runs.jsonl"
     if not runs_root.is_dir() or not ledger.is_file():
@@ -896,7 +1384,11 @@ def _export_runtime_evidence_locked(evidence: Path) -> list[dict[str, Any]]:
         raise ContractError("Runtime-Run-Verzeichnisse und Rich Ledger sind keine Exact-Set-Menge")
     projections: list[dict[str, Any]] = []
     for runtime_run_id in sorted(run_dirs):
-        receipt, projection = _read_projection_pair(run_dirs[runtime_run_id])
+        receipt, projection = _read_projection_pair(
+            run_dirs[runtime_run_id], repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
         if receipt != ledger_by_id[runtime_run_id]:
             raise ContractError(f"Runtime-Run {runtime_run_id}: Receipt und Rich Ledger unterscheiden sich")
         projections.append(projection)
@@ -905,7 +1397,10 @@ def _export_runtime_evidence_locked(evidence: Path) -> list[dict[str, Any]]:
     return projections
 
 
-def export_runtime_evidence(evidence_root: Path) -> list[dict[str, Any]]:
+def export_runtime_evidence(
+    evidence_root: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str,
+) -> list[dict[str, Any]]:
     """Atomically reconstruct static projection shard from immutable run dirs."""
     evidence = evidence_root.resolve()
     if not evidence.is_dir():
@@ -913,7 +1408,11 @@ def export_runtime_evidence(evidence_root: Path) -> list[dict[str, Any]]:
     lock = evidence / ".runtime_runs.lock"
     lock_payload = _create_ledger_lock(lock)
     try:
-        return _export_runtime_evidence_locked(evidence)
+        return _export_runtime_evidence_locked(
+            evidence, repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
     finally:
         _release_lock(lock, lock_payload)
 
@@ -1005,6 +1504,7 @@ def _create_ledger_lock(path: Path) -> bytes:
 
 def _publish_run_and_ledgers(
     stage_run: Path, final_run: Path, ledger: Path, receipt: dict[str, Any],
+    *, repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
 ) -> None:
     """Serialize run-dir publication and per-file atomic ledger replacements.
 
@@ -1040,7 +1540,11 @@ def _publish_run_and_ledgers(
         os.replace(temp_path, ledger)
         _fsync_directory(ledger.parent)
         ledger_committed = True
-        _export_runtime_evidence_locked(ledger.parent)
+        _export_runtime_evidence_locked(
+            ledger.parent, repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
     except Exception:
         if published and not ledger_committed:
             _remove_tree(final_run)
@@ -1128,7 +1632,7 @@ def run_scenario(
     audited_root = staging / "audited"
     tooling_root = staging / "tooling"
     sealed_root = staging / "sealed"
-    stage_run = staging / "run"
+    stage_run = staging / runtime_run_id
     stage_run.mkdir(parents=True)
     sealed_root.mkdir()
     success = False
@@ -1139,7 +1643,13 @@ def run_scenario(
         tooling_integrity = _snapshot_files(tooling_root)
 
         sealed_records: list[dict[str, Any]] = []
-        source_hashes: dict[Path, str] = {contract_path: _sha_bytes(contract_bytes)}
+        runner_path = Path(__file__).resolve()
+        runner_bytes = runner_path.read_bytes()
+        if _sha_bytes(runner_bytes) != runner_sha:
+            raise ContractError("Runner wurde nach Tooling-Identity-Pruefung veraendert")
+        source_hashes: dict[Path, str] = {
+            contract_path: _sha_bytes(contract_bytes), runner_path: runner_sha,
+        }
         contract_copy = sealed_root / "audit_contract.json"
         _durable_write(contract_copy, contract_bytes)
         os.chmod(contract_copy, 0o444)
@@ -1148,6 +1658,10 @@ def run_scenario(
         _durable_write(authority_copy, authority_bytes)
         os.chmod(authority_copy, 0o444)
         sealed_records.append({"name": "authority", "ref": f"runs/{runtime_run_id}/sealed/authority.json", "sha256": _sha(authority_copy), "git_blob": authority_blob})
+        runner_copy = sealed_root / "runner.py"
+        _durable_write(runner_copy, runner_bytes)
+        os.chmod(runner_copy, 0o444)
+        sealed_records.append({"name": "runner", "ref": f"runs/{runtime_run_id}/sealed/runner.py", "sha256": _sha(runner_copy)})
         for name, (source, data) in refs.items():
             source_hashes[source] = _sha_bytes(data)
             target = sealed_root / f"{name}{source.suffix or '.bin'}"
@@ -1334,7 +1848,10 @@ def run_scenario(
                 "method": "git-cat-file", "audited": audited_materialization,
                 "tooling": tooling_materialization,
             },
-            "runner": {"path": "tools/audit_runtime_evidence.py", "tooling_commit": contract["tooling_commit"], "sha256": runner_sha, "shell": False},
+            "runner": {"path": "tools/audit_runtime_evidence.py",
+                       "ref": f"runs/{runtime_run_id}/sealed/runner.py",
+                       "tooling_commit": contract["tooling_commit"],
+                       "sha256": runner_sha, "shell": False},
             "environment": {
                 "python_no_user_site": True, "python_safe_path": True,
                 "python_flags": ["-I", "-S"], "path": str(Path(sys.executable).resolve().parent),
@@ -1380,7 +1897,11 @@ def run_scenario(
             raise ContractError("evidence_id bereits vorhanden")
         receipt_bytes = _canonical_bytes(receipt) + b"\n"
         _durable_write(stage_run / "receipt.json", receipt_bytes)
-        projection = build_runtime_projection(receipt, receipt_bytes)
+        projection = build_runtime_projection(
+            receipt, receipt_bytes, stage_run, repo_root=repo,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
         _durable_write(stage_run / "projection.json", _canonical_bytes(projection) + b"\n")
         os.chmod(stage_run / "receipt.json", 0o444)
         os.chmod(stage_run / "projection.json", 0o444)
@@ -1398,7 +1919,11 @@ def run_scenario(
 
         _remove_tree(audited_root)
         _remove_tree(tooling_root)
-        _publish_run_and_ledgers(stage_run, final_run, ledger, receipt)
+        _publish_run_and_ledgers(
+            stage_run, final_run, ledger, receipt, repo_root=repo,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
         success = True
         return receipt
     finally:
