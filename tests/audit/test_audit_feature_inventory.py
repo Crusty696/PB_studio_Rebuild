@@ -354,6 +354,91 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(any("Proof-Semantik/FK" in error for error in validate(self.evidence, contract)))
         target.write_bytes(original)
 
+    def test_windows_unsafe_feature_proof_refs_rejected_and_nested_allowed(self) -> None:
+        original_rows, original_manifest = self.evidence, self.evidence_manifest
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+        source = self.evidence[0]
+        original_proof = HARNESS.json.loads(
+            (self.repo / source["proof_ref"]).read_text(encoding="utf-8")
+        )
+
+        def errors_for(ref: str) -> list[str]:
+            rows = copy.deepcopy(original_rows)
+            rows[0]["proof_ref"] = ref
+            rows[0]["evidence_id"] = "sha256:" + hashlib.sha256(
+                HARNESS._canonical({
+                    key: value for key, value in rows[0].items()
+                    if key not in {"evidence_id", "proof_sha256", "record_sha256"}
+                })
+            ).hexdigest()
+            proof = copy.deepcopy(original_proof)
+            proof["evidence_id"] = rows[0]["evidence_id"]
+            proof_data = HARNESS._canonical(proof)
+            rows[0]["proof_sha256"] = hashlib.sha256(proof_data).hexdigest()
+            rows[0] = HARNESS.seal_record(rows[0])
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["feature-state-evidence"] = (
+                HARNESS.artifact_contract_entry(
+                    rows, "evidence/feature-state-evidence.jsonl"
+                )
+            )
+            contract["artifacts"][f"feature-proof:{rows[0]['evidence_id']}"] = (
+                HARNESS.file_contract_entry(proof_data, ref)
+            )
+            for key in list(contract["artifacts"]):
+                if key.startswith("feature-proof:") and key != (
+                    f"feature-proof:{rows[0]['evidence_id']}"
+                ) and key.endswith(source["evidence_id"]):
+                    del contract["artifacts"][key]
+            self.evidence = rows
+            contract["artifacts"]["feature-state"] = HARNESS.artifact_contract_entry(
+                self.dispositions(), "evidence/feature-state.jsonl"
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_manifest = HARNESS.make_artifact_manifest(
+                "feature-state-evidence", rows, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            self.evidence_contract = contract
+            self.evidence_contract_sha = contract["evidence_contract_sha256"]
+            try:
+                return self.errors(self.dispositions())
+            finally:
+                self.evidence, self.evidence_manifest = original_rows, original_manifest
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        nested_ref = "proof/deep/nested/feature-review.json"
+        nested_target = self.repo / nested_ref
+        nested_target.parent.mkdir(parents=True, exist_ok=True)
+        nested_rows = copy.deepcopy(original_rows)
+        nested_rows[0]["proof_ref"] = nested_ref
+        nested_rows[0]["evidence_id"] = "sha256:" + hashlib.sha256(
+            HARNESS._canonical({
+                key: value for key, value in nested_rows[0].items()
+                if key not in {"evidence_id", "proof_sha256", "record_sha256"}
+            })
+        ).hexdigest()
+        nested_proof = copy.deepcopy(original_proof)
+        nested_proof["evidence_id"] = nested_rows[0]["evidence_id"]
+        nested_target.write_bytes(HARNESS._canonical(nested_proof))
+        self.assertEqual([], errors_for(nested_ref))
+        reserved_names = [
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{number}" for number in range(1, 10)),
+            *(f"LPT{number}" for number in range(1, 10)),
+        ]
+        for ref in (
+            "proof/deep/name:ads.json", "proof/deep/name./review.json",
+            "proof/deep/name /review.json", "proof/CON/review.json",
+            "proof/deep/com1.txt/review.json", "proof/LPT9/review.json",
+            *(f"proof/deep/{name}.txt/review.json" for name in reserved_names),
+        ):
+            self.assertTrue(any("proof_ref ungueltig" in error for error in errors_for(ref)), ref)
+
     def test_feature_source_grouping_and_proof_key_closure_rejected(self) -> None:
         original_catalog, original_manifest = self.feature_catalog, self.feature_manifest
         for source_ids, token in (

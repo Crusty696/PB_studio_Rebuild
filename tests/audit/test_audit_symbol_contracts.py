@@ -90,7 +90,7 @@ class GateContractTests(unittest.TestCase):
             })
         ).hexdigest()
         runtime_data = HARNESS._canonical(self.runtime_receipt) + b"\n"
-        runtime_ref = "proof/runtime.json"
+        runtime_ref = "runs/LIVE-CONTRACT/receipt.json"
         runtime_target = self.repo / runtime_ref
         runtime_target.parent.mkdir(parents=True, exist_ok=True)
         runtime_target.write_bytes(runtime_data)
@@ -826,6 +826,106 @@ class GateContractTests(unittest.TestCase):
             self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
             self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
         self.assertTrue(any("Rich-Receipt Schemafelder" in error for error in errors))
+
+    def test_windows_unsafe_symbol_and_runtime_proof_refs_rejected(self) -> None:
+        symbol_source = self.evidence_records[0]
+        symbol_data = (self.repo / symbol_source["proof_ref"]).read_bytes()
+        original_records, original_manifest = self.evidence_records, self.manifests["symbol-evidence"]
+        original_contract, original_sha = self.evidence_contract, self.evidence_contract_sha
+
+        def symbol_errors(ref: str) -> list[str]:
+            records = copy.deepcopy(original_records)
+            records[0]["proof_ref"] = ref
+            records[0] = HARNESS.seal_record(records[0])
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["symbol-state-evidence"] = HARNESS.artifact_contract_entry(
+                records, "evidence/symbol-state-evidence.jsonl"
+            )
+            contract["artifacts"][f"symbol-proof:{records[0]['evidence_id']}"] = (
+                HARNESS.file_contract_entry(symbol_data, ref)
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.evidence_records = records
+            self.manifests["symbol-evidence"] = HARNESS.make_artifact_manifest(
+                "symbol-evidence", records, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            self.evidence_contract = contract
+            self.evidence_contract_sha = contract["evidence_contract_sha256"]
+            try:
+                return self.errors(self.states(), self.edge_states())
+            finally:
+                self.evidence_records, self.manifests["symbol-evidence"] = (
+                    original_records, original_manifest
+                )
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        nested_ref = "proof/deep/nested/symbol-review.json"
+        nested_target = self.repo / nested_ref
+        nested_target.parent.mkdir(parents=True, exist_ok=True)
+        nested_target.write_bytes(symbol_data)
+        self.assertEqual([], symbol_errors(nested_ref))
+        for ref in (
+            "proof/deep/name:ads.json", "proof/deep/name./review.json",
+            "proof/deep/name /review.json", "proof/PRN/review.json",
+            "proof/deep/lpt1.txt/review.json", "proof/COM9/review.json",
+        ):
+            self.assertTrue(
+                any("proof_ref ungueltig" in error for error in symbol_errors(ref)), ref
+            )
+
+        runtime_source = self.runtime_records[0]
+        runtime_data = (self.repo / runtime_source["proof_ref"]).read_bytes()
+        original_runtime = self.runtime_records
+        original_runtime_manifest = self.manifests["runtime-evidence"]
+
+        def runtime_errors(ref: str) -> list[str]:
+            runtime = copy.deepcopy(original_runtime)
+            runtime[0]["proof_ref"] = ref
+            runtime[0] = HARNESS.seal_record(runtime[0])
+            contract = copy.deepcopy(original_contract)
+            contract["artifacts"]["runtime-evidence"] = HARNESS.artifact_contract_entry(
+                runtime, "evidence/runtime.jsonl"
+            )
+            contract["artifacts"][f"runtime-proof:{runtime[0]['evidence_id']}"] = (
+                HARNESS.file_contract_entry(runtime_data, ref)
+            )
+            contract = HARNESS.seal_evidence_contract({
+                key: value for key, value in contract.items()
+                if key != "evidence_contract_sha256"
+            })
+            self.runtime_records = runtime
+            self.manifests["runtime-evidence"] = HARNESS.make_artifact_manifest(
+                "runtime-evidence", runtime, run_id=self.RUN,
+                audited_commit=self.commit, tooling_commit=self.TOOLING,
+                snapshot_id=self.SNAPSHOT,
+            )
+            self.evidence_contract = contract
+            self.evidence_contract_sha = contract["evidence_contract_sha256"]
+            try:
+                return self.errors(self.states(), self.edge_states())
+            finally:
+                self.runtime_records = original_runtime
+                self.manifests["runtime-evidence"] = original_runtime_manifest
+                self.evidence_contract, self.evidence_contract_sha = original_contract, original_sha
+
+        for ref in (
+            "proof/runtime.json", "runs/LIVE-CONTRACT/deep/receipt.json",
+            "runs/LIVE-CONTRACT/name:ads/receipt.json",
+            "runs/LIVE-CONTRACT/NUL/receipt.json",
+        ):
+            self.assertTrue(
+                any(
+                    "proof_ref ungueltig" in error
+                    or "kanonischen Runner-Pfad" in error
+                    for error in runtime_errors(ref)
+                ),
+                ref,
+            )
 
     def test_evidence_inverse_closure_unique_lists_and_state_fks_rejected(self) -> None:
         states = self.states()

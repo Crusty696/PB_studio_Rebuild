@@ -56,6 +56,11 @@ ATTACHMENT_KEY = re.compile(
     r"|reviewer-enrollment-(?:receipt|signature):[^:\s]+"
     r"|reviewer-signoff(?:-signature)?:[^:\s]+:[^:\s]+"
 )
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 RUNTIME_PROJECTION_FIELDS = {
     "evidence_id", "evidence_kind", "runtime_run_id", "covered_feature_paths",
     "covered_symbol_ids", "covered_axes", "proof_ref", "proof_sha256", "run_id",
@@ -166,7 +171,18 @@ def _safe_ref(value: object) -> bool:
     if not isinstance(value, str) or not value or "\\" in value:
         return False
     path = PurePosixPath(value)
-    return path != PurePosixPath(".") and not path.is_absolute() and ".." not in path.parts
+    if (
+        path == PurePosixPath(".") or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        return False
+    windows_unsafe = any(
+        ":" in part
+        or part.endswith((".", " "))
+        or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+        for part in path.parts
+    )
+    return value == path.as_posix() and not windows_unsafe
 
 
 def _enum_value(value: object, allowed: set[str]) -> bool:
@@ -257,6 +273,11 @@ def _runtime_receipt(
         errors.append(f"{label}: Proof-Descriptor ref weicht ab")
     if not _safe_ref(ref):
         return None, errors + [f"{label}: proof_ref ungueltig"]
+    expected_ref = f"runs/{row.get('runtime_run_id', '')}/receipt.json"
+    if ref != expected_ref:
+        errors.append(
+            f"{label}: proof_ref muss kanonischen Runner-Pfad {expected_ref!r} verwenden"
+        )
     try:
         root = evidence_root.resolve(strict=True)
         target = (root / str(ref)).resolve(strict=False)
