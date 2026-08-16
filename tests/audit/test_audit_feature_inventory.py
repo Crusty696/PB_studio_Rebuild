@@ -427,14 +427,21 @@ class GateContractTests(unittest.TestCase):
         nested_target.write_bytes(HARNESS._canonical(nested_proof))
         self.assertEqual([], errors_for(nested_ref))
         reserved_names = [
-            "CON", "PRN", "AUX", "NUL",
+            "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
             *(f"COM{number}" for number in range(1, 10)),
             *(f"LPT{number}" for number in range(1, 10)),
+            "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",
         ]
         for ref in (
             "proof/deep/name:ads.json", "proof/deep/name./review.json",
             "proof/deep/name /review.json", "proof/CON/review.json",
             "proof/deep/com1.txt/review.json", "proof/LPT9/review.json",
+            "proof/deep/CON .txt/review.json",
+            "proof/deep/bad*/review.json", "proof/deep/bad?/review.json",
+            "proof/deep/bad\"/review.json", "proof/deep/bad</review.json",
+            "proof/deep/bad>/review.json", "proof/deep/bad|/review.json",
+            r"proof/deep/bad\name/review.json",
+            *(f"proof/deep/control-{chr(code)}/review.json" for code in range(32)),
             *(f"proof/deep/{name}.txt/review.json" for name in reserved_names),
         ):
             self.assertTrue(any("proof_ref ungueltig" in error for error in errors_for(ref)), ref)

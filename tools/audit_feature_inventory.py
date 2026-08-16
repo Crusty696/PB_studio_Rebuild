@@ -47,10 +47,12 @@ ATTACHMENT_KEY = re.compile(
     r"|reviewer-signoff(?:-signature)?:[^:\s]+:[^:\s]+"
 )
 WINDOWS_RESERVED_NAMES = {
-    "CON", "PRN", "AUX", "NUL",
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
     *(f"COM{number}" for number in range(1, 10)),
     *(f"LPT{number}" for number in range(1, 10)),
+    "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",
 }
+WINDOWS_RESERVED_CHARS = set(':*?"<>|')
 SUPPORTED_SQL_DIALECT = "sqlite"
 NORMATIVE = re.compile(
     r"\b(muss|muessen|müssen|pflicht|required|must|shall|darf\s+nicht|forbidden)\b",
@@ -194,9 +196,9 @@ def _safe_ref(value: object) -> bool:
     ):
         return False
     windows_unsafe = any(
-        ":" in part
+        any(ord(char) < 32 or char in WINDOWS_RESERVED_CHARS for char in part)
         or part.endswith((".", " "))
-        or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES
+        or part.split(".", 1)[0].rstrip(" ").upper() in WINDOWS_RESERVED_NAMES
         for part in path.parts
     )
     return value == path.as_posix() and not windows_unsafe
