@@ -1,0 +1,10 @@
+{
+  "lesson_id": "84b1160ca926411394dbc14c5dc297e5",
+  "recorded_at": "2026-08-16T00:51:07+00:00",
+  "session_id": "fac781dc2a6e44898aba146be8d54c0a",
+  "head_at_start": "27b0f8038127a118478799ea3bb2af731f6f6971",
+  "problem": "Reviewer-Attachment-Export erzeugte eigene Ref-Praefixe, hashte Signaturdateien ohne kryptografische Verifikation und gab nur Descriptors statt verifizierter Bytes aus.",
+  "cause": "Export war als Metadatenhelfer modelliert; Completion-Closure, rollenbezogene Trust-Pins und mutable Source-Dateien waren nicht Teil seiner Vertrauensgrenze.",
+  "rule": "Evidence-Attachments muessen Roster-FKs bytegenau uebernehmen, Payload und Signatur einmal snapshotten, exakt diese Bytes gegen Git-gepinnte Rollenschluessel verifizieren und Descriptors plus dieselben unveraenderlichen Payloadbytes an Completion weitergeben.",
+  "applies_to": "Reviewer-Evidence-Export, Signatur-Bundles, Completion-Attachment-Closure, TOCTOU-sichere Imports"
+}

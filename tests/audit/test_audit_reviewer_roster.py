@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools import agent_session
+from tools import audit_completion as completion
 from tools import audit_reviewer_roster as roster
 
 
@@ -560,10 +561,15 @@ class GateContractTests(unittest.TestCase):
                 signing_key=self.keys[role], **self._trust_args(),
             )
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
-        attachments = roster.export_reviewer_evidence_attachments(
+        snapshot = roster.export_reviewer_evidence_attachments(
+            self.repo, self.tooling_commit,
             self.roster_path, self.receipts, self.attestations, contract,
             basis_sha256=basis,
+            spawn_public_key_path=self.public_keys["spawn"],
+            lead_v_public_key_path=self.public_keys["lead-v"],
+            adversarial_public_key_path=self.public_keys["adversarial"],
         )
+        attachments = snapshot.descriptors
         expected_keys = set()
         for row in rows:
             sid = row["session_id"]
@@ -585,16 +591,99 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(all(set(item) == roster.DESCRIPTOR_FIELDS for item in attachments.values()))
         with self.assertRaisesRegex(roster.ContractError, "Basis"):
             roster.export_reviewer_evidence_attachments(
+                self.repo, self.tooling_commit,
                 self.roster_path, self.receipts, self.attestations, contract,
                 basis_sha256="b" * 64,
+                spawn_public_key_path=self.public_keys["spawn"],
+                lead_v_public_key_path=self.public_keys["lead-v"],
+                adversarial_public_key_path=self.public_keys["adversarial"],
             )
         orphan = self.attestations / "orphan.json"
         orphan.write_text("{}\n", encoding="utf-8")
         with self.assertRaisesRegex(roster.ContractError, "Dateimenge"):
             roster.export_reviewer_evidence_attachments(
+                self.repo, self.tooling_commit,
                 self.roster_path, self.receipts, self.attestations, contract,
                 basis_sha256=basis,
+                spawn_public_key_path=self.public_keys["spawn"],
+                lead_v_public_key_path=self.public_keys["lead-v"],
+                adversarial_public_key_path=self.public_keys["adversarial"],
             )
+
+    def _signed_attachment_snapshot(self, basis: str = "a" * 64):
+        rows = self._enroll_all()
+        for session, role in ((self.lead, "lead-v"), (self.adversarial, "adversarial")):
+            roster.finalize_signoff(
+                root=self.repo, session_id=session["id"], role=role,
+                basis_sha256=basis, verdict="pass", roster_path=self.roster_path,
+                receipts_dir=self.receipts, attestations_dir=self.attestations,
+                signing_key=self.keys[role], **self._trust_args(),
+            )
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        snapshot = roster.export_reviewer_evidence_attachments(
+            self.repo, self.tooling_commit,
+            self.roster_path, self.receipts, self.attestations, contract,
+            basis_sha256=basis,
+            spawn_public_key_path=self.public_keys["spawn"],
+            lead_v_public_key_path=self.public_keys["lead-v"],
+            adversarial_public_key_path=self.public_keys["adversarial"],
+        )
+        return rows, contract, snapshot
+
+    def test_attachment_export_rejects_enrollment_and_signoff_signature_tamper(self) -> None:
+        self._signed_attachment_snapshot()
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        cases = (
+            self.receipts / f"{self.lead['id']}.json.sig",
+            self.attestations / f"lead-v-{self.lead['id']}.json.sig",
+        )
+        for path in cases:
+            with self.subTest(path=path.name):
+                original = path.read_bytes()
+                path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+                with self.assertRaises(roster.ContractError):
+                    roster.export_reviewer_evidence_attachments(
+                        self.repo, self.tooling_commit,
+                        self.roster_path, self.receipts, self.attestations, contract,
+                        basis_sha256="a" * 64,
+                        spawn_public_key_path=self.public_keys["spawn"],
+                        lead_v_public_key_path=self.public_keys["lead-v"],
+                        adversarial_public_key_path=self.public_keys["adversarial"],
+                    )
+                path.write_bytes(original)
+
+    def test_verified_snapshot_passes_real_completion_closure_without_reread(self) -> None:
+        rows, contract, snapshot = self._signed_attachment_snapshot()
+        receipt = self.receipts / f"{self.lead['id']}.json"
+        receipt.write_bytes(b"mutated-after-export")
+        bundle = self.base / "completion-closure"
+        bundle.mkdir()
+        for ref, payload in snapshot.payloads.items():
+            target = bundle / ref
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+        contract_ref = "reviewer/contract.json"
+        contract_raw = roster._canonical(contract) + b"\n"
+        contract_target = bundle / contract_ref
+        contract_target.parent.mkdir(parents=True)
+        contract_target.write_bytes(contract_raw)
+        audit_artifacts = {
+            "reviewer-contract": roster.artifact_descriptor(contract_ref, contract_raw)
+        }
+        evidence_artifacts = {
+            key: roster.artifact_descriptor(f"records/{key}.jsonl", b"")
+            for key in completion.EVIDENCE_STATIC_KEYS
+        }
+        evidence_artifacts.update({
+            key: dict(value) for key, value in snapshot.descriptors.items()
+        })
+        completion._validate_attachment_closure(
+            bundle, audit_artifacts, evidence_artifacts,
+            {
+                "feature-state-evidence": [], "symbol-state-evidence": [],
+                "runtime-evidence": [], "reviewer-roster": list(rows),
+            },
+        )
 
     def test_exact_pair_assignment_bijection_rejects_duplicate_reviewer(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
