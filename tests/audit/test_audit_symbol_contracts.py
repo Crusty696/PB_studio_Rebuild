@@ -873,6 +873,10 @@ class GateContractTests(unittest.TestCase):
             "proof/deep/name:ads.json", "proof/deep/name./review.json",
             "proof/deep/name /review.json", "proof/PRN/review.json",
             "proof/deep/lpt1.txt/review.json", "proof/COM9/review.json",
+            "proof/deep/CONOUT$.txt/review.json",
+            "proof/deep/COM¹.txt/review.json", "proof/deep/CON .txt/review.json",
+            "proof/deep/bad*/review.json", r"proof/deep/bad\name/review.json",
+            *(f"proof/deep/control-{chr(code)}/review.json" for code in range(32)),
         ):
             self.assertTrue(
                 any("proof_ref ungueltig" in error for error in symbol_errors(ref)), ref
@@ -917,6 +921,12 @@ class GateContractTests(unittest.TestCase):
             "proof/runtime.json", "runs/LIVE-CONTRACT/deep/receipt.json",
             "runs/LIVE-CONTRACT/name:ads/receipt.json",
             "runs/LIVE-CONTRACT/NUL/receipt.json",
+            "runs/LIVE-CONTRACT/CONIN$/receipt.json",
+            "runs/LIVE-CONTRACT/LPT³.txt/receipt.json",
+            "runs/LIVE-CONTRACT/CON .txt/receipt.json",
+            "runs/LIVE-CONTRACT/bad?/receipt.json",
+            r"runs/LIVE-CONTRACT/bad\name/receipt.json",
+            *(f"runs/LIVE-CONTRACT/control-{chr(code)}/receipt.json" for code in range(32)),
         ):
             self.assertTrue(
                 any(

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e2580c85574f46d1807b9f1e93355c67",
+  "recorded_at": "2026-08-16T01:38:59+00:00",
+  "session_id": "21e0390348f84780b53939809a004a62",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Feature-, Symbol- und Runtime-Beweisreferenzen akzeptierten erweiterte Windows-Gerätenamen, reservierte Zeichen und Steuerbytes; Completion akzeptiert dieselben neuen Fälle unabhängig weiter.",
+  "cause": "Pfadvalidierung modellierte nur klassische DOS-Gerätenamen, ADS-Doppelpunkt und abschließende Punkte/Leerzeichen, nicht vollständige Win32-Segmentnormalisierung und Aliasmenge.",
+  "rule": "Beweisreferenzen segmentweise validieren: Gerätestamm inklusive Leerzeichen vor Erweiterung normalisieren, CONIN$/CONOUT$/hochgestellte COM-/LPT-Aliase sperren sowie Win32-reservierte Zeichen und jedes ASCII-Steuerbyte 0-31 ablehnen; jeden Consumer mit eigener kanonisch resealter Vertragsmatrix prüfen.",
+  "applies_to": "Evidence-Attachments, Runtime-Receipts, atomare Imports und Windows-Pfadverträge"
+}
