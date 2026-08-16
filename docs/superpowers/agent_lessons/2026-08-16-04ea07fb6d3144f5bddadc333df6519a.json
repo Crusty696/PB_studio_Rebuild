@@ -1,0 +1,10 @@
+{
+  "lesson_id": "04ea07fb6d3144f5bddadc333df6519a",
+  "recorded_at": "2026-08-16T00:22:40+00:00",
+  "session_id": "21e0390348f84780b53939809a004a62",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Feature-/Symbol-Shards konnten lokale Teilcontracte akzeptieren; Runtime-Mini-Proofs modellierten genau ein Symbol und konnten Rich-Receipt-Struktur sowie globale Completion-Closure nicht beweisen.",
+  "cause": "Jeder Shard kannte nur eigene Artifactkeys; Runtime-Evidence war als per-Symbol-Minirow mit Reviewer-/Pfadfeldern statt als content-addressed Projektion eines Runner-Receipts modelliert.",
+  "rule": "Alle Audit-Shards muessen dieselbe exakte 14er Audit-Union, 8er Evidence-Basis und Completion-identische Attachmentregex validieren; Runtime-Evidence bleibt eine Projektion pro Rich Receipt, wird gegen Receiptbytes und kanonische ID revalidiert und schliesst Konsum exakt je (evidence_id,symbol_id).",
+  "applies_to": "Audit Feature/Symbol-Harnesses, Completion-Contract, Runtime-Projektionen, Proof-Attachments"
+}

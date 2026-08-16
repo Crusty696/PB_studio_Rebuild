@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import subprocess
 import sys
@@ -65,12 +66,45 @@ class GateContractTests(unittest.TestCase):
             "catalog_id": "CATALOG-1", "feature_id": "FEAT-CONTRACT",
             "path_id": "primary", **binding,
         })]
+        covered_symbols = sorted(symbol["symbol_id"] for symbol in self.symbols[:2])
+        self.runtime_receipt = {
+            "plan_id": self.PLAN, "run_id": self.RUN,
+            "runtime_run_id": "LIVE-CONTRACT", "audited_commit": self.commit,
+            "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+            "scenario_id": "SCN-CONTRACT", "scenario_sha256": "a" * 64,
+            "timestamp": self.SIGNED,
+            "covered_feature_paths": ["FEAT-CONTRACT/primary"],
+            "covered_symbol_ids": covered_symbols,
+            "covered_axes": ["executed", "live_evidence", "result"],
+            "authority": {}, "audit_contract": {}, "scenario_catalog": {},
+            "sealed_contract_inputs": [], "materialization": {}, "runner": {},
+            "environment": {}, "observer": {}, "input": {}, "inputs": [],
+            "harness": {}, "target": {}, "stdout": {}, "stderr": {}, "exit": {},
+            "trace": {}, "postcondition": {}, "artifacts": [],
+            "final_integrity_sha256": "b" * 64,
+        }
+        self.runtime_receipt["evidence_id"] = "sha256:" + hashlib.sha256(
+            HARNESS._canonical({
+                key: value for key, value in self.runtime_receipt.items()
+                if key != "evidence_id"
+            })
+        ).hexdigest()
+        runtime_data = HARNESS._canonical(self.runtime_receipt) + b"\n"
+        runtime_ref = "proof/runtime.json"
+        runtime_target = self.repo / runtime_ref
+        runtime_target.parent.mkdir(parents=True, exist_ok=True)
+        runtime_target.write_bytes(runtime_data)
         self.runtime_records = [HARNESS.seal_record({
-            "evidence_id": "RUNTIME-EVIDENCE", "evidence_kind": "runtime",
-            "symbol_id": self.symbols[0]["symbol_id"], "reviewer_id": "REV-A",
-            "path": self.symbols[0]["path"],
-            "source_blob_sha256": self.symbols[0]["source_blob_sha256"],
-            "proof_ref": "proof/runtime.json", **binding,
+            "evidence_id": self.runtime_receipt["evidence_id"],
+            "evidence_kind": "runtime", "runtime_run_id": "LIVE-CONTRACT",
+            "covered_feature_paths": ["FEAT-CONTRACT/primary"],
+            "covered_symbol_ids": covered_symbols,
+            "covered_axes": ["executed", "live_evidence", "result"],
+            "proof_ref": runtime_ref,
+            "proof_sha256": hashlib.sha256(runtime_data).hexdigest(),
+            "run_id": self.RUN, "audited_commit": self.commit,
+            "tooling_commit": self.TOOLING, "snapshot_id": self.SNAPSHOT,
+            "timestamp": self.SIGNED,
         })]
         self.reviewer_records = [HARNESS.seal_record({"reviewer_id": "REV-A", **binding})]
         self.evidence_records = []
@@ -113,45 +147,64 @@ class GateContractTests(unittest.TestCase):
                 ("trigger-catalog", self.trigger_records),
             )
         }
-        proof_artifacts = {}
-        for prefix, rows in (
-            ("symbol-proof", self.evidence_records),
-            ("runtime-proof", self.runtime_records),
-        ):
-            for row in rows:
-                fields = [
-                    "evidence_id", "evidence_kind", "reviewer_id", "path",
-                    "source_blob_sha256",
-                ]
-                fields.append("symbol_id" if "symbol_id" in row else "edge_id")
-                proof = {field: row[field] for field in fields}
-                proof["schema_version"] = 1
-                data = HARNESS._canonical(proof)
-                target = self.repo / row["proof_ref"]
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-                proof_artifacts[f"{prefix}:{row['evidence_id']}"] = HARNESS.file_contract_entry(
-                    data, row["proof_ref"]
-                )
+        proof_artifacts = {
+            f"runtime-proof:{self.runtime_records[0]['evidence_id']}": (
+                HARNESS.file_contract_entry(runtime_data, runtime_ref)
+            )
+        }
+        for row in self.evidence_records:
+            fields = [
+                "evidence_id", "evidence_kind", "reviewer_id", "path",
+                "source_blob_sha256",
+            ]
+            fields.append("symbol_id" if "symbol_id" in row else "edge_id")
+            proof = {field: row[field] for field in fields}
+            proof["schema_version"] = 1
+            data = HARNESS._canonical(proof)
+            target = self.repo / row["proof_ref"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            row["proof_sha256"] = hashlib.sha256(data).hexdigest()
+            row.update(HARNESS.seal_record(row))
+            proof_artifacts[f"symbol-proof:{row['evidence_id']}"] = (
+                HARNESS.file_contract_entry(data, row["proof_ref"])
+            )
+        self.manifests["symbol-evidence"] = HARNESS.make_artifact_manifest(
+            "symbol-evidence", self.evidence_records, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.manifests["runtime-evidence"] = HARNESS.make_artifact_manifest(
+            "runtime-evidence", self.runtime_records, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        audit_artifacts = {
+            key: HARNESS.file_contract_entry(
+                b"{}", f"evidence/global/audit/{key}.json"
+            )
+            for key in HARNESS.AUDIT_ARTIFACT_KEYS
+        }
+        audit_artifacts.update({
+            "feature-catalog": HARNESS.artifact_contract_entry(
+                self.feature_records, "evidence/features.jsonl"
+            ),
+            "symbol-catalog": HARNESS.artifact_contract_entry(
+                self.symbols, "evidence/symbols.jsonl"
+            ),
+            "edge-catalog": HARNESS.artifact_contract_entry(
+                self.edges, "evidence/edges.jsonl"
+            ),
+            "trigger-universe": HARNESS.artifact_contract_entry(
+                self.trigger_records, "evidence/triggers.jsonl"
+            ),
+        })
         audit_core = {
             "schema_version": 1, "plan_id": self.PLAN, "run_id": self.RUN,
             "audited_commit": self.commit, "tooling_commit": self.TOOLING,
             "snapshot_id": self.SNAPSHOT, "frozen_at": self.FROZEN,
             "expires_at": self.EXPIRES,
-            "artifacts": {
-                "feature-catalog": HARNESS.artifact_contract_entry(
-                    self.feature_records, "evidence/features.jsonl"
-                ),
-                "symbol-catalog": HARNESS.artifact_contract_entry(
-                    self.symbols, "evidence/symbols.jsonl"
-                ),
-                "edge-catalog": HARNESS.artifact_contract_entry(
-                    self.edges, "evidence/edges.jsonl"
-                ),
-                "trigger-universe": HARNESS.artifact_contract_entry(
-                    self.trigger_records, "evidence/triggers.jsonl"
-                ),
-            },
+            "artifacts": audit_artifacts,
         }
         self.audit_contract = HARNESS.seal_audit_contract(audit_core)
         self.contract_sha = self.audit_contract["contract_sha256"]
@@ -162,6 +215,12 @@ class GateContractTests(unittest.TestCase):
             "audit_contract_sha256": self.contract_sha,
             "completed_at": self.SIGNED,
             "artifacts": {
+                **{
+                    key: HARNESS.file_contract_entry(
+                        b"{}", f"evidence/global/evidence/{key}.json"
+                    )
+                    for key in HARNESS.EVIDENCE_ARTIFACT_KEYS
+                },
                 "symbol-state": HARNESS.artifact_contract_entry(
                     self.states(), "evidence/symbol-state.jsonl"
                 ),
@@ -200,7 +259,7 @@ class GateContractTests(unittest.TestCase):
         rows = []
         for symbol in self.symbols:
             evidence_id = self.symbol_evidence_id(symbol["symbol_id"])
-            is_runtime = symbol["symbol_id"] == self.runtime_records[0]["symbol_id"]
+            is_runtime = symbol["symbol_id"] in self.runtime_records[0]["covered_symbol_ids"]
             incoming = [
                 edge["edge_id"] for edge in self.edges
                 if edge.get("target_symbol_id") == symbol["symbol_id"]
@@ -278,6 +337,53 @@ class GateContractTests(unittest.TestCase):
         )
         self.assertEqual(before, after, "Enumerator darf Dirty-Workingtree nicht lesen")
         self.assertEqual([], self.errors(self.states(), self.edge_states()))
+
+    def test_global_contract_exact_sets_required(self) -> None:
+        self.assertTrue(HARNESS.validate_evidence_contract(
+            [], self.evidence_contract_sha, self.audit_contract, plan_id=self.PLAN,
+            run_id=self.RUN, audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        ))
+        for key in HARNESS.EVIDENCE_ARTIFACT_KEYS:
+            contract = copy.deepcopy(self.evidence_contract)
+            del contract["artifacts"][key]
+            contract = HARNESS.seal_evidence_contract({
+                name: value for name, value in contract.items()
+                if name != "evidence_contract_sha256"
+            })
+            errors = HARNESS.validate_evidence_contract(
+                contract, contract["evidence_contract_sha256"], self.audit_contract,
+                plan_id=self.PLAN, run_id=self.RUN, audited_commit=self.commit,
+                tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+            )
+            self.assertTrue(any("Exact-Set" in error for error in errors), key)
+        contract = copy.deepcopy(self.audit_contract)
+        contract["artifacts"]["foreign-static"] = HARNESS.file_contract_entry(
+            b"{}", "evidence/foreign.json"
+        )
+        contract = HARNESS.seal_audit_contract({
+            name: value for name, value in contract.items() if name != "contract_sha256"
+        })
+        errors = HARNESS.validate_audit_contract(
+            contract, contract["contract_sha256"], plan_id=self.PLAN,
+            run_id=self.RUN, audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.assertTrue(any("Exact-Set" in error for error in errors))
+        evidence = copy.deepcopy(self.evidence_contract)
+        evidence["artifacts"]["reviewer-signoff:bad role:session"] = (
+            HARNESS.file_contract_entry(b"{}", "evidence/invalid-signoff.json")
+        )
+        evidence = HARNESS.seal_evidence_contract({
+            name: value for name, value in evidence.items()
+            if name != "evidence_contract_sha256"
+        })
+        errors = HARNESS.validate_evidence_contract(
+            evidence, evidence["evidence_contract_sha256"], self.audit_contract,
+            plan_id=self.PLAN, run_id=self.RUN, audited_commit=self.commit,
+            tooling_commit=self.TOOLING, snapshot_id=self.SNAPSHOT,
+        )
+        self.assertTrue(any("Exact-Set" in error for error in errors))
 
     def test_resealed_trigger_schema_and_source_kind_matrix_rejected(self) -> None:
         base_triggers = copy.deepcopy(self.trigger_records)
@@ -550,27 +656,31 @@ class GateContractTests(unittest.TestCase):
 
     def test_fully_resealed_foreign_runtime_package_is_rejected(self) -> None:
         states = self.states()
+        original_data = (self.repo / self.runtime_records[0]["proof_ref"]).read_bytes()
+        receipt = copy.deepcopy(self.runtime_receipt)
+        receipt["covered_symbol_ids"] = ["FOREIGN-SYMBOL"]
+        receipt["evidence_id"] = "sha256:" + hashlib.sha256(HARNESS._canonical({
+            key: value for key, value in receipt.items() if key != "evidence_id"
+        })).hexdigest()
+        data = HARNESS._canonical(receipt) + b"\n"
         runtime = copy.deepcopy(self.runtime_records)
-        runtime[0]["symbol_id"] = "FOREIGN-SYMBOL"
-        runtime[0]["path"] = "foreign.py"
-        runtime[0]["source_blob_sha256"] = "f" * 64
+        runtime[0]["evidence_id"] = receipt["evidence_id"]
+        runtime[0]["covered_symbol_ids"] = receipt["covered_symbol_ids"]
+        runtime[0]["proof_sha256"] = hashlib.sha256(data).hexdigest()
         runtime[0] = HARNESS.seal_record(runtime[0])
         manifest = HARNESS.make_artifact_manifest(
             "runtime-evidence", runtime, run_id=self.RUN,
             audited_commit=self.commit, tooling_commit=self.TOOLING,
             snapshot_id=self.SNAPSHOT,
         )
-        proof = {field: runtime[0][field] for field in (
-            "evidence_id", "evidence_kind", "symbol_id", "reviewer_id", "path",
-            "source_blob_sha256",
-        )}
-        proof["schema_version"] = 1
-        data = HARNESS._canonical(proof)
         (self.repo / runtime[0]["proof_ref"]).write_bytes(data)
         contract = copy.deepcopy(self.evidence_contract)
         contract["artifacts"]["runtime-evidence"] = HARNESS.artifact_contract_entry(
             runtime, "evidence/runtime.jsonl"
         )
+        for key in list(contract["artifacts"]):
+            if key.startswith("runtime-proof:"):
+                del contract["artifacts"][key]
         contract["artifacts"][f"runtime-proof:{runtime[0]['evidence_id']}"] = (
             HARNESS.file_contract_entry(data, runtime[0]["proof_ref"])
         )
@@ -587,9 +697,10 @@ class GateContractTests(unittest.TestCase):
         try:
             errors = self.errors(states, self.edge_states())
         finally:
+            (self.repo / runtime[0]["proof_ref"]).write_bytes(original_data)
             self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
             self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
-        self.assertTrue(any("Runtime-Evidence" in error and "fremde" in error for error in errors))
+        self.assertTrue(any("covered_symbol_ids" in error for error in errors))
 
     def test_runtime_evidence_schema_fks_and_exact_consumption_rejected(self) -> None:
         states = self.states()
@@ -609,13 +720,18 @@ class GateContractTests(unittest.TestCase):
         other["runtime_evidence_ids"] = [self.runtime_records[0]["evidence_id"]]
         other.pop("non_runtime_contract")
         errors = self.errors(states, self.edge_states())
-        self.assertTrue(any("mehrfach" in error for error in errors))
+        self.assertTrue(any("fremd" in error for error in errors))
         self.assertTrue(any("Runtime-Evidence-Symbol-FK" in error for error in errors))
 
         for field, value, token in (
-            ("path", "wrong.py", "Source-Pfad/Blob"),
-            ("source_blob_sha256", "e" * 64, "Source-Pfad/Blob"),
-            ("reviewer_id", "REV-FOREIGN", "Reviewer-FK"),
+            ("evidence_id", "sha256:" + "f" * 64, "evidence_id"),
+            ("runtime_run_id", "LIVE-FOREIGN", "runtime_run_id"),
+            ("covered_feature_paths", ["FEAT-FOREIGN/primary"], "covered_feature_paths"),
+            ("covered_symbol_ids", ["FOREIGN-SYMBOL"], "covered_symbol_ids"),
+            ("covered_axes", ["unknown-axis"], "covered_axes"),
+            ("proof_sha256", "e" * 64, "proof_sha256"),
+            ("proof_ref", "proof/missing-runtime.json", "Rich-Receipt"),
+            ("timestamp", "2026-08-15T13:00:00+00:00", "timestamp"),
             ("evidence_kind", "runtime ", "evidence_kind"),
         ):
             runtime = copy.deepcopy(self.runtime_records)
@@ -650,6 +766,67 @@ class GateContractTests(unittest.TestCase):
             self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
         self.assertTrue(any("Schemafelder nicht exakt" in error for error in errors))
 
+    def test_symbol_proof_sha256_is_mandatory_and_byte_bound(self) -> None:
+        records = copy.deepcopy(self.evidence_records)
+        records[0]["proof_sha256"] = "f" * 64
+        records[0] = HARNESS.seal_record(records[0])
+        old_records, old_manifest = self.evidence_records, self.manifests["symbol-evidence"]
+        self.evidence_records = records
+        self.manifests["symbol-evidence"] = HARNESS.make_artifact_manifest(
+            "symbol-evidence", records, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        try:
+            errors = self.errors(self.states(), self.edge_states())
+        finally:
+            self.evidence_records, self.manifests["symbol-evidence"] = old_records, old_manifest
+        self.assertTrue(any("proof_sha256" in error for error in errors))
+
+    def test_runtime_mini_proof_cannot_pose_as_rich_receipt(self) -> None:
+        original = (self.repo / self.runtime_records[0]["proof_ref"]).read_bytes()
+        mini = {
+            key: self.runtime_receipt[key]
+            for key in (
+                "evidence_id", "run_id", "runtime_run_id", "audited_commit",
+                "tooling_commit", "snapshot_id", "timestamp", "covered_feature_paths",
+                "covered_symbol_ids", "covered_axes",
+            )
+        }
+        data = HARNESS._canonical(mini) + b"\n"
+        runtime = copy.deepcopy(self.runtime_records)
+        runtime[0]["proof_sha256"] = hashlib.sha256(data).hexdigest()
+        runtime[0] = HARNESS.seal_record(runtime[0])
+        contract = copy.deepcopy(self.evidence_contract)
+        contract["artifacts"]["runtime-evidence"] = HARNESS.artifact_contract_entry(
+            runtime, "evidence/runtime.jsonl"
+        )
+        contract["artifacts"][f"runtime-proof:{runtime[0]['evidence_id']}"] = (
+            HARNESS.file_contract_entry(data, runtime[0]["proof_ref"])
+        )
+        contract = HARNESS.seal_evidence_contract({
+            key: value for key, value in contract.items()
+            if key != "evidence_contract_sha256"
+        })
+        old_runtime, old_manifest = self.runtime_records, self.manifests["runtime-evidence"]
+        old_contract, old_sha = self.evidence_contract, self.evidence_contract_sha
+        (self.repo / runtime[0]["proof_ref"]).write_bytes(data)
+        self.runtime_records = runtime
+        self.manifests["runtime-evidence"] = HARNESS.make_artifact_manifest(
+            "runtime-evidence", runtime, run_id=self.RUN,
+            audited_commit=self.commit, tooling_commit=self.TOOLING,
+            snapshot_id=self.SNAPSHOT,
+        )
+        self.evidence_contract = contract
+        self.evidence_contract_sha = contract["evidence_contract_sha256"]
+        try:
+            errors = self.errors(self.states(), self.edge_states())
+        finally:
+            (self.repo / runtime[0]["proof_ref"]).write_bytes(original)
+            self.runtime_records, self.manifests["runtime-evidence"] = old_runtime, old_manifest
+            self.evidence_contract, self.evidence_contract_sha = old_contract, old_sha
+        self.assertTrue(any("Rich-Receipt Schemafelder" in error for error in errors))
+
     def test_evidence_inverse_closure_unique_lists_and_state_fks_rejected(self) -> None:
         states = self.states()
         evidence_id = states[0]["caller_contract"]["evidence_ids"][0]
@@ -675,8 +852,8 @@ class GateContractTests(unittest.TestCase):
         runtime_state["reviewer_id"] = "REV-FOREIGN"
         runtime_state["signed_at"] = "2026-08-15T13:00:00+00:00"
         errors = self.errors(states, self.edge_states())
-        self.assertTrue(any("Runtime-Evidence-Reviewer-FK" in error for error in errors))
-        self.assertTrue(any("Runtime-Evidence-signed_at-FK" in error for error in errors))
+        self.assertTrue(any("unbekannter Reviewer" in error for error in errors))
+        self.assertTrue(any("signed_at ausser Zeitgrenze" in error for error in errors))
 
         orphan = copy.deepcopy(self.evidence_records[0])
         orphan["evidence_id"], orphan["proof_ref"] = "E-ORPHAN", "proof/orphan.json"
