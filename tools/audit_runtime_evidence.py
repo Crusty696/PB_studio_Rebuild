@@ -16,7 +16,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -510,6 +510,66 @@ def _materialize_commit(repo: Path, commit: str, destination: Path) -> dict[str,
     return {"commit": commit, "files": len(manifest), "manifest_sha256": basis, "method": "git-cat-file"}
 
 
+def _git_manifest_summary(repo: Path, commit: str) -> dict[str, Any]:
+    """Recompute materialization receipt directly from replacement-free Git objects."""
+    if not isinstance(commit, str) or not SHA_RE.fullmatch(commit):
+        raise ContractError("Git-Manifest Commit ungueltig")
+    if _git(repo, "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode != 0:
+        raise ContractError(f"Git-Manifest Commit fehlt: {commit}")
+    result = _git(repo, "ls-tree", "-rz", "--full-tree", commit)
+    seen_casefold: set[str] = set()
+    tree_rows: list[tuple[str, str, str]] = []
+    for raw in result.stdout.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            meta, raw_path = raw.split(b"\t", 1)
+            mode, kind, oid = meta.decode("ascii").split(" ")
+            path_text = raw_path.decode("utf-8")
+        except (ValueError, UnicodeError) as exc:
+            raise ContractError("Git-Manifest Tree-Record ungueltig") from exc
+        if kind != "blob" or mode == "120000":
+            raise ContractError(f"Git-Manifest nicht materialisierbar: {path_text} ({mode}/{kind})")
+        folded = path_text.casefold()
+        if folded in seen_casefold:
+            raise ContractError(f"Git-Manifest Case-Kollision: {path_text}")
+        seen_casefold.add(folded)
+        tree_rows.append((path_text, mode, oid))
+    batch_input = b"".join(oid.encode("ascii") + b"\n" for _, _, oid in tree_rows)
+    batch_output = _git(repo, "cat-file", "--batch", input_data=batch_input).stdout
+    offset = 0
+    manifest: list[dict[str, Any]] = []
+    for path_text, mode, oid in tree_rows:
+        header_end = batch_output.find(b"\n", offset)
+        if header_end < 0:
+            raise ContractError("Git-Manifest Batch-Header fehlt")
+        try:
+            returned_oid, kind, size_text = batch_output[offset:header_end].decode("ascii").split(" ")
+            size = int(size_text)
+        except (ValueError, UnicodeError) as exc:
+            raise ContractError("Git-Manifest Batch-Header ungueltig") from exc
+        data_start = header_end + 1
+        data_end = data_start + size
+        if (
+            returned_oid != oid or kind != "blob" or size < 0
+            or data_end >= len(batch_output) or batch_output[data_end:data_end + 1] != b"\n"
+        ):
+            raise ContractError("Git-Manifest Batch-Blob ungueltig")
+        data = batch_output[data_start:data_end]
+        offset = data_end + 1
+        manifest.append({
+            "path": path_text, "mode": mode, "git_blob": oid,
+            "sha256": _sha_bytes(data), "bytes": len(data),
+        })
+    if offset != len(batch_output):
+        raise ContractError("Git-Manifest Batch hat unerwartete Restbytes")
+    return {
+        "commit": commit, "files": len(manifest),
+        "manifest_sha256": canonical_sha256(sorted(manifest, key=lambda item: item["path"])),
+        "method": "git-cat-file",
+    }
+
+
 def _verify_tool_identity(repo: Path, tooling_commit: str) -> str:
     result = _git(repo, "show", f"{tooling_commit}:tools/audit_runtime_evidence.py", check=False)
     if result.returncode != 0:
@@ -813,7 +873,10 @@ def _file_binding(
     return path, data
 
 
-def _provenance_shape(value: object, commit: str, label: str) -> None:
+def _provenance_shape(
+    value: object, commit: str, label: str, *, repo: Path,
+    expected_executor: dict[str, str], expected_source_path: str,
+) -> None:
     if not isinstance(value, dict) or set(value) != {"commit", "executor", "source"}:
         raise ContractError(f"{label}: Provenienzfelder falsch")
     if value.get("commit") != commit:
@@ -821,12 +884,39 @@ def _provenance_shape(value: object, commit: str, label: str) -> None:
     executor, source = value.get("executor"), value.get("source")
     if not isinstance(executor, dict) or set(executor) != {"path", "sha256", "version"}:
         raise ContractError(f"{label}: Executor-Provenienz falsch")
-    if not isinstance(executor.get("sha256"), str) or not HASH_RE.fullmatch(executor["sha256"]):
-        raise ContractError(f"{label}: Executor-SHA falsch")
+    if executor != expected_executor:
+        raise ContractError(f"{label}: Executor weicht vom versiegelten Manifest ab")
+    executor_path = Path(executor["path"]).resolve()
+    if (
+        executor_path != Path(sys.executable).resolve() or not executor_path.is_file()
+        or _sha(executor_path) != executor["sha256"] or executor["version"] != sys.version
+    ):
+        raise ContractError(f"{label}: versiegelte Executor-Runtimeidentitaet falsch")
     if not isinstance(source, dict) or set(source) != {"path", "git_blob", "sha256", "commit"}:
         raise ContractError(f"{label}: Source-Provenienz falsch")
-    if source.get("commit") != commit or not HASH_RE.fullmatch(str(source.get("sha256", ""))):
+    source_path = source.get("path")
+    if not isinstance(source_path, str):
+        raise ContractError(f"{label}: Source-Pfad fehlt")
+    posix_path = PurePosixPath(source_path)
+    if (
+        source_path != expected_source_path or "\\" in source_path or ":" in source_path
+        or posix_path.is_absolute() or any(part in {"", ".", ".."} for part in posix_path.parts)
+    ):
+        raise ContractError(f"{label}: Source-Pfad ungueltig/falsch")
+    if (
+        source.get("commit") != commit
+        or not HASH_RE.fullmatch(str(source.get("sha256", "")))
+        or not SHA_RE.fullmatch(str(source.get("git_blob", "")))
+    ):
         raise ContractError(f"{label}: Source-Bindung falsch")
+    blob = _git(repo, "rev-parse", f"{commit}:{source_path}", check=False)
+    raw = _git(repo, "show", f"{commit}:{source_path}", check=False)
+    if (
+        blob.returncode != 0 or raw.returncode != 0
+        or blob.stdout.decode().strip() != source["git_blob"]
+        or _sha_bytes(raw.stdout) != source["sha256"]
+    ):
+        raise ContractError(f"{label}: replacement-freie Source-Gitbytes falsch")
 
 
 def _validate_receipt_for_projection(
@@ -1054,12 +1144,24 @@ def _validate_receipt_for_projection(
             or not HASH_RE.fullmatch(str(item.get("manifest_sha256", "")))
         ):
             raise ContractError(f"Rich Receipt Materialization {name} falsch")
+        if item != _git_manifest_summary(repo, commit):
+            raise ContractError(f"Rich Receipt Materialization {name} Gitmanifest falsch")
 
     environment = receipt.get("environment")
     environment_fields = {
         "python_no_user_site", "python_safe_path", "python_flags", "path",
         "executor_manifest_sha256", "dependency_manifest_sha256",
         "required_modules", "dependency_manifest",
+    }
+    executor_manifest = _parse_json(sealed["executor_manifest"][1], "Sealed Executor-Manifest")
+    if set(executor_manifest) != {"python"}:
+        raise ContractError("Rich Receipt Executor-Manifest Exact-Set falsch")
+    python_executor = executor_manifest.get("python")
+    if not isinstance(python_executor, dict) or set(python_executor) != {"path", "sha256", "version"}:
+        raise ContractError("Rich Receipt Python-Executor-Manifest falsch")
+    expected_executor = {
+        "path": str(Path(str(python_executor["path"])).resolve()),
+        "sha256": python_executor["sha256"], "version": python_executor["version"],
     }
     dependencies = _parse_json(sealed["dependency_manifest"][1], "Sealed Dependency-Manifest")
     if not isinstance(environment, dict) or set(environment) != environment_fields:
@@ -1101,7 +1203,10 @@ def _validate_receipt_for_projection(
     if trace_record.get("owner") != "runner-from-trusted-harness-report":
         raise ContractError("Rich Receipt Trace-Owner falsch")
     events = _parse_jsonl(trace_bytes, "Runtime trace")
-    if len(events) != observer["events"] or sorted(event.get("axis") for event in events) != axes:
+    event_axes = [event.get("axis") for event in events]
+    if any(not isinstance(axis, str) or axis not in KNOWN_AXES for axis in event_axes):
+        raise ContractError("Rich Receipt Trace-Achse Typ/Wert falsch")
+    if len(events) != observer["events"] or sorted(event_axes) != axes:
         raise ContractError("Rich Receipt Trace-Achsen/Eventzahl falsch")
     for event in events:
         if event.get("feature_path") != row.get("feature_target") or event.get("axis") not in axes:
@@ -1150,7 +1255,11 @@ def _validate_receipt_for_projection(
         or post_payload.get("stderr_sha256") != _sha(post_stderr)
     ):
         raise ContractError("Rich Receipt Postcondition-Bindung falsch")
-    _provenance_shape(post_record.get("checker"), receipt["tooling_commit"], "Postcondition")
+    _provenance_shape(
+        post_record.get("checker"), receipt["tooling_commit"], "Postcondition",
+        repo=repo, expected_executor=expected_executor,
+        expected_source_path=row["postcondition"]["argv"][1],
+    )
 
     inputs = receipt.get("inputs")
     if not isinstance(inputs, list) or len(inputs) != len(row.get("inputs", [])):
@@ -1183,7 +1292,12 @@ def _validate_receipt_for_projection(
     expected_harness_timeout = float(row["harness"].get("timeout_seconds", row["timeout_seconds"]))
     if harness.get("timeout_seconds") != expected_harness_timeout:
         raise ContractError("Rich Receipt Harness Timeout-Bindung falsch")
-    _provenance_shape({key: harness[key] for key in ("commit", "executor", "source")}, receipt["tooling_commit"], "Harness")
+    _provenance_shape(
+        {key: harness[key] for key in ("commit", "executor", "source")},
+        receipt["tooling_commit"], "Harness", repo=repo,
+        expected_executor=expected_executor,
+        expected_source_path=row["harness"]["argv"][1],
+    )
 
     descriptor_path = run_dir / "target_descriptor.json"
     if not descriptor_path.is_file():
