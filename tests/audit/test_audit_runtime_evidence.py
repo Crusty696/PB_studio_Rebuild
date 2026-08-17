@@ -88,6 +88,7 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.name", "Audit Contract"], cwd=cls.repo, check=True)
         (cls.repo / "scenario.py").write_text(EMITTER, encoding="utf-8")
         (cls.repo / "foreign.py").write_text("import fractions\n" + EMITTER, encoding="utf-8")
+        (cls.repo / "numbers_target.py").write_text("import numbers\n" + EMITTER, encoding="utf-8")
         (cls.repo / "slow.py").write_text("import time\ntime.sleep(0.6)\n" + EMITTER, encoding="utf-8")
         (cls.repo / "self_trace.py").write_text(
             "from pathlib import Path\nimport os\nPath(os.environ['PB_AUDIT_RUN_DIR'],'trace.jsonl').write_text('{}\\n')\n" + EMITTER,
@@ -102,7 +103,7 @@ class GateContractTests(unittest.TestCase):
             encoding="utf-8",
         )
         (cls.repo / ".gitattributes").write_text("scenario.py filter=evil\n", encoding="utf-8")
-        subprocess.run(["git", "add", "scenario.py", "foreign.py", "slow.py", "self_trace.py", "tree_timeout.py", ".gitattributes"], cwd=cls.repo, check=True)
+        subprocess.run(["git", "add", "scenario.py", "foreign.py", "numbers_target.py", "slow.py", "self_trace.py", "tree_timeout.py", ".gitattributes"], cwd=cls.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "audited product"], cwd=cls.repo, check=True)
         cls.audited_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True).stdout.strip()
         tool_target = cls.repo / "tools" / "audit_runtime_evidence.py"
@@ -442,6 +443,62 @@ class GateContractTests(unittest.TestCase):
                         tampered, tampered_bytes, run_dir, **self.projection_trust(),
                     )
 
+    def test_projection_and_export_replay_harness_loaded_module_validation(self) -> None:
+        row = self.valid_scenario(script="numbers_target.py")
+        row["required_stdlib_modules"] = ["numbers"]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
+        self.dependency_path.write_bytes(_json_bytes({
+            "schema_version": 1, "python_version": sys.version,
+            "stdlib_modules": ["numbers"], "modules": [],
+        }) + b"\n")
+        self.write_catalog([row])
+        self.refresh_contract()
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        report_path = run_dir / "harness_report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(["numbers"], [item["name"] for item in report["loaded_modules"]])
+        report["loaded_modules"] = []
+        report_bytes = _json_bytes(report) + b"\n"
+        report_path.chmod(0o666)
+        report_path.write_bytes(report_bytes)
+        receipt["target"]["report"] = report
+        integrity = self.tool._snapshot_files(run_dir)
+        integrity.pop("receipt.json")
+        integrity.pop("projection.json")
+        receipt["final_integrity_sha256"] = self.tool.canonical_sha256(integrity)
+        receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
+        receipt_bytes = _json_bytes(receipt) + b"\n"
+
+        failures: list[str] = []
+        try:
+            self.tool.build_runtime_projection(
+                receipt, receipt_bytes, run_dir, **self.projection_trust(),
+            )
+        except self.tool.ContractError:
+            pass
+        else:
+            failures.append("projection")
+
+        projection = json.loads((run_dir / "projection.json").read_text(encoding="utf-8"))
+        projection["evidence_id"] = receipt["evidence_id"]
+        projection["proof_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+        projection["record_sha256"] = self.tool.canonical_sha256(
+            projection, omit={"record_sha256"},
+        )
+        (run_dir / "receipt.json").chmod(0o666)
+        (run_dir / "receipt.json").write_bytes(receipt_bytes)
+        (run_dir / "projection.json").chmod(0o666)
+        (run_dir / "projection.json").write_bytes(_json_bytes(projection) + b"\n")
+        (self.evidence / "runtime_runs.jsonl").write_bytes(receipt_bytes)
+        try:
+            self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
+        except self.tool.ContractError:
+            pass
+        else:
+            failures.append("export")
+        self.assertEqual([], failures)
+
     def test_provenance_materialization_and_trace_type_seven_repros(self) -> None:
         receipt = self.run_valid()
         run_dir = self.evidence / "runs" / "LIVE-001"
@@ -513,6 +570,7 @@ class GateContractTests(unittest.TestCase):
             ("outside-path", {"target_path": "../outside.py"}, {}),
             ("fake-blob", {"target_git_blob": "0" * 40}, {"git_blob": "0" * 40}),
             ("fake-sha", {"target_sha256": "0" * 64}, {"sha256": "0" * 64}),
+            ("fake-input", {"inputs": {"fixture": "C:/forged/input.json"}}, {}),
         )
         for label, descriptor_changes, source_changes in cases:
             with self.subTest(case=label):
@@ -625,6 +683,40 @@ class GateContractTests(unittest.TestCase):
                 self.run_valid()
         self.assertFalse((self.evidence / "runs" / "LIVE-001").exists())
         self.assertFalse((self.evidence / "runtime_runs.jsonl").exists())
+
+    def test_publish_failure_does_not_delete_foreign_replacement_run(self) -> None:
+        stage_run = self.evidence / ".staging" / "owned-run"
+        stage_run.mkdir(parents=True)
+        (stage_run / "owned.txt").write_text("owned", encoding="utf-8")
+        final_run = self.evidence / "runs" / "LIVE-OWNERSHIP"
+        final_run.parent.mkdir()
+        ledger = self.evidence / "runtime_runs.jsonl"
+        ownership_token = "a" * 32
+        self.tool._write_run_ownership(stage_run, "LIVE-OWNERSHIP", ownership_token)
+        receipt = {
+            "runtime_run_id": "LIVE-OWNERSHIP", "evidence_id": "sha256:" + "1" * 64,
+            "scenario_id": "SCN-OWNERSHIP",
+        }
+        original_write = self.tool._durable_write
+
+        def replace_with_foreign_then_fail(path: Path, data: bytes) -> None:
+            if path.name.startswith("runtime-runs-"):
+                self.tool._remove_tree(final_run)
+                final_run.mkdir()
+                (final_run / "foreign.txt").write_text("foreign", encoding="utf-8")
+                raise OSError("ledger-publish-crash")
+            original_write(path, data)
+
+        with mock.patch.object(self.tool, "_durable_write", side_effect=replace_with_foreign_then_fail):
+            with self.assertRaisesRegex(OSError, "ledger-publish-crash"):
+                self.tool._publish_run_and_ledgers(
+                    stage_run, final_run, ledger, receipt,
+                    repo_root=self.repo,
+                    expected_contract_sha256=self.expected_contract_sha256,
+                    expected_authority_commit=self.authority_commit,
+                    ownership_token=ownership_token,
+                )
+        self.assertEqual("foreign", (final_run / "foreign.txt").read_text(encoding="utf-8"))
 
     def test_projection_export_is_deterministic_and_atomic_failure_preserves_old_bytes(self) -> None:
         self.run_valid()

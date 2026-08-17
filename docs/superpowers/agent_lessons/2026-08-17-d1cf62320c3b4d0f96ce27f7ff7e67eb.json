@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d1cf62320c3b4d0f96ce27f7ff7e67eb",
+  "recorded_at": "2026-08-17T14:37:51+00:00",
+  "session_id": "92a6f60d58bb4dc4b58660107d53a193",
+  "head_at_start": "f1a8ee61e72f9ce238f02ec151269fff1dd9d6ea",
+  "problem": "Post-hoc Runtime-Projection validierte Harness-Modulreport und Descriptor-Inputwerte nicht vollständig; Fehlercleanup konnte fremd ersetztes Run-Verzeichnis löschen.",
+  "cause": "Projection prüfte nur Modul-Listentyp und Inputnamen; Cleanup bewies Besitz nur über In-Memory-Flags statt aktuellen Dateisystemtoken.",
+  "rule": "Evidence-Adapter müssen dieselben vollständigen Provenienzvalidatoren wie der Producer erneut ausführen und Descriptorwerte an kanonische versiegelte Refs binden. Destruktives Cleanup nur nach unmittelbar erneut gelesener, unguessbarer Ownership-Markierung im aktuellen Zielobjekt.",
+  "applies_to": "Runtime Receipts, Evidence-Projections, atomare Publisher, Fehlercleanup gemeinsam genutzter Pfade"
+}

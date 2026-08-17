@@ -87,6 +87,7 @@ SEALED_INPUT_NAMES = {
     "feature_universe", "symbol_universe", "executor_manifest",
     "dependency_manifest",
 }
+RUN_OWNERSHIP_FILE = ".publish-owner.json"
 
 
 class ContractError(RuntimeError):
@@ -789,12 +790,10 @@ def _write(path: Path, data: bytes) -> dict[str, Any]:
     return {"bytes": len(data), "sha256": _sha_bytes(data)}
 
 
-def _validate_harness_report(
-    path: Path, descriptor_bytes: bytes, dependencies: dict[str, Any], row: dict[str, Any],
+def _validate_harness_report_payload(
+    report: dict[str, Any], descriptor_bytes: bytes,
+    dependencies: dict[str, Any], row: dict[str, Any],
 ) -> dict[str, Any]:
-    if not path.is_file():
-        raise ContractError("Trusted Harness hat keinen harness_report erzeugt")
-    report = _parse_json(path.read_bytes(), "harness_report")
     if report.get("schema_version") != 1 or report.get("descriptor_sha256") != _sha_bytes(descriptor_bytes):
         raise ContractError("harness_report Schema/Descriptor-Bindung falsch")
     if report.get("target_exit_code") != 0:
@@ -831,6 +830,15 @@ def _validate_harness_report(
             f"Geladene Module keine Exact-Set-Gleichheit: stdlib={sorted(actual_stdlib)} deps={sorted(actual_external)}"
         )
     return report
+
+
+def _validate_harness_report(
+    path: Path, descriptor_bytes: bytes, dependencies: dict[str, Any], row: dict[str, Any],
+) -> dict[str, Any]:
+    if not path.is_file():
+        raise ContractError("Trusted Harness hat keinen harness_report erzeugt")
+    report = _parse_json(path.read_bytes(), "harness_report")
+    return _validate_harness_report_payload(report, descriptor_bytes, dependencies, row)
 
 
 def _validated_projection_list(
@@ -1159,17 +1167,10 @@ def _validate_receipt_for_projection(
         "executor_manifest_sha256", "dependency_manifest_sha256",
         "required_modules", "dependency_manifest",
     }
-    executor_manifest = _parse_json(sealed["executor_manifest"][1], "Sealed Executor-Manifest")
-    if set(executor_manifest) != {"python"}:
-        raise ContractError("Rich Receipt Executor-Manifest Exact-Set falsch")
-    python_executor = executor_manifest.get("python")
-    if not isinstance(python_executor, dict) or set(python_executor) != {"path", "sha256", "version"}:
-        raise ContractError("Rich Receipt Python-Executor-Manifest falsch")
-    expected_executor = {
-        "path": str(Path(str(python_executor["path"])).resolve()),
-        "sha256": python_executor["sha256"], "version": python_executor["version"],
-    }
-    dependencies = _parse_json(sealed["dependency_manifest"][1], "Sealed Dependency-Manifest")
+    executors, dependencies = _validate_executor_and_dependencies(
+        sealed["executor_manifest"][1], sealed["dependency_manifest"][1], row,
+    )
+    expected_executor = executors["python"]
     if not isinstance(environment, dict) or set(environment) != environment_fields:
         raise ContractError("Rich Receipt Environment Exact-Fields falsch")
     if (
@@ -1333,6 +1334,7 @@ def _validate_receipt_for_projection(
         or report["started_ns"] > report["ended_ns"]
     ):
         raise ContractError("Rich Receipt Harness-Report Zeiten/Module falsch")
+    _validate_harness_report_payload(report, descriptor_bytes, dependencies, row)
     descriptor_inputs = descriptor.get("inputs")
     if not isinstance(descriptor_inputs, dict):
         raise ContractError("Rich Receipt Target-Descriptor Inputs falsch")
@@ -1341,6 +1343,7 @@ def _validate_receipt_for_projection(
     source = target.get("source")
     source_path = row["target"].get("path")
     posix_target_path = PurePosixPath(source_path) if isinstance(source_path, str) else None
+    expected_descriptor_inputs = {item["name"]: item["ref"] for item in inputs}
     if (
         not isinstance(source, dict) or set(source) != {"commit", "path", "git_blob", "sha256"}
         or source.get("commit") != receipt["audited_commit"]
@@ -1358,7 +1361,7 @@ def _validate_receipt_for_projection(
         or descriptor.get("target_sha256") != source.get("sha256")
         or descriptor.get("argv") != row["target"].get("argv")
         or descriptor.get("feature_target") != row.get("feature_target")
-        or set(descriptor_inputs) != {item.get("name") for item in row.get("inputs", [])}
+        or descriptor_inputs != expected_descriptor_inputs
         or report.get("descriptor_sha256") != target.get("descriptor_sha256")
         or any(
             event.get("descriptor_sha256") != target.get("descriptor_sha256")
@@ -1640,6 +1643,7 @@ def _create_ledger_lock(path: Path) -> bytes:
 def _publish_run_and_ledgers(
     stage_run: Path, final_run: Path, ledger: Path, receipt: dict[str, Any],
     *, repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
+    ownership_token: str,
 ) -> None:
     """Serialize run-dir publication and per-file atomic ledger replacements.
 
@@ -1655,6 +1659,10 @@ def _publish_run_and_ledgers(
     published = False
     ledger_committed = False
     try:
+        if not _owns_published_run(
+            stage_run, receipt["runtime_run_id"], ownership_token,
+        ):
+            raise ContractError("Runtime-Run Ownership-Marker fehlt/falsch")
         runtime_ids, evidence_ids = _existing_runtime_ids(ledger)
         if receipt["runtime_run_id"] in runtime_ids or receipt["evidence_id"] in evidence_ids:
             raise ContractError("Runtime-Receipt bereits im Ledger vorhanden")
@@ -1681,7 +1689,10 @@ def _publish_run_and_ledgers(
             expected_authority_commit=expected_authority_commit,
         )
     except Exception:
-        if published and not ledger_committed:
+        if (
+            published and not ledger_committed
+            and _owns_published_run(final_run, receipt["runtime_run_id"], ownership_token)
+        ):
             _remove_tree(final_run)
         raise
     finally:
@@ -1696,6 +1707,21 @@ def _remove_tree(path: Path) -> None:
         function(target)
     if path.exists():
         shutil.rmtree(path, onerror=repair)
+
+
+def _write_run_ownership(path: Path, runtime_run_id: str, token: str) -> None:
+    payload = {"runtime_run_id": runtime_run_id, "token": token}
+    _durable_write(path / RUN_OWNERSHIP_FILE, _canonical_bytes(payload) + b"\n")
+    os.chmod(path / RUN_OWNERSHIP_FILE, 0o444)
+
+
+def _owns_published_run(path: Path, runtime_run_id: str, token: str) -> bool:
+    marker = path / RUN_OWNERSHIP_FILE
+    expected = _canonical_bytes({"runtime_run_id": runtime_run_id, "token": token}) + b"\n"
+    try:
+        return marker.is_file() and marker.read_bytes() == expected
+    except OSError:
+        return False
 
 
 def run_scenario(
@@ -1771,6 +1797,7 @@ def run_scenario(
     stage_run.mkdir(parents=True)
     sealed_root.mkdir()
     success = False
+    publish_owner_token: str | None = None
     try:
         audited_materialization = _materialize_commit(repo, contract["audited_commit"], audited_root)
         tooling_materialization = _materialize_commit(repo, contract["tooling_commit"], tooling_root)
@@ -1855,7 +1882,7 @@ def run_scenario(
             "target_path": target_ref, "target_ref": target_ref,
             "target_git_blob": target_blob.stdout.decode().strip(), "target_sha256": _sha(target_path),
             "argv": target_args, "feature_target": row["feature_target"],
-            "inputs": {name: str(path) for name, path in sorted(input_paths.items())},
+            "inputs": {item["name"]: item["ref"] for item in input_receipts},
         }
         descriptor_bytes = _canonical_bytes(descriptor) + b"\n"
         descriptor_path = stage_run / "target_descriptor.json"
@@ -1960,6 +1987,8 @@ def run_scenario(
         _assert_snapshot(audited_root, audited_integrity, "Auditcommit-Materialisierung vor Publish")
         _assert_snapshot(tooling_root, tooling_integrity, "Toolingcommit-Materialisierung vor Publish")
         os.replace(sealed_root, stage_run / "sealed")
+        publish_owner_token = uuid.uuid4().hex
+        _write_run_ownership(stage_run, runtime_run_id, publish_owner_token)
         _fsync_tree(stage_run)
         _fsync_directory(stage_run)
         final_integrity = _snapshot_files(stage_run)
@@ -2058,6 +2087,7 @@ def run_scenario(
             stage_run, final_run, ledger, receipt, repo_root=repo,
             expected_contract_sha256=expected_contract_sha256,
             expected_authority_commit=expected_authority_commit,
+            ownership_token=publish_owner_token,
         )
         success = True
         return receipt
@@ -2065,7 +2095,11 @@ def run_scenario(
         if staging.exists():
             _remove_tree(staging)
         _release_lock(run_lock, run_lock_payload)
-        if not success and final_run.exists() and runtime_run_id not in _existing_runtime_ids(ledger)[0]:
+        if (
+            not success and publish_owner_token is not None
+            and runtime_run_id not in _existing_runtime_ids(ledger)[0]
+            and _owns_published_run(final_run, runtime_run_id, publish_owner_token)
+        ):
             _remove_tree(final_run)
 
 
