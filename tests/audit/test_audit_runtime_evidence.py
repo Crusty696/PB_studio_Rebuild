@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -572,6 +573,54 @@ class GateContractTests(unittest.TestCase):
         else:
             failures.append("export")
         self.assertEqual([], failures)
+
+    def test_projection_input_types_fail_closed_without_crash(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+
+        scenario_item = next(
+            item for item in receipt["sealed_contract_inputs"]
+            if item["name"] == "scenario_catalog"
+        )
+        catalog = self.tool._load_catalog(
+            (self.evidence / scenario_item["ref"]).read_bytes(),
+        )
+        for malformed_inputs in (None, 7):
+            with self.subTest(scenario_inputs=malformed_inputs):
+                malformed_catalog = copy.deepcopy(catalog)
+                malformed_row = malformed_catalog["SCN-001"]
+                malformed_row["inputs"] = malformed_inputs
+                malformed_row["scenario_sha256"] = self.tool.canonical_sha256(
+                    malformed_row, omit={"scenario_sha256"},
+                )
+                malformed_receipt = copy.deepcopy(receipt)
+                malformed_receipt["scenario_sha256"] = malformed_row["scenario_sha256"]
+                malformed_receipt["evidence_id"] = self.tool.canonical_evidence_id(
+                    malformed_receipt,
+                )
+                malformed_bytes = _json_bytes(malformed_receipt) + b"\n"
+                with mock.patch.object(
+                    self.tool, "_load_catalog", return_value=malformed_catalog,
+                ):
+                    with self.assertRaises(self.tool.ContractError):
+                        self.tool.build_runtime_projection(
+                            malformed_receipt, malformed_bytes, run_dir,
+                            **self.projection_trust(),
+                        )
+
+        for malformed_name in ([], {}):
+            with self.subTest(receipt_input_name=malformed_name):
+                malformed_receipt = copy.deepcopy(receipt)
+                malformed_receipt["inputs"][0]["name"] = malformed_name
+                malformed_receipt["evidence_id"] = self.tool.canonical_evidence_id(
+                    malformed_receipt,
+                )
+                malformed_bytes = _json_bytes(malformed_receipt) + b"\n"
+                with self.assertRaises(self.tool.ContractError):
+                    self.tool.build_runtime_projection(
+                        malformed_receipt, malformed_bytes, run_dir,
+                        **self.projection_trust(),
+                    )
 
     def test_provenance_materialization_and_trace_type_seven_repros(self) -> None:
         receipt = self.run_valid()
