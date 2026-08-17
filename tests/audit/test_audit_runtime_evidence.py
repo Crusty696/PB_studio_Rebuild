@@ -545,15 +545,14 @@ class GateContractTests(unittest.TestCase):
         receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
         receipt_bytes = _json_bytes(receipt) + b"\n"
 
-        failures: list[str] = []
-        try:
-            self.tool.build_runtime_projection(
-                receipt, receipt_bytes, run_dir, **self.projection_trust(),
-            )
-        except self.tool.ContractError:
-            pass
-        else:
-            failures.append("projection")
+        self.assertRaises(
+            self.tool.ContractError,
+            self.tool.build_runtime_projection,
+            receipt,
+            receipt_bytes,
+            run_dir,
+            **self.projection_trust(),
+        )
 
         projection = json.loads((run_dir / "projection.json").read_text(encoding="utf-8"))
         projection["evidence_id"] = receipt["evidence_id"]
@@ -566,13 +565,12 @@ class GateContractTests(unittest.TestCase):
         (run_dir / "projection.json").chmod(0o666)
         (run_dir / "projection.json").write_bytes(_json_bytes(projection) + b"\n")
         (self.evidence / "runtime_runs.jsonl").write_bytes(receipt_bytes)
-        try:
-            self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
-        except self.tool.ContractError:
-            pass
-        else:
-            failures.append("export")
-        self.assertEqual([], failures)
+        self.assertRaises(
+            self.tool.ContractError,
+            self.tool.export_runtime_evidence,
+            self.evidence,
+            **self.projection_trust(),
+        )
 
     def test_projection_input_types_fail_closed_without_crash(self) -> None:
         receipt = self.run_valid()
