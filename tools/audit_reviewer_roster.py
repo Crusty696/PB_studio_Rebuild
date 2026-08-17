@@ -404,47 +404,55 @@ class _FileLock:
         ) + b"\n"
 
     def _owner(self) -> bool:
+        if self.fd is None or not agent_session._path_matches_fd(self.path, self.fd):
+            return False
         try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
+            raw = agent_session._read_lock_payload_fd(self.fd) or b""
+            value = json.loads(raw.decode("utf-8"))
             return value.get("token") == self.token and value.get("pid") == os.getpid()
-        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        except (UnicodeError, json.JSONDecodeError, AttributeError):
             return False
 
     def __enter__(self) -> "_FileLock":
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
         while True:
+            fd: int | None = None
             try:
-                self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self.fd, self._payload())
-                return self
-            except FileExistsError:
-                try:
-                    value = json.loads(self.path.read_text(encoding="utf-8"))
-                    heartbeat = float(value.get("heartbeat", 0.0))
-                    if time.time() - heartbeat > LOCK_STALE_SECONDS:
-                        quarantine = self.path.with_name(
-                            self.path.name + f".stale.{int(time.time())}.{uuid.uuid4().hex}"
-                        )
-                        os.replace(self.path, quarantine)
-                        continue
-                except (OSError, ValueError, TypeError, json.JSONDecodeError, AttributeError):
-                    pass
-                if time.monotonic() >= deadline:
-                    raise ContractError(f"Lock nicht erhalten: {self.path}")
-                time.sleep(0.05)
+                fd = os.open(str(self.path), os.O_CREAT | os.O_RDWR)
+                agent_session._prepare_lock_file(fd)
+                if (
+                    agent_session._try_lock_fd(fd)
+                    and agent_session._path_matches_fd(self.path, fd)
+                ):
+                    self.fd = fd
+                    agent_session._write_lock_payload(fd, self._payload())
+                    return self
+            finally:
+                if fd is not None and fd != self.fd:
+                    agent_session._unlock_fd(fd)
+                    os.close(fd)
+            if time.monotonic() >= deadline:
+                raise ContractError(f"Lock nicht erhalten: {self.path}")
+            time.sleep(0.05)
 
     def __exit__(self, *_exc: object) -> None:
-        if self.fd is not None:
-            os.close(self.fd)
-        if not self._owner():
+        fd = self.fd
+        if fd is None:
+            return
+        owner = self._owner()
+        self.fd = None
+        if owner:
+            agent_session._write_lock_payload(fd, b"")
+        agent_session._unlock_fd(fd)
+        os.close(fd)
+        if not owner:
             raise ContractError(f"Lock-Ownership verloren; fremden Lock nicht entfernt: {self.path}")
-        self.path.unlink()
 
     def heartbeat(self) -> None:
         """Keep a legitimately long enrollment lock from looking orphaned."""
         if self.fd is None or not self.path.exists() or not self._owner():
             raise ContractError(f"Lock ging waehrend Operation verloren: {self.path}")
-        self.path.write_bytes(self._payload())
+        agent_session._write_lock_payload(self.fd, self._payload())
 
 
 def _read_registry_locked(common_dir: Path) -> dict[str, dict[str, Any]]:
