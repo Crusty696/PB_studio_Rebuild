@@ -8,6 +8,7 @@ import configparser
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -501,7 +502,11 @@ def validate_artifact_universe(
 
 
 def _git(root: Path, *args: str) -> bytes:
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True).stdout
+    env = dict(os.environ)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return subprocess.run(
+        ["git", *args], cwd=root, check=True, capture_output=True, env=env,
+    ).stdout
 
 
 def resolve_commit(root: Path, commit: str) -> str:
@@ -1645,9 +1650,15 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--evidence-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        signed_at = args.signed_at if args.command == "enumerate" else json.loads(
-            args.audit_contract.read_text(encoding="utf-8")
-        ).get("frozen_at")
+        audit_contract: dict[str, Any] | None = None
+        if args.command == "enumerate":
+            signed_at = args.signed_at
+        else:
+            loaded_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+            if not isinstance(loaded_contract, dict):
+                raise ContractError("audit_contract: Objekt erwartet")
+            audit_contract = loaded_contract
+            signed_at = audit_contract.get("frozen_at")
         if not isinstance(signed_at, str):
             raise ContractError("audit_contract.frozen_at fehlt")
         symbols, edges = enumerate_contract_universe(
@@ -1668,7 +1679,8 @@ def main(argv: list[str] | None = None) -> int:
             errors.append("Symboluniversum weicht von kanonischer Gitobjekt-Enumeration ab")
         if _read_jsonl(args.edges) != edges:
             errors.append("Kantenuniversum weicht von kanonischer Gitobjekt-Enumeration ab")
-        audit_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+        if audit_contract is None:
+            raise ContractError("audit_contract fehlt")
         evidence_contract = json.loads(args.evidence_contract.read_text(encoding="utf-8"))
         errors.extend(validate_contracts(
             symbols, edges, _read_jsonl(args.symbol_states), _read_jsonl(args.edge_states),

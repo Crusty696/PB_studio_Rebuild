@@ -1460,6 +1460,32 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             HARNESS.main(missing_external_pin)
 
+        audit_path.write_text("[]", encoding="utf-8")
+        self.assertEqual(2, HARNESS.main(args))
+
+    def test_git_replace_cannot_substitute_audited_commit(self) -> None:
+        expected_symbols = copy.deepcopy(self.symbols)
+        expected_edges = copy.deepcopy(self.edges)
+        (self.repo / "app.py").write_text(
+            "def replacement():\n    return 'REPLACED'\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "app.py"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "replacement"], cwd=self.repo, check=True)
+        replacement = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+        ).strip()
+        subprocess.run(["git", "replace", self.commit, replacement], cwd=self.repo, check=True)
+        try:
+            symbols, edges = HARNESS.enumerate_contract_universe(
+                self.repo, self.commit, self.RUN, self.SNAPSHOT,
+                tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+            )
+        finally:
+            subprocess.run(["git", "replace", "-d", self.commit], cwd=self.repo, check=True)
+        self.assertEqual(expected_symbols, symbols)
+        self.assertEqual(expected_edges, edges)
+
 
 if __name__ == "__main__":
     unittest.main()

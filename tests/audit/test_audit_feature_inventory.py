@@ -911,6 +911,38 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             HARNESS.main(missing_external_pin)
 
+        json_paths["audit-contract"].write_text("[]", encoding="utf-8")
+        self.assertEqual(2, HARNESS.main(args))
+
+    def test_git_replace_cannot_substitute_audited_commit(self) -> None:
+        expected_requirements = copy.deepcopy(self.requirements)
+        expected_triggers = copy.deepcopy(self.triggers)
+        (self.repo / "contract.md").write_text(
+            "# Replacement\nReplacement darf Auditcommit nicht ersetzen.\n",
+            encoding="utf-8",
+        )
+        (self.repo / "app.py").write_text(
+            "from PyQt6.QtWidgets import QPushButton\n"
+            "def replacement():\n    return 2\n"
+            "button = QPushButton('REPLACED')\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "contract.md", "app.py"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "replacement"], cwd=self.repo, check=True)
+        replacement = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True,
+        ).strip()
+        subprocess.run(["git", "replace", self.commit, replacement], cwd=self.repo, check=True)
+        try:
+            requirements, triggers = HARNESS.enumerate_universes(
+                self.repo, self.commit, self.RUN, self.SNAPSHOT,
+                tooling_commit=self.TOOLING, signed_at=self.FROZEN,
+            )
+        finally:
+            subprocess.run(["git", "replace", "-d", self.commit], cwd=self.repo, check=True)
+        self.assertEqual(expected_requirements, requirements)
+        self.assertEqual(expected_triggers, triggers)
+
 
 if __name__ == "__main__":
     unittest.main()

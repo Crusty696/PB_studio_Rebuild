@@ -14,6 +14,7 @@ import configparser
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -607,8 +608,10 @@ def _parse_config(text: str, suffix: str, path: str) -> None:
 
 
 def _git(root: Path, *args: str) -> bytes:
+    env = dict(os.environ)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
     return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True,
+        ["git", *args], cwd=root, check=True, capture_output=True, env=env,
     ).stdout
 
 
@@ -1218,9 +1221,15 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--evidence-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        signed_at = args.signed_at if args.command == "enumerate" else json.loads(
-            args.audit_contract.read_text(encoding="utf-8")
-        ).get("frozen_at")
+        audit_contract: dict[str, Any] | None = None
+        if args.command == "enumerate":
+            signed_at = args.signed_at
+        else:
+            loaded_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+            if not isinstance(loaded_contract, dict):
+                raise ContractError("audit_contract: Objekt erwartet")
+            audit_contract = loaded_contract
+            signed_at = audit_contract.get("frozen_at")
         if not isinstance(signed_at, str):
             raise ContractError("audit_contract.frozen_at fehlt")
         requirements, triggers = enumerate_universes(
@@ -1243,7 +1252,8 @@ def main(argv: list[str] | None = None) -> int:
             errors.append("Requirements-Universum weicht von kanonischer Gitobjekt-Enumeration ab")
         if supplied_triggers != triggers:
             errors.append("Trigger-Universum weicht von kanonischer Gitobjekt-Enumeration ab")
-        audit_contract = json.loads(args.audit_contract.read_text(encoding="utf-8"))
+        if audit_contract is None:
+            raise ContractError("audit_contract fehlt")
         evidence_contract = json.loads(args.evidence_contract.read_text(encoding="utf-8"))
         errors.extend(validate_exact_set(
             requirements, triggers, _read_jsonl(args.dispositions), run_id=args.run_id,
