@@ -499,6 +499,80 @@ class GateContractTests(unittest.TestCase):
             failures.append("export")
         self.assertEqual([], failures)
 
+    def test_projection_and_export_require_scenario_canonical_input_refs(self) -> None:
+        receipt = self.run_valid()
+        run_dir = self.evidence / "runs" / "LIVE-001"
+        canonical_input = run_dir / "sealed" / "inputs" / "fixture.json"
+        forged_input = run_dir / "forged" / "input.json"
+        forged_input.parent.mkdir()
+        shutil.copy2(canonical_input, forged_input)
+        forged_ref = "runs/LIVE-001/forged/input.json"
+
+        descriptor_path = run_dir / "target_descriptor.json"
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        descriptor["inputs"]["fixture"] = forged_ref
+        descriptor_bytes = _json_bytes(descriptor) + b"\n"
+        descriptor_path.chmod(0o666)
+        descriptor_path.write_bytes(descriptor_bytes)
+        descriptor_sha = hashlib.sha256(descriptor_bytes).hexdigest()
+
+        report_path = run_dir / "harness_report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["descriptor_sha256"] = descriptor_sha
+        report_path.chmod(0o666)
+        report_path.write_bytes(_json_bytes(report) + b"\n")
+
+        trace_path = run_dir / "trace.jsonl"
+        events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+        for event in events:
+            if event.get("axis") == "executed":
+                event["descriptor_sha256"] = descriptor_sha
+        trace_bytes = b"".join(_json_bytes(event) + b"\n" for event in events)
+        trace_path.chmod(0o666)
+        trace_path.write_bytes(trace_bytes)
+
+        receipt["inputs"][0]["ref"] = forged_ref
+        receipt["input"]["ref"] = forged_ref
+        receipt["target"]["descriptor_sha256"] = descriptor_sha
+        receipt["target"]["report"] = report
+        receipt["trace"]["sha256"] = hashlib.sha256(trace_bytes).hexdigest()
+        receipt["trace"]["bytes"] = len(trace_bytes)
+        integrity = self.tool._snapshot_files(run_dir)
+        integrity.pop("receipt.json")
+        integrity.pop("projection.json")
+        receipt["final_integrity_sha256"] = self.tool.canonical_sha256(integrity)
+        receipt["evidence_id"] = self.tool.canonical_evidence_id(receipt)
+        receipt_bytes = _json_bytes(receipt) + b"\n"
+
+        failures: list[str] = []
+        try:
+            self.tool.build_runtime_projection(
+                receipt, receipt_bytes, run_dir, **self.projection_trust(),
+            )
+        except self.tool.ContractError:
+            pass
+        else:
+            failures.append("projection")
+
+        projection = json.loads((run_dir / "projection.json").read_text(encoding="utf-8"))
+        projection["evidence_id"] = receipt["evidence_id"]
+        projection["proof_sha256"] = hashlib.sha256(receipt_bytes).hexdigest()
+        projection["record_sha256"] = self.tool.canonical_sha256(
+            projection, omit={"record_sha256"},
+        )
+        (run_dir / "receipt.json").chmod(0o666)
+        (run_dir / "receipt.json").write_bytes(receipt_bytes)
+        (run_dir / "projection.json").chmod(0o666)
+        (run_dir / "projection.json").write_bytes(_json_bytes(projection) + b"\n")
+        (self.evidence / "runtime_runs.jsonl").write_bytes(receipt_bytes)
+        try:
+            self.tool.export_runtime_evidence(self.evidence, **self.projection_trust())
+        except self.tool.ContractError:
+            pass
+        else:
+            failures.append("export")
+        self.assertEqual([], failures)
+
     def test_provenance_materialization_and_trace_type_seven_repros(self) -> None:
         receipt = self.run_valid()
         run_dir = self.evidence / "runs" / "LIVE-001"

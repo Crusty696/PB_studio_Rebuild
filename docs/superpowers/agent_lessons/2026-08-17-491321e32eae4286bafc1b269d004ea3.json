@@ -1,0 +1,10 @@
+{
+  "lesson_id": "491321e32eae4286bafc1b269d004ea3",
+  "recorded_at": "2026-08-17T15:16:03+00:00",
+  "session_id": "c43ea42d0b2e48b7ba2a69f6eeace598",
+  "head_at_start": "afc63656e6b51ff9486f53e6b34e97be90a454f3",
+  "problem": "Runtime-Projection und Export akzeptierten gemeinsam resealte Receipt- und Descriptor-Inputrefs ausserhalb kanonischer sealed inputs.",
+  "cause": "Validator leitete erwarteten Descriptorref aus demselben selbstbehaupteten Receipt ab; gegenseitige Gleichheit ersetzte unabhängige Vertrauensableitung.",
+  "rule": "Vertrauensrelevante Receipt- und Descriptorfelder immer unabhängig aus signiertem Scenario oder extern gepinntem Vertrag ableiten; nie zwei gemeinsam kontrollierbare Felder gegenseitig attestieren lassen.",
+  "applies_to": "Runtime-Evidence, Receipt-Projektion, Export, Provenienzvalidatoren"
+}

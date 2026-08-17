@@ -1271,7 +1271,22 @@ def _validate_receipt_for_projection(
     inputs = receipt.get("inputs")
     if not isinstance(inputs, list) or len(inputs) != len(row.get("inputs", [])):
         raise ContractError("Rich Receipt Inputs falsch")
-    expected_inputs = {item.get("name"): item for item in row["inputs"]}
+    expected_inputs: dict[str, dict[str, Any]] = {}
+    expected_input_refs: dict[str, str] = {}
+    for index, expected in enumerate(row["inputs"]):
+        if not isinstance(expected, dict):
+            raise ContractError(f"Rich Receipt Scenario-Input {index} falsch")
+        name = expected.get("name")
+        source_ref = expected.get("ref")
+        if (
+            not isinstance(name, str) or not ID_RE.fullmatch(name)
+            or name in expected_inputs or not isinstance(source_ref, str)
+        ):
+            raise ContractError(f"Rich Receipt Scenario-Input {index} Name/Ref falsch")
+        expected_inputs[name] = expected
+        expected_input_refs[name] = (
+            f"runs/{run_dir.name}/sealed/inputs/{name}{Path(source_ref).suffix}"
+        )
     seen_input_names: set[str] = set()
     for item in inputs:
         if not isinstance(item, dict) or set(item) != {"name", "source_ref", "ref", "sha256"}:
@@ -1281,7 +1296,13 @@ def _validate_receipt_for_projection(
             raise ContractError("Rich Receipt Input-Name doppelt")
         seen_input_names.add(item.get("name"))
         path = _run_ref_file(run_dir, item.get("ref"), f"Runtime Input {item.get('name')}")
-        if expected is None or item.get("source_ref") != expected.get("ref") or item.get("sha256") != expected.get("sha256") or _sha(path) != item.get("sha256"):
+        if (
+            expected is None
+            or item.get("source_ref") != expected.get("ref")
+            or item.get("ref") != expected_input_refs[item["name"]]
+            or item.get("sha256") != expected.get("sha256")
+            or _sha(path) != item.get("sha256")
+        ):
             raise ContractError("Rich Receipt Input-Bindung falsch")
     aggregate = receipt.get("input")
     expected_aggregate = (
@@ -1343,7 +1364,7 @@ def _validate_receipt_for_projection(
     source = target.get("source")
     source_path = row["target"].get("path")
     posix_target_path = PurePosixPath(source_path) if isinstance(source_path, str) else None
-    expected_descriptor_inputs = {item["name"]: item["ref"] for item in inputs}
+    expected_descriptor_inputs = expected_input_refs
     if (
         not isinstance(source, dict) or set(source) != {"commit", "path", "git_blob", "sha256"}
         or source.get("commit") != receipt["audited_commit"]
