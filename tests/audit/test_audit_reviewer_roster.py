@@ -43,10 +43,38 @@ class GateContractTests(unittest.TestCase):
             guard = roster._FileLock(path)
             guard.__enter__()
             foreign = {"token": "foreign", "pid": 1, "heartbeat": time.time()}
-            path.write_bytes(roster._canonical(foreign) + b"\n")
+            agent_session._write_lock_payload(
+                guard.fd, roster._canonical(foreign) + b"\n",
+            )
             with self.assertRaises(roster.ContractError):
                 guard.__exit__(None, None, None)
             self.assertTrue(path.exists())
+
+    def test_stale_lock_recovery_never_replaces_shared_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "stale.lock"
+            path.write_bytes(roster._canonical({
+                "token": "dead", "pid": 999999,
+                "heartbeat": time.time() - roster.LOCK_STALE_SECONDS - 5,
+            }) + b"\n")
+            with mock.patch.object(
+                roster.os, "replace",
+                side_effect=AssertionError("shared lock path must not be replaced"),
+            ):
+                with roster._FileLock(path):
+                    self.assertTrue(path.exists())
+
+    def test_reviewer_and_registry_share_same_kernel_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            common = Path(temp)
+            path = common / "pb-agent-sessions.lock"
+            with (
+                mock.patch.object(agent_session, "_git_common_dir", return_value=common),
+                mock.patch.object(agent_session, "LOCK_TIMEOUT_SEC", 0.05),
+                roster._FileLock(path),
+            ):
+                with self.assertRaises(TimeoutError):
+                    agent_session._Lock().__enter__()
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

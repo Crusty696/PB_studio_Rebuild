@@ -235,6 +235,17 @@ def test_stale_lock_is_broken():
     assert s
 
 
+def test_lock_exit_never_removes_foreign_owner_payload():
+    """Lockverlust darf niemals fremde Bytes am gemeinsamen Pfad loeschen."""
+    guard = ag._Lock()
+    guard.__enter__()
+    lock = ag._lock_path()
+    ag._write_lock_payload(guard._fd, b"foreign-owner")
+    with pytest.raises(RuntimeError, match="Ownership"):
+        guard.__exit__(None, None, None)
+    assert ag._read_lock_payload(lock) == b"foreign-owner"
+
+
 def test_write_is_atomic_no_tmp_left():
     ag.claim("agent-a", "t", ["x.py"])
     assert not list(ag.registry_path().parent.glob("*.tmp")), "tmp-Datei blieb liegen"
