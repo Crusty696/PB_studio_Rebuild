@@ -1,0 +1,10 @@
+{
+  "lesson_id": "722ef2b8ee514072b8c1aa3dae761739",
+  "recorded_at": "2026-08-17T14:07:47+00:00",
+  "session_id": "32829e07dd684d6597d6f1fa6cc82297",
+  "head_at_start": "9774bfaa160d022671874ae529bf0c6e9dccad7c",
+  "problem": "Feature- und Symbol-Auditharness akzeptierten Git-Replace-Substitutionen und crashten bei Nichtobjekt-Auditcontract.",
+  "cause": "Vertrauensrelevante Git-Aufrufe erbten lokale Replace-Refs; CLI griff vor Typprüfung mit .get auf deserialisiertes JSON zu.",
+  "rule": "Alle vertrauensrelevanten Git-Lesewege mit GIT_NO_REPLACE_OBJECTS=1 ausführen; extern geladene JSON-Wurzeln vor jedem Feldzugriff strikt typprüfen und kontrolliert fail-closed behandeln.",
+  "applies_to": "Audit-Harnesses, Git-Provenienzvalidatoren, JSON-Contract-CLIs"
+}
