@@ -1,7 +1,7 @@
 # PB Studio Exhaustive Line + Feature-State Audit Execution Plan
 
-> **Status:** `draft` — Planung dokumentiert; keine Audit-Ausfuehrung, kein Fix,
-> kein ACTIVE_PLAN-Wechsel autorisiert.
+> **Status:** `phase-minus-1-in-progress` — ausschließlich Harness-/Contracttest-
+> Arbeit autorisiert; keine Audit-Ausfuehrung, kein Produktfix.
 >
 > **REQUIRED SUB-SKILL:** `pb-exhaustive-audit-ledger`
 >
@@ -17,9 +17,9 @@ aendern. Fixes brauchen spaeter eigenen autorisierten Fixplan.
 **Kanonischer Workspace:**
 `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 **Hardware-Grenze:** ausschliesslich NVIDIA GTX 1060 / `cuda:0`; sonst CPU.
-**Aktueller Governance-Blocker:** `ACTIVE_PLAN.md` nennt W4 Videoanalyse als
-naechste Task; Registry-Zeile nennt noch B-819/W3. Audit darf erst nach expliziter
-Userwahl und Governance-Abgleich aktiv werden.
+**Aktueller Governance-Stand:** User pausierte Masterplan/W4 am 2026-08-17 und
+waehlte diesen Plan als Phase--1-Fokus. Produktaudit/Snapshot bleiben bis zum
+vollstaendigen Phase--1-Gate plus separater Scopeentscheidung gesperrt.
 
 ---
 
@@ -336,8 +336,9 @@ Registries.
 
 ### Phase -1 — Audit-Harness fertigstellen, vor Aktivierung
 
-Diese Phase ist **Planungs-/Tooling-Voraussetzung**, kein Audit. Plan bleibt
-`draft`; kein Snapshot, keine Range, kein Runtime-Lauf beginnt vorher.
+Diese Phase ist **Planungs-/Tooling-Voraussetzung**, kein Audit. Status ist
+`phase-minus-1-in-progress`; kein Snapshot, keine Range, kein Produkt-
+Runtime-Lauf beginnt vorher.
 
 Alle sechs Harnesses muessen implementiert, dokumentiert und durch positive
 sowie gezielte negative Contracttests belegt sein:
@@ -782,8 +783,10 @@ Audit ist nur abgeschlossen, wenn:
 
 ## 12. Naechste erlaubte Aktion
 
-Solange Status `draft`: nur Planreview und Phase--1-Tooling nach eigener
-Autorisierung. Keine Audit-Ausfuehrung. Vor Aktivierung muessen sechs Harnesses
-plus Contracttests belegt sein. Danach entscheidet User explizit, ob W4 zuerst
-endet, dokumentiert pausiert oder Audit nicht startet; ferner Scopeantwort fuer
-untracked/ignored/external Einheiten. Keine dieser Entscheidungen trifft Agent.
+Nur Phase--1-Tooling: aktuelle Harness-Tips `9774bfa`, `f1a8ee6`, `410c5c3`
+und `e4c1519` unabhaengig re-reviewen; danach zusammen mit Readiness `29a2300`
+in `codex/audit-phase-minus-1` integrieren und gemeinsamen Contract-Gesamtlauf
+ausfuehren. Keine Audit-Ausfuehrung. Vor Produktaudit muessen sechs Harnesses
+plus Contracttests und getrennte Signoffs belegt sein; ferner Scopeantwort fuer
+untracked/ignored/external Einheiten. Masterplan/W4 bleibt mit Resume-Basis
+`4b94c26` pausiert.

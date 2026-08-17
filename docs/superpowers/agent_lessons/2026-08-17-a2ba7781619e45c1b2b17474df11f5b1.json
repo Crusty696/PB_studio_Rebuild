@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a2ba7781619e45c1b2b17474df11f5b1",
+  "recorded_at": "2026-08-17T13:39:00+00:00",
+  "session_id": "675905d3e6974c8ab80a495f5b1e146a",
+  "head_at_start": "4b94c2608ff6e3561a81580236235247e28122fa",
+  "problem": "Nach User-Fokuswechsel standen Audit- und Masterplan kurz beide als in_progress in der Registry.",
+  "cause": "Nur Auditzeile und ACTIVE_PLAN wurden zuerst umgestellt; pausierter vorheriger Planstatus blieb unveraendert.",
+  "rule": "Bei Planwechsel Registry als Ganzes pruefen: exakt eine Plan-Datenzeile in_progress, ACTIVE_PLAN-ID identisch, pausierter Plan auf nichtaktiven autorisierten Status plus Resume-Basis setzen; Statuslegende beim Zaehlen ausschliessen.",
+  "applies_to": "Plan-Governance, ACTIVE_PLAN-Wechsel, PLAN_REGISTRY"
+}

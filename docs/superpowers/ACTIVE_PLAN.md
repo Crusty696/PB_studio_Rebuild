@@ -1,27 +1,42 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
-repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
-vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
-decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-071-master-offene-tasks-konsolidierung.md
-supplemental_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-075-claude-resttasks-pacing-brain-lernen-llm-abschluss.md
-stability_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-076-stabilitaetsprogramm-current-head.md
-live_test_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-085-beobachtete-live-test-session-vor-restfixes.md
-current_sequence_decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-089-agy-rest-vor-b758.md
-updated: 2026-08-15
-worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
-branch: main
+active_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
+repo_plan: docs/superpowers/plans/2026-08-15-exhaustive-line-feature-state-audit-plan.md
+vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-exhaustive-line-feature-state-audit-2026-08-15.md
+decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-090-exhaustive-line-feature-state-audit-draft.md
+paused_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
+paused_plan_resume_commit: 4b94c2608ff6e3561a81580236235247e28122fa
+updated: 2026-08-17
+worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild\.worktrees\audit-phase-minus-1
+branch: codex/audit-phase-minus-1
 
 ## Why This Plan Is Active
 
-User-Auftrag 2026-07-16: ALLE offenen Tasks aus allen fruehereren Plaenen +
-Vault-Bugs in EINEN Master-Plan konsolidiert; 9 Herkunfts-Plaene per `superseded`
-geschlossen (Entscheidung D-071, User-Wahl "Superseden"). Der Master ist ab jetzt
-die einzige aktive Quelle offener Arbeit.
+User-Auswahl `2` am 2026-08-17: Masterplan/W4 pausieren und Auditplan als
+einzigen Fokus fortsetzen. D-090 autorisiert ausschließlich Phase--1-Harness-
+und Contracttest-Arbeit. Produktaudit, Snapshot, Produktcodefix und `fixed`-
+Marker bleiben verboten.
 
 ## Current Next Task
 
+`Phase -1 — Audit-Harness fertigstellen, vor Aktivierung`:
+
+1. Neueste Tips unabhängig re-reviewen: Feature/Symbol `9774bfa`, Runtime
+   `f1a8ee6`, Reviewer `410c5c3`, Completion/Delta `e4c1519`.
+2. Nur nach grünen Einzelverdicts zusammen mit Readiness `29a2300` in
+   `codex/audit-phase-minus-1` integrieren.
+3. Gemeinsamen globalen Audit-/Evidence-Contract-Gesamtlauf ausführen.
+4. Lead-V- plus Adversarial-Signoff belegen.
+
+Grenzen: Reviewer-Trustpolicy bleibt `unprovisioned`; Scopeentscheidungen fuer
+untracked/ignored/external/Vault/User-Settings/reale DBs/Vendor/Binaries sind
+vor Audit-Snapshot weiter offen. Kein Produktaudit.
+
+## Paused Masterplan Handoff
+
+Resume-Basis: `main` / `4b94c26`. Unbekannte untracked Tests im kanonischen
+Haupt-Worktree bleiben unangetastet. Letzte Masterplan-Aufgabe:
 `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
 
 Alle Bugs mit Status `open` sind abgearbeitet. Der Vault fuehrte sechs; nach
