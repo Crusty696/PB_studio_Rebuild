@@ -1,0 +1,1 @@
+{"identities":{"adversarial":{"openssh_identity":"pb-audit-adversarial","public_key_sha256":null},"authority":{"openssh_identity":"pb-audit-authority","public_key_sha256":null},"lead-v":{"openssh_identity":"pb-audit-lead-v","public_key_sha256":null},"spawn":{"openssh_identity":"pb-audit-spawn","public_key_sha256":null}},"schema_version":1,"status":"unprovisioned"}

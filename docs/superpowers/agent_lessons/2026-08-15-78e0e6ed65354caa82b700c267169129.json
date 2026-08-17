@@ -1,0 +1,10 @@
+{
+  "lesson_id": "78e0e6ed65354caa82b700c267169129",
+  "recorded_at": "2026-08-15T21:22:07+00:00",
+  "session_id": "d8839133fa8842f4bf0d4e0ce957d320",
+  "head_at_start": "b54631d99a71d08d34a0179d3edebca6b34df5ef",
+  "problem": "Authority-Policy sollte im selben tooling_commit dessen exakten Commit-SHA und einen davon abhaengigen Audit-Contract-Hash literal enthalten.",
+  "cause": "Git-Commit-SHA hasht den Tree samt Policybytes; Contract-Hash bindet tooling_commit; Policybytes wuerden beide Hashes enthalten und erzeugen damit einen nicht konstruierbaren SHA-1/SHA-256-Fixpunktzyklus.",
+  "rule": "Eine Trust-Policy darf den Commit, der ihre eigenen Bytes enthaelt, nicht als Literal-SHA mit einem davon abhaengigen Contract-Hash binden; nutze separaten extern gepinnten Authority-Commit/Blob oder explizite semantische Self-Bindung ohne zyklischen Literalhash.",
+  "applies_to": "Git-gebundene Trust-Policies, Audit-Contracts, Supply-Chain-Attestierung"
+}

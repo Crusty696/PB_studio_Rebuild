@@ -1,0 +1,10 @@
+{
+  "lesson_id": "98cec1759fcf40cfbb170fc00074df3d",
+  "recorded_at": "2026-08-15T22:30:12+00:00",
+  "session_id": "805df76e80a048609064ce0c68cb8df5",
+  "head_at_start": "7398e36a8b9282a0b896c4a89b8aede2a0c29b49",
+  "problem": "Truthige Listen/Objekte in non_runtime_contract und unhashbare feature_ids konnten Validierung umgehen oder TypeError ausloesen",
+  "cause": "Feldvalidierung nutzte Truthiness und Mengenoperationen vor elementweiser Typ-/Leerheitspruefung",
+  "rule": "Vor Membership, Hashing oder set-Konvertierung Containerform und jedes Element strikt typisieren; IDs und Begruendungen als getrimmte nichtleere Strings verlangen; erst danach Eindeutigkeit und FK pruefen",
+  "applies_to": "Audit-Contract-Validatoren, verschachtelte IDs, Begruendungsfelder, Exact-Set-Listen"
+}

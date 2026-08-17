@@ -3,14 +3,32 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
+import sys
 import tempfile
+import types
 from pathlib import Path
 from unittest.mock import patch
 
 import verify_line_coverage as coverage_module
 from build_inventory import _snapshot_basis, build
-from verify_audit_readiness import REQUIRED_ARTIFACTS, REQUIRED_GATES, SIGNOFF_TRUST_BLOCKER, _basis, _run_test_node, verify_readiness
+from verify_audit_readiness import (
+    AUTHORITY_BOUND_PATHS,
+    AUTHORITY_POLICY_PATH,
+    READINESS_VALIDATOR_PATH,
+    REQUIRED_ARTIFACTS,
+    REQUIRED_GATES,
+    REVIEWER_RUNTIME_PATHS,
+    _basis,
+    _gate_matrix,
+    _load_authority_policy,
+    _materialize_bound_files,
+    _run_materialized_reviewer,
+    _run_test_node,
+    _verify_attestation_bundle,
+    verify_readiness,
+)
 from verify_feature_matrix import AXES, verify as verify_features, verify_snapshot
 from verify_line_coverage import _enumerate_scope, _linklike, verify as _verify_coverage
 
@@ -28,6 +46,30 @@ def verify_coverage(*args: Path) -> list[str]:
 
 def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+
+def _git_bytes(root: Path, *args: str) -> bytes:
+    return subprocess.run(
+        ["git", *args], cwd=root, check=True, capture_output=True,
+    ).stdout
+
+
+def _commit_authority_policy(
+    root: Path, base: Path, tooling_commit: str, policy: dict, branch: str,
+) -> str:
+    worktree = base / branch
+    _git(root, "worktree", "add", "--detach", str(worktree), tooling_commit)
+    try:
+        target = worktree / AUTHORITY_POLICY_PATH
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(json.dumps(
+            policy, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8"))
+        _git(worktree, "add", "--", AUTHORITY_POLICY_PATH)
+        _git(worktree, "commit", "-m", branch)
+        return _git_bytes(worktree, "rev-parse", "HEAD").decode().strip()
+    finally:
+        _git(root, "worktree", "remove", "--force", str(worktree))
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -592,7 +634,16 @@ def main() -> int:
             fake_snapshot, files, [], head,
         ))
 
-        tool_source = "def validate(value):\n    return isinstance(value, dict) and set(value) == {'valid'} and value.get('valid') is True\n"
+        tool_source = (
+            "import json\n\n"
+            "def validate(value):\n"
+            "    return isinstance(value, dict) and set(value) == {'valid'} and value.get('valid') is True\n\n"
+            "def verify_attestation_bundle(*args, **kwargs):\n"
+            "    return ['fixture bundle missing']\n\n"
+            "if __name__ == '__main__':\n"
+            "    print(json.dumps({'ok': False, 'errors': ['fixture bundle missing']}))\n"
+            "    raise SystemExit(2)\n"
+        )
         common_tests = """
 import importlib.util
 import unittest
@@ -619,12 +670,45 @@ if __name__ == "__main__": unittest.main()
             test = root / test_path
             test.parent.mkdir(parents=True, exist_ok=True)
             test.write_text(common_tests.format(tool_name=tool_path, specific=specific), encoding="utf-8")
-        _git(root, "add", "--", *sorted(REQUIRED_ARTIFACTS))
+        source_root = Path(__file__).resolve().parents[4]
+        support_paths = (REVIEWER_RUNTIME_PATHS - {"tools/audit_reviewer_roster.py"}) | {
+            READINESS_VALIDATOR_PATH,
+        }
+        for relative in sorted(support_paths):
+            source = source_root / relative
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        _git(root, "add", "--", *sorted(AUTHORITY_BOUND_PATHS))
         _git(root, "commit", "-m", "add readiness fixtures")
         tooling_commit = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=root, check=True,
             capture_output=True, text=True,
         ).stdout.strip()
+        authority_artifacts = []
+        for relative in sorted(AUTHORITY_BOUND_PATHS):
+            data = _git_bytes(root, "show", f"{tooling_commit}:{relative}")
+            blob_oid = _git_bytes(
+                root, "rev-parse", f"{tooling_commit}:{relative}",
+            ).decode().strip()
+            authority_artifacts.append({
+                "path": relative, "blob_oid": blob_oid, "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            })
+        authority_policy = {
+            "schema_version": 1,
+            "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
+            "tooling_commit": tooling_commit,
+            "gate_matrix": _gate_matrix(),
+            "artifacts": authority_artifacts,
+        }
+        authority_commit = _commit_authority_policy(
+            root, base, tooling_commit, authority_policy, "authority-valid",
+        )
+        authority, authority_errors = _load_authority_policy(
+            root, authority_commit, authority_commit,
+        )
+        assert authority_errors == [], authority_errors
         artifact_rows = []
         for relative in sorted(REQUIRED_ARTIFACTS):
             data = subprocess.run(
@@ -643,29 +727,205 @@ if __name__ == "__main__": unittest.main()
         ]
         _write_jsonl(readiness_roster, roster_rows)
         roster_sha = hashlib.sha256(readiness_roster.read_bytes()).hexdigest()
+        bundle_manifest = base / "readiness-attestation-bundle.json"
+        bundle_manifest.write_text(json.dumps({
+            "schema_version": 1,
+            "receipts_dir": str(base / "receipts"),
+            "attestations_dir": str(base / "attestations"),
+            "contract_path": str(base / "reviewer-contract.json"),
+            "contract_signature": str(base / "reviewer-contract.json.sig"),
+            "spawn_journal_path": str(base / "spawn-journal.json"),
+            "spawn_journal_signature": str(base / "spawn-journal.json.sig"),
+            "readiness_binding_path": str(base / "readiness-binding.json"),
+            "readiness_binding_signature": str(base / "readiness-binding.json.sig"),
+            "expected_readiness_binding_sha256": "a" * 64,
+            "audit_contract_path": str(base / "audit-contract.json"),
+            "audit_contract_signature": str(base / "audit-contract.json.sig"),
+            "expected_audit_contract_sha256": "b" * 64,
+            "authority_public_key_path": str(base / "authority.pub"),
+            "spawn_public_key_path": str(base / "spawn.pub"),
+            "lead_v_public_key_path": str(base / "lead-v.pub"),
+            "adversarial_public_key_path": str(base / "adversarial.pub"),
+        }, sort_keys=True), encoding="utf-8")
         readiness = {
-            "schema_version": 2, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
+            "schema_version": 3, "plan_id": "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15",
             "run_id": RUN_ID, "tooling_commit": tooling_commit, "integration_head": tooling_commit,
             "matrix_version": 1, "artifacts": artifact_rows,
             "reviewer_roster_path": str(readiness_roster), "reviewer_roster_sha256": roster_sha,
+            "attestation_bundle_path": str(bundle_manifest),
+            "attestation_bundle_sha256": hashlib.sha256(bundle_manifest.read_bytes()).hexdigest(),
         }
-        basis = _basis(readiness, artifact_rows, roster_sha)
-        readiness["signoffs"] = [
-            {"role": "lead-v", "reviewer_id": "lead-v", "session_id": "session-lead", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:00Z"},
-            {"role": "adversarial", "reviewer_id": "adversarial", "session_id": "session-adversarial", "run_id": RUN_ID, "tooling_commit": tooling_commit, "basis_sha256": basis, "verdict": "pass", "signed_at": "2026-08-15T00:00:01Z"},
-        ]
+        basis = _basis(readiness, artifact_rows, roster_sha, authority)
+        missing_bridge = _verify_attestation_bundle(
+            root, json.loads(bundle_manifest.read_text(encoding="utf-8")), authority,
+            basis_sha256=basis, roster_path=readiness_roster,
+            tooling_commit=tooling_commit,
+        )
+        assert missing_bridge == ["fixture bundle missing"], missing_bridge
         readiness_path = base / "readiness.json"
         readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
-        readiness_errors = verify_readiness(root, readiness_path)
-        assert readiness_errors == [SIGNOFF_TRUST_BLOCKER], readiness_errors
+        readiness_args = {
+            "authority_commit": authority_commit,
+            "expected_authority_commit": authority_commit,
+        }
+        cli = subprocess.run(
+            [
+                sys.executable, "-B", str(Path(__file__).with_name("verify_audit_readiness.py")),
+                "--root", str(root), "--manifest", str(readiness_path),
+                "--authority-commit", authority_commit,
+                "--expected-authority-commit", authority_commit,
+                "--print-basis",
+            ],
+            cwd=root,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert cli.returncode == 0, cli.stdout + cli.stderr
+        assert cli.stdout.strip() == basis, cli.stdout
+        with patch("verify_audit_readiness._run_gates", return_value=[]), patch(
+            "verify_audit_readiness._verify_attestation_bundle", return_value=[]
+        ) as signed_bundle:
+            readiness_errors = verify_readiness(root, readiness_path, **readiness_args)
+        assert readiness_errors == [], readiness_errors
+        assert signed_bundle.call_args.kwargs["basis_sha256"] == basis
         empty_test = base / "comment-only-test.py"
         empty_test.write_text("# no tests\n", encoding="utf-8")
-        assert _run_test_node(base, str(empty_test), "test_positive_minimal", {}).returncode != 0
+        test_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        assert _run_test_node(
+            base, str(empty_test), "test_positive_minimal", test_env,
+        ).returncode != 0
         broken_readiness = copy.deepcopy(readiness)
-        broken_readiness["signoffs"][1]["session_id"] = "session-lead"
+        broken_readiness["signoffs"] = []
         broken_readiness_path = base / "readiness-broken.json"
         broken_readiness_path.write_text(json.dumps(broken_readiness), encoding="utf-8")
-        assert any("Signoff-Bindung" in error for error in verify_readiness(root, broken_readiness_path))
+        assert any(
+            "Manifest-Feldmenge" in error
+            for error in verify_readiness(root, broken_readiness_path, **readiness_args)
+        )
+        tampered_bundle = copy.deepcopy(readiness)
+        tampered_bundle["attestation_bundle_sha256"] = "0" * 64
+        tampered_bundle_path = base / "readiness-tampered-bundle.json"
+        tampered_bundle_path.write_text(json.dumps(tampered_bundle), encoding="utf-8")
+        assert any(
+            "attestation_bundle_sha256" in error
+            for error in verify_readiness(root, tampered_bundle_path, **readiness_args)
+        )
+        with patch("verify_audit_readiness._run_gates", return_value=[]), patch(
+            "verify_audit_readiness._verify_attestation_bundle", return_value=["Signatur falsch"]
+        ):
+            assert "Signatur falsch" in verify_readiness(
+                root, readiness_path, **readiness_args,
+            )
+        with patch("verify_audit_readiness._run_gates", return_value=[]):
+            real_bridge_errors = verify_readiness(root, readiness_path, **readiness_args)
+        assert real_bridge_errors == ["fixture bundle missing"], real_bridge_errors
+
+        for number, non_object in enumerate(([], 1, None)):
+            path = base / f"readiness-non-object-{number}.json"
+            path.write_text(json.dumps(non_object), encoding="utf-8")
+            errors = verify_readiness(root, path, **readiness_args)
+            assert errors == ["Readiness-Manifest muss Objekt sein"], errors
+        assert verify_readiness(root, readiness_path)[0].startswith("authority_commit")
+        mismatched_pin = dict(readiness_args)
+        mismatched_pin["authority_commit"] = "0" * 40
+        assert "externen Trust-Pin" in verify_readiness(
+            root, readiness_path, **mismatched_pin,
+        )[0]
+
+        no_op = (
+            b"import unittest\nclass GateContractTests(unittest.TestCase):\n"
+            b"    def test_positive_minimal(self): pass\n"
+        )
+        no_op_oid = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=root, check=True,
+            input=no_op, capture_output=True,
+        ).stdout.decode().strip()
+        bad_policy = copy.deepcopy(authority_policy)
+        substituted_test = "tests/audit/test_audit_feature_inventory.py"
+        for row in bad_policy["artifacts"]:
+            if row["path"] == substituted_test:
+                row.update({
+                    "blob_oid": no_op_oid, "bytes": len(no_op),
+                    "sha256": hashlib.sha256(no_op).hexdigest(),
+                })
+        bad_authority_commit = _commit_authority_policy(
+            root, base, tooling_commit, bad_policy, "authority-no-op-test",
+        )
+        _, bad_policy_errors = _load_authority_policy(
+            root, bad_authority_commit, bad_authority_commit,
+        )
+        assert any(substituted_test in error for error in bad_policy_errors), bad_policy_errors
+        _, joint_substitution_errors = _load_authority_policy(
+            root, bad_authority_commit, authority_commit,
+        )
+        assert joint_substitution_errors == [
+            "authority_commit weicht vom externen Trust-Pin ab",
+        ]
+
+        _git(root, "replace", authority_commit, bad_authority_commit)
+        try:
+            _, replacement_errors = _load_authority_policy(
+                root, authority_commit, authority_commit,
+            )
+            assert replacement_errors == [], replacement_errors
+        finally:
+            _git(root, "replace", "-d", authority_commit)
+
+        dirty_test = root / substituted_test
+        committed_test = _git_bytes(root, "show", f"{tooling_commit}:{substituted_test}")
+        dirty_test.write_bytes(no_op)
+        materialized = base / "materialized-no-op-attack"
+        assert _materialize_bound_files(
+            root, tooling_commit, authority, materialized, {substituted_test},
+        ) == []
+        assert (materialized / substituted_test).read_bytes() == committed_test
+        assert (materialized / substituted_test).read_bytes() != no_op
+        dirty_test.write_bytes(committed_test)
+
+        committed_reviewer = _git_bytes(
+            root, "show", f"{tooling_commit}:tools/audit_reviewer_roster.py",
+        )
+        mutable_reviewer = root / "tools/audit_reviewer_roster.py"
+        mutable_reviewer.write_text(
+            "import json\nprint(json.dumps({'ok': True, 'errors': []}))\n",
+            encoding="utf-8",
+        )
+        saved_modules = {
+            name: sys.modules.get(name) for name in ("tools", "tools.agent_session")
+        }
+        sys.modules["tools"] = types.ModuleType("tools")
+        sys.modules["tools.agent_session"] = types.ModuleType("tools.agent_session")
+        try:
+            immutable_bridge_errors = _verify_attestation_bundle(
+                root, json.loads(bundle_manifest.read_text(encoding="utf-8")), authority,
+                basis_sha256=basis, roster_path=readiness_roster,
+                tooling_commit=tooling_commit,
+            )
+            assert immutable_bridge_errors == ["fixture bundle missing"], immutable_bridge_errors
+        finally:
+            for name, previous in saved_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+            mutable_reviewer.write_bytes(committed_reviewer)
+
+        bundle_value = json.loads(bundle_manifest.read_text(encoding="utf-8"))
+        for label, source in (
+            ("syntax", "def broken(:\n"),
+            ("runtime", "raise RuntimeError('boom')\n"),
+        ):
+            broken_root = base / f"reviewer-{label}"
+            broken_tool = broken_root / "tools/audit_reviewer_roster.py"
+            broken_tool.parent.mkdir(parents=True)
+            broken_tool.write_text(source, encoding="utf-8")
+            bridge_errors = _run_materialized_reviewer(
+                broken_root, root, bundle_value, basis_sha256=basis,
+                roster_path=readiness_roster, tooling_commit=tooling_commit,
+            )
+            assert bridge_errors and "Receipt" in bridge_errors[0], bridge_errors
     print("self-test: OK")
     return 0
 

@@ -36,8 +36,8 @@ WO DIE REGISTRY LIEGT — der kritische Punkt:
 
 IDIOTENSICHERHEIT — was hier bewusst abgesichert ist:
   - Atomares Schreiben (tmp + os.replace) -> nie eine halbe Datei.
-  - Exklusiv-Lock per O_CREAT|O_EXCL (atomar auf NTFS und POSIX) mit Timeout;
-    ein verwaistes Lock aelter als LOCK_STALE_SEC wird gebrochen -> kein Deadlock.
+  - Exklusiv-Lock per OS-Byte-Lock (NTFS/POSIX) mit Timeout; der Lockpfad bleibt
+    persistent und wird nie per Pfadoperation ersetzt oder fremd geloescht.
   - Korrupte/leere Registry -> wird verworfen statt zu crashen.
   - Tote Sessions (Heartbeat alt ODER, falls eine echte Agent-PID mitgegeben
     wurde, Prozess weg) werden bei JEDER Operation automatisch entfernt -> ein
@@ -117,47 +117,155 @@ def _lock_path() -> Path:
 
 # ── Lock ─────────────────────────────────────────────────────────────────────
 
-class _Lock:
-    """Exklusiv-Lock ueber O_CREAT|O_EXCL — atomar auf NTFS und POSIX.
+_LOCK_SENTINEL = b"\0"
 
-    Kein Deadlock moeglich: verwaiste Locks (aelter als LOCK_STALE_SEC) werden
-    gebrochen, und nach LOCK_TIMEOUT_SEC wird aufgegeben.
+
+def _prepare_lock_file(fd: int) -> None:
+    if os.fstat(fd).st_size == 0:
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, _LOCK_SENTINEL)
+        os.fsync(fd)
+
+
+def _try_lock_fd(fd: int) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _unlock_fd(fd: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def _path_matches_fd(path: Path, fd: int) -> bool:
+    try:
+        opened = os.fstat(fd)
+        current = path.stat()
+        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+    except OSError:
+        return False
+
+
+def _write_lock_payload(fd: int, payload: bytes) -> None:
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, _LOCK_SENTINEL + payload)
+    os.ftruncate(fd, 1 + len(payload))
+    os.fsync(fd)
+
+
+def _read_lock_payload(path: Path) -> bytes | None:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if not raw.startswith(_LOCK_SENTINEL):
+        return None
+    return raw[1:]
+
+
+def _read_lock_payload_fd(fd: int) -> bytes | None:
+    position = os.lseek(fd, 0, os.SEEK_CUR)
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        raw = os.read(fd, os.fstat(fd).st_size)
+    finally:
+        os.lseek(fd, position, os.SEEK_SET)
+    if not raw.startswith(_LOCK_SENTINEL):
+        return None
+    return raw[1:]
+
+class _Lock:
+    """Exklusiver OS-Byte-Lock auf persistentem gemeinsamen Lockpfad.
+
+    Der Kernel gibt den Byte-Lock bei Prozessende frei. Deshalb muss kein
+    verwaister Pfad geloescht oder ersetzt werden; fremde Bytes bleiben bei
+    Ownershipverlust unangetastet.
     """
 
     def __init__(self) -> None:
         self._path = _lock_path()
         self._fd: int | None = None
+        self._token = uuid.uuid4().hex
+
+    def _payload(self) -> bytes:
+        return json.dumps(
+            {"token": self._token, "pid": os.getpid()},
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8") + b"\n"
+
+    def _owner(self) -> bool:
+        if self._fd is None or not _path_matches_fd(self._path, self._fd):
+            return False
+        try:
+            value = json.loads((_read_lock_payload_fd(self._fd) or b"").decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            return False
+        return value == {"token": self._token, "pid": os.getpid()}
 
     def __enter__(self) -> "_Lock":
-        deadline = time.time() + LOCK_TIMEOUT_SEC
+        deadline = time.monotonic() + LOCK_TIMEOUT_SEC
         while True:
+            fd: int | None = None
             try:
-                self._fd = os.open(str(self._path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self._fd, str(os.getpid()).encode())
-                return self
-            except FileExistsError:
-                # Verwaistes Lock eines abgestuerzten Prozesses brechen.
-                try:
-                    age = time.time() - self._path.stat().st_mtime
-                    if age > LOCK_STALE_SEC:
-                        self._path.unlink(missing_ok=True)
-                        continue
-                except OSError:
-                    pass
-                if time.time() > deadline:
-                    raise TimeoutError(
-                        f"agent_session: Lock nicht erhalten ({self._path}). "
-                        f"Laeuft ein anderer Vorgang? Notfalls Datei loeschen."
-                    )
-                time.sleep(LOCK_POLL_SEC)
+                fd = os.open(str(self._path), os.O_CREAT | os.O_RDWR)
+                _prepare_lock_file(fd)
+                if _try_lock_fd(fd) and _path_matches_fd(self._path, fd):
+                    self._fd = fd
+                    _write_lock_payload(fd, self._payload())
+                    return self
+            finally:
+                if fd is not None and fd != self._fd:
+                    _unlock_fd(fd)
+                    os.close(fd)
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"agent_session: Lock nicht erhalten ({self._path}). "
+                    "Laeuft ein anderer Vorgang?"
+                )
+            time.sleep(LOCK_POLL_SEC)
 
     def __exit__(self, *exc) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
-        self._path.unlink(missing_ok=True)
+        fd = self._fd
+        self._fd = None
+        if fd is None:
+            return
+        owner = _path_matches_fd(self._path, fd) and self._owner_with_fd(fd)
+        if owner:
+            _write_lock_payload(fd, b"")
+        _unlock_fd(fd)
+        os.close(fd)
+        if not owner:
+            raise RuntimeError(
+                f"agent_session: Lock-Ownership verloren; fremden Lock nicht entfernt: {self._path}"
+            )
+
+    def _owner_with_fd(self, fd: int) -> bool:
+        try:
+            value = json.loads((_read_lock_payload_fd(fd) or b"").decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            return False
+        return value == {"token": self._token, "pid": os.getpid()}
 
 
 # ── Registry-IO ──────────────────────────────────────────────────────────────
@@ -296,7 +404,7 @@ def check(files: list[str], ignore_id: str | None = None) -> list[dict]:
 
 def claim(agent: str, task: str, files: list[str], branch: str | None = None,
           worktree: str | None = None, force: bool = False,
-          pid: int = 0) -> tuple[dict, list[dict]]:
+          pid: int = 0, parent_session_id: str | None = None) -> tuple[dict, list[dict]]:
     """Session registrieren. Gibt (session, conflicts) zurueck.
 
     Bei Konflikt wird NICHT registriert (ausser force=True) — der Aufrufer
@@ -316,6 +424,26 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
     """
     with _Lock():
         data, _ = _prune(_read_raw())
+        parent = None
+        if parent_session_id:
+            parent = next(
+                (row for row in data["sessions"] if row.get("id") == parent_session_id),
+                None,
+            )
+            if parent is None:
+                return {}, [{
+                    "id": parent_session_id,
+                    "agent": "(fehlender Parent)",
+                    "task": "",
+                    "pid": 0,
+                    "host": "",
+                    "branch": "",
+                    "worktree": "",
+                    "heartbeat": "",
+                    "claims": [],
+                    "_hits": [],
+                    "_reason": "parent-session-not-live",
+                }]
         conflicts = []
         for s in data["sessions"]:
             hits = _claims_overlap(files, s.get("claims", []))
@@ -335,6 +463,16 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
             "started_at": _utc_now(),
             "heartbeat": _utc_now(),
             "claims": [_norm(f) for f in files],
+            "parent_session_id": parent_session_id,
+            "ancestor_session_ids": (
+                [*parent.get("ancestor_session_ids", []), parent["id"]]
+                if parent is not None else []
+            ),
+            "forced": bool(force),
+            "forced_lineage": bool(force) or bool(
+                parent is not None
+                and (parent.get("forced") or parent.get("forced_lineage"))
+            ),
         }
         data["sessions"].append(session)
         _write_raw(data)
@@ -414,6 +552,10 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--pid", type=int, default=0,
                    help="PID des AGENTEN (nicht dieses CLI-Prozesses!). "
                         "0 = keine Angabe, dann zaehlt allein der Heartbeat.")
+    c.add_argument(
+        "--parent-session-id",
+        help="aktive Parent-Session; Registry versiegelt transitive Lineage",
+    )
 
     h = sub.add_parser("heartbeat", help="Lebenszeichen senden")
     h.add_argument("--id", required=True)
@@ -476,8 +618,13 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_CONFLICT
 
         if a.cmd == "claim":
-            session, conflicts = claim(a.agent, a.task, a.files, a.branch,
-                                       a.worktree, a.force, a.pid)
+            session, conflicts = claim(
+                a.agent, a.task, a.files, a.branch, a.worktree, a.force, a.pid,
+                a.parent_session_id,
+            )
+            if conflicts and conflicts[0].get("_reason") == "parent-session-not-live":
+                print("KONFLIKT: Parent-Session ist nicht aktiv; nicht registriert.")
+                return EXIT_CONFLICT
             if conflicts and not a.force:
                 print("KONFLIKT: nicht registriert. Aktive fremde Session(s):")
                 for s in conflicts:

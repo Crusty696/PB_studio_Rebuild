@@ -1,0 +1,10 @@
+{
+  "lesson_id": "0eaefa743d80459897480704284c3060",
+  "recorded_at": "2026-08-16T00:42:24+00:00",
+  "session_id": "71e3af7af4b9414ea2cd2151ba937547",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Kompakte Runtime-Projection akzeptierte ein intern konsistentes, aber frei erfundenes Minimal-Receipt als Beweisautorität; plural Symbolfelder suggerierten unbelegte Laufzeitdeckung.",
+  "cause": "Projection-Builder prüfte nur gemeinsame Identitätsfelder und Arrays, nicht vollständigen Rich-Receipt-Vertrag, versiegelte Runner-/Authority-/Contractbytes oder externe Trust-Pins; Symbolarray-Kapazität war nicht von implementierter Observer-Evidenz getrennt.",
+  "rule": "Kompakte Evidenz nie aus freiem DTO ableiten: vollständiges Rich Receipt samt Run-Dateien, Final-Integrity, Trace/Postcondition und replacement-freien externen Contract-/Authority-/Tooling-Pins erneut validieren. Schema-Kapazität für plural Coverage ausdrücklich fail-closed halten, bis geplanter vertrauenswürdiger Observer real existiert.",
+  "applies_to": "Runtime-Projections, Evidence-Adapter, Export-Rekonstruktion, Symbol-Coverage, Trust-Pin-Weitergabe"
+}

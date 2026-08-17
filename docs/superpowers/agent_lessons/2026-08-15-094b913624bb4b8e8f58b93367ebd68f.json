@@ -1,0 +1,10 @@
+{
+  "lesson_id": "094b913624bb4b8e8f58b93367ebd68f",
+  "recorded_at": "2026-08-15T15:32:52+00:00",
+  "session_id": "fced696f685c448580adb167c28ffbb6",
+  "head_at_start": "fa066f8c99fde132e3dcda29c4aaa19ea0e0ecdb",
+  "problem": "apply_patch schrieb ohne expliziten Worktree-Praefix neue Dateien in den kanonischen Haupt-Worktree statt in den isolierten Subagent-Worktree",
+  "cause": "apply_patch arbeitet relativ zum Thread-Workspace und besitzt kein workdir-Argument; exec_command-workdir beeinflusst es nicht",
+  "rule": "Bei Subagent-Arbeit in .worktrees muessen alle apply_patch-Dateipfade den expliziten .worktrees/<name>/ Praefix tragen; danach sofort Gitstatus von Haupt- und Zielworktree pruefen",
+  "applies_to": "Codex-Subagenten, Git-Worktrees, apply_patch-Dateiedits"
+}

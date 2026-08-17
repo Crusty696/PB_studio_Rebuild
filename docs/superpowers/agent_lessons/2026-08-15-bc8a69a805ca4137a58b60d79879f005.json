@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bc8a69a805ca4137a58b60d79879f005",
+  "recorded_at": "2026-08-15T23:16:25+00:00",
+  "session_id": "3f81e3ad3c15466ab372ea2d6ae35de6",
+  "head_at_start": "62523c51f4a37fa8be05af5dfe948676ef382d70",
+  "problem": "Hashgebundene Triggerrecords akzeptierten nach W12 noch frei erfundene Locatorwerte, unsichere Pfade, boolesche Zeilenwerte und formal ungueltige Blobhashes.",
+  "cause": "W12 schloss nur Row-Feldsatz und source_kind-Domain, nicht Generatorinvarianten fuer deterministische IDs und Locatorfelder.",
+  "rule": "Cross-Tool-Generatorartefakte muessen neben exaktem Schema jede Generatorinvariante erneut validieren: deterministische Content-ID, kanonischer sicherer Pfad, bool-freie Integergrenzen, getrimmter Detailtext, Hashformat und soweit vorhanden Sourcekatalog-FK.",
+  "applies_to": "Triggeruniversen, Sourcekataloge und hashgebundene Audit-Generatorausgaben"
+}

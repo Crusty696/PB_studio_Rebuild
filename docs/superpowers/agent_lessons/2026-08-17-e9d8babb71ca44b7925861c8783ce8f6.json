@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e9d8babb71ca44b7925861c8783ce8f6",
+  "recorded_at": "2026-08-17T16:17:28+00:00",
+  "session_id": "82b3fae353cc44179fcd54f02d00d547",
+  "head_at_start": "410c5c366d2386155ede13aa4804c953d0f706a7",
+  "problem": "Stale-Lock-Recovery konnte frischen Fremdlock verschieben; Lock-Exit konnte ersetzten Fremdlock loeschen.",
+  "cause": "Ownership war nur an mutablen Pfad gebunden; kein dauerhaft gehaltener Kernel-Lock, keine File-Identity- und Token-Bindung beim Recovery/Exit.",
+  "rule": "Shared Locks auf offenem Descriptor per OS-Kernel-Lock halten, Ownership mit Token und File-Identity binden, Recovery/Exit niemals durch Pfad-Replace oder unbedingtes Unlink implementieren.",
+  "applies_to": "Reviewer-Attestierung, Session-Registry und alle gemeinsam genutzten Dateilocks"
+}

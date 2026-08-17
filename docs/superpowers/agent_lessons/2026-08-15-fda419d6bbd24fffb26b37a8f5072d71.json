@@ -1,0 +1,10 @@
+{
+  "lesson_id": "fda419d6bbd24fffb26b37a8f5072d71",
+  "recorded_at": "2026-08-15T16:09:55+00:00",
+  "session_id": "eda30ccf109f4f35b64b0d1c0a07371d",
+  "head_at_start": "0c7e670ed9fce76cd51559a99638d97e0551e816",
+  "problem": "Phase-minus-1 Feature- und Symbolharnesses konnten auf Python-Heuristiken gruen werden, obwohl UI-Dateien, Translationen, PowerShell, Batch, SQL, Configeinheiten, Klassen und Evidence-FKs fehlten",
+  "cause": "Exact-Set wurde nur innerhalb eines zu eng erzeugten Kandidatenuniversums geprueft; State-Evidenz war syntaktisch vorhanden, aber nicht gegen externe kanonische Universen referenziell gebunden",
+  "rule": "Audit-Harness-Exact-Sets muessen zuerst jede relevante Gitblob-Klasse durch hashgebundene Coverage-Einheiten fail-closed erfassen und danach alle State-, Reviewer-, Runtime-, Edge- und Evidence-Referenzen als FKs gegen separat gebundene Universen validieren",
+  "applies_to": "Vollaudit-Harnesses, Featureinventare, Symbolgraphen, Evidence-Ledger"
+}

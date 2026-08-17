@@ -1,0 +1,10 @@
+{
+  "lesson_id": "893903e2cdd3485186ec72ed50607fba",
+  "recorded_at": "2026-08-15T15:48:19+00:00",
+  "session_id": "2a05511dc2bb4de2bd0c5572d2cd3dee",
+  "head_at_start": "fa066f8c99fde132e3dcda29c4aaa19ea0e0ecdb",
+  "problem": "Reviewer-Namen und frei geschriebene Lineage-Felder konnten Audit-Unabhaengigkeit behaupten, ohne aktive Session oder realen Worktree zu belegen.",
+  "cause": "Registry speicherte keine Parent-Lineage/forced-Provenienz; Roster hatte keine vor Release erzeugten, hashgebundenen Live-Receipts.",
+  "rule": "Audit-Reviewer vor Release live gegen Registry plus git worktree list enrollen; transitive Lineage bei Claim berechnen, forced/stale/dirty/falschen HEAD ablehnen, immutable Receipt hashen und Finalverify ohne fortbestehende Session/Worktree ausfuehren.",
+  "applies_to": "Reviewer-Roster, Dual-Control-Audits, Agent-Session-Provenienz, Completion-Gates"
+}

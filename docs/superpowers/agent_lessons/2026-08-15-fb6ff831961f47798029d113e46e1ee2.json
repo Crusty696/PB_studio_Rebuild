@@ -1,0 +1,10 @@
+{
+  "lesson_id": "fb6ff831961f47798029d113e46e1ee2",
+  "recorded_at": "2026-08-15T15:41:24+00:00",
+  "session_id": "a88775c7551648a98c85943ade256eab",
+  "head_at_start": "4b94c2608ff6e3561a81580236235247e28122fa",
+  "problem": "Audit-Completion-Importer akzeptierte Pfadseparatoren in import_id und kollidierende Shard-Basenamen.",
+  "cause": "Nichtleere Stringvalidierung wurde faelschlich als sichere Pfadkomponente behandelt; Staging-Zielnamen wurden erst beim Kopieren abgeleitet und nicht auf Eindeutigkeit geprueft.",
+  "rule": "Jede manifestgesteuerte Pfadkomponente vor Pfadbildung auf striktes Einzelkomponentenformat pruefen; aufgeloeste Quellpfade einsperren; alle abgeleiteten Zielnamen vor Schreibstart auf Kollision und reservierte Namen validieren.",
+  "applies_to": "Atomic Import, Evidence Bundles, Archive Extraction und manifestgesteuerte Dateikopien"
+}

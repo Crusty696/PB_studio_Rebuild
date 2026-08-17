@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6a306f9108ac4999b93dcde5da6a088d",
+  "recorded_at": "2026-08-16T01:49:48+00:00",
+  "session_id": "db39de5870df4bb98e2164f39e2658ab",
+  "head_at_start": "1138a4602bbf60a5329c007aaad2f882f3ade51c",
+  "problem": "Canonical Rosterzeilen konnten mit unhashbarem reviewer_id crashen oder mit geschmiedeten role/run/contract-Feldern trotz gueltiger Attachment-Signaturen exportiert werden.",
+  "cause": "Export bildete row_by_id vor vollstaendiger Typgrenze und verglich nur Receipt-Teil-FKs; vollstaendiger verify_roster/Attestation-Trustpfad lief nicht auf demselben eingefrorenen Bytebestand.",
+  "rule": "Vor Dict/Set-Membership jede Rosterzeile gegen exakte Feld- und Typmatrix pruefen; danach Roster, Trustfiles, Keys, Receipts und Signoffs einmal snapshotten und den vollstaendigen Roster-/Attestation-Validator ausschliesslich auf diesen Snapshotbytes ausfuehren, bevor Descriptors entstehen.",
+  "applies_to": "Reviewer-Roster-Export, Completion-Attachments, kryptografische Audit-Bundles, hostile JSON-Typen"
+}

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e3a5d64242584b8281d1905f515263a8",
+  "recorded_at": "2026-08-17T17:08:44+00:00",
+  "session_id": "16150564378b443bb3e55b39ab385c12",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Einzelsuites waren gruen, aber commitmaterialisierte Readiness fand Completion-/Delta-Gate-Nodes wegen abweichender Testmethodennamen nicht.",
+  "cause": "Readiness adressiert feste GateContractTests-Entry-Namen; Shardentwicklung pruefte nur dynamisch gesammelte Tests und hielt diese oeffentliche Test-API nicht synchron.",
+  "rule": "Feste Gate-Node-Namen sind Teil des externen Vertrags: jeden Shard mit exakt denselben commitmaterialisierten Entry-Namen testen, nicht nur per Test-Discovery; semantische Implementierung darf ueber stabile Delegationsmethoden erfolgen.",
+  "applies_to": "Readiness-Matrizen, commitmaterialisierte Tests und alle benannten Gate-APIs"
+}

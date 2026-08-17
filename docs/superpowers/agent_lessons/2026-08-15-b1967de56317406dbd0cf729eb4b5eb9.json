@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b1967de56317406dbd0cf729eb4b5eb9",
+  "recorded_at": "2026-08-15T15:29:52+00:00",
+  "session_id": "a88775c7551648a98c85943ade256eab",
+  "head_at_start": "4b94c2608ff6e3561a81580236235247e28122fa",
+  "problem": "Atomarer Auditimport darf bei Validierungs- oder Umschaltfehler kein teilweise aktualisiertes Masterledger hinterlassen.",
+  "cause": "Direktes Kopieren oder zeilenweises Mergen in aktives Ledger vermischt alte und neue Shards und macht Fehlerzustand nicht byteidentisch rueckrollbar.",
+  "rule": "Alle Hash-, Bindungs-, PK/FK- und Completion-Pruefungen vor Aktivierung in Staging ausfuehren; immutable Version erstellen; nur kleinen CURRENT-Pointer atomar ersetzen; Fehlerartefakte entfernen.",
+  "applies_to": "Audit-Shardimport, Masterledger, Evidence-Bundles und Completion"
+}

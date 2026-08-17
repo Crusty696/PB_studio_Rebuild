@@ -90,6 +90,33 @@ def test_claim_allows_disjoint_paths():
     assert len(ag.status()) == 2
 
 
+def test_claim_captures_transitive_parent_lineage():
+    director, _ = ag.claim("director", "coordinate", [])
+    reviewer, _ = ag.claim(
+        "reviewer", "pass-a", [], parent_session_id=director["id"]
+    )
+    child, _ = ag.claim(
+        "child", "challenge", [], parent_session_id=reviewer["id"]
+    )
+
+    assert reviewer["parent_session_id"] == director["id"]
+    assert reviewer["ancestor_session_ids"] == [director["id"]]
+    assert child["ancestor_session_ids"] == [director["id"], reviewer["id"]]
+
+
+def test_claim_rejects_missing_parent_and_marks_force():
+    session, conflicts = ag.claim(
+        "orphan", "audit", [], parent_session_id="not-live"
+    )
+    assert not session
+    assert conflicts and conflicts[0]["_reason"] == "parent-session-not-live"
+
+    forced, _ = ag.claim("forced", "audit", [], force=True)
+    assert forced["forced"] is True
+    child, _ = ag.claim("child", "audit", [], parent_session_id=forced["id"])
+    assert child["forced_lineage"] is True
+
+
 def test_glob_claims_conflict():
     """Globs muessen in BEIDE Richtungen greifen."""
     ag.claim("agent-a", "tests", ["tests/**"])
@@ -206,6 +233,17 @@ def test_stale_lock_is_broken():
     _os.utime(lock, (old, old))
     s, _ = ag.claim("agent-a", "t", ["x.py"])   # darf nicht haengen
     assert s
+
+
+def test_lock_exit_never_removes_foreign_owner_payload():
+    """Lockverlust darf niemals fremde Bytes am gemeinsamen Pfad loeschen."""
+    guard = ag._Lock()
+    guard.__enter__()
+    lock = ag._lock_path()
+    ag._write_lock_payload(guard._fd, b"foreign-owner")
+    with pytest.raises(RuntimeError, match="Ownership"):
+        guard.__exit__(None, None, None)
+    assert ag._read_lock_payload(lock) == b"foreign-owner"
 
 
 def test_write_is_atomic_no_tmp_left():

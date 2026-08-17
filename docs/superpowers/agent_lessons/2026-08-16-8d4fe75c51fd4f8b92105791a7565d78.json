@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8d4fe75c51fd4f8b92105791a7565d78",
+  "recorded_at": "2026-08-16T01:21:14+00:00",
+  "session_id": "71e3af7af4b9414ea2cd2151ba937547",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Rich-Receipt-Validator prüfte Source-, Executor- und Materialization-Provenienz nur auf Form; resealte Selbstbehauptungen bestanden, gemischte Trace-Achsentypen crashten beim Sortieren.",
+  "cause": "Provenienzfelder wurden nicht erneut an replacement-freie Gitobjekte, versiegeltes Executor-Manifest und aktuelle Runtimebytes gebunden; Materialisierungszahlen wurden nicht aus Commitblobs rekonstruiert; Trace-Typprüfung erfolgte nach sort().",
+  "rule": "Jede Provenienzbehauptung gegen unabhängige Quelle neu berechnen: Source path/OID/raw SHA aus replacement-freiem Git, Executor aus versiegeltem Manifest plus Runtime-Datei, Materialisierungsmanifest vollständig aus Gitblobs. Fremdtypgrenzen immer vor Sortierung, Membership oder Hashing validieren.",
+  "applies_to": "Runtime Rich Receipts, Harness-/Checker-Provenienz, Commit-Materialisierung, Trace-Validatoren"
+}

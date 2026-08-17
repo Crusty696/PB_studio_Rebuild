@@ -1,0 +1,10 @@
+{
+  "lesson_id": "eb75d51a29844b8694e91146c094abb5",
+  "recorded_at": "2026-08-15T21:29:04+00:00",
+  "session_id": "16430ce1319c40ec91519831b8ccd20d",
+  "head_at_start": "de36b4b7038b435a10df10c75647a2ea1b77611c",
+  "problem": "Audit-Contracts konnten kanonische Sources oder Evidence-Rows zusaetzlich behaupten, mehrfach referenzieren oder ungenutzt lassen, waehrend nur Vorwaerts-FKs geprueft wurden",
+  "cause": "Featurekatalog-, State- und Proof-Validatoren hatten keine inverse/exklusive Mengenclosure und verglichen Reviewer/Zeit nicht an jeder konsumierenden Evidence-Kante",
+  "rule": "Fuer jede forward FK auch inverse Closure pruefen: Katalogclaims exakt gegen Dispositionen gruppieren, Evidenceuniversen vollstaendig konsumieren, Listen duplikatfrei halten, Signer/Zeit/Ziel auf jeder State-Evidence-Kante vergleichen und Proof-Key-Domains als Exact-Set schliessen",
+  "applies_to": "Featurekataloge, Symbol-/Edge-State, Evidence-Ledger, Proof-Contracts"
+}

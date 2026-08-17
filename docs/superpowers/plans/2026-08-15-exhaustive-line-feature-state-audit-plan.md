@@ -1,7 +1,8 @@
 # PB Studio Exhaustive Line + Feature-State Audit Execution Plan
 
-> **Status:** `draft` — Planung dokumentiert; keine Audit-Ausfuehrung, kein Fix,
-> kein ACTIVE_PLAN-Wechsel autorisiert.
+> **Status:** `phase-minus-1-in-progress` — User autorisierte am 2026-08-15
+> ausschliesslich Harness-/Contracttest-Implementierung. Produktaudit, Snapshot,
+> Produktcodefix und `fixed`-Marker bleiben verboten.
 >
 > **REQUIRED SUB-SKILL:** `pb-exhaustive-audit-ledger`
 >
@@ -17,9 +18,8 @@ aendern. Fixes brauchen spaeter eigenen autorisierten Fixplan.
 **Kanonischer Workspace:**
 `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 **Hardware-Grenze:** ausschliesslich NVIDIA GTX 1060 / `cuda:0`; sonst CPU.
-**Aktueller Governance-Blocker:** `ACTIVE_PLAN.md` nennt W4 Videoanalyse als
-naechste Task; Registry-Zeile nennt noch B-819/W3. Audit darf erst nach expliziter
-Userwahl und Governance-Abgleich aktiv werden.
+**Governance:** Phase -1 ist aktiv; Masterplan/W4 dokumentiert pausiert.
+Auditaktivierung bleibt bis Readiness-PASS und neuer Userentscheidung verboten.
 
 ---
 
@@ -181,6 +181,7 @@ werden in separatem Abschlusscommit ins Repo uebernommen:
 ```text
 snapshot.json
 audit_contract.json
+evidence_contract.json
 delta_ledger.jsonl
 reviewer_roster.jsonl
 files.jsonl
@@ -208,6 +209,47 @@ completion.json
 atomic_import.json
 report.md
 ```
+
+### Gemeinsamer Contract V1 (verbindlich fuer Phase -1)
+
+Alle Harnesses lesen denselben flachen `audit_contract.json`. Seine exakte
+Artifactmenge ist die 14er-Union:
+
+```text
+requirements-universe, trigger-universe, feature-catalog,
+symbol-catalog, edge-catalog, runtime-scenario-catalog,
+runtime-feature-universe, runtime-symbol-universe,
+runtime-executor-manifest, runtime-dependency-manifest,
+reviewer-trust-policy, reviewer-contract,
+reviewer-readiness-binding, reviewer-spawn-journal
+```
+
+`evidence_contract.json` enthaelt exakt acht statische Record-Shards:
+`feature-state`, `feature-state-evidence`, `symbol-state`, `edge-state`,
+`symbol-state-evidence`, `reviewer-roster`, `runtime-evidence`, `delta-ledger`.
+Dazu kommen im selben flachen `artifacts`-Objekt ausschließlich dynamische
+Attachments `feature-proof:<evidence_id>`, `symbol-proof:<evidence_id>`,
+`runtime-proof:<evidence_id>`, `reviewer-enrollment-receipt:<session_id>`,
+`reviewer-enrollment-signature:<session_id>`,
+`reviewer-signoff:<role>:<session_id>` und
+`reviewer-signoff-signature:<role>:<session_id>`. Jede Menge besitzt inverse
+Exact-Closure; Orphans, Extras, Duplikate oder Mehrfachkonsum blockieren.
+
+Jeder Artifactdescriptor hat exakt `artifact_id`, `ref`, `sha256`, `bytes`,
+`record_count`. Count-Regel: JSONL = nichtleere JSON-Objektzeilen; JSON-Array =
+Laenge; JSON-Objekt mit `records`-Array = dessen Laenge; anderes gueltiges JSON
+oder andere regulaere Datei = 1. Nur statische Shards werden als JSONL geparst;
+Attachments werden byte-/hash-/count-/closure-geprueft und unter ihrem sicheren
+relativen Ref ohne Basename-Flattening atomar importiert.
+
+Runtime-Runner publiziert pro Rich-Receipt genau eine kompakte
+`runtime-evidence`-Projektion mit Singleton-Featurepfad, pluraler eindeutiger
+Symbolmenge, Achsen, Receipt-Ref/-SHA und allen Run-/Commit-/Snapshotbindungen.
+`runtime-proof:<evidence_id>` zeigt auf das unveraenderliche Rich-Receipt.
+Signoffs binden die deterministische Readiness-Basis, nicht den spaeteren
+Evidencecontract. Reihenfolge bleibt zyklusfrei: Audit-/Toolingcommit →
+Auditcontract → Authoritycommit → Enrollment/Records/Runtimeproofs →
+Readiness-Basis → zwei rollengetrennte Signoffs → Evidencecontract → Completion.
 
 Jeder Record bindet mindestens `run_id`, `audited_commit`, Snapshot-ID, Dateipfad,
 Datei-SHA, Reviewer-ID, Zeitstempel und Beleg. Zeilenranges: 100–200 Zeilen,
@@ -357,6 +399,12 @@ passieren.
    Kontext aus, erfasst Exit/Output/Postcondition/Trace und leitet Coverage aus
    Singleton-Featuretarget plus beobachteten Symbolen ab. Gehashte,
    selbstgeschriebene PASS-Dateien oder `covered_*`-Arrays sind kein Beleg.
+   Runtime-Autoritaet folgt Userentscheidung vom 2026-08-16: ein separater,
+   extern gepinnter `authority_commit` enthaelt den festen Policy-Gitblob und
+   autorisiert literal Auditcontract-Body-SHA, Plan-, Run-, Snapshot-, Audit-
+   und Toolingcommit-ID. Erzeugungsfolge ist `audited_commit` →
+   `tooling_commit` → Auditcontract → `authority_commit`; Policy im
+   `tooling_commit` mit Selbstreferenz oder `$SELF`-Sentinel ist verboten.
 4. `tools/audit_reviewer_roster.py`: Live-Enrollment gegen aktuelle
    Session-Registry und reale Worktrees vor deren Release; hashgebundene
    Session-Receipts fuer Finalgate. A/B gleiche Session oder direkte/indirekte
@@ -364,9 +412,23 @@ passieren.
 5. Delta-/TTL-Validator: exakte Git-Diff-Pfadmenge, Produktrelevanz,
    `audited_commit`, Integrations-HEAD und Ablaufzeit; Drift/TTL rot.
 6. Completion-/Atomic-Import-Harness: alle Shardhashes und referenziellen
-   Mengen erst im temporaeren Ziel pruefen, danach atomarer Rename; Fehler
-   laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot fuer
-   unqualifizierte Completion.
+   Mengen sowie globale Audit-/Evidence-Contract-Exact-Sets erst im temporaeren
+   Ziel pruefen. Acht statische Record-Shards plus alle dynamischen Attachments
+   unter ihren sicheren relativen Refs importieren, danach atomarer Rename;
+   Fehler laesst altes Masterledger byteidentisch. UNKNOWN-Pflichtachse rot
+   fuer unqualifizierte Completion.
+7. Readiness-Authority-Gate: separater, extern gepinnter `authority_commit`
+   enthaelt am festen Pfad `config/audit_readiness_authority_policy.json` die
+   exakte Gate-Matrix sowie Gitblob-OID/Bytes/SHA-256 aller zwoelf Harness-/
+   Testartefakte, des Readiness-Validators, des Reviewer-Validators und von
+   `tools/agent_session.py`. Aufruf erhaelt beweglichen `authority_commit` und
+   unabhaengigen `expected_authority_commit`; Ungleichheit blockiert vor
+   Policy-Lesen. Reviewer-Pfade laufen ausschliesslich aus commitgebundener
+   Temp-Materialisierung im isolierten Prozess. Policy wird erst nach
+   `tooling_commit` gebaut und danach in separatem Authoritycommit versiegelt;
+   kein `$SELF` und kein Self-Hash-Zyklus. Gemeinsame Kompromittierung beider
+   Caller-Pins bleibt externe, offen dokumentierte Trust-Grenze. Ohne reale
+   provisionierte Signaturschluessel kein operationaler Readiness-GO.
 
 Pflicht-Testmatrix je Harness:
 
@@ -426,6 +488,13 @@ Kein Default-Ausschluss. Entscheidung in `exclusions.jsonl` und D-Decision.
   beweglichen Alias speichern.
 - `audit_contract.json` mit Snapshot-, Universums-, Roster-, Runtime- und
   Symbolhash sowie TTL versiegeln.
+- Auditcontract-Hash ist SHA-256 des kanonischen JSON-Bodys ohne Self-Hashfeld;
+  ein roher Datei-SHA wird, falls benoetigt, als getrennt benanntes Feld
+  behandelt und nie mit dem Body-SHA vermischt.
+- Runtime-Policy wird erst nach Toolingcommit und Auditcontract in einem
+  separaten `authority_commit` versiegelt. Runner/CLI erhalten diesen Commit
+  als externen Pin und lesen den festen Policy-Pfad ausschliesslich aus dessen
+  Gitobjekt. Contract oder CLI duerfen autorisierte IDs nicht selbst ersetzen.
 - Auditreader lesen Git-Objekte dieses Commits. Report-/Harness-/Dokumentations-
   commits aendern Auditobjekt nicht.
 - `delta_ledger.jsonl` bildet jede Pfadaenderung bis Integrations-HEAD exakt ab.
