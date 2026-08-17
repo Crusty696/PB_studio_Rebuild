@@ -1,0 +1,10 @@
+{
+  "lesson_id": "738344927c394df694261930cc14f6e7",
+  "recorded_at": "2026-08-17T15:38:29+00:00",
+  "session_id": "c43e28e9e0c34aefab49cf44ad2b2063",
+  "head_at_start": "597b1e9c70c94aeaad0e02dbd99a9ba8e1aa14e2",
+  "problem": "Runtime-Projektionsvalidator warf bei Scenario.inputs null/int und strukturierten Receipt-Inputnamen ungefangenen TypeError.",
+  "cause": "len, Dict-Lookup und Set-Membership liefen vor expliziter JSON-Typpruefung.",
+  "rule": "Untrusted JSON-Werte vor len, Iteration, Sortierung sowie Dict-/Set-Membership strikt auf erwarteten Typ und Format prüfen; erst danach verwenden und bei Abweichung kontrollierten ContractError liefern.",
+  "applies_to": "Runtime-Evidence, JSON-Contractvalidatoren, Projektionsadapter, Evidence-Export"
+}

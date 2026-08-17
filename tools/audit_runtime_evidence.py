@@ -1268,12 +1268,17 @@ def _validate_receipt_for_projection(
         expected_source_path=row["postcondition"]["argv"][1],
     )
 
+    scenario_inputs = row.get("inputs")
     inputs = receipt.get("inputs")
-    if not isinstance(inputs, list) or len(inputs) != len(row.get("inputs", [])):
+    if (
+        not isinstance(scenario_inputs, list)
+        or not isinstance(inputs, list)
+        or len(inputs) != len(scenario_inputs)
+    ):
         raise ContractError("Rich Receipt Inputs falsch")
     expected_inputs: dict[str, dict[str, Any]] = {}
     expected_input_refs: dict[str, str] = {}
-    for index, expected in enumerate(row["inputs"]):
+    for index, expected in enumerate(scenario_inputs):
         if not isinstance(expected, dict):
             raise ContractError(f"Rich Receipt Scenario-Input {index} falsch")
         name = expected.get("name")
@@ -1291,15 +1296,18 @@ def _validate_receipt_for_projection(
     for item in inputs:
         if not isinstance(item, dict) or set(item) != {"name", "source_ref", "ref", "sha256"}:
             raise ContractError("Rich Receipt Input-Record falsch")
-        expected = expected_inputs.get(item.get("name"))
-        if item.get("name") in seen_input_names:
+        item_name = item.get("name")
+        if not isinstance(item_name, str) or not ID_RE.fullmatch(item_name):
+            raise ContractError("Rich Receipt Input-Name ungueltig")
+        expected = expected_inputs.get(item_name)
+        if item_name in seen_input_names:
             raise ContractError("Rich Receipt Input-Name doppelt")
-        seen_input_names.add(item.get("name"))
-        path = _run_ref_file(run_dir, item.get("ref"), f"Runtime Input {item.get('name')}")
+        seen_input_names.add(item_name)
+        path = _run_ref_file(run_dir, item.get("ref"), f"Runtime Input {item_name}")
         if (
             expected is None
             or item.get("source_ref") != expected.get("ref")
-            or item.get("ref") != expected_input_refs[item["name"]]
+            or item.get("ref") != expected_input_refs[item_name]
             or item.get("sha256") != expected.get("sha256")
             or _sha(path) != item.get("sha256")
         ):
