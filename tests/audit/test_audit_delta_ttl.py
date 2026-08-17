@@ -90,6 +90,22 @@ class GateContractTests(unittest.TestCase):
         row = expected_delta(self.repo, self.base, head, run_id="RUN-001")[0]
         return head, self.disposition(row)
 
+    # Stable commit-materialized entry points required by readiness.
+    def test_positive_minimal(self) -> None:
+        self.test_positive_global_contract_no_delta()
+
+    def test_missing_required_rejected(self) -> None:
+        self.test_missing_id_tampered_commit_and_noncurrent_head_rejected()
+
+    def test_tampered_binding_rejected(self) -> None:
+        self.test_global_contract_missing_extra_and_raw_file_sha_rejected()
+
+    def test_duplicate_or_foreign_id_rejected(self) -> None:
+        self.test_exact_delta_duplicate_foreign_and_missing_rejected()
+
+    def test_expired_ttl_or_product_delta_rejected(self) -> None:
+        self.test_expired_ttl_product_delta_and_naive_now_rejected()
+
     def test_positive_global_contract_no_delta(self) -> None:
         self.assertEqual([], self.verify())
 

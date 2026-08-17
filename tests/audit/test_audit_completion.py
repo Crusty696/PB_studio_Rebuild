@@ -95,6 +95,22 @@ class GateContractTests(unittest.TestCase):
         path.write_bytes(canonical(value))
         return digest
 
+    # Stable commit-materialized entry points required by readiness.
+    def test_positive_minimal(self) -> None:
+        self.test_full_positive_import_preserves_nested_refs_and_contracts()
+
+    def test_missing_required_rejected(self) -> None:
+        self.test_audit_exact_14_missing_and_extra_rejected()
+
+    def test_tampered_binding_rejected(self) -> None:
+        self.test_raw_file_sha_is_not_body_sha()
+
+    def test_duplicate_or_foreign_id_rejected(self) -> None:
+        self.test_runtime_evidence_fk_foreign_duplicate_and_orphan_rejected()
+
+    def test_unknown_blocks_completion(self) -> None:
+        self.test_unknown_and_foreign_key_rejected()
+
     def _binding(self) -> dict:
         return {"run_id": RUN, "audited_commit": COMMIT, "snapshot_id": SNAPSHOT}
 
