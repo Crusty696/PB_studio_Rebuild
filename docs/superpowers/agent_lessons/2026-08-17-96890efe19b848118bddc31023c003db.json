@@ -1,0 +1,10 @@
+{
+  "lesson_id": "96890efe19b848118bddc31023c003db",
+  "recorded_at": "2026-08-17T16:47:45+00:00",
+  "session_id": "16150564378b443bb3e55b39ab385c12",
+  "head_at_start": "d728380906dd3c5d6b76ebb02d3146f4dc3a3159",
+  "problem": "Feature- und Symbol-Audit-Harness importierten tomllib und brachen im kanonischen Projekt-Python 3.10 bereits beim Modulimport.",
+  "cause": "Shardtests liefen zuvor unter Python 3.13; die in Python 3.11 eingefuehrte stdlib-Abhaengigkeit wurde nicht gegen die Projekt-Runtime geprueft, obwohl tomli vorhanden ist.",
+  "rule": "Neue Tooling-Imports immer unter der kanonischen Projekt-Python-Version testen; fuer stdlib-Module oberhalb der Mindestversion einen expliziten, installierten Backport-Fallback verwenden und den Vollscope mit Projekt-Interpreter ausfuehren.",
+  "applies_to": "Audit-Harnesses, CLI-Tools und jede Python-Tooling-Komponente mit mehreren Interpreterversionen"
+}

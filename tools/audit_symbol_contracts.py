@@ -15,7 +15,10 @@ import sqlite3
 import subprocess
 import sys
 import tokenize
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 project runtime
+    import tomli as tomllib
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
