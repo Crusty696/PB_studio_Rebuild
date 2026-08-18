@@ -1,1 +1,678 @@
-from __future__ import annotationsimport hashlibimport jsonimport sysimport tempfileimport threadingimport unittestfrom pathlib import Pathfrom unittest import mocksys.path.insert(0, str(Path(__file__).resolve().parents[2]))from tools.audit_completion import (  # noqa: E402    AUDIT_ARTIFACT_KEYS,    CompletionError,    import_bundle,)import tools.audit_completion as completion  # noqa: E402RUN = "RUN-001"COMMIT = "a" * 40TOOLING = "b" * 40SNAPSHOT = "sha256:snapshot"PLAN = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"FEATURE_EVIDENCE_ID = "sha256:" + "f" * 64SYMBOL_EVIDENCE_ID = "sha256:" + "e" * 64RUNTIME_EVIDENCE_ID = "sha256:" + "d" * 64def canonical(value: object) -> bytes:    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()def jsonl(rows: list[dict]) -> bytes:    return b"".join(canonical(row) + b"\n" for row in rows)def seal(value: dict, field: str) -> tuple[dict, str]:    digest = hashlib.sha256(canonical(value)).hexdigest()    return {**value, field: digest}, digestdef count_for(ref: str, payload: bytes) -> int:    if ref.endswith(".jsonl"):        return len(payload.decode().splitlines())    if ref.endswith(".json"):        value = json.loads(payload)        if isinstance(value, list):            return len(value)        if isinstance(value, dict) and isinstance(value.get("records"), list):            return len(value["records"])    return 1class GateContractTests(unittest.TestCase):    def setUp(self) -> None:        self.tmp = tempfile.TemporaryDirectory()        self.root = Path(self.tmp.name)        self.bundle = self.root / "bundle"        self.master = self.root / "master"        self.bundle.mkdir()        self._write_bundle()    def tearDown(self) -> None:        self.tmp.cleanup()    def write(self, ref: str, payload: bytes) -> dict:        path = self.bundle / ref        path.parent.mkdir(parents=True, exist_ok=True)        path.write_bytes(payload)        digest = hashlib.sha256(payload).hexdigest()        return {            "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,            "bytes": len(payload), "record_count": count_for(ref, payload),        }    @property    def audit_path(self) -> Path:        return self.bundle / "contracts/audit_contract.json"    @property    def evidence_path(self) -> Path:        return self.bundle / "contracts/evidence_contract.json"    @property    def atomic_path(self) -> Path:        return self.bundle / "contracts/atomic_import.json"    def reseal(self, path: Path, field: str) -> str:        value = json.loads(path.read_text(encoding="utf-8"))        value.pop(field, None)        value, digest = seal(value, field)        path.write_bytes(canonical(value))        return digest    def _binding(self) -> dict:        return {"run_id": RUN, "audited_commit": COMMIT, "snapshot_id": SNAPSHOT}    def _write_bundle(self) -> None:        reviewer_contract = {            "schema_version": 1,            "reviewers": [                {"reviewer_id": "REV-A", "session_id": "session-a"},                {"reviewer_id": "REV-B", "session_id": "session-b"},            ],            "required_signoffs": [                {"reviewer_id": "REV-A", "role": "lead-v"},                {"reviewer_id": "REV-B", "role": "adversarial"},            ],        }        audit_artifacts = {}        for index, key in enumerate(sorted(AUDIT_ARTIFACT_KEYS)):            if key == "reviewer-contract":                ref, payload = "inputs/reviewer/contract.json", canonical(reviewer_contract)            elif index == 0:                ref, payload = f"inputs/{key}.jsonl", jsonl([{"id": key}])            elif index == 1:                ref, payload = f"inputs/{key}.json", canonical([{"id": 1}, {"id": 2}])            elif index == 2:                ref, payload = f"inputs/{key}.json", canonical({"records": [{"id": 1}, {"id": 2}, {"id": 3}]})            else:                ref, payload = f"inputs/{key}.bin", f"input:{key}".encode()            audit_artifacts[key] = self.write(ref, payload)        audit, _audit_sha = seal({            "schema_version": 1, "plan_id": PLAN, "run_id": RUN,            "audited_commit": COMMIT, "tooling_commit": TOOLING,            "snapshot_id": SNAPSHOT, "frozen_at": "2026-08-15T10:00:00+00:00",            "expires_at": "2026-08-16T10:00:00+00:00", "artifacts": audit_artifacts,        }, "contract_sha256")        self.audit_path.parent.mkdir(parents=True, exist_ok=True)        self.audit_path.write_bytes(canonical(audit))        feature_proof = self.write("attachments/feature/FE-1.json", canonical({"proof": "feature"}))        symbol_proof = self.write("attachments/symbol/SE-1.json", canonical({"proof": "symbol"}))        runtime_proof = self.write("attachments/runtime/RE-1.json", canonical({"proof": "runtime"}))        rows: dict[str, list[dict]] = {            "feature-state": [{"feature_id": "FEAT-1", "path_id": "ui", **self._binding()}],            "feature-state-evidence": [{                "evidence_id": FEATURE_EVIDENCE_ID, "proof_ref": feature_proof["ref"],                "proof_sha256": feature_proof["sha256"], **self._binding(),            }],            "symbol-state": [{                "symbol_id": "SYM-1", "runtime_evidence_ids": [RUNTIME_EVIDENCE_ID],                **self._binding(),            }],            "edge-state": [{"edge_id": "EDGE-1", **self._binding()}],            "symbol-state-evidence": [{                "evidence_id": SYMBOL_EVIDENCE_ID, "evidence_kind": "symbol-review",                "proof_ref": symbol_proof["ref"], "proof_sha256": symbol_proof["sha256"],                **self._binding(),            }],            "runtime-evidence": [{                "evidence_id": RUNTIME_EVIDENCE_ID, "proof_ref": runtime_proof["ref"],                "proof_sha256": runtime_proof["sha256"],                "covered_symbol_ids": ["SYM-1"], **self._binding(),            }],            "delta-ledger": [],        }        roster_rows = []        dynamic = {            f"feature-proof:{FEATURE_EVIDENCE_ID}": feature_proof,            f"symbol-proof:{SYMBOL_EVIDENCE_ID}": symbol_proof,            f"runtime-proof:{RUNTIME_EVIDENCE_ID}": runtime_proof,        }        for reviewer, session, role in (            ("REV-A", "session-a", "lead-v"),            ("REV-B", "session-b", "adversarial"),        ):            receipt = self.write(f"attachments/reviewer/{session}/receipt.json", canonical({"session_id": session}))            signature = self.write(f"attachments/reviewer/{session}/receipt.sig", b"signature")            signoff = self.write(f"attachments/reviewer/{session}/{role}.json", canonical({"role": role}))            signoff_signature = self.write(f"attachments/reviewer/{session}/{role}.sig", b"signature")            roster_rows.append({                "reviewer_id": reviewer, "session_id": session,                "session_receipt_ref": receipt["ref"],                "session_receipt_sha256": receipt["sha256"],                "session_receipt_signature_ref": signature["ref"], **self._binding(),            })            dynamic.update({                f"reviewer-enrollment-receipt:{session}": receipt,                f"reviewer-enrollment-signature:{session}": signature,                f"reviewer-signoff:{role}:{session}": signoff,                f"reviewer-signoff-signature:{role}:{session}": signoff_signature,            })        rows["reviewer-roster"] = roster_rows        primary = {            "feature-state": ["feature_id", "path_id"],            "feature-state-evidence": ["evidence_id"],            "symbol-state": ["symbol_id"], "edge-state": ["edge_id"],            "symbol-state-evidence": ["evidence_id"],            "reviewer-roster": ["reviewer_id"], "runtime-evidence": ["evidence_id"],            "delta-ledger": ["path", "change"],        }        evidence_artifacts = dict(dynamic)        specs = []        for key, shard_rows in rows.items():            ref = f"records/{key}.jsonl"            descriptor = self.write(ref, jsonl(shard_rows))            evidence_artifacts[key] = descriptor            specs.append({                "artifact_key": key, "name": key, "path": ref,                "sha256": descriptor["sha256"], "record_count": len(shard_rows),                "primary_key": primary[key], "foreign_keys": [],            })        evidence, evidence_sha = seal({            "schema_version": 1, "plan_id": PLAN, "run_id": RUN,            "audited_commit": COMMIT, "tooling_commit": TOOLING,            "snapshot_id": SNAPSHOT, "audit_contract_sha256": audit["contract_sha256"],            "completed_at": "2026-08-15T11:00:00+00:00", "artifacts": evidence_artifacts,        }, "evidence_contract_sha256")        self.evidence_path.write_bytes(canonical(evidence))        atomic = {            "schema_version": 1, "import_id": "IMPORT-001", "run_id": RUN,            "audited_commit": COMMIT, "snapshot_id": SNAPSHOT, "tooling_commit": TOOLING,            "audit_contract_sha256": audit["contract_sha256"],            "evidence_contract_sha256": evidence_sha, "qualification": "unqualified",            "required_gate_results": {                "feature_inventory": True, "symbol_contracts": True,                "runtime_evidence": True, "reviewer_roster": True,                "delta_ttl": True, "completion": True,            },            "shards": specs,        }        self.atomic_path.write_bytes(canonical(atomic))    def do_import(self, *, audit_pin: str | None = None, evidence_pin: str | None = None):        audit = json.loads(self.audit_path.read_text(encoding="utf-8"))        evidence = json.loads(self.evidence_path.read_text(encoding="utf-8"))        return import_bundle(            self.bundle, self.atomic_path, self.master,            audit_contract_path=self.audit_path, evidence_contract_path=self.evidence_path,            expected_audit_contract_sha256=audit_pin or audit["contract_sha256"],            expected_evidence_contract_sha256=evidence_pin or evidence["evidence_contract_sha256"],        )    def reseal_evidence_and_bind_atomic(self) -> None:        digest = self.reseal(self.evidence_path, "evidence_contract_sha256")        atomic = json.loads(self.atomic_path.read_text(encoding="utf-8"))        atomic["evidence_contract_sha256"] = digest        self.atomic_path.write_bytes(canonical(atomic))    def rewrite_static_shard(self, key: str, rows: list[dict]) -> None:        path = self.bundle / f"records/{key}.jsonl"        payload = jsonl(rows)        path.write_bytes(payload)        digest = hashlib.sha256(payload).hexdigest()        evidence = json.loads(self.evidence_path.read_text())        evidence["artifacts"][key].update(            artifact_id=f"sha256:{digest}", sha256=digest, bytes=len(payload),            record_count=len(rows),        )        self.evidence_path.write_bytes(canonical(evidence))        atomic = json.loads(self.atomic_path.read_text())        spec = next(item for item in atomic["shards"] if item["artifact_key"] == key)        spec.update(sha256=digest, record_count=len(rows))        self.atomic_path.write_bytes(canonical(atomic))        self.reseal_evidence_and_bind_atomic()    def test_full_positive_import_preserves_nested_refs_and_contracts(self) -> None:        result = self.do_import()        self.assertEqual((8, 11, 14), (            result["shard_count"], result["attachment_count"],            result["audit_artifact_count"],        ))        version = self.master / "versions/IMPORT-001"        self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())        for ref in (            "records/feature-state.jsonl", "attachments/feature/FE-1.json",            "contracts/audit_contract.json", "contracts/evidence_contract.json",            "contracts/atomic_import.json",        ):            self.assertTrue((version / ref).is_file(), ref)        self.assertFalse((version / ".atomic-import-owner").exists())        audit = json.loads(self.audit_path.read_text())        for descriptor in audit["artifacts"].values():            imported = version / descriptor["ref"]            self.assertEqual((self.bundle / descriptor["ref"]).read_bytes(), imported.read_bytes())    def test_audit_exact_14_missing_and_extra_rejected(self) -> None:        audit = json.loads(self.audit_path.read_text())        audit["artifacts"].pop("edge-catalog")        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")        self.audit_path.write_bytes(canonical(audit))        with self.assertRaisesRegex(CompletionError, "14er-Union"):            self.do_import(audit_pin=digest)        self._write_bundle()        audit = json.loads(self.audit_path.read_text())        audit["artifacts"]["extra"] = next(iter(audit["artifacts"].values()))        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")        self.audit_path.write_bytes(canonical(audit))        with self.assertRaisesRegex(CompletionError, "14er-Union"):            self.do_import(audit_pin=digest)    def test_evidence_missing_extra_and_orphan_attachment_rejected(self) -> None:        evidence = json.loads(self.evidence_path.read_text())        evidence["artifacts"].pop("edge-state")        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        with self.assertRaisesRegex(CompletionError, "fehlende oder fremde"):            self.do_import()        self._write_bundle()        evidence = json.loads(self.evidence_path.read_text())        evidence["artifacts"]["foreign-key"] = next(iter(evidence["artifacts"].values()))        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        with self.assertRaisesRegex(CompletionError, "fehlende oder fremde"):            self.do_import()        self._write_bundle()        evidence = json.loads(self.evidence_path.read_text())        evidence["artifacts"]["feature-proof:ORPHAN"] = self.write("attachments/orphan.bin", b"orphan")        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        with self.assertRaisesRegex(CompletionError, "Exact-Closure"):            self.do_import()    def test_raw_file_sha_is_not_body_sha(self) -> None:        raw_sha = hashlib.sha256(self.audit_path.read_bytes()).hexdigest()        self.assertNotEqual(raw_sha, json.loads(self.audit_path.read_text())["contract_sha256"])        with self.assertRaisesRegex(CompletionError, "Body-SHA"):            self.do_import(audit_pin=raw_sha)    def test_record_count_json_array_records_object_and_jsonl(self) -> None:        audit = json.loads(self.audit_path.read_text())        counts = {Path(item["ref"]).suffix: item["record_count"] for item in audit["artifacts"].values()}        self.assertIn(1, counts.values())        self.assertIn(2, [item["record_count"] for item in audit["artifacts"].values()])        self.assertIn(3, [item["record_count"] for item in audit["artifacts"].values()])        target = next(item for item in audit["artifacts"].values() if item["record_count"] == 3)        target["record_count"] = 1        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")        self.audit_path.write_bytes(canonical(audit))        evidence = json.loads(self.evidence_path.read_text())        evidence["audit_contract_sha256"] = digest        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        atomic = json.loads(self.atomic_path.read_text())        atomic["audit_contract_sha256"] = digest        self.atomic_path.write_bytes(canonical(atomic))        with self.assertRaisesRegex(CompletionError, "record_count"):            self.do_import(audit_pin=digest)    def test_path_collision_and_attachment_tamper_rejected(self) -> None:        evidence = json.loads(self.evidence_path.read_text())        evidence["artifacts"][f"symbol-proof:{SYMBOL_EVIDENCE_ID}"] = dict(            evidence["artifacts"][f"feature-proof:{FEATURE_EVIDENCE_ID}"]        )        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        with self.assertRaisesRegex(CompletionError, "Ref doppelt"):            self.do_import()        self._write_bundle()        with (self.bundle / "attachments/runtime/RE-1.json").open("ab") as handle:            handle.write(b"tamper")        with self.assertRaisesRegex(CompletionError, "SHA256"):            self.do_import()    def test_windows_unsafe_refs_rejected_without_breaking_nested_refs(self) -> None:        for valid in (            "attachments/runtime/RE-1.json",            "nested/.hidden/COM10/LPT0/normal space.txt",        ):            with self.subTest(valid=valid):                self.assertEqual(valid, completion._safe_ref(valid).as_posix())        unsafe_refs = [            "dir/name:stream",            "a/b:c/d",            "dir/trailing.",            "dir/trailing ",            "a/./b",            "a/../b",            *(f"dir/name{character}value" for character in '*?\"<>|'),            *(f"dir/control-{chr(number)}-value" for number in range(32)),        ]        device_names = (            "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",            *(f"COM{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),            *(f"LPT{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),        )        for device in device_names:            unsafe_refs.extend((device, f"dir/{device.lower()}.txt", f"nested/{device} .log/end"))        accepted: list[str] = []        for unsafe in unsafe_refs:            try:                completion._safe_ref(unsafe)            except CompletionError:                continue            accepted.append(repr(unsafe))        self.assertEqual([], accepted)    def test_proof_sha_is_mandatory_and_runtime_proof_cannot_have_two_authorities(self) -> None:        path = self.bundle / "records/feature-state-evidence.jsonl"        rows = [json.loads(line) for line in path.read_text().splitlines()]        rows[0].pop("proof_sha256")        self.rewrite_static_shard("feature-state-evidence", rows)        with self.assertRaisesRegex(CompletionError, "proof_ref/proof_sha256"):            self.do_import()        self._write_bundle()        runtime = json.loads((self.bundle / "records/runtime-evidence.jsonl").read_text())        runtime["evidence_kind"] = "runtime"        self.rewrite_static_shard("symbol-state-evidence", [runtime])        with self.assertRaisesRegex(CompletionError, "nur non-runtime"):            self.do_import()    def test_runtime_evidence_fk_foreign_duplicate_and_orphan_rejected(self) -> None:        path = self.bundle / "records/symbol-state.jsonl"        rows = [json.loads(line) for line in path.read_text().splitlines()]        for runtime_ids, message in (            (["FOREIGN"], "FK fremd"),            ([RUNTIME_EVIDENCE_ID, RUNTIME_EVIDENCE_ID], "Typ/Menge"),            ([], "Symbol-Closure"),        ):            self._write_bundle()            rows = [json.loads(line) for line in path.read_text().splitlines()]            rows[0]["runtime_evidence_ids"] = runtime_ids            self.rewrite_static_shard("symbol-state", rows)            with self.assertRaisesRegex(CompletionError, message):                self.do_import()        self._write_bundle()        runtime_rows = [json.loads(            (self.bundle / "records/runtime-evidence.jsonl").read_text()        )]        runtime_rows[0]["covered_symbol_ids"] = ["SYM-FOREIGN"]        self.rewrite_static_shard("runtime-evidence", runtime_rows)        with self.assertRaisesRegex(CompletionError, "deckt Symbol nicht"):            self.do_import()    def test_delta_schema_record_imports_without_legacy_fields(self) -> None:        self.rewrite_static_shard("delta-ledger", [{            "run_id": RUN, "base_commit": COMMIT, "head_commit": "c" * 40,            "path": "report.md", "change": "modified", "product_relevant": False,            "disposition": "report-only", "reviewer_id": "REV-A",            "signed_at": "2026-08-15T11:00:00+00:00",        }])        self.assertEqual("imported", self.do_import()["status"])    def test_unknown_and_foreign_key_rejected(self) -> None:        path = self.bundle / "records/feature-state.jsonl"        rows = [json.loads(line) for line in path.read_text().splitlines()]        rows[0]["state"] = "UNKNOWN"        payload = jsonl(rows)        path.write_bytes(payload)        digest = hashlib.sha256(payload).hexdigest()        evidence = json.loads(self.evidence_path.read_text())        descriptor = evidence["artifacts"]["feature-state"]        descriptor.update(artifact_id=f"sha256:{digest}", sha256=digest, bytes=len(payload))        atomic = json.loads(self.atomic_path.read_text())        spec = next(item for item in atomic["shards"] if item["artifact_key"] == "feature-state")        spec["sha256"] = digest        self.atomic_path.write_bytes(canonical(atomic))        self.evidence_path.write_bytes(canonical(evidence))        self.reseal_evidence_and_bind_atomic()        with self.assertRaisesRegex(CompletionError, "UNKNOWN"):            self.do_import()        self._write_bundle()        atomic = json.loads(self.atomic_path.read_text())        spec = next(item for item in atomic["shards"] if item["artifact_key"] == "feature-state-evidence")        spec["foreign_keys"] = [{            "field": "feature_key", "target_shard": "feature-state",            "target_fields": ["feature_id", "path_id"],        }]        self.atomic_path.write_bytes(canonical(atomic))        with self.assertRaisesRegex(CompletionError, "Fremdschluessel"):            self.do_import()    def test_atomic_pointer_crash_preserves_old_master_bytes(self) -> None:        self.do_import()        before = {path.relative_to(self.master).as_posix(): path.read_bytes() for path in self.master.rglob("*") if path.is_file()}        atomic = json.loads(self.atomic_path.read_text())        atomic["import_id"] = "IMPORT-002"        self.atomic_path.write_bytes(canonical(atomic))        real_replace = __import__("os").replace        def fail_pointer(source, target):            if Path(target).name == "CURRENT":                raise OSError("injected")            return real_replace(source, target)        with mock.patch("tools.audit_completion.os.replace", side_effect=fail_pointer):            with self.assertRaisesRegex(CompletionError, "Pointerwechsel"):                self.do_import()        after = {path.relative_to(self.master).as_posix(): path.read_bytes() for path in self.master.rglob("*") if path.is_file()}        self.assertEqual(before, after)    def test_postvalidation_toctou_cannot_change_imported_bytes(self) -> None:        real_validate = completion._validate_bundle        proof = self.bundle / "attachments/runtime/RE-1.json"        def mutate_attachment(*args, **kwargs):            result = real_validate(*args, **kwargs)            proof.write_bytes(b"changed-after-validation")            return result        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_attachment):            with self.assertRaisesRegex(CompletionError, "nach Validierung veraendert"):                self.do_import()        self._write_bundle()        audit = json.loads(self.audit_path.read_text())        audit_ref = audit["artifacts"]["requirements-universe"]["ref"]        def mutate_audit_artifact(*args, **kwargs):            result = real_validate(*args, **kwargs)            (self.bundle / audit_ref).write_bytes(b"changed-after-validation")            return result        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_audit_artifact):            with self.assertRaisesRegex(CompletionError, "Auditcontract Artifact"):                self.do_import()        self._write_bundle()        original_audit = self.audit_path.read_bytes()        def mutate_contract(*args, **kwargs):            result = real_validate(*args, **kwargs)            self.audit_path.write_bytes(b"changed-after-validation")            return result        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_contract):            self.do_import()        imported = self.master / "versions/IMPORT-001/contracts/audit_contract.json"        self.assertEqual(original_audit, imported.read_bytes())    def test_membership_type_matrix_fails_closed_without_crash(self) -> None:        hostile = [[], [[]], {}, {"nested": []}, True, 1, None, "", " "]        for value in hostile:            with self.subTest(field="qualification", value=value):                self._write_bundle()                atomic = json.loads(self.atomic_path.read_text())                atomic["qualification"] = value                self.atomic_path.write_bytes(canonical(atomic))                with self.assertRaises(CompletionError):                    self.do_import()            with self.subTest(field="artifact_key", value=value):                self._write_bundle()                atomic = json.loads(self.atomic_path.read_text())                atomic["shards"][0]["artifact_key"] = value                self.atomic_path.write_bytes(canonical(atomic))                with self.assertRaises(CompletionError):                    self.do_import()            with self.subTest(field="target_shard", value=value):                self._write_bundle()                atomic = json.loads(self.atomic_path.read_text())                atomic["shards"][0]["foreign_keys"] = [{                    "field": "feature_id", "target_shard": value,                    "target_fields": ["feature_id", "path_id"],                }]                self.atomic_path.write_bytes(canonical(atomic))                with self.assertRaises(CompletionError):                    self.do_import()            with self.subTest(field="target_fields", value=value):                self._write_bundle()                atomic = json.loads(self.atomic_path.read_text())                atomic["shards"][0]["foreign_keys"] = [{                    "field": "feature_id", "target_shard": "feature-state",                    "target_fields": value,                }]                self.atomic_path.write_bytes(canonical(atomic))                with self.assertRaises(CompletionError):                    self.do_import()            with self.subTest(field="primary_key", value=value):                self._write_bundle()                atomic = json.loads(self.atomic_path.read_text())                atomic["shards"][0]["primary_key"] = value                self.atomic_path.write_bytes(canonical(atomic))                with self.assertRaises(CompletionError):                    self.do_import()        for value in hostile:            with self.subTest(field="evidence_kind", value=value):                self._write_bundle()                rows = [json.loads(                    (self.bundle / "records/symbol-state-evidence.jsonl").read_text()                )]                rows[0]["evidence_kind"] = value                self.rewrite_static_shard("symbol-state-evidence", rows)                with self.assertRaises(CompletionError):                    self.do_import()            with self.subTest(field="runtime_evidence_ids", value=value):                self._write_bundle()                rows = [json.loads((self.bundle / "records/symbol-state.jsonl").read_text())]                rows[0]["runtime_evidence_ids"] = value                self.rewrite_static_shard("symbol-state", rows)                with self.assertRaises(CompletionError):                    self.do_import()    def test_concurrent_import_lock_preserves_winner_version(self) -> None:        entered = threading.Event()        release = threading.Event()        real_replace = completion.os.replace        results: list[object] = []        def delayed_replace(source, target):            if Path(source).name.startswith(".staging-"):                entered.set()                if not release.wait(timeout=10):                    raise OSError("test timeout")            return real_replace(source, target)        def run_import() -> None:            try:                results.append(self.do_import())            except Exception as exc:  # noqa: BLE001 - Result wird adversarial klassifiziert.                results.append(exc)        with mock.patch("tools.audit_completion.os.replace", side_effect=delayed_replace):            winner = threading.Thread(target=run_import)            winner.start()            self.assertTrue(entered.wait(timeout=10))            loser = threading.Thread(target=run_import)            loser.start()            loser.join(timeout=10)            release.set()            winner.join(timeout=10)        self.assertFalse(winner.is_alive() or loser.is_alive())        self.assertEqual(1, sum(isinstance(item, dict) for item in results), results)        errors = [item for item in results if isinstance(item, CompletionError)]        self.assertEqual(1, len(errors), results)        self.assertIn("Ownership-Lock", str(errors[0]))        self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())        self.assertTrue((self.master / "versions/IMPORT-001/contracts/atomic_import.json").is_file())    def test_foreign_lock_and_preexisting_version_are_never_removed(self) -> None:        self.master.mkdir()        lock = self.master / ".atomic-import.lock"        lock.write_bytes(b"foreign-token")        with self.assertRaisesRegex(CompletionError, "Ownership-Lock"):            self.do_import()        self.assertEqual(b"foreign-token", lock.read_bytes())        lock.unlink()        foreign = self.master / "versions/IMPORT-001/foreign.bin"        foreign.parent.mkdir(parents=True)        foreign.write_bytes(b"foreign-version")        with self.assertRaisesRegex(CompletionError, "existiert bereits"):            self.do_import()        self.assertEqual(b"foreign-version", foreign.read_bytes())    def test_cleanup_never_deletes_version_replaced_by_foreign_owner(self) -> None:        real_replace = completion.os.replace        version = self.master / "versions/IMPORT-001"        def replace_then_foreign(source, target):            if Path(target).name == "CURRENT":                if version.exists():                    completion.shutil.rmtree(version)                version.mkdir(parents=True)                (version / "foreign.bin").write_bytes(b"foreign-after-race")                raise OSError("injected foreign replacement")            return real_replace(source, target)        with mock.patch("tools.audit_completion.os.replace", side_effect=replace_then_foreign):            with self.assertRaisesRegex(CompletionError, "Pointerwechsel"):                self.do_import()        self.assertEqual(b"foreign-after-race", (version / "foreign.bin").read_bytes())if __name__ == "__main__":    unittest.main(verbosity=2)
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from tools.audit_completion import (  # noqa: E402
+    AUDIT_ARTIFACT_KEYS,
+    CompletionError,
+    import_bundle,
+)
+import tools.audit_completion as completion  # noqa: E402
+
+
+RUN = "RUN-001"
+COMMIT = "a" * 40
+TOOLING = "b" * 40
+SNAPSHOT = "sha256:snapshot"
+PLAN = "PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15"
+FEATURE_EVIDENCE_ID = "sha256:" + "f" * 64
+SYMBOL_EVIDENCE_ID = "sha256:" + "e" * 64
+RUNTIME_EVIDENCE_ID = "sha256:" + "d" * 64
+
+
+def canonical(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+
+
+def jsonl(rows: list[dict]) -> bytes:
+    return b"".join(canonical(row) + b"\n" for row in rows)
+
+
+def seal(value: dict, field: str) -> tuple[dict, str]:
+    digest = hashlib.sha256(canonical(value)).hexdigest()
+    return {**value, field: digest}, digest
+
+
+def count_for(ref: str, payload: bytes) -> int:
+    if ref.endswith(".jsonl"):
+        return len(payload.decode().splitlines())
+    if ref.endswith(".json"):
+        value = json.loads(payload)
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, dict) and isinstance(value.get("records"), list):
+            return len(value["records"])
+    return 1
+
+
+class GateContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.bundle = self.root / "bundle"
+        self.master = self.root / "master"
+        self.bundle.mkdir()
+        self._write_bundle()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def write(self, ref: str, payload: bytes) -> dict:
+        path = self.bundle / ref
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        return {
+            "artifact_id": f"sha256:{digest}", "ref": ref, "sha256": digest,
+            "bytes": len(payload), "record_count": count_for(ref, payload),
+        }
+
+    @property
+    def audit_path(self) -> Path:
+        return self.bundle / "contracts/audit_contract.json"
+
+    @property
+    def evidence_path(self) -> Path:
+        return self.bundle / "contracts/evidence_contract.json"
+
+    @property
+    def atomic_path(self) -> Path:
+        return self.bundle / "contracts/atomic_import.json"
+
+    def reseal(self, path: Path, field: str) -> str:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value.pop(field, None)
+        value, digest = seal(value, field)
+        path.write_bytes(canonical(value))
+        return digest
+
+    # Stable commit-materialized entry points required by readiness.
+    def test_positive_minimal(self) -> None:
+        self.test_full_positive_import_preserves_nested_refs_and_contracts()
+
+    def test_missing_required_rejected(self) -> None:
+        self.test_audit_exact_14_missing_and_extra_rejected()
+
+    def test_tampered_binding_rejected(self) -> None:
+        self.test_raw_file_sha_is_not_body_sha()
+
+    def test_duplicate_or_foreign_id_rejected(self) -> None:
+        self.test_runtime_evidence_fk_foreign_duplicate_and_orphan_rejected()
+
+    def test_unknown_blocks_completion(self) -> None:
+        self.test_unknown_and_foreign_key_rejected()
+
+    def _binding(self) -> dict:
+        return {"run_id": RUN, "audited_commit": COMMIT, "snapshot_id": SNAPSHOT}
+
+    def _write_bundle(self) -> None:
+        reviewer_contract = {
+            "schema_version": 1,
+            "reviewers": [
+                {"reviewer_id": "REV-A", "session_id": "session-a"},
+                {"reviewer_id": "REV-B", "session_id": "session-b"},
+            ],
+            "required_signoffs": [
+                {"reviewer_id": "REV-A", "role": "lead-v"},
+                {"reviewer_id": "REV-B", "role": "adversarial"},
+            ],
+        }
+        audit_artifacts = {}
+        for index, key in enumerate(sorted(AUDIT_ARTIFACT_KEYS)):
+            if key == "reviewer-contract":
+                ref, payload = "inputs/reviewer/contract.json", canonical(reviewer_contract)
+            elif index == 0:
+                ref, payload = f"inputs/{key}.jsonl", jsonl([{"id": key}])
+            elif index == 1:
+                ref, payload = f"inputs/{key}.json", canonical([{"id": 1}, {"id": 2}])
+            elif index == 2:
+                ref, payload = f"inputs/{key}.json", canonical({"records": [{"id": 1}, {"id": 2}, {"id": 3}]})
+            else:
+                ref, payload = f"inputs/{key}.bin", f"input:{key}".encode()
+            audit_artifacts[key] = self.write(ref, payload)
+        audit, _audit_sha = seal({
+            "schema_version": 1, "plan_id": PLAN, "run_id": RUN,
+            "audited_commit": COMMIT, "tooling_commit": TOOLING,
+            "snapshot_id": SNAPSHOT, "frozen_at": "2026-08-15T10:00:00+00:00",
+            "expires_at": "2026-08-16T10:00:00+00:00", "artifacts": audit_artifacts,
+        }, "contract_sha256")
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        self.audit_path.write_bytes(canonical(audit))
+
+        feature_proof = self.write("attachments/feature/FE-1.json", canonical({"proof": "feature"}))
+        symbol_proof = self.write("attachments/symbol/SE-1.json", canonical({"proof": "symbol"}))
+        runtime_proof = self.write("attachments/runtime/RE-1.json", canonical({"proof": "runtime"}))
+        rows: dict[str, list[dict]] = {
+            "feature-state": [{"feature_id": "FEAT-1", "path_id": "ui", **self._binding()}],
+            "feature-state-evidence": [{
+                "evidence_id": FEATURE_EVIDENCE_ID, "proof_ref": feature_proof["ref"],
+                "proof_sha256": feature_proof["sha256"], **self._binding(),
+            }],
+            "symbol-state": [{
+                "symbol_id": "SYM-1", "runtime_evidence_ids": [RUNTIME_EVIDENCE_ID],
+                **self._binding(),
+            }],
+            "edge-state": [{"edge_id": "EDGE-1", **self._binding()}],
+            "symbol-state-evidence": [{
+                "evidence_id": SYMBOL_EVIDENCE_ID, "evidence_kind": "symbol-review",
+                "proof_ref": symbol_proof["ref"], "proof_sha256": symbol_proof["sha256"],
+                **self._binding(),
+            }],
+            "runtime-evidence": [{
+                "evidence_id": RUNTIME_EVIDENCE_ID, "proof_ref": runtime_proof["ref"],
+                "proof_sha256": runtime_proof["sha256"],
+                "covered_symbol_ids": ["SYM-1"], **self._binding(),
+            }],
+            "delta-ledger": [],
+        }
+        roster_rows = []
+        dynamic = {
+            f"feature-proof:{FEATURE_EVIDENCE_ID}": feature_proof,
+            f"symbol-proof:{SYMBOL_EVIDENCE_ID}": symbol_proof,
+            f"runtime-proof:{RUNTIME_EVIDENCE_ID}": runtime_proof,
+        }
+        for reviewer, session, role in (
+            ("REV-A", "session-a", "lead-v"),
+            ("REV-B", "session-b", "adversarial"),
+        ):
+            receipt = self.write(f"attachments/reviewer/{session}/receipt.json", canonical({"session_id": session}))
+            signature = self.write(f"attachments/reviewer/{session}/receipt.sig", b"signature")
+            signoff = self.write(f"attachments/reviewer/{session}/{role}.json", canonical({"role": role}))
+            signoff_signature = self.write(f"attachments/reviewer/{session}/{role}.sig", b"signature")
+            roster_rows.append({
+                "reviewer_id": reviewer, "session_id": session,
+                "session_receipt_ref": receipt["ref"],
+                "session_receipt_sha256": receipt["sha256"],
+                "session_receipt_signature_ref": signature["ref"], **self._binding(),
+            })
+            dynamic.update({
+                f"reviewer-enrollment-receipt:{session}": receipt,
+                f"reviewer-enrollment-signature:{session}": signature,
+                f"reviewer-signoff:{role}:{session}": signoff,
+                f"reviewer-signoff-signature:{role}:{session}": signoff_signature,
+            })
+        rows["reviewer-roster"] = roster_rows
+
+        primary = {
+            "feature-state": ["feature_id", "path_id"],
+            "feature-state-evidence": ["evidence_id"],
+            "symbol-state": ["symbol_id"], "edge-state": ["edge_id"],
+            "symbol-state-evidence": ["evidence_id"],
+            "reviewer-roster": ["reviewer_id"], "runtime-evidence": ["evidence_id"],
+            "delta-ledger": ["path", "change"],
+        }
+        evidence_artifacts = dict(dynamic)
+        specs = []
+        for key, shard_rows in rows.items():
+            ref = f"records/{key}.jsonl"
+            descriptor = self.write(ref, jsonl(shard_rows))
+            evidence_artifacts[key] = descriptor
+            specs.append({
+                "artifact_key": key, "name": key, "path": ref,
+                "sha256": descriptor["sha256"], "record_count": len(shard_rows),
+                "primary_key": primary[key], "foreign_keys": [],
+            })
+        evidence, evidence_sha = seal({
+            "schema_version": 1, "plan_id": PLAN, "run_id": RUN,
+            "audited_commit": COMMIT, "tooling_commit": TOOLING,
+            "snapshot_id": SNAPSHOT, "audit_contract_sha256": audit["contract_sha256"],
+            "completed_at": "2026-08-15T11:00:00+00:00", "artifacts": evidence_artifacts,
+        }, "evidence_contract_sha256")
+        self.evidence_path.write_bytes(canonical(evidence))
+        atomic = {
+            "schema_version": 1, "import_id": "IMPORT-001", "run_id": RUN,
+            "audited_commit": COMMIT, "snapshot_id": SNAPSHOT, "tooling_commit": TOOLING,
+            "audit_contract_sha256": audit["contract_sha256"],
+            "evidence_contract_sha256": evidence_sha, "qualification": "unqualified",
+            "required_gate_results": {
+                "feature_inventory": True, "symbol_contracts": True,
+                "runtime_evidence": True, "reviewer_roster": True,
+                "delta_ttl": True, "completion": True,
+            },
+            "shards": specs,
+        }
+        self.atomic_path.write_bytes(canonical(atomic))
+
+    def do_import(self, *, audit_pin: str | None = None, evidence_pin: str | None = None):
+        audit = json.loads(self.audit_path.read_text(encoding="utf-8"))
+        evidence = json.loads(self.evidence_path.read_text(encoding="utf-8"))
+        return import_bundle(
+            self.bundle, self.atomic_path, self.master,
+            audit_contract_path=self.audit_path, evidence_contract_path=self.evidence_path,
+            expected_audit_contract_sha256=audit_pin or audit["contract_sha256"],
+            expected_evidence_contract_sha256=evidence_pin or evidence["evidence_contract_sha256"],
+        )
+
+    def reseal_evidence_and_bind_atomic(self) -> None:
+        digest = self.reseal(self.evidence_path, "evidence_contract_sha256")
+        atomic = json.loads(self.atomic_path.read_text(encoding="utf-8"))
+        atomic["evidence_contract_sha256"] = digest
+        self.atomic_path.write_bytes(canonical(atomic))
+
+    def rewrite_static_shard(self, key: str, rows: list[dict]) -> None:
+        path = self.bundle / f"records/{key}.jsonl"
+        payload = jsonl(rows)
+        path.write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["artifacts"][key].update(
+            artifact_id=f"sha256:{digest}", sha256=digest, bytes=len(payload),
+            record_count=len(rows),
+        )
+        self.evidence_path.write_bytes(canonical(evidence))
+        atomic = json.loads(self.atomic_path.read_text())
+        spec = next(item for item in atomic["shards"] if item["artifact_key"] == key)
+        spec.update(sha256=digest, record_count=len(rows))
+        self.atomic_path.write_bytes(canonical(atomic))
+        self.reseal_evidence_and_bind_atomic()
+
+    def test_full_positive_import_preserves_nested_refs_and_contracts(self) -> None:
+        result = self.do_import()
+        self.assertEqual((8, 11, 14), (
+            result["shard_count"], result["attachment_count"],
+            result["audit_artifact_count"],
+        ))
+        version = self.master / "versions/IMPORT-001"
+        self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())
+        for ref in (
+            "records/feature-state.jsonl", "attachments/feature/FE-1.json",
+            "contracts/audit_contract.json", "contracts/evidence_contract.json",
+            "contracts/atomic_import.json",
+        ):
+            self.assertTrue((version / ref).is_file(), ref)
+        self.assertFalse((version / ".atomic-import-owner").exists())
+        audit = json.loads(self.audit_path.read_text())
+        for descriptor in audit["artifacts"].values():
+            imported = version / descriptor["ref"]
+            self.assertEqual((self.bundle / descriptor["ref"]).read_bytes(), imported.read_bytes())
+
+    def test_audit_exact_14_missing_and_extra_rejected(self) -> None:
+        audit = json.loads(self.audit_path.read_text())
+        audit["artifacts"].pop("edge-catalog")
+        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")
+        self.audit_path.write_bytes(canonical(audit))
+        with self.assertRaisesRegex(CompletionError, "14er-Union"):
+            self.do_import(audit_pin=digest)
+        self._write_bundle()
+        audit = json.loads(self.audit_path.read_text())
+        audit["artifacts"]["extra"] = next(iter(audit["artifacts"].values()))
+        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")
+        self.audit_path.write_bytes(canonical(audit))
+        with self.assertRaisesRegex(CompletionError, "14er-Union"):
+            self.do_import(audit_pin=digest)
+
+    def test_evidence_missing_extra_and_orphan_attachment_rejected(self) -> None:
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["artifacts"].pop("edge-state")
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        with self.assertRaisesRegex(CompletionError, "fehlende oder fremde"):
+            self.do_import()
+        self._write_bundle()
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["artifacts"]["foreign-key"] = next(iter(evidence["artifacts"].values()))
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        with self.assertRaisesRegex(CompletionError, "fehlende oder fremde"):
+            self.do_import()
+        self._write_bundle()
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["artifacts"]["feature-proof:ORPHAN"] = self.write("attachments/orphan.bin", b"orphan")
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        with self.assertRaisesRegex(CompletionError, "Exact-Closure"):
+            self.do_import()
+
+    def test_raw_file_sha_is_not_body_sha(self) -> None:
+        raw_sha = hashlib.sha256(self.audit_path.read_bytes()).hexdigest()
+        self.assertNotEqual(raw_sha, json.loads(self.audit_path.read_text())["contract_sha256"])
+        with self.assertRaisesRegex(CompletionError, "Body-SHA"):
+            self.do_import(audit_pin=raw_sha)
+
+    def test_record_count_json_array_records_object_and_jsonl(self) -> None:
+        audit = json.loads(self.audit_path.read_text())
+        counts = {Path(item["ref"]).suffix: item["record_count"] for item in audit["artifacts"].values()}
+        self.assertIn(1, counts.values())
+        self.assertIn(2, [item["record_count"] for item in audit["artifacts"].values()])
+        self.assertIn(3, [item["record_count"] for item in audit["artifacts"].values()])
+        target = next(item for item in audit["artifacts"].values() if item["record_count"] == 3)
+        target["record_count"] = 1
+        audit, digest = seal({k: v for k, v in audit.items() if k != "contract_sha256"}, "contract_sha256")
+        self.audit_path.write_bytes(canonical(audit))
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["audit_contract_sha256"] = digest
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        atomic = json.loads(self.atomic_path.read_text())
+        atomic["audit_contract_sha256"] = digest
+        self.atomic_path.write_bytes(canonical(atomic))
+        with self.assertRaisesRegex(CompletionError, "record_count"):
+            self.do_import(audit_pin=digest)
+
+    def test_path_collision_and_attachment_tamper_rejected(self) -> None:
+        evidence = json.loads(self.evidence_path.read_text())
+        evidence["artifacts"][f"symbol-proof:{SYMBOL_EVIDENCE_ID}"] = dict(
+            evidence["artifacts"][f"feature-proof:{FEATURE_EVIDENCE_ID}"]
+        )
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        with self.assertRaisesRegex(CompletionError, "Ref doppelt"):
+            self.do_import()
+        self._write_bundle()
+        with (self.bundle / "attachments/runtime/RE-1.json").open("ab") as handle:
+            handle.write(b"tamper")
+        with self.assertRaisesRegex(CompletionError, "SHA256"):
+            self.do_import()
+
+    def test_windows_unsafe_refs_rejected_without_breaking_nested_refs(self) -> None:
+        for valid in (
+            "attachments/runtime/RE-1.json",
+            "nested/.hidden/COM10/LPT0/normal space.txt",
+        ):
+            with self.subTest(valid=valid):
+                self.assertEqual(valid, completion._safe_ref(valid).as_posix())
+        unsafe_refs = [
+            "dir/name:stream",
+            "a/b:c/d",
+            "dir/trailing.",
+            "dir/trailing ",
+            "a/./b",
+            "a/../b",
+            *(f"dir/name{character}value" for character in '*?\"<>|'),
+            *(f"dir/control-{chr(number)}-value" for number in range(32)),
+        ]
+        device_names = (
+            "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+            *(f"COM{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),
+            *(f"LPT{suffix}" for suffix in "123456789\u00b9\u00b2\u00b3"),
+        )
+        for device in device_names:
+            unsafe_refs.extend((device, f"dir/{device.lower()}.txt", f"nested/{device} .log/end"))
+        accepted: list[str] = []
+        for unsafe in unsafe_refs:
+            try:
+                completion._safe_ref(unsafe)
+            except CompletionError:
+                continue
+            accepted.append(repr(unsafe))
+        self.assertEqual([], accepted)
+
+    def test_proof_sha_is_mandatory_and_runtime_proof_cannot_have_two_authorities(self) -> None:
+        path = self.bundle / "records/feature-state-evidence.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows[0].pop("proof_sha256")
+        self.rewrite_static_shard("feature-state-evidence", rows)
+        with self.assertRaisesRegex(CompletionError, "proof_ref/proof_sha256"):
+            self.do_import()
+
+        self._write_bundle()
+        runtime = json.loads((self.bundle / "records/runtime-evidence.jsonl").read_text())
+        runtime["evidence_kind"] = "runtime"
+        self.rewrite_static_shard("symbol-state-evidence", [runtime])
+        with self.assertRaisesRegex(CompletionError, "nur non-runtime"):
+            self.do_import()
+
+    def test_runtime_evidence_fk_foreign_duplicate_and_orphan_rejected(self) -> None:
+        path = self.bundle / "records/symbol-state.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        for runtime_ids, message in (
+            (["FOREIGN"], "FK fremd"),
+            ([RUNTIME_EVIDENCE_ID, RUNTIME_EVIDENCE_ID], "Typ/Menge"),
+            ([], "Symbol-Closure"),
+        ):
+            self._write_bundle()
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            rows[0]["runtime_evidence_ids"] = runtime_ids
+            self.rewrite_static_shard("symbol-state", rows)
+            with self.assertRaisesRegex(CompletionError, message):
+                self.do_import()
+        self._write_bundle()
+        runtime_rows = [json.loads(
+            (self.bundle / "records/runtime-evidence.jsonl").read_text()
+        )]
+        runtime_rows[0]["covered_symbol_ids"] = ["SYM-FOREIGN"]
+        self.rewrite_static_shard("runtime-evidence", runtime_rows)
+        with self.assertRaisesRegex(CompletionError, "deckt Symbol nicht"):
+            self.do_import()
+
+    def test_delta_schema_record_imports_without_legacy_fields(self) -> None:
+        self.rewrite_static_shard("delta-ledger", [{
+            "run_id": RUN, "base_commit": COMMIT, "head_commit": "c" * 40,
+            "path": "report.md", "change": "modified", "product_relevant": False,
+            "disposition": "report-only", "reviewer_id": "REV-A",
+            "signed_at": "2026-08-15T11:00:00+00:00",
+        }])
+        self.assertEqual("imported", self.do_import()["status"])
+
+    def test_unknown_and_foreign_key_rejected(self) -> None:
+        path = self.bundle / "records/feature-state.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows[0]["state"] = "UNKNOWN"
+        payload = jsonl(rows)
+        path.write_bytes(payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        evidence = json.loads(self.evidence_path.read_text())
+        descriptor = evidence["artifacts"]["feature-state"]
+        descriptor.update(artifact_id=f"sha256:{digest}", sha256=digest, bytes=len(payload))
+        atomic = json.loads(self.atomic_path.read_text())
+        spec = next(item for item in atomic["shards"] if item["artifact_key"] == "feature-state")
+        spec["sha256"] = digest
+        self.atomic_path.write_bytes(canonical(atomic))
+        self.evidence_path.write_bytes(canonical(evidence))
+        self.reseal_evidence_and_bind_atomic()
+        with self.assertRaisesRegex(CompletionError, "UNKNOWN"):
+            self.do_import()
+        self._write_bundle()
+        atomic = json.loads(self.atomic_path.read_text())
+        spec = next(item for item in atomic["shards"] if item["artifact_key"] == "feature-state-evidence")
+        spec["foreign_keys"] = [{
+            "field": "feature_key", "target_shard": "feature-state",
+            "target_fields": ["feature_id", "path_id"],
+        }]
+        self.atomic_path.write_bytes(canonical(atomic))
+        with self.assertRaisesRegex(CompletionError, "Fremdschluessel"):
+            self.do_import()
+
+    def test_atomic_pointer_crash_preserves_old_master_bytes(self) -> None:
+        self.do_import()
+        before = {path.relative_to(self.master).as_posix(): path.read_bytes() for path in self.master.rglob("*") if path.is_file()}
+        atomic = json.loads(self.atomic_path.read_text())
+        atomic["import_id"] = "IMPORT-002"
+        self.atomic_path.write_bytes(canonical(atomic))
+        real_replace = __import__("os").replace
+
+        def fail_pointer(source, target):
+            if Path(target).name == "CURRENT":
+                raise OSError("injected")
+            return real_replace(source, target)
+
+        with mock.patch("tools.audit_completion.os.replace", side_effect=fail_pointer):
+            with self.assertRaisesRegex(CompletionError, "Pointerwechsel"):
+                self.do_import()
+        after = {path.relative_to(self.master).as_posix(): path.read_bytes() for path in self.master.rglob("*") if path.is_file()}
+        self.assertEqual(before, after)
+
+    def test_postvalidation_toctou_cannot_change_imported_bytes(self) -> None:
+        real_validate = completion._validate_bundle
+        proof = self.bundle / "attachments/runtime/RE-1.json"
+
+        def mutate_attachment(*args, **kwargs):
+            result = real_validate(*args, **kwargs)
+            proof.write_bytes(b"changed-after-validation")
+            return result
+
+        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_attachment):
+            with self.assertRaisesRegex(CompletionError, "nach Validierung veraendert"):
+                self.do_import()
+
+        self._write_bundle()
+        audit = json.loads(self.audit_path.read_text())
+        audit_ref = audit["artifacts"]["requirements-universe"]["ref"]
+
+        def mutate_audit_artifact(*args, **kwargs):
+            result = real_validate(*args, **kwargs)
+            (self.bundle / audit_ref).write_bytes(b"changed-after-validation")
+            return result
+
+        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_audit_artifact):
+            with self.assertRaisesRegex(CompletionError, "Auditcontract Artifact"):
+                self.do_import()
+
+        self._write_bundle()
+        original_audit = self.audit_path.read_bytes()
+
+        def mutate_contract(*args, **kwargs):
+            result = real_validate(*args, **kwargs)
+            self.audit_path.write_bytes(b"changed-after-validation")
+            return result
+
+        with mock.patch("tools.audit_completion._validate_bundle", side_effect=mutate_contract):
+            self.do_import()
+        imported = self.master / "versions/IMPORT-001/contracts/audit_contract.json"
+        self.assertEqual(original_audit, imported.read_bytes())
+
+    def test_membership_type_matrix_fails_closed_without_crash(self) -> None:
+        hostile = [[], [[]], {}, {"nested": []}, True, 1, None, "", " "]
+        for value in hostile:
+            with self.subTest(field="qualification", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["qualification"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="artifact_key", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["artifact_key"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="target_shard", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["foreign_keys"] = [{
+                    "field": "feature_id", "target_shard": value,
+                    "target_fields": ["feature_id", "path_id"],
+                }]
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="target_fields", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["foreign_keys"] = [{
+                    "field": "feature_id", "target_shard": "feature-state",
+                    "target_fields": value,
+                }]
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="primary_key", value=value):
+                self._write_bundle()
+                atomic = json.loads(self.atomic_path.read_text())
+                atomic["shards"][0]["primary_key"] = value
+                self.atomic_path.write_bytes(canonical(atomic))
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+
+        for value in hostile:
+            with self.subTest(field="evidence_kind", value=value):
+                self._write_bundle()
+                rows = [json.loads(
+                    (self.bundle / "records/symbol-state-evidence.jsonl").read_text()
+                )]
+                rows[0]["evidence_kind"] = value
+                self.rewrite_static_shard("symbol-state-evidence", rows)
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+            with self.subTest(field="runtime_evidence_ids", value=value):
+                self._write_bundle()
+                rows = [json.loads((self.bundle / "records/symbol-state.jsonl").read_text())]
+                rows[0]["runtime_evidence_ids"] = value
+                self.rewrite_static_shard("symbol-state", rows)
+                with self.assertRaises(CompletionError):
+                    self.do_import()
+
+    def test_concurrent_import_lock_preserves_winner_version(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+        real_replace = completion.os.replace
+        results: list[object] = []
+
+        def delayed_replace(source, target):
+            if Path(source).name.startswith(".staging-"):
+                entered.set()
+                if not release.wait(timeout=10):
+                    raise OSError("test timeout")
+            return real_replace(source, target)
+
+        def run_import() -> None:
+            try:
+                results.append(self.do_import())
+            except Exception as exc:  # noqa: BLE001 - Result wird adversarial klassifiziert.
+                results.append(exc)
+
+        with mock.patch("tools.audit_completion.os.replace", side_effect=delayed_replace):
+            winner = threading.Thread(target=run_import)
+            winner.start()
+            self.assertTrue(entered.wait(timeout=10))
+            loser = threading.Thread(target=run_import)
+            loser.start()
+            loser.join(timeout=10)
+            release.set()
+            winner.join(timeout=10)
+        self.assertFalse(winner.is_alive() or loser.is_alive())
+        self.assertEqual(1, sum(isinstance(item, dict) for item in results), results)
+        errors = [item for item in results if isinstance(item, CompletionError)]
+        self.assertEqual(1, len(errors), results)
+        self.assertIn("Ownership-Lock", str(errors[0]))
+        self.assertEqual("IMPORT-001\n", (self.master / "CURRENT").read_text())
+        self.assertTrue((self.master / "versions/IMPORT-001/contracts/atomic_import.json").is_file())
+
+    def test_foreign_lock_and_preexisting_version_are_never_removed(self) -> None:
+        self.master.mkdir()
+        lock = self.master / ".atomic-import.lock"
+        lock.write_bytes(b"foreign-token")
+        with self.assertRaisesRegex(CompletionError, "Ownership-Lock"):
+            self.do_import()
+        self.assertEqual(b"foreign-token", lock.read_bytes())
+        lock.unlink()
+
+        foreign = self.master / "versions/IMPORT-001/foreign.bin"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_bytes(b"foreign-version")
+        with self.assertRaisesRegex(CompletionError, "existiert bereits"):
+            self.do_import()
+        self.assertEqual(b"foreign-version", foreign.read_bytes())
+
+    def test_cleanup_never_deletes_version_replaced_by_foreign_owner(self) -> None:
+        real_replace = completion.os.replace
+        version = self.master / "versions/IMPORT-001"
+
+        def replace_then_foreign(source, target):
+            if Path(target).name == "CURRENT":
+                if version.exists():
+                    completion.shutil.rmtree(version)
+                version.mkdir(parents=True)
+                (version / "foreign.bin").write_bytes(b"foreign-after-race")
+                raise OSError("injected foreign replacement")
+            return real_replace(source, target)
+
+        with mock.patch("tools.audit_completion.os.replace", side_effect=replace_then_foreign):
+            with self.assertRaisesRegex(CompletionError, "Pointerwechsel"):
+                self.do_import()
+        self.assertEqual(b"foreign-after-race", (version / "foreign.bin").read_bytes())
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
