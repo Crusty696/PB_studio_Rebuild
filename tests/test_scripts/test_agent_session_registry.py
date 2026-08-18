@@ -241,8 +241,7 @@ def test_lock_exit_never_removes_foreign_owner_payload():
     guard.__enter__()
     lock = ag._lock_path()
     ag._write_lock_payload(guard._fd, b"foreign-owner")
-    with pytest.raises(RuntimeError, match="Ownership"):
-        guard.__exit__(None, None, None)
+    guard.__exit__(None, None, None)
     assert ag._read_lock_payload(lock) == b"foreign-owner"
 
 

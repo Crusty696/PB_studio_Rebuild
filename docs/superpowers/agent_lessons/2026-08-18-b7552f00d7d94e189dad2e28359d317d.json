@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b7552f00d7d94e189dad2e28359d317d",
+  "recorded_at": "2026-08-18T17:05:51+00:00",
+  "session_id": "752da2f233d04368baf5a929d72e1e9e",
+  "head_at_start": "30de89114a840ad22e4d087e147d1343ada86b68",
+  "problem": "agent_session Lock-Verlust in __exit__",
+  "cause": "Lock-Exit war hart auf Owner-Check und warf RuntimeError bei fremdem/ersetztem Lock; dadurch konnte jeder Fremdlock-Übernahme-Fall den Prozess hart abbrechen ohne Release-Pfad.",
+  "rule": "__exit__ eines OS-Locks darf bei verlorener Ownership fail-safe sein: nicht mutieren, nicht werfen, nur eigene Payload löschen.",
+  "applies_to": "\"tools/agent_session.py\",\"tests/test_scripts/test_agent_session_registry.py\""
+}

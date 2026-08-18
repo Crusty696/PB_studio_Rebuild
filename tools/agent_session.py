@@ -250,15 +250,11 @@ class _Lock:
         self._fd = None
         if fd is None:
             return
-        owner = _path_matches_fd(self._path, fd) and self._owner_with_fd(fd)
+        owner = self._owner()
         if owner:
             _write_lock_payload(fd, b"")
         _unlock_fd(fd)
         os.close(fd)
-        if not owner:
-            raise RuntimeError(
-                f"agent_session: Lock-Ownership verloren; fremden Lock nicht entfernt: {self._path}"
-            )
 
     def _owner_with_fd(self, fd: int) -> bool:
         try:
