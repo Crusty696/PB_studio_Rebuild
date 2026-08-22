@@ -1,0 +1,10 @@
+{
+  "lesson_id": "437beeb44f97404ca33985ddf78eb65d",
+  "recorded_at": "2026-08-22T18:22:50+00:00",
+  "session_id": "a10677536a374e7586e6dab97f5b3181",
+  "head_at_start": "a3553db4b367cbd1539f61f473db321d879288da",
+  "problem": "Reviewer-Enrollment und Finalize akzeptierten eine schema-valide Shared Registry ohne gueltigen B-852-Initialisierungsmarker.",
+  "cause": "Reviewer-Reader verwendete zentrale Registry-Schemavalidierung, pruefte aber Markerzustand und Markerbytes vor Registry-Lesen nicht.",
+  "rule": "Jeder Consumer einer gemeinsam initialisierten Registry muss unter demselben Kernel-Lock zuerst Markerpfad und exakte Versionsbytes gegen denselben expliziten Common-dir pruefen; Markerfehler an seiner Trust-Grenze kontrolliert normalisieren, niemals auto-bootstrapen.",
+  "applies_to": "Shared Registries, Reviewer-Enrollment, Signoff-Finalisierung und persistente Trust-Metadaten"
+}

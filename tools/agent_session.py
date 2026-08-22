@@ -344,7 +344,11 @@ def _read_raw() -> dict:
 
 
 def _read_initialization_marker() -> bool:
-    marker = initialization_marker_path()
+    return _read_initialization_marker_at(_git_common_dir())
+
+
+def _read_initialization_marker_at(common_dir: Path) -> bool:
+    marker = common_dir / "pb-agent-sessions.initialized"
     try:
         raw = marker.read_bytes()
     except FileNotFoundError:

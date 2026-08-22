@@ -456,6 +456,12 @@ class _FileLock:
 
 
 def _read_registry_locked(common_dir: Path) -> dict[str, dict[str, Any]]:
+    try:
+        initialized = agent_session._read_initialization_marker_at(common_dir)
+    except agent_session.RegistryReadError as exc:
+        raise ContractError(f"kanonischer Registry-Marker ungueltig: {exc}") from exc
+    if not initialized:
+        raise ContractError("kanonischer Registry-Marker fehlt; Registry nicht initialisiert")
     path = common_dir / "pb-agent-sessions.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

@@ -394,6 +394,40 @@ class GateContractTests(unittest.TestCase):
         }
         return [value for option, path in options.items() for value in (option, str(path))]
 
+    def _run_cli(self, argv: list[str]) -> tuple[int, dict, str]:
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output):
+            code = roster.main(argv)
+        raw = output.getvalue()
+        return code, json.loads(raw), raw
+
+    def _break_registry_marker(self, raw: bytes | None) -> None:
+        marker = self.common / "pb-agent-sessions.initialized"
+        if raw is None:
+            marker.unlink()
+        else:
+            marker.write_bytes(raw)
+
+    def _enroll_cli_args(self) -> list[str]:
+        return [
+            "enroll", "--root", str(self.repo), *self._cli_trust_args(),
+            "--roster", str(self.roster_path),
+            "--receipts-dir", str(self.receipts),
+            "--session-id", self.lead["id"],
+            "--signing-key", str(self.keys["spawn"]),
+        ]
+
+    def _finalize_cli_args(self) -> list[str]:
+        return [
+            "finalize", "--root", str(self.repo), *self._cli_trust_args(),
+            "--roster", str(self.roster_path),
+            "--receipts-dir", str(self.receipts),
+            "--attestations-dir", str(self.attestations),
+            "--session-id", self.lead["id"],
+            "--role", "lead-v", "--basis-sha256", "a" * 64,
+            "--verdict", "pass", "--signing-key", str(self.keys["lead-v"]),
+        ]
+
     def _enroll(self, session: dict) -> dict:
         return roster.enroll(
             root=self.repo, session_id=session["id"], receipts_dir=self.receipts,
@@ -596,6 +630,85 @@ class GateContractTests(unittest.TestCase):
         self.assertFalse(self.roster_path.exists())
         self.assertFalse(
             self.receipts.exists() and any(self.receipts.rglob("*"))
+        )
+
+    def test_registry_reader_uses_explicit_common_dir_for_marker(self) -> None:
+        foreign_common = self.base / "foreign-common"
+        foreign_common.mkdir()
+        with (
+            mock.patch.object(
+                agent_session, "_git_common_dir", return_value=foreign_common
+            ),
+            roster._FileLock(self.common / "pb-agent-sessions.lock"),
+        ):
+            rows = roster._read_registry_locked(self.common)
+        self.assertEqual(
+            {self.director["id"], self.lead["id"], self.adversarial["id"]},
+            set(rows),
+        )
+
+    def test_cli_enroll_missing_registry_marker_returns_json_exit_two(self) -> None:
+        self._break_registry_marker(None)
+        code, payload, raw = self._run_cli(self._enroll_cli_args())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", raw)
+        self.assertFalse(self.roster_path.exists())
+        self.assertFalse(self.receipts.exists() and any(self.receipts.rglob("*")))
+
+    def test_cli_enroll_invalid_registry_marker_returns_json_exit_two(self) -> None:
+        self._break_registry_marker(b"unknown-marker\n")
+        code, payload, raw = self._run_cli(self._enroll_cli_args())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", raw)
+        self.assertFalse(self.roster_path.exists())
+        self.assertFalse(self.receipts.exists() and any(self.receipts.rglob("*")))
+
+    def test_cli_enroll_unreadable_registry_marker_returns_json_exit_two(self) -> None:
+        marker = self.common / "pb-agent-sessions.initialized"
+        original_read_bytes = Path.read_bytes
+
+        def fail_marker_read(path: Path) -> bytes:
+            if path.name == marker.name:
+                raise PermissionError("marker denied")
+            return original_read_bytes(path)
+
+        with mock.patch.object(
+            Path, "read_bytes", autospec=True, side_effect=fail_marker_read
+        ):
+            code, payload, raw = self._run_cli(self._enroll_cli_args())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", raw)
+        self.assertFalse(self.roster_path.exists())
+        self.assertFalse(self.receipts.exists() and any(self.receipts.rglob("*")))
+
+    def test_cli_finalize_missing_registry_marker_returns_json_exit_two(self) -> None:
+        self._enroll_all()
+        self._break_registry_marker(None)
+        code, payload, raw = self._run_cli(self._finalize_cli_args())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", raw)
+        self.assertFalse(
+            self.attestations.exists() and any(self.attestations.rglob("*"))
+        )
+
+    def test_cli_finalize_invalid_registry_marker_returns_json_exit_two(self) -> None:
+        self._enroll_all()
+        self._break_registry_marker(b"unknown-marker\n")
+        code, payload, raw = self._run_cli(self._finalize_cli_args())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", raw)
+        self.assertFalse(
+            self.attestations.exists() and any(self.attestations.rglob("*"))
         )
 
     def test_finalize_inputs_fail_before_lock_or_attestation_mutation(self) -> None:
