@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6a5c854a3829451bbe9cd86209137cc0",
+  "recorded_at": "2026-08-22T17:25:41+00:00",
+  "session_id": "8e17386172554655b35f11209452f1e2",
+  "head_at_start": "16db4d8ce1ee4a5ecb6eabe87fb5cd536b201c6d",
+  "problem": "Reviewer-Roster validierte Registry nur teilweise und nutzte Spawn-, Registry- und Finalize-Werte vor Hash-/Regex-/Membership-Sicherheit.",
+  "cause": "Drei Trust-Grenzen besassen getrennte partielle Validierung; vorhandene kanonische Registry-Schemaautoritaet wurde im Reviewer-Pfad nicht wiederverwendet.",
+  "rule": "An Trust-Grenzen zentrale Schemaautoritaet genau einmal direkt nach Parse aufrufen und deren konkreten Vertragsfehler normalisieren; API-Skalare vor Lock, I/O, Regex oder Membership vollständig preflighten.",
+  "applies_to": "Reviewer-Roster, Shared Registry und signierte Enrollment-/Finalize-Pipelines"
+}

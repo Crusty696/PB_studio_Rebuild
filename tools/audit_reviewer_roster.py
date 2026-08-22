@@ -461,15 +461,11 @@ def _read_registry_locked(common_dir: Path) -> dict[str, dict[str, Any]]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ContractError(f"kanonische Shared Registry unlesbar: {exc}") from exc
-    rows = data.get("sessions") if isinstance(data, dict) else None
-    if not isinstance(rows, list):
-        raise ContractError("kanonische Shared Registry hat falsches Schema")
-    result: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
-            raise ContractError("Registry enthaelt Legacy-/ungueltige Session")
-        result[row["id"]] = row
-    return result
+    try:
+        agent_session._validate_registry(data)
+    except agent_session.RegistryReadError as exc:
+        raise ContractError(f"kanonische Shared Registry ungueltig: {exc}") from exc
+    return {row["id"]: row for row in data["sessions"]}
 
 
 def _live_session(rows: dict[str, dict[str, Any]], session_id: str) -> dict[str, Any]:
@@ -541,9 +537,16 @@ def _validate_spawn_journal(journal: dict[str, Any]) -> tuple[dict[str, dict[str
             raise ContractError("Spawn-Journal ist nicht append-only verkettet")
         if not isinstance(sid, str) or not SESSION_RE.fullmatch(sid) or sid in by_id:
             raise ContractError("Spawn-Journal session_id fehlt/doppelt")
-        if row.get("role") not in SPAWN_ROLE_SET or not isinstance(row.get("forced"), bool):
+        role = row.get("role")
+        if (
+            not isinstance(role, str)
+            or role not in SPAWN_ROLE_SET
+            or not isinstance(row.get("forced"), bool)
+        ):
             raise ContractError("Spawn-Journal Rolle/forced ungueltig")
-        if parent is not None and parent not in by_id:
+        if parent is not None and (
+            not isinstance(parent, str) or parent not in by_id
+        ):
             raise ContractError("Spawn-Journal Parent muss frueherer Record sein")
         lineage[sid] = [*lineage.get(parent, []), parent] if parent else []
         by_id[sid] = row
@@ -1379,8 +1382,17 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
                      spawn_public_key_path: Path, lead_v_public_key_path: Path,
                      adversarial_public_key_path: Path,
                      signing_key: Path) -> Path:
-    if not SHA_RE.fullmatch(basis_sha256) or verdict not in {"pass", "fail"}:
-        raise ContractError("basis_sha256/verdict ungueltig")
+    if (
+        not all(
+            isinstance(value, str)
+            for value in (session_id, role, basis_sha256, verdict)
+        )
+        or not SESSION_RE.fullmatch(session_id)
+        or role not in ROLE_SET
+        or not SHA_RE.fullmatch(basis_sha256)
+        or verdict not in {"pass", "fail"}
+    ):
+        raise ContractError("Signoff-Inputs ungueltig")
     root = root.resolve()
     common = _common_dir(root)
     roster_lock = roster_path.with_name(roster_path.name + ".lock")

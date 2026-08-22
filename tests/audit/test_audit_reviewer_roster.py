@@ -330,6 +330,28 @@ class GateContractTests(unittest.TestCase):
         self.audit_contract_sha = audit_contract["contract_sha256"]
         self.audit_contract_file_sha = roster._sha(self.audit_contract_path.read_bytes())
 
+    def _resign_spawn_journal(self, journal: dict) -> None:
+        previous = None
+        for row in journal["records"]:
+            row["previous_record_sha256"] = previous
+            body = {
+                key: row[key]
+                for key in (
+                    "seq", "session_id", "parent_session_id", "role", "forced",
+                    "spawned_at", "previous_record_sha256",
+                )
+            }
+            row["record_sha256"] = roster._sha(roster._canonical(body))
+            previous = row["record_sha256"]
+        self._signed(
+            self.spawn_path, journal, roster.SPAWN_NAMESPACE, "spawn"
+        )
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        contract["spawn_journal_sha256"] = roster._sha(
+            self.spawn_path.read_bytes()
+        )
+        self._resign_contract(contract)
+
     def _trust_args(self) -> dict:
         return {
             "contract_path": self.contract_path,
@@ -539,6 +561,64 @@ class GateContractTests(unittest.TestCase):
         self.assertTrue(payload["errors"])
         self.assertNotIn("Traceback", output.getvalue())
         self.assertFalse(self.roster_path.exists())
+
+    def test_signed_spawn_unhashable_fields_raise_contract_error(self) -> None:
+        mutations = {
+            "role": lambda row: row.__setitem__("role", []),
+            "parent_session_id": lambda row: row.__setitem__(
+                "parent_session_id", []
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                self._write_trust()
+                journal = json.loads(
+                    self.spawn_path.read_text(encoding="utf-8")
+                )
+                mutate(journal["records"][1])
+                self._resign_spawn_journal(journal)
+                with self.assertRaises(roster.ContractError):
+                    self._enroll(self.lead)
+                self.assertFalse(self.roster_path.exists())
+                self.assertFalse(
+                    self.receipts.exists() and any(self.receipts.rglob("*"))
+                )
+
+    def test_registry_unhashable_claim_fails_before_enrollment_mutation(self) -> None:
+        registry_path = self.common / "pb-agent-sessions.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        for session in registry["sessions"]:
+            if session["id"] == self.lead["id"]:
+                session["claims"] = [[]]
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        with self.assertRaises(roster.ContractError):
+            self._enroll(self.lead)
+        self.assertFalse(self.roster_path.exists())
+        self.assertFalse(
+            self.receipts.exists() and any(self.receipts.rglob("*"))
+        )
+
+    def test_finalize_inputs_fail_before_lock_or_attestation_mutation(self) -> None:
+        base = {
+            "root": self.repo,
+            "session_id": self.lead["id"],
+            "role": "lead-v",
+            "basis_sha256": "a" * 64,
+            "verdict": "pass",
+            "roster_path": self.roster_path,
+            "receipts_dir": self.receipts,
+            "attestations_dir": self.attestations,
+            "signing_key": self.keys["lead-v"],
+            **self._trust_args(),
+        }
+        for field in ("session_id", "role", "basis_sha256", "verdict"):
+            with self.subTest(field=field):
+                with mock.patch.object(
+                    roster, "_FileLock", side_effect=AssertionError("lock reached")
+                ):
+                    with self.assertRaises(roster.ContractError):
+                        roster.finalize_signoff(**{**base, field: []})
+                self.assertFalse(self.attestations.exists())
 
     def test_nested_output_shard_prefix_overlap_rejected(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
