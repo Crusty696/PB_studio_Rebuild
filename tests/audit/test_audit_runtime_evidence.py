@@ -1278,10 +1278,11 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(self.tool.ContractError, "TOCTOU"): self.run_valid()
         thread.join()
 
-    def test_stale_lock_and_concurrent_different_scenarios(self) -> None:
+    def test_persistent_stale_lock_and_concurrent_different_scenarios(self) -> None:
         stale = self.evidence / ".runtime_runs.lock"; stale.write_text('{"pid":999999}\n')
-        with self.assertRaisesRegex(self.tool.ContractError, "Lock.*manuell"): self.run_valid()
-        stale.unlink()
+        recovered = self.tool._create_ledger_lock(stale)
+        self.tool._release_lock(recovered)
+        self.assertEqual(stale.read_bytes(), self.tool._LOCK_SENTINEL)
         first = self.valid_scenario(script="slow.py"); second = self.valid_scenario(scenario_id="SCN-002", script="slow.py")
         second["feature_target"] = "FEAT-002/main"; second["scenario_sha256"] = self.tool.canonical_sha256(second, omit={"scenario_sha256"})
         self.write_jsonl(self.feature_path,[{"feature_id":"FEAT-001","path_id":"main"},{"feature_id":"FEAT-002","path_id":"main"}]); self.write_catalog([first,second]); self.refresh_contract()
@@ -1292,6 +1293,139 @@ class GateContractTests(unittest.TestCase):
         threads=[threading.Thread(target=invoke,args=("SCN-001","LIVE-A")),threading.Thread(target=invoke,args=("SCN-002","LIVE-B"))]
         [thread.start() for thread in threads]; [thread.join() for thread in threads]
         self.assertEqual(2, sum(isinstance(item,dict) for item in results), results)
+        for runtime_run_id in ("LIVE-A", "LIVE-B"):
+            persistent = self.evidence / "runs" / f".{runtime_run_id}.lock"
+            self.assertTrue(persistent.is_file())
+            self.assertEqual(persistent.read_bytes(), self.tool._LOCK_SENTINEL)
+
+    def test_runtime_lock_release_is_descriptor_bound_and_never_unlinks_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / ".runtime_runs.lock"
+            first = self.tool._create_lock(path, "Ledger")
+            with self.assertRaisesRegex(self.tool.ContractError, "blockiert"):
+                self.tool._create_lock(path, "Ledger")
+            self.tool._release_lock(first)
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.read_bytes(), self.tool._LOCK_SENTINEL)
+
+            second = self.tool._create_lock(path, "Ledger")
+            self.tool._release_lock(second)
+            self.assertEqual(path.read_bytes(), self.tool._LOCK_SENTINEL)
+
+            retired = root / "retired.lock"
+            payload = b"owned\n"
+            retired.write_bytes(self.tool._LOCK_SENTINEL + payload)
+            descriptor = os.open(retired, os.O_RDWR | getattr(os, "O_BINARY", 0))
+            self.assertTrue(self.tool._try_lock_descriptor(descriptor))
+            replacement = root / "replacement.lock"
+            replacement.write_bytes(b"FOREIGN\n")
+            displaced = self.tool._OwnedRuntimeLock(
+                replacement, "Ledger", descriptor, payload,
+            )
+            with mock.patch.object(Path, "unlink", side_effect=AssertionError("unlink forbidden")):
+                with self.assertRaisesRegex(self.tool.ContractError, "Ownership geaendert"):
+                    self.tool._release_lock(displaced)
+            self.assertEqual(replacement.read_bytes(), b"FOREIGN\n")
+            self.assertEqual(retired.read_bytes(), self.tool._LOCK_SENTINEL + payload)
+
+            race_path = root / "race.lock"
+            race_lock = self.tool._create_lock(race_path, "Ledger")
+            race_retired = root / "race-retired.lock"
+            if os.name == "nt":
+                with self.assertRaises(PermissionError):
+                    os.replace(race_path, race_retired)
+                self.tool._release_lock(race_lock)
+                self.assertEqual(race_path.read_bytes(), self.tool._LOCK_SENTINEL)
+            else:
+                real_owner = self.tool._runtime_lock_owner
+
+                def replace_after_owner_check(lock) -> bool:
+                    self.assertTrue(real_owner(lock))
+                    os.replace(race_path, race_retired)
+                    race_path.write_bytes(b"RACE-FOREIGN\n")
+                    return True
+
+                with mock.patch.object(
+                    self.tool, "_runtime_lock_owner", side_effect=replace_after_owner_check,
+                ):
+                    self.tool._release_lock(race_lock)
+                self.assertEqual(race_path.read_bytes(), b"RACE-FOREIGN\n")
+                self.assertEqual(race_retired.read_bytes(), self.tool._LOCK_SENTINEL)
+
+    def test_runtime_lock_cleanup_runs_all_steps_and_preserves_primary(self) -> None:
+        calls: list[str] = []
+
+        def cleanup_failure() -> None:
+            calls.append("cleanup")
+            raise PermissionError("cleanup denied")
+
+        def release_failure() -> None:
+            calls.append("release")
+            raise self.tool.ContractError("release denied")
+
+        primary = ValueError("PRIMARY runtime failure")
+
+        def operation_with_failing_cleanup() -> None:
+            primary_error: BaseException | None = None
+            try:
+                raise primary
+            except BaseException as exc:
+                primary_error = exc
+                raise
+            finally:
+                self.tool._finish_cleanup(
+                    primary_error,
+                    [("cleanup", cleanup_failure), ("release", release_failure)],
+                )
+
+        with mock.patch.object(self.tool.sys, "stderr", new_callable=io.StringIO) as error_stream:
+            with self.assertRaises(ValueError) as raised:
+                operation_with_failing_cleanup()
+        self.assertIs(raised.exception, primary)
+        self.assertIn("cleanup denied; release: release denied", primary._pb_audit_cleanup_error)
+        self.assertIn("cleanup denied; release: release denied", error_stream.getvalue())
+        self.assertEqual(calls, ["cleanup", "release"])
+
+        interrupt = KeyboardInterrupt("cleanup interrupt")
+
+        def interrupt_cleanup() -> None:
+            raise interrupt
+
+        with self.assertRaises(KeyboardInterrupt) as raised_interrupt:
+            self.tool._finish_cleanup(None, [("interrupt", interrupt_cleanup)])
+        self.assertIs(raised_interrupt.exception, interrupt)
+
+    def test_runtime_staging_cleanup_failure_still_releases_run_lock(self) -> None:
+        real_remove = self.tool._remove_tree
+        real_release = self.tool._release_lock
+        released: list[str] = []
+
+        def fail_only_staging(path: Path) -> None:
+            if path.name.startswith("LIVE-001-"):
+                raise PermissionError("staging denied")
+            real_remove(path)
+
+        def track_release(lock) -> None:
+            released.append(lock.label)
+            real_release(lock)
+
+        with (
+            mock.patch.object(self.tool, "_remove_tree", side_effect=fail_only_staging),
+            mock.patch.object(self.tool, "_release_lock", side_effect=track_release),
+            mock.patch.object(
+                self.tool, "_materialize_commit",
+                side_effect=self.tool.ContractError("PRIMARY materialize failure"),
+            ),
+            mock.patch.object(self.tool.sys, "stderr", new_callable=io.StringIO) as error_stream,
+        ):
+            with self.assertRaisesRegex(self.tool.ContractError, "PRIMARY materialize failure") as raised:
+                self.run_valid()
+        self.assertIn("Runtime-Staging-Cleanup: staging denied", raised.exception._pb_audit_cleanup_error)
+        self.assertIn("Runtime-Staging-Cleanup: staging denied", error_stream.getvalue())
+        self.assertIn("Runtime-Run", released)
+        run_lock = self.evidence / "runs" / ".LIVE-001.lock"
+        self.assertEqual(run_lock.read_bytes(), self.tool._LOCK_SENTINEL)
 
     def test_atomic_ledger_crash_preserves_old_bytes(self) -> None:
         ledger=self.evidence/"runtime_runs.jsonl"; old=b'{"evidence_id":"old","runtime_run_id":"old","scenario_id":"old"}\n'; ledger.write_bytes(old)

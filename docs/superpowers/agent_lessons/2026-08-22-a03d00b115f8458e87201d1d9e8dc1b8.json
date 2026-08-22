@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a03d00b115f8458e87201d1d9e8dc1b8",
+  "recorded_at": "2026-08-22T14:54:29+00:00",
+  "session_id": "a80d26b147294112b163f9fc90070c28",
+  "head_at_start": "01fe4f0a5e8727ab131a4d5fe4fc54d7c46f286a",
+  "problem": "Runtime-Lock-Release konnte nach separatem Owner-Read einen fremden Replacement-Pfad loeschen; vorangestelltes Cleanup konnte den gehaltenen Descriptor leaken.",
+  "cause": "Lock-Ownership war nur an Payload und Pfad gebunden, Descriptor wurde nach Create geschlossen; Release nutzte Read-then-Unlink und lief nach potenziell werfenden Cleanup-Schritten.",
+  "rule": "Gemeinsam genutzte Lockpfade persistent halten: offenen Descriptor mit OS-Kernel-Lock bis Exit behalten, Ownership ueber fd-Payload plus File-Identity pruefen, nur eigene Payload ueber fd leeren und niemals Lockpfad unlinken/ersetzen. Alle Cleanup-Schritte aggregiert ausfuehren, damit Release trotz frueher Fehler garantiert laeuft; Primärexception als dasselbe Objekt und denselben Typ propagieren, Cleanupfehler separat non-throwing diagnostizieren.",
+  "applies_to": "Audit-Runtime-Locks, Ledger-Publisher, Run-Locks, descriptorgebundene Prozesskoordination"
+}

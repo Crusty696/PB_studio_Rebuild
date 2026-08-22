@@ -1854,15 +1854,19 @@ def export_runtime_evidence(
     if not evidence.is_dir():
         raise ContractError("evidence_root fehlt")
     lock = evidence / ".runtime_runs.lock"
-    lock_payload = _create_ledger_lock(lock)
+    owned_lock = _create_ledger_lock(lock)
+    primary_error: BaseException | None = None
     try:
         return _export_runtime_evidence_locked(
             evidence, repo_root=repo_root,
             expected_contract_sha256=expected_contract_sha256,
             expected_authority_commit=expected_authority_commit,
         )
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
-        _release_lock(lock, lock_payload)
+        _finish_cleanup(primary_error, [("Ledger-Lock-Release", lambda: _release_lock(owned_lock))])
 
 
 def _existing_runtime_ids(ledger: Path) -> tuple[set[str], set[str]]:
@@ -1888,63 +1892,153 @@ def _scenario_already_recorded(ledger: Path, scenario_id: str) -> bool:
     return any(row.get("scenario_id") == scenario_id for row in _parse_jsonl(ledger.read_bytes(), "runtime_runs.jsonl"))
 
 
-def _create_lock(path: Path, label: str) -> bytes:
-    payload = _canonical_bytes({"pid": os.getpid(), "created_ns": time.time_ns(), "nonce": uuid.uuid4().hex}) + b"\n"
+_LOCK_SENTINEL = b"\0"
+
+
+class _OwnedRuntimeLock:
+    def __init__(self, path: Path, label: str, descriptor: int, payload: bytes) -> None:
+        self.path = path
+        self.label = label
+        self.descriptor = descriptor
+        self.payload = payload
+        self.released = False
+
+
+def _prepare_lock_descriptor(descriptor: int) -> None:
+    if os.fstat(descriptor).st_size == 0:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, _LOCK_SENTINEL)
+        os.fsync(descriptor)
+
+
+def _try_lock_descriptor(descriptor: int) -> bool:
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except (FileExistsError, PermissionError) as exc:
-        raise ContractError(f"{label}-Lock existiert; auch stale Lock muss manuell untersucht werden") from exc
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    _fsync_directory(path.parent)
-    return payload
+        if os.name == "nt":
+            import msvcrt
 
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
 
-def _release_lock(path: Path, payload: bytes) -> None:
-    deadline = time.monotonic() + 5
-    while True:
-        try:
-            if path.read_bytes() != payload:
-                raise ContractError(f"Lock-Ownership geaendert: {path.name}")
-            path.unlink()
-            _fsync_directory(path.parent)
-            return
-        except PermissionError:
-            if time.monotonic() >= deadline:
-                raise ContractError(f"Lock konnte nicht freigegeben werden: {path.name}")
-            time.sleep(0.02)
-
-
-def _pid_alive(pid: int) -> bool:
-    if pid == os.getpid():
-        return True
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        output = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
-        return f'"{pid}"' in output
-    try:
-        os.kill(pid, 0)
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True
     except OSError:
         return False
 
 
-def _create_ledger_lock(path: Path) -> bytes:
+def _unlock_descriptor(descriptor: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def _lock_path_matches_descriptor(path: Path, descriptor: int) -> bool:
+    try:
+        opened = os.fstat(descriptor)
+        current = path.stat()
+        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+    except OSError:
+        return False
+
+
+def _read_lock_descriptor(descriptor: int) -> bytes:
+    position = os.lseek(descriptor, 0, os.SEEK_CUR)
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        return os.read(descriptor, os.fstat(descriptor).st_size)
+    finally:
+        os.lseek(descriptor, position, os.SEEK_SET)
+
+
+def _write_lock_descriptor(descriptor: int, payload: bytes) -> None:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    os.write(descriptor, _LOCK_SENTINEL + payload)
+    os.ftruncate(descriptor, 1 + len(payload))
+    os.fsync(descriptor)
+
+
+def _runtime_lock_owner(lock: _OwnedRuntimeLock) -> bool:
+    return (
+        _lock_path_matches_descriptor(lock.path, lock.descriptor)
+        and _read_lock_descriptor(lock.descriptor) == _LOCK_SENTINEL + lock.payload
+    )
+
+
+def _create_lock(path: Path, label: str) -> _OwnedRuntimeLock:
+    payload = _canonical_bytes({"pid": os.getpid(), "created_ns": time.time_ns(), "nonce": uuid.uuid4().hex}) + b"\n"
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0)
+    descriptor: int | None = None
+    locked = False
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        _prepare_lock_descriptor(descriptor)
+        locked = _try_lock_descriptor(descriptor)
+        if not locked or not _lock_path_matches_descriptor(path, descriptor):
+            raise ContractError(f"{label}-Lock durch anderen Besitzer blockiert")
+        _write_lock_descriptor(descriptor, payload)
+        _fsync_directory(path.parent)
+        return _OwnedRuntimeLock(path, label, descriptor, payload)
+    except Exception:
+        if descriptor is not None:
+            if locked:
+                _unlock_descriptor(descriptor)
+            os.close(descriptor)
+        raise
+
+
+def _release_lock(lock: _OwnedRuntimeLock) -> None:
+    if lock.released:
+        return
+    lock.released = True
+    ownership_changed = False
+    try:
+        ownership_changed = not _runtime_lock_owner(lock)
+        if not ownership_changed:
+            _write_lock_descriptor(lock.descriptor, b"")
+    finally:
+        _unlock_descriptor(lock.descriptor)
+        os.close(lock.descriptor)
+    if ownership_changed:
+        raise ContractError(f"Lock-Ownership geaendert: {lock.path.name}")
+
+
+def _finish_cleanup(
+    primary_error: BaseException | None,
+    steps: list[tuple[str, Any]],
+) -> None:
+    cleanup_errors: list[tuple[str, BaseException]] = []
+    for label, step in steps:
+        try:
+            step()
+        except BaseException as exc:
+            cleanup_errors.append((label, exc))
+    if not cleanup_errors:
+        return
+    cleanup_text = "; ".join(f"{label}: {exc}" for label, exc in cleanup_errors)
+    if primary_error is None:
+        first_error = cleanup_errors[0][1]
+        if len(cleanup_errors) > 1:
+            _report_base_cleanup_error(first_error, f"Weitere Cleanupfehler: {cleanup_text}")
+        raise first_error
+    _report_base_cleanup_error(primary_error, f"Cleanup fehlgeschlagen: {cleanup_text}")
+
+
+def _create_ledger_lock(path: Path) -> _OwnedRuntimeLock:
     deadline = time.monotonic() + 15
     while True:
         try:
             return _create_lock(path, "Ledger")
         except ContractError:
-            try:
-                existing = _parse_json(path.read_bytes(), "Ledger-Lock")
-                pid = int(existing.get("pid", -1))
-            except (OSError, ValueError, ContractError):
-                raise ContractError("Ledger-Lock existiert; stale/ungueltig muss manuell untersucht werden")
-            if not _pid_alive(pid):
-                raise ContractError("Ledger-Lock existiert; stale Lock muss manuell untersucht werden")
             if time.monotonic() >= deadline:
                 raise ContractError("Ledger-Lock durch aktiven Prozess blockiert")
             time.sleep(0.02)
@@ -1964,10 +2058,16 @@ def _publish_run_and_ledgers(
     ``export_runtime_evidence``.
     """
     lock = ledger.parent / ".runtime_runs.lock"
-    lock_payload = _create_ledger_lock(lock)
+    owned_lock = _create_ledger_lock(lock)
     temp_path: Path | None = None
     published = False
     ledger_committed = False
+    primary_error: BaseException | None = None
+
+    def rollback_uncommitted_run() -> None:
+        if _owns_published_run(final_run, receipt["runtime_run_id"], ownership_token):
+            _remove_tree(final_run)
+
     try:
         if not _owns_published_run(
             stage_run, receipt["runtime_run_id"], ownership_token,
@@ -1998,17 +2098,17 @@ def _publish_run_and_ledgers(
             expected_contract_sha256=expected_contract_sha256,
             expected_authority_commit=expected_authority_commit,
         )
-    except Exception:
-        if (
-            published and not ledger_committed
-            and _owns_published_run(final_run, receipt["runtime_run_id"], ownership_token)
-        ):
-            _remove_tree(final_run)
+    except BaseException as exc:
+        primary_error = exc
         raise
     finally:
+        cleanup_steps: list[tuple[str, Any]] = []
+        if published and not ledger_committed:
+            cleanup_steps.append(("uncommitted Run-Rollback", rollback_uncommitted_run))
         if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
-        _release_lock(lock, lock_payload)
+            cleanup_steps.append(("Ledger-Temp-Cleanup", lambda: temp_path.unlink(missing_ok=True)))
+        cleanup_steps.append(("Ledger-Lock-Release", lambda: _release_lock(owned_lock)))
+        _finish_cleanup(primary_error, cleanup_steps)
 
 
 def _remove_tree(path: Path) -> None:
@@ -2097,7 +2197,7 @@ def run_scenario(
     if _scenario_already_recorded(ledger, scenario_id):
         raise ContractError(f"Scenario {scenario_id!r} bereits ausgefuehrt; Evidence-Reuse verboten")
     run_lock = runs_root / f".{runtime_run_id}.lock"
-    run_lock_payload = _create_lock(run_lock, "Runtime-Run")
+    owned_run_lock = _create_lock(run_lock, "Runtime-Run")
 
     staging = staging_root / f"{runtime_run_id}-{uuid.uuid4().hex}"
     audited_root = staging / "audited"
@@ -2108,6 +2208,16 @@ def run_scenario(
     sealed_root.mkdir()
     success = False
     publish_owner_token: str | None = None
+    primary_error: BaseException | None = None
+
+    def cleanup_unrecorded_final_run() -> None:
+        if (
+            not success and publish_owner_token is not None
+            and runtime_run_id not in _existing_runtime_ids(ledger)[0]
+            and _owns_published_run(final_run, runtime_run_id, publish_owner_token)
+        ):
+            _remove_tree(final_run)
+
     try:
         audited_materialization = _materialize_commit(repo, contract["audited_commit"], audited_root)
         tooling_materialization = _materialize_commit(repo, contract["tooling_commit"], tooling_root)
@@ -2401,16 +2511,16 @@ def run_scenario(
         )
         success = True
         return receipt
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
+        cleanup_steps: list[tuple[str, Any]] = []
         if staging.exists():
-            _remove_tree(staging)
-        _release_lock(run_lock, run_lock_payload)
-        if (
-            not success and publish_owner_token is not None
-            and runtime_run_id not in _existing_runtime_ids(ledger)[0]
-            and _owns_published_run(final_run, runtime_run_id, publish_owner_token)
-        ):
-            _remove_tree(final_run)
+            cleanup_steps.append(("Runtime-Staging-Cleanup", lambda: _remove_tree(staging)))
+        cleanup_steps.append(("Runtime-Run-Lock-Release", lambda: _release_lock(owned_run_lock)))
+        cleanup_steps.append(("unrecorded Final-Run-Cleanup", cleanup_unrecorded_final_run))
+        _finish_cleanup(primary_error, cleanup_steps)
 
 
 def main() -> int:
