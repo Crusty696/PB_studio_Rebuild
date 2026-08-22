@@ -2,6 +2,22 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-853 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-853 Code-/Testcommit: `16db4d8`, synchron auf `main` und `origin/main`.
+- Reviewer-Contract validiert Pattern-Elemente und skalare Reviewer-/Pair-/
+  Assignment-/Signoff-Felder vor jeder Set-/Dict-Membership. Unhashbare,
+  authority-signierte Werte enden kontrolliert als `ContractError`/CLI-Exit 2.
+- Belege: RED-Matrix mit 12 hostile Typfaellen; danach Fokus `2 passed, 12
+  subtests passed`, gesamte betroffene Datei `39 passed, 104 subtests passed`;
+  Ruff, PyCompile, Diffcheck sowie Code- und Compliance-Review gruen.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter signierter CLI-Prozesspfad.
+- Naechster sequenzieller Phase--1-Fix nach Auswirkung: B-855 weitere
+  Reviewer-Roster-Typcrashflaechen. Danach B-856, danach B-854. Keine neue
+  Branch; Produkt-Audit/App-Fixes bleiben bis Phase--1-Gate plus realer
+  Trust-Authority gesperrt.
+
 ## B-852 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-852 fachlich reviewter Code-Snapshot: `5cdbb1a`. Governance-Handoff und

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "56194688d64c4fabb8cb45fc97eba6e6",
+  "recorded_at": "2026-08-22T17:15:24+00:00",
+  "session_id": "8e17386172554655b35f11209452f1e2",
+  "head_at_start": "16db4d8ce1ee4a5ecb6eabe87fb5cd536b201c6d",
+  "problem": "Nach B-853 Codecommit und Push nannten Repo-Handoff und Vault-Index weiterhin B-853 als naechsten Task und blockierten eindeutige Fortsetzung.",
+  "cause": "Code-/Testabschluss aktualisierte Bugdatei und Log, aber nicht beide verbindlichen Cross-Agent-Handoffquellen vor Sessionfreigabe.",
+  "rule": "Vor sauberem Task-Handoff stets Repo-AGENT_HANDOFF und Vault-index auf aktuellen Codebeleg, ehrlichen Live-Status und genau naechsten Task synchronisieren; danach separaten Governance-Commit pushen.",
+  "applies_to": "PB-Studio Taskabschluss und Cross-Agent-Continuity"
+}
