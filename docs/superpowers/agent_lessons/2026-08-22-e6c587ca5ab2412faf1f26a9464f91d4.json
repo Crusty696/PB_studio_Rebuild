@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e6c587ca5ab2412faf1f26a9464f91d4",
+  "recorded_at": "2026-08-22T15:11:28+00:00",
+  "session_id": "6faa1bdbc3ea4a779c7e9b7a51f640df",
+  "head_at_start": "68ade8d2c797aaf15876e76612ac47195fbd4a45",
+  "problem": "B-850: required_modules mit strukturiertem JSON-Element löste vor ContractError einen TypeError in set() aus",
+  "cause": "Set-Konvertierung lief vor vollständiger Elementtyp-Validierung der untrusted JSON-Liste",
+  "rule": "Bei untrusted JSON-Listen zuerst Container- und sämtliche Elementtypen validieren; erst danach Hashing, Set-Konvertierung oder Membership ausführen",
+  "applies_to": "JSON-Vertragsvalidatoren und Runtime-Evidence-Gates"
+}

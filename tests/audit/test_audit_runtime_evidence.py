@@ -423,6 +423,15 @@ class GateContractTests(unittest.TestCase):
                 expected_authority_commit="0" * 40,
             )
 
+    def test_required_modules_rejects_structured_item_with_contract_error(self) -> None:
+        row = self.valid_scenario()
+        row["required_modules"] = [{}]
+        row["scenario_sha256"] = self.tool.canonical_sha256(row, omit={"scenario_sha256"})
+        self.write_catalog([row])
+        self.refresh_contract()
+        with self.assertRaisesRegex(self.tool.ContractError, "Scenario.required_modules ungueltig"):
+            self.run_valid()
+
     def test_full_rich_receipt_trust_components_reject_resealed_tamper(self) -> None:
         receipt = self.run_valid()
         run_dir = self.evidence / "runs" / "LIVE-001"

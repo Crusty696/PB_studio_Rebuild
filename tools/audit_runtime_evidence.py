@@ -460,7 +460,9 @@ def _validate_executor_and_dependencies(
             seen_files.add(key)
         modules[item["name"]] = item
     required = row.get("required_modules")
-    if not isinstance(required, list) or len(required) != len(set(required)) or not all(isinstance(x, str) for x in required):
+    if not isinstance(required, list) or not all(isinstance(x, str) for x in required):
+        raise ContractError("Scenario.required_modules ungueltig")
+    if len(required) != len(set(required)):
         raise ContractError("Scenario.required_modules ungueltig")
     if not set(required).issubset(modules):
         raise ContractError("Scenario.required_modules fehlen im Dependency-Manifest")
