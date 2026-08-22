@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4806be3dc6894603a27fc48f9576ca7e",
+  "recorded_at": "2026-08-22T18:34:56+00:00",
+  "session_id": "a10677536a374e7586e6dab97f5b3181",
+  "head_at_start": "a3553db4b367cbd1539f61f473db321d879288da",
+  "problem": "Runtime dependency validation hashed stdlib JSON elements before type validation.",
+  "cause": "Duplicate checks via set() preceded container element validation for two externally controlled lists.",
+  "rule": "For every untrusted JSON list, validate container and all scalar element types and nonemptiness before hashing, set conversion, duplicate, or membership checks; test CLI normalization and absence of output mutation.",
+  "applies_to": "Audit runtime manifests and JSON trust-boundary validators"
+}

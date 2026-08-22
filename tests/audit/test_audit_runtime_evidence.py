@@ -432,6 +432,67 @@ class GateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(self.tool.ContractError, "Scenario.required_modules ungueltig"):
             self.run_valid()
 
+    def test_stdlib_module_fields_reject_unhashable_items_at_cli_boundary(self) -> None:
+        for field in ("stdlib_modules", "required_stdlib_modules"):
+            with self.subTest(field=field):
+                row = self.valid_scenario()
+                dependencies = {
+                    "schema_version": 1,
+                    "python_version": sys.version,
+                    "stdlib_modules": ["json"],
+                    "modules": [],
+                }
+                row["required_stdlib_modules"] = ["json"]
+                if field == "stdlib_modules":
+                    dependencies[field] = ["json", {}]
+                else:
+                    row[field] = ["json", {}]
+                row["scenario_sha256"] = self.tool.canonical_sha256(
+                    row, omit={"scenario_sha256"}
+                )
+                self.dependency_path.write_bytes(_json_bytes(dependencies) + b"\n")
+                self.write_catalog([row])
+                self.refresh_contract()
+                stderr = io.StringIO()
+                stdout = io.StringIO()
+                before = {
+                    str(path.relative_to(self.evidence)): path.read_bytes()
+                    for path in self.evidence.rglob("*") if path.is_file()
+                }
+                runtime_run_id = f"LIVE-BAD-{field}"
+                argv = [
+                    "audit_runtime_evidence.py",
+                    "--root", str(self.repo),
+                    "--evidence-root", str(self.evidence),
+                    "--audit-contract", str(self.contract_path),
+                    "--expected-contract-sha256", self.expected_contract_sha256,
+                    "--authority-commit", self.authority_commit,
+                    "--expected-authority-commit", self.authority_commit,
+                    "--scenario-id", "SCN-001",
+                    "--runtime-run-id", runtime_run_id,
+                ]
+                with (
+                    mock.patch.object(self.tool.sys, "argv", argv),
+                    mock.patch.object(self.tool.sys, "stderr", stderr),
+                    mock.patch.object(self.tool.sys, "stdout", stdout),
+                ):
+                    code = self.tool.main()
+                self.assertEqual(2, code)
+                expected = (
+                    "Dependency-Manifest.stdlib_modules ungueltig"
+                    if field == "stdlib_modules"
+                    else "Scenario.required_stdlib_modules ungueltig"
+                )
+                self.assertIn(f"FEHLER: {expected}", stderr.getvalue())
+                self.assertNotIn("Traceback", stderr.getvalue())
+                self.assertEqual("", stdout.getvalue())
+                after = {
+                    str(path.relative_to(self.evidence)): path.read_bytes()
+                    for path in self.evidence.rglob("*") if path.is_file()
+                }
+                self.assertEqual(before, after)
+                self.assertFalse((self.evidence / "runs" / runtime_run_id).exists())
+
     def test_full_rich_receipt_trust_components_reject_resealed_tamper(self) -> None:
         receipt = self.run_valid()
         run_dir = self.evidence / "runs" / "LIVE-001"

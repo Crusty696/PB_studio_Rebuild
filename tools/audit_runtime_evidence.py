@@ -468,11 +468,15 @@ def _validate_executor_and_dependencies(
         raise ContractError("Scenario.required_modules fehlen im Dependency-Manifest")
     stdlib = dependencies.get("stdlib_modules")
     required_stdlib = row.get("required_stdlib_modules")
-    if (not isinstance(stdlib, list) or len(stdlib) != len(set(stdlib))
+    if (not isinstance(stdlib, list)
         or not all(isinstance(item, str) and item for item in stdlib)):
         raise ContractError("Dependency-Manifest.stdlib_modules ungueltig")
-    if (not isinstance(required_stdlib, list) or len(required_stdlib) != len(set(required_stdlib))
+    if len(stdlib) != len(set(stdlib)):
+        raise ContractError("Dependency-Manifest.stdlib_modules ungueltig")
+    if (not isinstance(required_stdlib, list)
         or not all(isinstance(item, str) and item for item in required_stdlib)):
+        raise ContractError("Scenario.required_stdlib_modules ungueltig")
+    if len(required_stdlib) != len(set(required_stdlib)):
         raise ContractError("Scenario.required_stdlib_modules ungueltig")
     if set(required_stdlib) != set(stdlib):
         raise ContractError("Scenario/Manifest-Stdlibmodule keine Exact-Set-Gleichheit")
