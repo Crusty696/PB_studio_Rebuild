@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import ctypes
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -763,6 +765,246 @@ class GateContractTests(unittest.TestCase):
         with mock.patch.object(self.tool.subprocess, "run", return_value=taskkill_access_denied):
             with self.assertRaisesRegex(self.tool.ContractError, "nicht attestierbar"):
                 self.tool._kill_process_tree(NearBoundaryProcess())
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object timeout contract")
+    def test_windows_timeout_job_kills_grandchild_after_intermediate_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pid_file = root / "grandchild.pid"
+            grandchild = root / "grandchild.py"
+            grandchild.write_text(
+                "import os,sys,time\n"
+                "from pathlib import Path\n"
+                "Path(sys.argv[1]).write_text(str(os.getpid()), encoding='ascii')\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            intermediate = root / "intermediate.py"
+            intermediate.write_text(
+                "import subprocess,sys\n"
+                "subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])\n",
+                encoding="utf-8",
+            )
+            parent = root / "parent.py"
+            parent.write_text(
+                "import subprocess,sys,time\n"
+                "middle=subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2], sys.argv[3]])\n"
+                "middle.wait()\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            try:
+                with self.assertRaisesRegex(self.tool.ContractError, "Timeout"):
+                    self.tool._execute(
+                        [sys.executable, str(parent), str(intermediate), str(grandchild), str(pid_file)],
+                        cwd=root, timeout=5.0, environment=dict(os.environ), label="job-grandchild",
+                    )
+                child_pid = int(pid_file.read_text(encoding="ascii"))
+                status = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {child_pid}", "/FO", "CSV", "/NH"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertNotIn(str(child_pid), status.stdout)
+            finally:
+                if pid_file.exists():
+                    subprocess.run(
+                        ["taskkill", "/PID", pid_file.read_text(encoding="ascii"), "/T", "/F"],
+                        capture_output=True, check=False,
+                    )
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object failure contracts")
+    def test_windows_job_api_failures_are_fail_closed(self) -> None:
+        kernel = mock.Mock()
+        kernel.CreateJobObjectW.return_value = 0
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht erstellbar"):
+                self.tool._windows_create_kill_job()
+
+        kernel = mock.Mock()
+        kernel.CreateJobObjectW.return_value = 41
+        kernel.SetInformationJobObject.return_value = False
+        kernel.CloseHandle.return_value = True
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht konfigurierbar"):
+                self.tool._windows_create_kill_job()
+        kernel.CloseHandle.assert_called_once_with(41)
+
+        kernel = mock.Mock()
+        kernel.AssignProcessToJobObject.return_value = False
+        process = mock.Mock()
+        process._handle = 52
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht an Job Object bindbar"):
+                self.tool._windows_assign_process_to_job(41, process)
+
+        kernel = mock.Mock()
+        kernel.CreateToolhelp32Snapshot.return_value = ctypes.c_void_p(-1).value
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "Threadsnapshot fehlgeschlagen"):
+                self.tool._windows_resume_suspended_process(53)
+
+        kernel = mock.Mock()
+        kernel.QueryInformationJobObject.return_value = False
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht attestierbar"):
+                self.tool._windows_job_active_processes(41)
+
+        kernel = mock.Mock()
+        kernel.TerminateJobObject.return_value = False
+        with (
+            mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel),
+            mock.patch.object(self.tool, "_windows_job_active_processes", return_value=1),
+        ):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht terminierbar"):
+                self.tool._windows_terminate_job(41)
+        with (
+            mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel),
+            mock.patch.object(self.tool, "_windows_job_active_processes", return_value=0),
+        ):
+            self.tool._windows_terminate_job(41)
+
+        kernel = mock.Mock()
+        kernel.CloseHandle.return_value = False
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht schliessbar"):
+                self.tool._windows_close_job(41)
+
+    @unittest.skipUnless(os.name == "nt", "Windows suspended-process cleanup contract")
+    def test_windows_setup_failure_preserves_primary_and_cleanup_errors(self) -> None:
+        process = mock.Mock(pid=61)
+        process._handle = 62
+        process.kill.side_effect = OSError("kill denied")
+        process.wait.side_effect = subprocess.TimeoutExpired("wait", 5)
+        with (
+            mock.patch.object(self.tool, "_windows_create_kill_job", return_value=41),
+            mock.patch.object(self.tool.subprocess, "Popen", return_value=process),
+            mock.patch.object(
+                self.tool, "_windows_assign_process_to_job",
+                side_effect=self.tool.ContractError("assign primary"),
+            ),
+            mock.patch.object(self.tool, "_windows_close_job") as close_job,
+        ):
+            with self.assertRaisesRegex(
+                self.tool.ContractError,
+                "assign primary; Setup-Cleanup fehlgeschlagen: kill: kill denied; wait:",
+            ):
+                self.tool._execute(
+                    ["unused"], cwd=Path.cwd(), timeout=1,
+                    environment={}, label="setup-failure",
+                )
+        close_job.assert_called_once_with(41)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object close contract")
+    def test_windows_job_close_failure_rejects_otherwise_successful_execution(self) -> None:
+        process = mock.Mock(pid=71, returncode=0)
+        process._handle = 72
+        process.communicate.return_value = (b"out", b"")
+        with (
+            mock.patch.object(self.tool, "_windows_create_kill_job", return_value=41),
+            mock.patch.object(self.tool.subprocess, "Popen", return_value=process),
+            mock.patch.object(self.tool, "_windows_assign_process_to_job"),
+            mock.patch.object(self.tool, "_windows_resume_suspended_process"),
+            mock.patch.object(self.tool, "_windows_job_active_processes", return_value=0),
+            mock.patch.object(
+                self.tool, "_windows_close_job",
+                side_effect=self.tool.ContractError("Windows Job Object nicht schliessbar"),
+            ),
+        ):
+            with self.assertRaisesRegex(self.tool.ContractError, "nicht schliessbar"):
+                self.tool._execute(
+                    ["unused"], cwd=Path.cwd(), timeout=1,
+                    environment={}, label="close-failure",
+                )
+
+    @unittest.skipUnless(os.name == "nt", "Windows cleanup diagnostics contract")
+    def test_windows_cleanup_failures_keep_primary_error_visible(self) -> None:
+        kernel = mock.Mock()
+        kernel.CreateToolhelp32Snapshot.return_value = 81
+        kernel.Thread32First.side_effect = self.tool.ContractError("PRIMARY enumeration failed")
+        kernel.CloseHandle.return_value = False
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(
+                self.tool.ContractError,
+                "PRIMARY enumeration failed; Snapshot-Cleanup fehlgeschlagen:.*nicht schliessbar",
+            ):
+                self.tool._windows_resume_suspended_process(82)
+
+        process = mock.Mock(pid=83)
+        process._handle = 84
+        process.communicate.side_effect = self.tool.ContractError("PRIMARY execution failed")
+        with (
+            mock.patch.object(self.tool, "_windows_create_kill_job", return_value=85),
+            mock.patch.object(self.tool.subprocess, "Popen", return_value=process),
+            mock.patch.object(self.tool, "_windows_assign_process_to_job"),
+            mock.patch.object(self.tool, "_windows_resume_suspended_process"),
+            mock.patch.object(
+                self.tool, "_windows_close_job",
+                side_effect=self.tool.ContractError("CLEANUP job close failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                self.tool.ContractError,
+                "PRIMARY execution failed; Job-Cleanup fehlgeschlagen: CLEANUP job close failed",
+            ):
+                self.tool._execute(
+                    ["unused"], cwd=Path.cwd(), timeout=1,
+                    environment={}, label="combined-failure",
+                )
+
+    @unittest.skipUnless(os.name == "nt", "Windows interrupt cleanup contract")
+    def test_windows_interrupts_keep_primary_type_and_close_handles(self) -> None:
+        class RejectCleanupAttribute(KeyboardInterrupt):
+            def __setattr__(self, name, value):
+                if name == "_pb_audit_cleanup_error":
+                    raise RuntimeError("attribute denied")
+                super().__setattr__(name, value)
+
+        rejecting = RejectCleanupAttribute("PRIMARY interrupt")
+        with mock.patch.object(self.tool.sys, "stderr", new_callable=io.StringIO) as reporter_stderr:
+            self.tool._report_base_cleanup_error(rejecting, "attribute cleanup")
+        self.assertIn("attribute cleanup", reporter_stderr.getvalue())
+
+        failing_stderr = mock.Mock()
+        failing_stderr.write.side_effect = ValueError("stderr closed")
+        reporter_primary = KeyboardInterrupt("PRIMARY interrupt")
+        with mock.patch.object(self.tool.sys, "stderr", failing_stderr):
+            self.tool._report_base_cleanup_error(reporter_primary, "stderr cleanup")
+        self.assertEqual(str(reporter_primary), "PRIMARY interrupt")
+
+        kernel = mock.Mock()
+        kernel.CreateToolhelp32Snapshot.return_value = 91
+        kernel.Thread32First.side_effect = KeyboardInterrupt("PRIMARY interrupt")
+        kernel.CloseHandle.return_value = True
+        with mock.patch.object(self.tool, "_windows_kernel32", return_value=kernel):
+            with self.assertRaisesRegex(KeyboardInterrupt, "PRIMARY interrupt"):
+                self.tool._windows_resume_suspended_process(92)
+        kernel.CloseHandle.assert_called_once_with(91)
+
+        process = mock.Mock(pid=93)
+        process._handle = 94
+        process.communicate.side_effect = KeyboardInterrupt("PRIMARY interrupt")
+        with (
+            mock.patch.object(self.tool, "_windows_create_kill_job", return_value=95),
+            mock.patch.object(self.tool.subprocess, "Popen", return_value=process),
+            mock.patch.object(self.tool, "_windows_assign_process_to_job"),
+            mock.patch.object(self.tool, "_windows_resume_suspended_process"),
+            mock.patch.object(
+                self.tool, "_windows_close_job",
+                side_effect=self.tool.ContractError("CLEANUP job close failed"),
+            ),
+            mock.patch.object(self.tool.sys, "stderr", new_callable=io.StringIO) as error_stream,
+        ):
+            with self.assertRaises(KeyboardInterrupt) as raised:
+                self.tool._execute(
+                    ["unused"], cwd=Path.cwd(), timeout=1,
+                    environment={}, label="interrupt-cleanup",
+                )
+        self.assertEqual(str(raised.exception), "PRIMARY interrupt")
+        self.assertIn(
+            "CLEANUP job close failed",
+            raised.exception._pb_audit_cleanup_error,
+        )
+        self.assertIn("CLEANUP job close failed", error_stream.getvalue())
 
     def test_projection_export_rejects_missing_orphan_duplicate_and_receipt_tamper(self) -> None:
         cases = ("missing", "orphan", "duplicate", "receipt-tamper")

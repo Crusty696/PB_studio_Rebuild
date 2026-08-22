@@ -1,0 +1,10 @@
+{
+  "lesson_id": "49d1bf651a2e45f983bd364ab0226e43",
+  "recorded_at": "2026-08-22T13:41:53+00:00",
+  "session_id": "c1800b4a679547ecb31e0335516f227c",
+  "head_at_start": "cdd70a326298468b5c1f3dff158d10c9ab9f3032",
+  "problem": "Windows-Timeout konnte Parentverlust als sauberen Prozessbaum-Kill akzeptieren, obwohl Child weiterlief.",
+  "cause": "Cleanup attestierte nur taskkill-Text und Parent-Popen; eine erst beim Timeout rekonstruierte PID-/PPID-Linie verliert beendete Zwischenknoten und ist durch PID-Reuse nicht identitätsstabil.",
+  "rule": "Windows-Prozesstree-Cleanup muss vor erster Target-Instruktion strukturell gebunden werden: Prozess suspended starten, einem Kill-on-close Job Object zuweisen, erst dann fortsetzen; Timeout per TerminateJobObject und ActiveProcesses=0 attestieren. Post-hoc PID-Rekonstruktion ist kein Tree-Beweis.",
+  "applies_to": "Audit-Runtime-Runner, Windows-Timeouts, Subprocess-Cleanup"
+}

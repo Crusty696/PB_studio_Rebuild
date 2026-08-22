@@ -669,23 +669,258 @@ def _sanitized_environment(root: Path, run_dir: Path) -> dict[str, str]:
     return env
 
 
+def _windows_kernel32():
+    import ctypes
+
+    return ctypes.WinDLL("kernel32", use_last_error=True)
+
+
+def _windows_close_handle(kernel32, handle: int, label: str) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    if not close_handle(handle):
+        raise ContractError(f"{label} nicht schliessbar: {ctypes.get_last_error()}")
+
+
+def _report_base_cleanup_error(primary_error: BaseException, message: str) -> None:
+    try:
+        primary_error._pb_audit_cleanup_error = message
+    except BaseException:
+        pass
+    try:
+        print(f"FEHLER: {message}", file=sys.stderr)
+    except BaseException:
+        pass
+
+
+def _windows_create_kill_job() -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = _windows_kernel32()
+    create_job = kernel32.CreateJobObjectW
+    create_job.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    create_job.restype = wintypes.HANDLE
+    set_information = kernel32.SetInformationJobObject
+    set_information.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    set_information.restype = wintypes.BOOL
+    job = create_job(None, None)
+    if not job:
+        raise ContractError(f"Windows Job Object nicht erstellbar: {ctypes.get_last_error()}")
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not set_information(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        error = ctypes.get_last_error()
+        try:
+            _windows_close_handle(kernel32, job, "Windows Job Object nach Konfigurationsfehler")
+        except ContractError as close_error:
+            raise ContractError(
+                f"Windows Job Object nicht konfigurierbar: {error}; Cleanup fehlgeschlagen: {close_error}"
+            ) from close_error
+        raise ContractError(f"Windows Job Object nicht konfigurierbar: {error}")
+    return int(job)
+
+
+def _windows_assign_process_to_job(job: int, process: subprocess.Popen[bytes]) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    assign = _windows_kernel32().AssignProcessToJobObject
+    assign.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    assign.restype = wintypes.BOOL
+    if not assign(job, int(process._handle)):
+        raise ContractError(f"Windows-Prozess nicht an Job Object bindbar: {ctypes.get_last_error()}")
+
+
+def _windows_resume_suspended_process(pid: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    class THREADENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+            ("th32ThreadID", wintypes.DWORD), ("th32OwnerProcessID", wintypes.DWORD),
+            ("tpBasePri", wintypes.LONG), ("tpDeltaPri", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+        ]
+
+    kernel32 = _windows_kernel32()
+    create_snapshot = kernel32.CreateToolhelp32Snapshot
+    create_snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    create_snapshot.restype = wintypes.HANDLE
+    thread_first = kernel32.Thread32First
+    thread_first.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    thread_first.restype = wintypes.BOOL
+    thread_next = kernel32.Thread32Next
+    thread_next.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    thread_next.restype = wintypes.BOOL
+    open_thread = kernel32.OpenThread
+    open_thread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    open_thread.restype = wintypes.HANDLE
+    resume_thread = kernel32.ResumeThread
+    resume_thread.argtypes = [wintypes.HANDLE]
+    resume_thread.restype = wintypes.DWORD
+    snapshot = create_snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == wintypes.HANDLE(-1).value:
+        raise ContractError(f"Windows-Threadsnapshot fehlgeschlagen: {ctypes.get_last_error()}")
+    resumed = 0
+    operation_error: BaseException | None = None
+    try:
+        entry = THREADENTRY32()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = thread_first(snapshot, ctypes.byref(entry))
+        while ok:
+            if int(entry.th32OwnerProcessID) == pid:
+                thread = open_thread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
+                if not thread:
+                    raise ContractError(f"Windows-Startthread nicht oeffenbar: {ctypes.get_last_error()}")
+                thread_error: BaseException | None = None
+                try:
+                    if resume_thread(thread) == 0xFFFFFFFF:
+                        raise ContractError(f"Windows-Startthread nicht fortsetzbar: {ctypes.get_last_error()}")
+                    resumed += 1
+                except BaseException as exc:
+                    thread_error = exc
+                try:
+                    _windows_close_handle(kernel32, thread, "Windows-Startthread-Handle")
+                except ContractError as close_error:
+                    if thread_error is None:
+                        thread_error = close_error
+                    elif not isinstance(thread_error, Exception):
+                        _report_base_cleanup_error(
+                            thread_error, f"Thread-Cleanup fehlgeschlagen: {close_error}"
+                        )
+                    else:
+                        thread_error = ContractError(
+                            f"{thread_error}; Thread-Cleanup fehlgeschlagen: {close_error}"
+                        )
+                if thread_error is not None:
+                    raise thread_error
+            ok = thread_next(snapshot, ctypes.byref(entry))
+    except BaseException as exc:
+        operation_error = exc
+    try:
+        _windows_close_handle(kernel32, snapshot, "Windows-Threadsnapshot-Handle")
+    except ContractError as close_error:
+        if operation_error is None:
+            operation_error = close_error
+        elif not isinstance(operation_error, Exception):
+            _report_base_cleanup_error(
+                operation_error, f"Snapshot-Cleanup fehlgeschlagen: {close_error}"
+            )
+        else:
+            operation_error = ContractError(
+                f"{operation_error}; Snapshot-Cleanup fehlgeschlagen: {close_error}"
+            )
+    if operation_error is not None:
+        raise operation_error
+    if resumed != 1:
+        raise ContractError(f"Windows-Startthread-Anzahl ungueltig: {resumed}")
+
+
+def _windows_job_active_processes(job: int) -> int:
+    import ctypes
+    from ctypes import wintypes
+
+    class JOBOBJECT_BASIC_ACCOUNTING_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_longlong), ("TotalKernelTime", ctypes.c_longlong),
+            ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+            ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+            ("TotalPageFaultCount", wintypes.DWORD), ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD), ("TotalTerminatedProcesses", wintypes.DWORD),
+        ]
+
+    query = _windows_kernel32().QueryInformationJobObject
+    query.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
+    query.restype = wintypes.BOOL
+    info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
+    if not query(job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+        raise ContractError(f"Windows Job Object nicht attestierbar: {ctypes.get_last_error()}")
+    return int(info.ActiveProcesses)
+
+
+def _windows_terminate_job(job: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    terminate = _windows_kernel32().TerminateJobObject
+    terminate.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    terminate.restype = wintypes.BOOL
+    if not terminate(job, 1) and _windows_job_active_processes(job) != 0:
+        raise ContractError(f"Windows Job Object nicht terminierbar: {ctypes.get_last_error()}")
+
+
+def _windows_wait_job_empty(job: int, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while _windows_job_active_processes(job) != 0:
+        if time.monotonic() >= deadline:
+            raise ContractError("Windows Job Object bleibt nach Timeout aktiv")
+        time.sleep(0.01)
+
+
+def _windows_close_job(job: int) -> None:
+    _windows_close_handle(_windows_kernel32(), job, "Windows Job Object")
+
+
 def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is not None:
+    initial_status = process.poll()
+    if os.name != "nt" and initial_status is not None:
         return
-    tree_kill_error: str | None = None
-    if os.name == "nt":
+    if os.name == "nt" and hasattr(process, "_pb_audit_job_handle"):
+        job = int(process._pb_audit_job_handle)
+        _windows_terminate_job(job)
+        _windows_wait_job_empty(job)
+    elif os.name == "nt":
         result = subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
             capture_output=True, check=False, shell=False,
         )
         if result.returncode != 0:
-            tree_kill_error = result.stderr.decode(errors="replace").strip() or result.stdout.decode(errors="replace").strip()
+            error = result.stderr.decode(errors="replace").strip() or result.stdout.decode(errors="replace").strip()
             missing_process = any(
-                marker in tree_kill_error.casefold()
+                marker in error.casefold()
                 for marker in ("not found", "nicht gefunden", "no running instance")
             )
-            if process.poll() is not None and missing_process:
-                tree_kill_error = None
+            if not (missing_process and process.poll() is not None):
+                raise ContractError(f"Timeout: Prozessbaum-Kill nicht attestierbar: {error}")
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -699,28 +934,74 @@ def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         raise ContractError("Prozessbaum liess sich nach Timeout nicht beenden")
-    if tree_kill_error is not None:
-        raise ContractError(f"Timeout: Prozessbaum-Kill nicht attestierbar: {tree_kill_error}")
 
 
 def _execute(
     argv: list[str], *, cwd: Path, timeout: float, environment: dict[str, str],
     label: str,
 ) -> tuple[int, bytes, bytes, int, int, int]:
-    flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    job: int | None = None
+    flags = 0
+    if os.name == "nt":
+        job = _windows_create_kill_job()
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004  # CREATE_SUSPENDED
     start_ns = time.time_ns()
-    process = subprocess.Popen(
-        argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
-        creationflags=flags, start_new_session=(os.name != "nt"),
-    )
+    primary_error: BaseException | None = None
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        _kill_process_tree(process)
-        raise ContractError(f"{label}: Timeout nach {timeout:g}s") from exc
-    end_ns = time.time_ns()
-    return process.returncode, stdout, stderr, process.pid, start_ns, end_ns
+        process = subprocess.Popen(
+            argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
+            creationflags=flags, start_new_session=(os.name != "nt"),
+        )
+        if job is not None:
+            try:
+                _windows_assign_process_to_job(job, process)
+                process._pb_audit_job_handle = job
+                _windows_resume_suspended_process(process.pid)
+            except Exception as setup_error:
+                cleanup_errors: list[str] = []
+                try:
+                    process.kill()
+                except OSError as exc:
+                    cleanup_errors.append(f"kill: {exc}")
+                try:
+                    process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    cleanup_errors.append(f"wait: {exc}")
+                if cleanup_errors:
+                    raise ContractError(
+                        f"{setup_error}; Setup-Cleanup fehlgeschlagen: {'; '.join(cleanup_errors)}"
+                    ) from setup_error
+                raise
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            _kill_process_tree(process)
+            raise ContractError(f"{label}: Timeout nach {timeout:g}s") from exc
+        if job is not None and _windows_job_active_processes(job) != 0:
+            _windows_terminate_job(job)
+            _windows_wait_job_empty(job)
+            raise ContractError(f"{label}: Command hinterliess aktive Kindprozesse")
+        end_ns = time.time_ns()
+        return process.returncode, stdout, stderr, process.pid, start_ns, end_ns
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        if job is not None:
+            try:
+                _windows_close_job(job)
+            except ContractError as close_error:
+                if primary_error is None:
+                    raise
+                if not isinstance(primary_error, Exception):
+                    _report_base_cleanup_error(
+                        primary_error, f"Job-Cleanup fehlgeschlagen: {close_error}"
+                    )
+                else:
+                    raise ContractError(
+                        f"{primary_error}; Job-Cleanup fehlgeschlagen: {close_error}"
+                    ) from primary_error
 
 
 def _snapshot_files(root: Path) -> dict[str, str]:
