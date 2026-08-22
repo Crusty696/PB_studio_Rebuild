@@ -620,6 +620,131 @@ class GateContractTests(unittest.TestCase):
                         roster.finalize_signoff(**{**base, field: []})
                 self.assertFalse(self.attestations.exists())
 
+    def test_cli_expected_data_io_errors_return_json_exit_two(self) -> None:
+        factories = {
+            "os": lambda: PermissionError("permission denied"),
+            "unicode": lambda: UnicodeDecodeError(
+                "utf-8", b"\xff", 0, 1, "invalid byte"
+            ),
+            "json": lambda: json.JSONDecodeError("invalid json", "{", 1),
+        }
+        commands = {
+            "enroll": (
+                "enroll",
+                [
+                    "--roster", str(self.roster_path),
+                    "--receipts-dir", str(self.receipts),
+                    "--session-id", self.lead["id"],
+                    "--signing-key", str(self.keys["spawn"]),
+                ],
+            ),
+            "finalize": (
+                "finalize_signoff",
+                [
+                    "--roster", str(self.roster_path),
+                    "--receipts-dir", str(self.receipts),
+                    "--attestations-dir", str(self.attestations),
+                    "--session-id", self.lead["id"],
+                    "--role", "lead-v",
+                    "--basis-sha256", "a" * 64,
+                    "--verdict", "pass",
+                    "--signing-key", str(self.keys["lead-v"]),
+                ],
+            ),
+        }
+        for command, (target, command_args) in commands.items():
+            for error_name, factory in factories.items():
+                with self.subTest(command=command, error=error_name):
+                    error = factory()
+                    output = io.StringIO()
+                    argv = [
+                        command,
+                        "--root", str(self.repo),
+                        *self._cli_trust_args(),
+                        *command_args,
+                    ]
+                    with (
+                        mock.patch.object(roster, target, side_effect=error),
+                        mock.patch("sys.stdout", output),
+                    ):
+                        code = roster.main(argv)
+                    payload = json.loads(output.getvalue())
+                    self.assertEqual(2, code)
+                    self.assertFalse(payload["ok"])
+                    self.assertIn(str(error), payload["errors"])
+                    self.assertNotIn("Traceback", output.getvalue())
+                    self.assertFalse(self.roster_path.exists())
+                    self.assertFalse(self.attestations.exists())
+
+    def test_enroll_cleanup_preserves_primary_signing_error(self) -> None:
+        primary = PermissionError("primary")
+        receipt = self.receipts / f"{self.lead['id']}.json"
+        signature = self.receipts / f"{self.lead['id']}.json.sig"
+        original_unlink = Path.unlink
+        cleanup_calls: list[Path] = []
+
+        def fail_sign(*_args, **_kwargs) -> None:
+            signature.write_bytes(b"partial")
+            raise primary
+
+        def cleanup(path: Path, *args, **kwargs) -> None:
+            cleanup_calls.append(path)
+            if path == receipt:
+                raise PermissionError("cleanup")
+            original_unlink(path, *args, **kwargs)
+
+        with (
+            mock.patch.object(roster, "sign_file", side_effect=fail_sign),
+            mock.patch.object(Path, "unlink", autospec=True, side_effect=cleanup),
+        ):
+            with self.assertRaises(PermissionError) as raised:
+                self._enroll(self.lead)
+        self.assertIs(primary, raised.exception)
+        self.assertEqual([receipt, signature], cleanup_calls)
+        self.assertTrue(receipt.exists())
+        self.assertFalse(signature.exists())
+        self.assertFalse(self.roster_path.exists())
+
+    def test_finalize_cleanup_preserves_primary_signing_error(self) -> None:
+        self._enroll_all()
+        primary = PermissionError("primary")
+        path = self.attestations / f"lead-v-{self.lead['id']}.json"
+        signature = self.attestations / f"lead-v-{self.lead['id']}.json.sig"
+        original_unlink = Path.unlink
+        cleanup_calls: list[Path] = []
+
+        def fail_sign(*_args, **_kwargs) -> None:
+            signature.write_bytes(b"partial")
+            raise primary
+
+        def cleanup(candidate: Path, *args, **kwargs) -> None:
+            cleanup_calls.append(candidate)
+            if candidate == path:
+                raise PermissionError("cleanup")
+            original_unlink(candidate, *args, **kwargs)
+
+        with (
+            mock.patch.object(roster, "sign_file", side_effect=fail_sign),
+            mock.patch.object(Path, "unlink", autospec=True, side_effect=cleanup),
+        ):
+            with self.assertRaises(PermissionError) as raised:
+                roster.finalize_signoff(
+                    root=self.repo,
+                    session_id=self.lead["id"],
+                    role="lead-v",
+                    basis_sha256="a" * 64,
+                    verdict="pass",
+                    roster_path=self.roster_path,
+                    receipts_dir=self.receipts,
+                    attestations_dir=self.attestations,
+                    signing_key=self.keys["lead-v"],
+                    **self._trust_args(),
+                )
+        self.assertIs(primary, raised.exception)
+        self.assertEqual([path, signature], cleanup_calls)
+        self.assertTrue(path.exists())
+        self.assertFalse(signature.exists())
+
     def test_nested_output_shard_prefix_overlap_rejected(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
         nested = "@audit/RUN-1/lead/sub/**"

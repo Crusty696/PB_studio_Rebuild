@@ -1188,6 +1188,14 @@ def _row_from_receipt(receipt: dict[str, Any], receipt_ref: str, receipt_sha: st
             "roster_signed_at": receipt["enrolled_at"]}
 
 
+def _best_effort_unlink(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def enroll(*, root: Path, session_id: str, contract_path: Path,
            contract_signature: Path, spawn_journal_path: Path,
            spawn_journal_signature: Path, readiness_binding_path: Path,
@@ -1273,8 +1281,7 @@ def enroll(*, root: Path, session_id: str, contract_path: Path,
                                  identity["openssh_identity"])
                 registry_guard.heartbeat()
             except Exception:
-                receipt_path.unlink(missing_ok=True)
-                signature_path.unlink(missing_ok=True)
+                _best_effort_unlink(receipt_path, signature_path)
                 raise
         row = _row_from_receipt(receipt, receipt_ref, _sha(receipt_path.read_bytes()), signature_ref)
         temp = roster_path.with_name(roster_path.name + ".tmp")
@@ -1493,8 +1500,7 @@ def finalize_signoff(*, root: Path, session_id: str, role: str,
             )
             registry_guard.heartbeat()
         except Exception:
-            path.unlink(missing_ok=True)
-            signature.unlink(missing_ok=True)
+            _best_effort_unlink(path, signature)
             raise
         return path
 
@@ -1680,7 +1686,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False))
         return 0 if not errors else 2
-    except ContractError as exc:
+    except (ContractError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "errors": [str(exc)]}, ensure_ascii=False))
         return 2
 

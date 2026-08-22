@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5a8bd9e1cbcd49eb803b03c6634d967b",
+  "recorded_at": "2026-08-22T17:37:46+00:00",
+  "session_id": "7b5703e7b85645b98cc558003ccfd5bc",
+  "head_at_start": "c7b8e268e5dd06f2c6136ba95fb8839e0630a9ad",
+  "problem": "Reviewer-CLI propagierte erwartbare Datei-/Decodefehler roh; Cleanupfehler konnten Signier-Primärfehler ersetzen und weiteren Cleanup abbrechen.",
+  "cause": "Post-parse CLI-Grenze normalisierte nur ContractError, während sequenzielle ungeschützte unlink-Aufrufe innerhalb broad Signier-Catches liefen.",
+  "rule": "CLI-Grenzen nur um konkret erwartete Daten-/I/O-Ausnahmen erweitern; Programmerfehler sichtbar lassen. In Exception-Cleanup jeden eigenen Pfad separat best-effort behandeln und danach mit bare raise das ursprüngliche Fehlerobjekt erhalten.",
+  "applies_to": "CLI-Dateipipelines, Signatur-/Attestierungswriter und Orphan-Cleanup"
+}
