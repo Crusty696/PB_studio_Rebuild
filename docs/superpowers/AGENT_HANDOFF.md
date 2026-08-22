@@ -2,6 +2,23 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-854 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-854 Code-/Testcommit: `682ba2f`.
+- `_Lock.__exit__` prueft Ownership vor dem Leeren von `self._fd`, leert nur
+  eigenen Token/PID/Path-gebundenen Payload und garantiert Descriptor-Close
+  auch bei erwartetem oder unerwartetem Cleanupfehler. Body-Primaerfehler
+  bleibt vorrangig; fremder Payload/Replacement bleibt unveraendert.
+- Belege: echter RED fuer uebersprungenes Close; sechs gezielte Cleanuptests
+  `6 passed`; gesamte Registry-Komponente `67 passed`; Ruff, PyCompile,
+  Diffcheck sowie Compliance- und unabhaengiger Code-Review gruen ohne
+  verbleibendes C/H/M/L-Finding.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter separater Mehrprozess-/CLI-Lockpfad.
+- Naechster sequenzieller Phase--1-Schritt: autoritative Restfinding-Inventur
+  und Readiness-Re-Gate. Produkt-Audit/App-Fixes bleiben bis gruener Phase--1
+  plus real provisionierter Trust-Authority gesperrt.
+
 ## B-856 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-856 Code-/Testcommit: `559aceb`.
