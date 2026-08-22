@@ -100,14 +100,24 @@ if ($LASTEXITCODE -ne 0) {
 Write-Section "Agent Sessions"
 if ($SessionId) {
     & $learningPython "tools\agent_session.py" release --id $SessionId
+    $sessionReleaseExit = $LASTEXITCODE
+    if ($sessionReleaseExit -ne 0) {
+        Write-Host "BLOCKED: Agent-Session konnte nicht sicher freigegeben werden (exit $sessionReleaseExit)."
+        Write-Host "Kein erfolgreicher Handoff: Registryfehler zuerst klaeren."
+        exit 7
+    }
     Write-Host "Session freigegeben: $SessionId"
 }
 & $learningPython "tools\agent_session.py" status
-if ($LASTEXITCODE -eq 0) {
-    Write-Host ""
-    Write-Host "Noch offene Sessions? Eigene mit 'release --id <id>' freigeben."
-    Write-Host "Fremde NICHT anfassen - sie verfallen von selbst (Heartbeat)."
+$sessionStatusExit = $LASTEXITCODE
+if ($sessionStatusExit -ne 0) {
+    Write-Host "BLOCKED: Agent-Session-Status nicht sicher lesbar (exit $sessionStatusExit)."
+    Write-Host "Kein erfolgreicher Handoff: Registryfehler zuerst klaeren."
+    exit 7
 }
+Write-Host ""
+Write-Host "Noch offene Sessions? Eigene mit 'release --id <id>' freigeben."
+Write-Host "Fremde NICHT anfassen - sie verfallen von selbst (Heartbeat)."
 
 Write-Section "Result"
 Write-Host "OK: clean handoff state."

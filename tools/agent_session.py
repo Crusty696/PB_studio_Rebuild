@@ -38,7 +38,8 @@ IDIOTENSICHERHEIT — was hier bewusst abgesichert ist:
   - Atomares Schreiben (tmp + os.replace) -> nie eine halbe Datei.
   - Exklusiv-Lock per OS-Byte-Lock (NTFS/POSIX) mit Timeout; der Lockpfad bleibt
     persistent und wird nie per Pfadoperation ersetzt oder fremd geloescht.
-  - Korrupte/leere Registry -> wird verworfen statt zu crashen.
+  - Operative Nutzung verlangt gueltigen Marker + Registry; fehlender Zustand
+    blockiert fail-closed. Empty-Init/Legacy-Migration nur explizit per bootstrap.
   - Tote Sessions (Heartbeat alt ODER, falls eine echte Agent-PID mitgegeben
     wurde, Prozess weg) werden bei JEDER Operation automatisch entfernt -> ein
     abgestuerzter Agent blockiert nichts dauerhaft.
@@ -88,6 +89,10 @@ EXIT_ERROR = 1
 EXIT_CONFLICT = 2
 
 
+class RegistryReadError(RuntimeError):
+    """Bestehende Registry ist nicht sicher lesbar oder strukturell ungueltig."""
+
+
 # ── Pfade ────────────────────────────────────────────────────────────────────
 
 def _git_common_dir() -> Path:
@@ -109,6 +114,14 @@ def _git_common_dir() -> Path:
 
 def registry_path() -> Path:
     return _git_common_dir() / "pb-agent-sessions.json"
+
+
+INITIALIZATION_MARKER_BYTES = b"pb-agent-sessions-v1\n"
+EMPTY_REGISTRY_BYTES = b'{\n  "sessions": []\n}\n'
+
+
+def initialization_marker_path() -> Path:
+    return _git_common_dir() / "pb-agent-sessions.initialized"
 
 
 def _lock_path() -> Path:
@@ -279,22 +292,305 @@ def _parse_ts(value: str) -> float:
 
 def _read_raw() -> dict:
     p = registry_path()
-    if not p.exists():
-        return {"sessions": []}
+    if not _read_initialization_marker():
+        raise RegistryReadError(
+            "Registry nicht initialisiert; explizit `bootstrap --migrate-existing` "
+            "oder `bootstrap --initialize-empty` ausfuehren"
+        )
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        # Korrupt (z.B. abgebrochener Schreibvorgang aus einer Alt-Version) ->
-        # verwerfen statt crashen. Schlimmster Fall: aktive Sessions vergessen,
-        # das ist reparabel; ein Crash im agent_start waere es nicht.
-        return {"sessions": []}
-    if not isinstance(data, dict) or not isinstance(data.get("sessions"), list):
-        return {"sessions": []}
+        p.stat()
+    except FileNotFoundError as exc:
+        raise RegistryReadError(
+            "Registry fehlt trotz vorhandenem Initialisierungsmarker"
+        ) from exc
+    except OSError as exc:
+        raise RegistryReadError(f"Registry-Status nicht lesbar: {exc}") from exc
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise RegistryReadError(
+            "Registry verschwand nach erfolgreicher Statuspruefung"
+        ) from exc
+    except UnicodeError as exc:
+        raise RegistryReadError(f"Registry ist nicht gueltiges UTF-8: {exc}") from exc
+    except OSError as exc:
+        raise RegistryReadError(f"Registry nicht lesbar: {exc}") from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RegistryReadError(f"Registry enthaelt ungueltiges JSON: {exc}") from exc
+    _validate_registry(data)
     return data
+
+
+def _read_initialization_marker() -> bool:
+    marker = initialization_marker_path()
+    try:
+        raw = marker.read_bytes()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise RegistryReadError(f"Registry-Marker nicht lesbar: {exc}") from exc
+    if raw != INITIALIZATION_MARKER_BYTES:
+        raise RegistryReadError("Registry-Marker hat unbekannte Version oder Bytes")
+    return True
+
+
+def _create_initialization_marker() -> None:
+    marker = initialization_marker_path()
+    if _read_initialization_marker():
+        raise RegistryReadError("Registry-Marker ist bereits vorhanden")
+    tmp = marker.with_name(f".{marker.name}.{uuid.uuid4().hex}.tmp")
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(str(tmp), flags)
+    except FileExistsError:
+        raise RegistryReadError("Einzigartige Registry-Marker-Tempdatei existiert")
+    except OSError as exc:
+        raise RegistryReadError(f"Registry-Marker nicht erstellbar: {exc}") from exc
+    try:
+        try:
+            _write_all(fd, INITIALIZATION_MARKER_BYTES, "Registry-Marker")
+            try:
+                os.fsync(fd)
+            except OSError as exc:
+                raise RegistryReadError(
+                    f"Registry-Marker nicht synchronisierbar: {exc}"
+                ) from exc
+        finally:
+            _close_fd_preserving_primary(fd, "Registry-Marker")
+        try:
+            os.link(str(tmp), str(marker))
+        except FileExistsError as exc:
+            raise RegistryReadError(
+                "Registry-Marker erschien waehrend atomarer Publikation"
+            ) from exc
+        except OSError as exc:
+            raise RegistryReadError(
+                f"Registry-Marker nicht atomar publizierbar: {exc}"
+            ) from exc
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _write_all(fd: int, data: bytes, label: str) -> None:
+    offset = 0
+    while offset < len(data):
+        try:
+            written = os.write(fd, data[offset:])
+        except OSError as exc:
+            raise RegistryReadError(f"{label} nicht schreibbar: {exc}") from exc
+        if written <= 0:
+            raise RegistryReadError(f"{label} wurde nur teilweise geschrieben")
+        offset += written
+
+
+def _close_fd_preserving_primary(fd: int, label: str) -> None:
+    primary_error_active = sys.exc_info()[0] is not None
+    try:
+        os.close(fd)
+    except OSError as exc:
+        if not primary_error_active:
+            raise RegistryReadError(f"{label} nicht schliessbar: {exc}") from exc
+
+
+def _read_all(fd: int, label: str) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        try:
+            chunk = os.read(fd, 64 * 1024)
+        except OSError as exc:
+            raise RegistryReadError(f"{label} nicht lesbar: {exc}") from exc
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _stat_identity(stat_result: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        stat_result.st_dev,
+        stat_result.st_ino,
+        stat_result.st_size,
+        stat_result.st_mtime_ns,
+    )
+
+
+def _remove_owned_file(path: Path, identity: tuple[int, int] | None) -> None:
+    if identity is None:
+        return
+    try:
+        current = path.stat()
+        if (current.st_dev, current.st_ino) == identity:
+            path.unlink()
+    except OSError:
+        pass
+
+
+def bootstrap_migrate_existing() -> None:
+    with _Lock():
+        if _read_initialization_marker():
+            raise RegistryReadError("Registry ist bereits initialisiert")
+        p = registry_path()
+        flags = os.O_RDONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        try:
+            fd = os.open(str(p), flags)
+        except FileNotFoundError as exc:
+            raise RegistryReadError("Bestehende Registry fehlt; Migration blockiert") from exc
+        except OSError as exc:
+            raise RegistryReadError(f"Bestehende Registry nicht oeffenbar: {exc}") from exc
+        try:
+            try:
+                before = os.fstat(fd)
+                raw = _read_all(fd, "Bestehende Registry")
+                after = os.fstat(fd)
+            except OSError as exc:
+                raise RegistryReadError(
+                    f"Bestehende Registry nicht attestierbar: {exc}"
+                ) from exc
+            if _stat_identity(before) != _stat_identity(after):
+                raise RegistryReadError("Registry-Identitaet aenderte sich beim Lesen")
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except UnicodeError as exc:
+                raise RegistryReadError(
+                    f"Bestehende Registry ist nicht gueltiges UTF-8: {exc}"
+                ) from exc
+            except json.JSONDecodeError as exc:
+                raise RegistryReadError(
+                    f"Bestehende Registry enthaelt ungueltiges JSON: {exc}"
+                ) from exc
+            _validate_registry(data)
+        finally:
+            _close_fd_preserving_primary(fd, "Bestehende Registry")
+        try:
+            path_stat = os.stat(str(p))
+        except OSError as exc:
+            raise RegistryReadError(
+                f"Registry-Pfad vor Migration nicht attestierbar: {exc}"
+            ) from exc
+        if _stat_identity(path_stat) != _stat_identity(after):
+            raise RegistryReadError("Registry-Identitaet driftete vor Markerpublikation")
+        _create_initialization_marker()
+
+
+def bootstrap_initialize_empty() -> None:
+    with _Lock():
+        if _read_initialization_marker():
+            raise RegistryReadError("Registry ist bereits initialisiert")
+        p = registry_path()
+        tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        identity: tuple[int, int] | None = None
+        try:
+            fd = os.open(str(tmp), flags)
+        except FileExistsError as exc:
+            raise RegistryReadError(
+                "Einzigartige Empty-Registry-Tempdatei existiert"
+            ) from exc
+        except OSError as exc:
+            raise RegistryReadError(
+                f"Empty-Registry-Tempdatei nicht erstellbar: {exc}"
+            ) from exc
+        try:
+            try:
+                try:
+                    owned = os.fstat(fd)
+                except OSError as exc:
+                    raise RegistryReadError(
+                        f"Empty-Registry-Tempdatei nicht attestierbar: {exc}"
+                    ) from exc
+                identity = (owned.st_dev, owned.st_ino)
+                _write_all(fd, EMPTY_REGISTRY_BYTES, "Leere Registry")
+                try:
+                    os.fsync(fd)
+                except OSError as exc:
+                    raise RegistryReadError(
+                        f"Leere Registry nicht synchronisierbar: {exc}"
+                    ) from exc
+            finally:
+                _close_fd_preserving_primary(fd, "Leere Registry")
+            try:
+                os.link(str(tmp), str(p))
+            except FileExistsError as exc:
+                raise RegistryReadError(
+                    "Registry existiert bereits; `bootstrap --migrate-existing` verwenden"
+                ) from exc
+            except OSError as exc:
+                raise RegistryReadError(
+                    f"Leere Registry nicht atomar publizierbar: {exc}"
+                ) from exc
+        finally:
+            _remove_owned_file(tmp, identity)
+        _create_initialization_marker()
+
+
+def _validate_registry(data: object) -> None:
+    if not isinstance(data, dict) or not isinstance(data.get("sessions"), list):
+        raise RegistryReadError("Registry-Top-Level oder sessions-Liste ungueltig")
+    seen_ids: set[str] = set()
+    for index, row in enumerate(data["sessions"]):
+        if not isinstance(row, dict):
+            raise RegistryReadError(f"Registry-Session {index} ist kein Objekt")
+        required_strings = (
+            "id", "agent", "task", "host", "branch", "worktree",
+            "started_at", "heartbeat",
+        )
+        if not all(isinstance(row.get(field), str) for field in required_strings):
+            raise RegistryReadError(f"Registry-Session {index}: Stringfelder ungueltig")
+        session_id = row["id"]
+        if len(session_id) != 32 or any(c not in "0123456789abcdef" for c in session_id):
+            raise RegistryReadError(f"Registry-Session {index}: id-Format ungueltig")
+        if session_id in seen_ids:
+            raise RegistryReadError(f"Registry-Session {index}: id doppelt")
+        seen_ids.add(session_id)
+        for field in ("started_at", "heartbeat"):
+            try:
+                parsed = datetime.fromisoformat(row[field])
+            except ValueError as exc:
+                raise RegistryReadError(
+                    f"Registry-Session {index}: {field} ungueltig"
+                ) from exc
+            if parsed.tzinfo is None:
+                raise RegistryReadError(
+                    f"Registry-Session {index}: {field} ohne Zeitzone"
+                )
+        pid = row.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid < 0:
+            raise RegistryReadError(f"Registry-Session {index}: pid ungueltig")
+        claims = row.get("claims")
+        if not isinstance(claims, list) or not all(isinstance(x, str) for x in claims):
+            raise RegistryReadError(f"Registry-Session {index}: claims ungueltig")
+        parent = row.get("parent_session_id")
+        if parent is not None and not isinstance(parent, str):
+            raise RegistryReadError(
+                f"Registry-Session {index}: parent_session_id ungueltig"
+            )
+        ancestors = row.get("ancestor_session_ids")
+        if not isinstance(ancestors, list) or not all(
+            isinstance(x, str) for x in ancestors
+        ):
+            raise RegistryReadError(
+                f"Registry-Session {index}: ancestor_session_ids ungueltig"
+            )
+        if not isinstance(row.get("forced"), bool) or not isinstance(
+            row.get("forced_lineage"), bool
+        ):
+            raise RegistryReadError(f"Registry-Session {index}: Boolflags ungueltig")
 
 
 def _write_raw(data: dict) -> None:
     """Atomar schreiben: erst tmp, dann os.replace (atomar auf NTFS + POSIX)."""
+    if not _read_initialization_marker():
+        raise RegistryReadError("Registry-Marker fehlt; operative Mutation blockiert")
     p = registry_path()
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -595,11 +891,14 @@ def claim(agent: str, task: str, files: list[str], branch: str | None = None,
         if conflicts and not force:
             return {}, conflicts
 
+        normalized_pid = int(pid or 0)
+        if normalized_pid < 0:
+            normalized_pid = 0
         session = {
             "id": uuid.uuid4().hex,
             "agent": agent,
             "task": task,
-            "pid": int(pid or 0),
+            "pid": normalized_pid,
             "host": platform.node(),
             "branch": branch or _git("rev-parse", "--abbrev-ref", "HEAD"),
             "worktree": worktree or _git("rev-parse", "--show-toplevel"),
@@ -715,9 +1014,25 @@ def main(argv: list[str] | None = None) -> int:
     ck.add_argument("--files", nargs="+", required=True)
     ck.add_argument("--ignore-id")
 
+    bootstrap = sub.add_parser(
+        "bootstrap", help="Registry explizit erstmalig initialisieren oder migrieren"
+    )
+    bootstrap_mode = bootstrap.add_mutually_exclusive_group(required=True)
+    bootstrap_mode.add_argument("--migrate-existing", action="store_true")
+    bootstrap_mode.add_argument("--initialize-empty", action="store_true")
+
     a = ap.parse_args(argv)
 
     try:
+        if a.cmd == "bootstrap":
+            if a.migrate_existing:
+                bootstrap_migrate_existing()
+                print("Bootstrap abgeschlossen: bestehende Registry migriert.")
+            else:
+                bootstrap_initialize_empty()
+                print("Bootstrap abgeschlossen: leere Registry initialisiert.")
+            return EXIT_OK
+
         if a.cmd == "status":
             sessions = status()
             if not sessions:
@@ -788,6 +1103,9 @@ def main(argv: list[str] | None = None) -> int:
             release(a.id)   # idempotent: schon weg ist auch ok
             return EXIT_OK
 
+    except RegistryReadError as e:
+        print(f"FEHLER: Registry nicht sicher lesbar: {e}", file=sys.stderr)
+        return EXIT_ERROR
     except TimeoutError as e:
         print(f"FEHLER: {e}", file=sys.stderr)
         return EXIT_ERROR

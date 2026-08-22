@@ -45,12 +45,19 @@ if (-not $verifyPython) {
 # "dirty worktree" waere die irrefuehrende.
 Write-Section "Agent Sessions"
 & $verifyPython "tools\agent_session.py" guard --worktree $repoRoot
-if ($LASTEXITCODE -eq 2) {
+$agentGuardExit = $LASTEXITCODE
+if ($agentGuardExit -eq 2) {
     Write-Host ""
     Write-Host "BLOCKED: another agent is already working in THIS worktree."
     Write-Host "Ein evtl. dirty Worktree ist WAHRSCHEINLICH SEINE Arbeit."
     Write-Host "NICHT committen, NICHT stashen, NICHT loeschen."
     exit 8
+}
+if ($agentGuardExit -ne 0) {
+    Write-Host ""
+    Write-Host "BLOCKED: agent session registry guard failed (exit $agentGuardExit)."
+    Write-Host "Registry nicht ueberschreiben oder als leer behandeln. Ursache zuerst klaeren."
+    exit 9
 }
 Write-Host ""
 Write-Host "Tipp: Dateien VOR der Arbeit beanspruchen - dann schuetzt der"

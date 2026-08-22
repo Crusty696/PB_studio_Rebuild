@@ -16,6 +16,7 @@ realen Vorfall oder eine reale Falle ab:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -34,6 +35,8 @@ from tools import agent_session as ag  # noqa: E402
 def _isolated_registry(tmp_path, monkeypatch):
     """Registry in einen tmp-Ordner umlenken — nie die echte anfassen."""
     monkeypatch.setattr(ag, "_git_common_dir", lambda: tmp_path)
+    ag.registry_path().write_text('{"sessions": []}', encoding="utf-8")
+    ag.initialization_marker_path().write_bytes(ag.INITIALIZATION_MARKER_BYTES)
     yield
 
 
@@ -252,12 +255,501 @@ def test_check_ignores_own_session():
 
 # ── Idiotensicherheit ────────────────────────────────────────────────────────
 
-def test_corrupt_registry_does_not_crash():
-    """Eine kaputte Datei darf agent_start NIE blockieren."""
-    ag.registry_path().write_text("{kaputt: [", encoding="utf-8")
+@pytest.mark.parametrize("raw", [b"{kaputt: [", b"\xff\xfe"])
+def test_corrupt_registry_fails_closed_without_overwrite(raw):
+    ag.registry_path().write_bytes(raw)
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.claim("agent-a", "t", ["x.py"])
+
+    assert ag.registry_path().read_bytes() == raw
+
+
+@pytest.mark.parametrize(
+    "read_error",
+    [PermissionError("transient registry read failure"), FileNotFoundError("vanished")],
+)
+def test_transient_registry_read_error_preserves_and_recovers_claim(
+    monkeypatch, read_error
+):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    raw = registry.read_bytes()
+    real_read_text = Path.read_text
+    failed = False
+
+    def flaky_read_text(path, *args, **kwargs):
+        nonlocal failed
+        if path == registry and not failed:
+            failed = True
+            raise read_error
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+    assert registry.read_bytes() == raw
+
+    second, conflicts = ag.claim("other", "conflict", ["ui/timeline.py"])
+    assert not second and conflicts and conflicts[0]["agent"] == "owner"
+
+
+def test_operational_missing_marker_and_registry_fails_closed():
+    ag.initialization_marker_path().unlink()
+    ag.registry_path().unlink()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+    assert not ag.registry_path().exists()
+    assert not ag.initialization_marker_path().exists()
+
+
+def test_initialized_missing_registry_fails_closed():
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    marker = ag.initialization_marker_path()
+    assert marker.read_bytes() == ag.INITIALIZATION_MARKER_BYTES
+    ag.registry_path().unlink()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+
+def test_registry_stat_error_fails_closed(monkeypatch):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    raw = registry.read_bytes()
+    real_stat = Path.stat
+
+    def failing_stat(path, *args, **kwargs):
+        if path == registry:
+            raise PermissionError("registry stat denied")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", failing_stat)
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+    assert registry.read_bytes() == raw
+
+
+def test_markerless_legacy_registry_blocks_without_mutation():
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    marker = ag.initialization_marker_path()
+    marker.unlink()
+    raw = ag.registry_path().read_bytes()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+    assert ag.registry_path().read_bytes() == raw
+    assert not marker.exists()
+
+
+def test_markerless_legacy_registry_stat_false_missing_fails_closed(monkeypatch):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    raw = registry.read_bytes()
+    marker = ag.initialization_marker_path()
+    marker.unlink()
+    real_stat = Path.stat
+
+    def false_missing_stat(path, *args, **kwargs):
+        if path == registry:
+            raise FileNotFoundError("legacy registry falsely missing")
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", false_missing_stat)
+    with pytest.raises(ag.RegistryReadError):
+        ag.claim("other", "conflict", ["ui/timeline.py"])
+
+    assert registry.read_bytes() == raw
+    assert not marker.exists()
+
+
+def test_invalid_initialization_marker_fails_closed():
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    marker = ag.initialization_marker_path()
+    marker.write_bytes(b"unknown-version\n")
+    raw = ag.registry_path().read_bytes()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+    assert ag.registry_path().read_bytes() == raw
+
+
+def test_initialization_marker_read_error_fails_closed(monkeypatch):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    marker = ag.initialization_marker_path()
+    registry = ag.registry_path()
+    raw = registry.read_bytes()
+    real_read_bytes = Path.read_bytes
+
+    def failing_read_bytes(path, *args, **kwargs):
+        if path == marker:
+            raise PermissionError("registry marker read denied")
+        return real_read_bytes(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", failing_read_bytes)
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+    assert registry.read_bytes() == raw
+
+
+def test_bootstrap_initialize_empty_success():
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    registry.unlink()
+    marker.unlink()
+
+    ag.bootstrap_initialize_empty()
+
+    assert json.loads(registry.read_text(encoding="utf-8")) == {"sessions": []}
+    assert marker.read_bytes() == ag.INITIALIZATION_MARKER_BYTES
     assert ag.status() == []
-    s, _ = ag.claim("agent-a", "t", ["x.py"])
-    assert s
+
+
+def test_bootstrap_initialize_fstat_error_is_retryable_without_traceback(
+    monkeypatch, capsys
+):
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    registry.unlink()
+    marker.unlink()
+    real_open = os.open
+    real_fstat = os.fstat
+    registry_temp_fd = None
+
+    def tracking_open(path, flags, *args, **kwargs):
+        nonlocal registry_temp_fd
+        fd = real_open(path, flags, *args, **kwargs)
+        name = Path(path).name
+        if name.startswith(".pb-agent-sessions.json.") and name.endswith(".tmp"):
+            registry_temp_fd = fd
+        return fd
+
+    def failing_fstat(fd):
+        if fd == registry_temp_fd:
+            raise OSError("registry temp fstat denied")
+        return real_fstat(fd)
+
+    monkeypatch.setattr(os, "open", tracking_open)
+    monkeypatch.setattr(os, "fstat", failing_fstat)
+    assert ag.main(["bootstrap", "--initialize-empty"]) == ag.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert "registry temp fstat denied" in captured.err
+    assert "Traceback" not in captured.err
+    assert not registry.exists()
+    assert not marker.exists()
+
+    monkeypatch.setattr(os, "open", real_open)
+    monkeypatch.setattr(os, "fstat", real_fstat)
+    assert ag.main(["bootstrap", "--initialize-empty"]) == ag.EXIT_OK
+
+
+def test_bootstrap_initialize_partial_write_is_retryable(monkeypatch):
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    registry.unlink()
+    marker.unlink()
+    real_write = os.write
+    registry_fd = None
+    calls = 0
+
+    def partial_then_fail(fd, data):
+        nonlocal registry_fd, calls
+        if registry_fd is None and data != ag.EMPTY_REGISTRY_BYTES:
+            return real_write(fd, data)
+        if registry_fd is None:
+            registry_fd = fd
+        if fd != registry_fd:
+            return real_write(fd, data)
+        calls += 1
+        if calls == 1:
+            return real_write(fd, data[:1])
+        raise PermissionError("empty registry write denied")
+
+    monkeypatch.setattr(os, "write", partial_then_fail)
+    with pytest.raises(ag.RegistryReadError, match="empty registry write denied"):
+        ag.bootstrap_initialize_empty()
+    assert not registry.exists()
+    assert not marker.exists()
+
+    monkeypatch.setattr(os, "write", real_write)
+    ag.bootstrap_initialize_empty()
+    assert ag.status() == []
+
+
+def test_bootstrap_initialize_link_error_is_retryable(monkeypatch):
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    registry.unlink()
+    marker.unlink()
+    real_link = os.link
+    failed = False
+
+    def failing_registry_link(source, destination, *args, **kwargs):
+        nonlocal failed
+        if Path(destination) == registry and not failed:
+            failed = True
+            raise PermissionError("empty registry publish denied")
+        return real_link(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, "link", failing_registry_link)
+    with pytest.raises(ag.RegistryReadError, match="empty registry publish denied"):
+        ag.bootstrap_initialize_empty()
+    assert not registry.exists()
+    assert not marker.exists()
+
+    ag.bootstrap_initialize_empty()
+    assert ag.status() == []
+
+
+@pytest.mark.parametrize("existing", ["registry", "marker"])
+def test_bootstrap_initialize_empty_refuses_existing_state(existing):
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    if existing == "registry":
+        marker.unlink()
+        original = registry.read_bytes()
+    else:
+        registry.unlink()
+        original = marker.read_bytes()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.bootstrap_initialize_empty()
+
+    path = registry if existing == "registry" else marker
+    assert path.read_bytes() == original
+
+
+def test_bootstrap_migrate_preserves_registry_bytes_and_claims():
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    raw = registry.read_bytes()
+    marker.unlink()
+
+    ag.bootstrap_migrate_existing()
+
+    assert registry.read_bytes() == raw
+    assert marker.read_bytes() == ag.INITIALIZATION_MARKER_BYTES
+    assert ag.status()[0]["agent"] == "owner"
+
+
+@pytest.mark.parametrize(
+    "open_error", [FileNotFoundError("vanished"), PermissionError("denied")]
+)
+def test_bootstrap_migrate_open_error_leaves_no_marker(monkeypatch, open_error):
+    marker = ag.initialization_marker_path()
+    marker.unlink()
+    real_open = os.open
+
+    def failing_open(path, flags, *args, **kwargs):
+        if Path(path) == ag.registry_path():
+            raise open_error
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", failing_open)
+    with pytest.raises(ag.RegistryReadError):
+        ag.bootstrap_migrate_existing()
+
+    assert not marker.exists()
+
+
+def test_bootstrap_migrate_identity_drift_leaves_no_marker(monkeypatch):
+    marker = ag.initialization_marker_path()
+    marker.unlink()
+    real_stat = os.stat
+
+    def drifting_stat(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if Path(path) == ag.registry_path():
+            values = list(result)
+            values[1] += 1
+            return os.stat_result(values)
+        return result
+
+    monkeypatch.setattr(os, "stat", drifting_stat)
+    with pytest.raises(ag.RegistryReadError, match="Identitaet"):
+        ag.bootstrap_migrate_existing()
+
+    assert not marker.exists()
+
+
+def test_partial_marker_write_never_publishes_final_marker(monkeypatch):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    raw = registry.read_bytes()
+    marker.unlink()
+    real_write = os.write
+    calls = 0
+    marker_fd = None
+
+    def partial_then_fail(fd, data):
+        nonlocal calls, marker_fd
+        if marker_fd is None and data != ag.INITIALIZATION_MARKER_BYTES:
+            return real_write(fd, data)
+        if marker_fd is None:
+            marker_fd = fd
+        if fd != marker_fd:
+            return real_write(fd, data)
+        calls += 1
+        if calls == 1:
+            return real_write(fd, data[:1])
+        raise PermissionError("marker write denied")
+
+    monkeypatch.setattr(os, "write", partial_then_fail)
+    with pytest.raises(ag.RegistryReadError, match="marker write denied"):
+        ag.bootstrap_migrate_existing()
+
+    assert registry.read_bytes() == raw
+    assert not marker.exists()
+    monkeypatch.setattr(os, "write", real_write)
+    ag.bootstrap_migrate_existing()
+    assert ag.status()[0]["agent"] == "owner"
+
+
+def test_marker_close_error_does_not_mask_primary_write_error(monkeypatch):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    marker = ag.initialization_marker_path()
+    marker.unlink()
+    real_write = os.write
+    real_close = os.close
+    marker_fd = None
+
+    def failing_write(fd, data):
+        nonlocal marker_fd
+        if data != ag.INITIALIZATION_MARKER_BYTES:
+            return real_write(fd, data)
+        marker_fd = fd
+        raise PermissionError("marker write denied")
+
+    def failing_close(fd):
+        real_close(fd)
+        if fd == marker_fd:
+            raise OSError("marker close failed")
+
+    monkeypatch.setattr(os, "write", failing_write)
+    monkeypatch.setattr(os, "close", failing_close)
+
+    with pytest.raises(ag.RegistryReadError, match="marker write denied"):
+        ag.bootstrap_migrate_existing()
+
+    assert not marker.exists()
+
+
+def test_cli_bootstrap_requires_exactly_one_mode():
+    with pytest.raises(SystemExit) as missing:
+        ag.main(["bootstrap"])
+    assert missing.value.code == 2
+
+    with pytest.raises(SystemExit) as both:
+        ag.main(["bootstrap", "--migrate-existing", "--initialize-empty"])
+    assert both.value.code == 2
+
+
+def test_cli_bootstrap_modes_are_wired(capsys):
+    registry = ag.registry_path()
+    marker = ag.initialization_marker_path()
+    registry.unlink()
+    marker.unlink()
+
+    assert ag.main(["bootstrap", "--initialize-empty"]) == ag.EXIT_OK
+    assert marker.read_bytes() == ag.INITIALIZATION_MARKER_BYTES
+
+    marker.unlink()
+    raw = registry.read_bytes()
+    assert ag.main(["bootstrap", "--migrate-existing"]) == ag.EXIT_OK
+    assert registry.read_bytes() == raw
+    assert marker.read_bytes() == ag.INITIALIZATION_MARKER_BYTES
+    assert "Bootstrap" in capsys.readouterr().out
+
+
+def test_cli_missing_marker_reports_explicit_recovery(capsys):
+    ag.initialization_marker_path().unlink()
+
+    assert ag.main(["status"]) == ag.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert "--migrate-existing" in captured.err
+    assert "--initialize-empty" in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    "mutation", ["top-level-list", "sessions-dict", "empty-row", "claims-string"]
+)
+def test_invalid_session_schema_fails_closed_without_overwrite(mutation):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    registry = ag.registry_path()
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    if mutation == "top-level-list":
+        data = []
+    elif mutation == "sessions-dict":
+        data["sessions"] = {}
+    elif mutation == "empty-row":
+        data["sessions"] = [{}]
+    else:
+        data["sessions"][0]["claims"] = "ui/timeline.py"
+    registry.write_text(json.dumps(data), encoding="utf-8")
+    raw = registry.read_bytes()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.status()
+
+    assert registry.read_bytes() == raw
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "invalid-format"])
+def test_invalid_or_duplicate_session_ids_fail_closed(mutation):
+    ag.claim("owner", "active", ["ui/timeline.py"])
+    ag.claim("other", "active", ["services/export.py"])
+    registry = ag.registry_path()
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    if mutation == "duplicate":
+        data["sessions"][1]["id"] = data["sessions"][0]["id"]
+    else:
+        data["sessions"][0]["id"] = "not-a-writer-id"
+    registry.write_text(json.dumps(data), encoding="utf-8")
+    raw = registry.read_bytes()
+
+    with pytest.raises(ag.RegistryReadError):
+        ag.release(data["sessions"][0]["id"])
+
+    assert registry.read_bytes() == raw
+
+
+def test_negative_pid_writer_roundtrips_as_unspecified():
+    session, conflicts = ag.claim("owner", "active", ["x.py"], pid=-1)
+
+    assert session and not conflicts and session["pid"] == 0
+    assert ag.status()[0]["pid"] == 0
+
+
+@pytest.mark.parametrize("raw", [b"{kaputt: [", b"\xff\xfe"])
+def test_cli_registry_error_returns_one_without_traceback(capsys, raw):
+    ag.registry_path().write_bytes(raw)
+
+    assert ag.main(["status"]) == ag.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert "Registry" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_wrappers_block_all_registry_errors_before_success_messages():
+    start = (REPO_ROOT / "tools" / "agent_start.ps1").read_text(encoding="utf-8")
+    handoff = (REPO_ROOT / "tools" / "agent_handoff.ps1").read_text(encoding="utf-8")
+
+    assert "$agentGuardExit = $LASTEXITCODE" in start
+    assert "if ($agentGuardExit -ne 0)" in start
+    assert "$sessionReleaseExit = $LASTEXITCODE" in handoff
+    assert "if ($sessionReleaseExit -ne 0)" in handoff
+    assert "$sessionStatusExit = $LASTEXITCODE" in handoff
+    assert "if ($sessionStatusExit -ne 0)" in handoff
+    assert handoff.index("if ($sessionReleaseExit -ne 0)") < handoff.index("Session freigegeben")
+    assert handoff.index("if ($sessionStatusExit -ne 0)") < handoff.index("OK: clean handoff state")
 
 
 def test_stale_lock_is_broken():

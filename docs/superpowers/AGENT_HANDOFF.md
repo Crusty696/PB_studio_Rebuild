@@ -2,6 +2,26 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-852 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-852 fachlich reviewter Code-Snapshot: `5cdbb1a`. Governance-Handoff und
+  Pflichtlektion liegen im aktuellen `HEAD` (`git log -1 --oneline`).
+- B-852 verhindert False-PASS/Claim-Verlust bei Registry-Lese-, Schema- und
+  Missing-Fehlern. Operative Befehle verlangen gültigen Marker + Registry.
+- Erstzustand nur explizit: `agent_session.py bootstrap --initialize-empty`;
+  Legacy nur `--migrate-existing`. Kein Auto-Bootstrap in Start/Handoff.
+- Registry/Marker: unique Temp, vollständiger Write, fsync, kontrollierter
+  Close, no-overwrite Hardlink. Migration descriptor-/identity-gebunden.
+- Belege: direkte Registry-Komponente 62/62 grün; PyCompile, Ruff,
+  PowerShell-Parser, Diffcheck grün; Compliance/Code/Runtime FINAL-GO ohne
+  Critical/High/Medium/Low-Rest.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: isolierte echte CLI-Prozesspfade für beschädigte/missing Registry,
+  Start/Handoff und beide Bootstrapmodi.
+- Nächster sequenzieller Phase--1-Fix: B-853 Reviewer-Contract-Typcrash bei
+  Enrollment. Produkt-Audit/App-Fixes bleiben bis Phase--1-Gate und realer
+  Trust-Authority gesperrt.
+
 > ## AKTUELLSTE ÜBERGABE — Claude Code an Codex, 2026-08-15
 >
 > **Vollständige Übergabe:

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5888ed401e044315aaa27163b94d5986",
+  "recorded_at": "2026-08-22T16:45:54+00:00",
+  "session_id": "6c03fb7ec4f8484c82ee74f168930d47",
+  "head_at_start": "6678ddc74062a47adeacaddd8df86a947a38e175",
+  "problem": "Session-Registry behandelte markerlosen Missing-/Lesefehlerzustand als leer und konnte aktive Claims ueberschreiben.",
+  "cause": "Impliziter Virgin-/Legacy-Backfill versuchte aus fehlendem Marker plus FileNotFound auf sichere Erstinitialisierung zu schliessen; direkte Finaldatei-Publikation hinterliess bei Teilfehlern unrecoverbare Zustaende.",
+  "rule": "Persistente Koordinations-Registry nie aus Missing implizit initialisieren: operative Pfade fail-closed; Erstinitialisierung/Migration explizit trennen; Registry und Attestierungsmarker vollstaendig in unique Temp schreiben und atomar no-overwrite publizieren.",
+  "applies_to": "Agent-Session-Registry, Prozesskoordination, Lock-/Sentinel-Dateien, Bootstrap-/Migrationspfade"
+}
