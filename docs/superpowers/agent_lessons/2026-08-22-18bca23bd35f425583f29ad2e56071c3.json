@@ -1,0 +1,10 @@
+{
+  "lesson_id": "18bca23bd35f425583f29ad2e56071c3",
+  "recorded_at": "2026-08-22T17:58:49+00:00",
+  "session_id": "e6e9941882b54c2b8cae23bf81d7935d",
+  "head_at_start": "66a496ceab2f0e665633962f5d5006e974611306",
+  "problem": "Lock-Exit sollte eigenen Payload leeren und bei Cleanupfehlern Descriptor zuverlässig freigeben.",
+  "cause": "self._fd wurde vor Ownerprüfung gelöscht; nach Aktivierung der Prüfung konnten sequentielle Cleanup-Aufrufe bei unerwartetem Unlockfehler os.close überspringen.",
+  "rule": "Ownerprüfung aus offenem Descriptor durchführen; eigene Payload nur bei bestätigter Token/PID/Path-Identity leeren; Unlock und Close verschachtelt in try/finally ausführen und Primärfehleridentität bewahren.",
+  "applies_to": "Dateibasierte Interprozess-Locks und Context-Manager-Cleanup"
+}

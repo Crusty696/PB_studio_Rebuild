@@ -260,14 +260,34 @@ class _Lock:
 
     def __exit__(self, *exc) -> None:
         fd = self._fd
-        self._fd = None
         if fd is None:
             return
-        owner = self._owner()
-        if owner:
-            _write_lock_payload(fd, b"")
-        _unlock_fd(fd)
-        os.close(fd)
+        cleanup_error: OSError | None = None
+        try:
+            try:
+                owner = self._owner()
+            except OSError as error:
+                cleanup_error = error
+                owner = False
+            if owner:
+                try:
+                    _write_lock_payload(fd, b"")
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+        finally:
+            self._fd = None
+            try:
+                try:
+                    _unlock_fd(fd)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+            finally:
+                try:
+                    os.close(fd)
+                except OSError as error:
+                    cleanup_error = cleanup_error or error
+        if exc[0] is None and cleanup_error is not None:
+            raise cleanup_error
 
     def _owner_with_fd(self, fd: int) -> bool:
         try:

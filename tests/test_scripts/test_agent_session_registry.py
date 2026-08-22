@@ -773,6 +773,193 @@ def test_lock_exit_never_removes_foreign_owner_payload():
     assert ag._read_lock_payload(lock) == b"foreign-owner"
 
 
+def test_lock_exit_clears_own_payload_and_allows_reacquire():
+    """Normaler Exit leert nur eigenen Payload und gibt Kernel-Lock frei."""
+    guard = ag._Lock()
+    guard.__enter__()
+    lock = ag._lock_path()
+    payload = ag._read_lock_payload_fd(guard._fd)
+    assert json.loads(payload.decode("utf-8")) == json.loads(
+        guard._payload().decode("utf-8")
+    )
+
+    guard.__exit__(None, None, None)
+
+    assert lock.exists()
+    assert ag._read_lock_payload(lock) == b""
+    assert guard._fd is None
+
+    second = ag._Lock()
+    second.__enter__()
+    assert second._fd is not None
+    second.__exit__(None, None, None)
+
+
+def test_lock_exit_owner_read_error_still_unlocks_and_closes(monkeypatch):
+    guard = ag._Lock()
+    guard.__enter__()
+    fd = guard._fd
+    lock = ag._lock_path()
+    original = ag._read_lock_payload_fd(fd)
+    primary = PermissionError("owner-read")
+    real_unlock = ag._unlock_fd
+    real_close = ag.os.close
+    unlocked: list[int] = []
+    closed: list[int] = []
+
+    def tracked_unlock(value: int) -> None:
+        unlocked.append(value)
+        real_unlock(value)
+
+    def tracked_close(value: int) -> None:
+        closed.append(value)
+        real_close(value)
+
+    monkeypatch.setattr(guard, "_owner", lambda: (_ for _ in ()).throw(primary))
+    monkeypatch.setattr(ag, "_unlock_fd", tracked_unlock)
+    monkeypatch.setattr(ag.os, "close", tracked_close)
+    try:
+        with pytest.raises(PermissionError) as raised:
+            guard.__exit__(None, None, None)
+        assert raised.value is primary
+        assert guard._fd is None
+        assert unlocked == [fd]
+        assert closed == [fd]
+        assert ag._read_lock_payload(lock) == original
+    finally:
+        if fd not in closed:
+            real_unlock(fd)
+            real_close(fd)
+            guard._fd = None
+
+
+def test_lock_exit_clear_error_still_unlocks_and_closes(monkeypatch):
+    guard = ag._Lock()
+    guard.__enter__()
+    fd = guard._fd
+    lock = ag._lock_path()
+    original = ag._read_lock_payload_fd(fd)
+    primary = PermissionError("clear")
+    real_write = ag._write_lock_payload
+    real_unlock = ag._unlock_fd
+    real_close = ag.os.close
+    unlocked: list[int] = []
+    closed: list[int] = []
+
+    def fail_clear(value: int, payload: bytes) -> None:
+        if payload == b"":
+            raise primary
+        real_write(value, payload)
+
+    def tracked_unlock(value: int) -> None:
+        unlocked.append(value)
+        real_unlock(value)
+
+    def tracked_close(value: int) -> None:
+        closed.append(value)
+        real_close(value)
+
+    monkeypatch.setattr(ag, "_write_lock_payload", fail_clear)
+    monkeypatch.setattr(ag, "_unlock_fd", tracked_unlock)
+    monkeypatch.setattr(ag.os, "close", tracked_close)
+    try:
+        with pytest.raises(PermissionError) as raised:
+            guard.__exit__(None, None, None)
+        assert raised.value is primary
+        assert guard._fd is None
+        assert unlocked == [fd]
+        assert closed == [fd]
+        assert ag._read_lock_payload(lock) == original
+    finally:
+        if fd not in closed:
+            real_unlock(fd)
+            real_close(fd)
+            guard._fd = None
+
+
+def test_lock_exit_body_error_wins_over_clear_error(monkeypatch):
+    guard = ag._Lock()
+    guard.__enter__()
+    fd = guard._fd
+    body_primary = ValueError("body-primary")
+    cleanup_error = PermissionError("clear")
+    real_write = ag._write_lock_payload
+    real_unlock = ag._unlock_fd
+    real_close = ag.os.close
+    unlocked: list[int] = []
+    closed: list[int] = []
+
+    def fail_clear(value: int, payload: bytes) -> None:
+        if payload == b"":
+            raise cleanup_error
+        real_write(value, payload)
+
+    def tracked_unlock(value: int) -> None:
+        unlocked.append(value)
+        real_unlock(value)
+
+    def tracked_close(value: int) -> None:
+        closed.append(value)
+        real_close(value)
+
+    monkeypatch.setattr(ag, "_write_lock_payload", fail_clear)
+    monkeypatch.setattr(ag, "_unlock_fd", tracked_unlock)
+    monkeypatch.setattr(ag.os, "close", tracked_close)
+    try:
+        with pytest.raises(ValueError) as raised:
+            try:
+                raise body_primary
+            except ValueError as exc:
+                guard.__exit__(ValueError, exc, exc.__traceback__)
+                raise
+        assert raised.value is body_primary
+        assert guard._fd is None
+        assert unlocked == [fd]
+        assert closed == [fd]
+    finally:
+        if fd not in closed:
+            real_unlock(fd)
+            real_close(fd)
+            guard._fd = None
+
+
+def test_lock_exit_unexpected_unlock_error_still_closes_and_reacquires(monkeypatch):
+    guard = ag._Lock()
+    guard.__enter__()
+    fd = guard._fd
+    primary = RuntimeError("unexpected-unlock")
+    real_unlock = ag._unlock_fd
+    real_close = ag.os.close
+    closed: list[int] = []
+
+    def fail_unlock(value: int) -> None:
+        raise primary
+
+    def tracked_close(value: int) -> None:
+        closed.append(value)
+        real_close(value)
+
+    monkeypatch.setattr(ag, "_unlock_fd", fail_unlock)
+    monkeypatch.setattr(ag.os, "close", tracked_close)
+    try:
+        with pytest.raises(RuntimeError) as raised:
+            guard.__exit__(None, None, None)
+        assert raised.value is primary
+        assert guard._fd is None
+        assert closed == [fd]
+    finally:
+        monkeypatch.undo()
+        if fd not in closed:
+            real_unlock(fd)
+            real_close(fd)
+            guard._fd = None
+
+    second = ag._Lock()
+    second.__enter__()
+    assert second._fd is not None
+    second.__exit__(None, None, None)
+
+
 def test_write_is_atomic_no_tmp_left():
     ag.claim("agent-a", "t", ["x.py"])
     assert not list(ag.registry_path().parent.glob("*.tmp")), "tmp-Datei blieb liegen"
