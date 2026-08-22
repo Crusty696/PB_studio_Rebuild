@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-858 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-858 Code-/Testcommit: `214b17d`.
+- Runtime-Harness validiert `dependencies.stdlib_modules` und Scenario-
+  `required_stdlib_modules` vollständig als Listen nichtleerer Strings, bevor
+  Duplicate- oder Exact-Set-Prüfungen `set()` verwenden. Bestehende
+  Duplicate-/Exact-Set-Semantik blieb unverändert.
+- Belege: zwei echte RED-CLI-Typcrashfälle; danach gezielt `3 passed, 2
+  subtests passed`; exakte feldspezifische Exit-2-Fehler ohne Traceback,
+  stdout, Evidence-Mutation oder Run-Verzeichnis; B-850-Regression und
+  gültiger nichtleerer Positivfall grün; Ruff, PyCompile, Diffcheck sowie
+  Compliance- und Code-FINAL-GO ohne C/H/M/L.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter separater CLI-Prozess im produktionsnahen Authority-/Registry-
+  Pfad.
+- Nächster sequenzieller Phase--1-Fix: B-859 Readiness-Artefaktrows/-pfade vor
+  Set- und Basis-Nutzung validieren.
+
 ## B-857 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-857 Code-/Testcommit: `cb9c277`.
