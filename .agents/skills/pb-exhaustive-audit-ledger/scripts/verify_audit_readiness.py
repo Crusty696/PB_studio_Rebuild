@@ -410,19 +410,19 @@ def _verify_attestation_bundle(
         )
 
 
-def verify_readiness(
+def _verify_readiness_result(
     root: Path, manifest_path: Path, *, authority_commit: str | None = None,
     expected_authority_commit: str | None = None, verify_bundle: bool = True,
-) -> list[str]:
+) -> tuple[list[str], str | None, dict[str, Any] | None]:
     root = root.resolve()
     authority, authority_errors = _load_authority_policy(
         root, authority_commit, expected_authority_commit,
     )
     if authority_errors:
-        return authority_errors
+        return authority_errors, None, None
     manifest, manifest_errors = _load_readiness_manifest(manifest_path)
     if manifest_errors:
-        return manifest_errors
+        return manifest_errors, None, None
 
     errors: list[str] = []
     if set(manifest) != MANIFEST_FIELDS:
@@ -449,18 +449,37 @@ def verify_readiness(
     except (subprocess.CalledProcessError, OSError, UnicodeError):
         errors.append("tooling_commit existiert nicht als Commit")
 
-    rows = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), list) else []
-    paths = [row.get("path") for row in rows if isinstance(row, dict)]
+    artifact_value = manifest.get("artifacts")
+    if not isinstance(artifact_value, list):
+        errors.append("Artefaktliste ungueltig")
+        return errors, None, None
+    rows: list[dict[str, Any]] = []
+    invalid_row = False
+    for row in artifact_value:
+        if (
+            not isinstance(row, dict)
+            or set(row) != MANIFEST_ARTIFACT_FIELDS
+            or not isinstance(row.get("path"), str)
+            or not row["path"]
+            or row["path"] not in REQUIRED_ARTIFACTS
+            or not isinstance(row.get("run_id"), str)
+            or not isinstance(row.get("tooling_commit"), str)
+            or not isinstance(row.get("sha256"), str)
+            or type(row.get("bytes")) is not int
+            or row["bytes"] < 0
+        ):
+            errors.append("Artefaktzeile ungueltig/fremd")
+            invalid_row = True
+            continue
+        rows.append(row)
+    if invalid_row:
+        return errors, None, None
+
+    paths = [row["path"] for row in rows]
     if set(paths) != REQUIRED_ARTIFACTS or len(paths) != len(REQUIRED_ARTIFACTS):
         errors.append("Artefaktmenge entspricht nicht exakt Phase-minus-1-Vertrag")
     for row in rows:
-        if (
-            not isinstance(row, dict) or set(row) != MANIFEST_ARTIFACT_FIELDS
-            or row.get("path") not in REQUIRED_ARTIFACTS
-        ):
-            errors.append("Artefaktzeile ungueltig/fremd")
-            continue
-        path = str(row["path"])
+        path = row["path"]
         if row.get("run_id") != run_id or row.get("tooling_commit") != commit:
             errors.append(f"{path}: run_id/tooling_commit weicht ab")
         try:
@@ -487,14 +506,31 @@ def verify_readiness(
         errors.append("attestation_bundle_path muss absolut sein")
     bundle, bundle_errors = _load_bundle_manifest(bundle_path, bundle_sha)
     errors.extend(bundle_errors)
+    if errors:
+        return errors, None, None
     basis = _basis(manifest, rows, roster_sha, authority)
-    if not errors:
-        errors.extend(_run_gates(root, commit, authority))
-    if not errors and verify_bundle:
+    errors.extend(_run_gates(root, commit, authority))
+    if errors:
+        return errors, None, None
+    if verify_bundle:
         errors.extend(_verify_attestation_bundle(
             root, bundle, authority, basis_sha256=basis,
             roster_path=roster_path, tooling_commit=commit,
         ))
+    if errors:
+        return errors, None, None
+    return [], basis, dict(authority)
+
+
+def verify_readiness(
+    root: Path, manifest_path: Path, *, authority_commit: str | None = None,
+    expected_authority_commit: str | None = None, verify_bundle: bool = True,
+) -> list[str]:
+    errors, _, _ = _verify_readiness_result(
+        root, manifest_path, authority_commit=authority_commit,
+        expected_authority_commit=expected_authority_commit,
+        verify_bundle=verify_bundle,
+    )
     return errors
 
 
@@ -506,7 +542,7 @@ def main() -> int:
     parser.add_argument("--expected-authority-commit", required=True)
     parser.add_argument("--print-basis", action="store_true")
     args = parser.parse_args()
-    errors = verify_readiness(
+    errors, basis, authority = _verify_readiness_result(
         args.root, args.manifest, authority_commit=args.authority_commit,
         expected_authority_commit=args.expected_authority_commit,
         verify_bundle=not args.print_basis,
@@ -515,17 +551,9 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}")
         return 2
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    authority, authority_errors = _load_authority_policy(
-        args.root, args.authority_commit, args.expected_authority_commit,
-    )
-    if authority_errors:
-        for error in authority_errors:
-            print(f"ERROR: {error}")
+    if basis is None or authority is None:
+        print("ERROR: Readiness-Ergebnis unvollstaendig")
         return 2
-    basis = _basis(
-        manifest, list(manifest["artifacts"]), str(manifest["reviewer_roster_sha256"]), authority,
-    )
     if args.print_basis:
         print(basis)
         return 0

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8815c4be454f41089c2fa97e8f963689",
+  "recorded_at": "2026-08-22T20:07:16+00:00",
+  "session_id": "a10677536a374e7586e6dab97f5b3181",
+  "head_at_start": "a3553db4b367cbd1539f61f473db321d879288da",
+  "problem": "Readiness CLI validated manifest rows once, then reread mutable manifest and authority inputs to recompute its success basis.",
+  "cause": "Validation API returned only errors, forcing main() to reconstruct success output from a second unvalidated filesystem snapshot.",
+  "rule": "Trust-boundary validators must return the exact validated success projection and authority binding from one in-memory snapshot; CLI output must never reread or recompute from mutable inputs after validation. Validate all untrusted scalar types before hashing or set operations.",
+  "applies_to": "Readiness gates, signed manifests, policy loaders, and CLI verification results"
+}
