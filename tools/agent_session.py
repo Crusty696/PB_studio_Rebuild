@@ -359,6 +359,148 @@ def _norm(path: str) -> str:
     return str(path).replace("\\", "/").strip().lstrip("./")
 
 
+_MAX_CODEPOINT = 0x10FFFF
+_ANY_CHAR = ((0, _MAX_CODEPOINT),)
+_STAR = None
+
+
+def _merge_ranges(ranges: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    merged: list[list[int]] = []
+    for low, high in sorted(ranges):
+        if merged and low <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], high)
+        else:
+            merged.append([low, high])
+    return tuple((low, high) for low, high in merged)
+
+
+def _class_ranges(content: str) -> tuple[tuple[int, int], ...] | None:
+    negate = content.startswith("!")
+    if negate:
+        content = content[1:]
+    if not content:
+        return None
+    ranges: list[tuple[int, int]] = []
+    index = 0
+    while index < len(content):
+        if index + 2 < len(content) and content[index + 1] == "-":
+            low, high = ord(content[index]), ord(content[index + 2])
+            if low > high:
+                return None
+            ranges.append((low, high))
+            index += 3
+        else:
+            value = ord(content[index])
+            ranges.append((value, value))
+            index += 1
+    merged = _merge_ranges(ranges)
+    if not negate:
+        return merged
+    complement: list[tuple[int, int]] = []
+    cursor = 0
+    for low, high in merged:
+        if cursor < low:
+            complement.append((cursor, low - 1))
+        cursor = high + 1
+    if cursor <= _MAX_CODEPOINT:
+        complement.append((cursor, _MAX_CODEPOINT))
+    return tuple(complement)
+
+
+def _parse_glob(
+    pattern: str,
+) -> tuple[list[tuple[tuple[int, int], ...] | None], bool] | None:
+    tokens: list[tuple[tuple[int, int], ...] | None] = []
+    has_glob = False
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "*":
+            has_glob = True
+            if not tokens or tokens[-1] is not _STAR:
+                tokens.append(_STAR)
+        elif char == "?":
+            has_glob = True
+            tokens.append(_ANY_CHAR)
+        elif char == "[":
+            search_from = index + 1
+            if search_from < len(pattern) and pattern[search_from] == "!":
+                search_from += 1
+            if search_from < len(pattern) and pattern[search_from] == "]":
+                search_from += 1
+            closing = pattern.find("]", search_from)
+            if closing < 0:
+                return None
+            else:
+                ranges = _class_ranges(pattern[index + 1:closing])
+                if ranges is None:
+                    return None
+                has_glob = True
+                tokens.append(ranges)
+                index = closing
+        else:
+            tokens.append(((ord(char), ord(char)),))
+        index += 1
+    return tokens, has_glob
+
+
+def _ranges_intersect(
+    a: tuple[tuple[int, int], ...], b: tuple[tuple[int, int], ...]
+) -> bool:
+    left = right = 0
+    while left < len(a) and right < len(b):
+        low_a, high_a = a[left]
+        low_b, high_b = b[right]
+        if max(low_a, low_b) <= min(high_a, high_b):
+            return True
+        if high_a < high_b:
+            left += 1
+        else:
+            right += 1
+    return False
+
+
+def _glob_languages_overlap(
+    a: list[tuple[tuple[int, int], ...] | None],
+    b: list[tuple[tuple[int, int], ...] | None],
+) -> bool:
+    pending = [(0, 0)]
+    seen: set[tuple[int, int]] = set()
+    while pending:
+        left, right = pending.pop()
+        if (left, right) in seen:
+            continue
+        seen.add((left, right))
+        if left == len(a) and right == len(b):
+            return True
+        if left < len(a) and a[left] is _STAR:
+            pending.append((left + 1, right))
+        if right < len(b) and b[right] is _STAR:
+            pending.append((left, right + 1))
+        if left == len(a) or right == len(b):
+            continue
+        ranges_a = _ANY_CHAR if a[left] is _STAR else a[left]
+        ranges_b = _ANY_CHAR if b[right] is _STAR else b[right]
+        if _ranges_intersect(ranges_a, ranges_b):
+            next_left = left if a[left] is _STAR else left + 1
+            next_right = right if b[right] is _STAR else right + 1
+            pending.append((next_left, next_right))
+    return False
+
+
+def _glob_patterns_may_overlap(a: str, b: str) -> bool:
+    """Exact supported-glob intersection; malformed classes fail closed."""
+    parsed_a = _parse_glob(os.path.normcase(a))
+    parsed_b = _parse_glob(os.path.normcase(b))
+    if parsed_a is None or parsed_b is None:
+        return True
+    tokens_a, has_glob_a = parsed_a
+    tokens_b, has_glob_b = parsed_b
+    if not has_glob_a or not has_glob_b:
+        return False
+    return _glob_languages_overlap(tokens_a, tokens_b)
+
+
 def _claims_overlap(a: list[str], b: list[str]) -> list[str]:
     """Ueberlappende Claims. Unterstuetzt Globs auf beiden Seiten.
 
@@ -370,7 +512,12 @@ def _claims_overlap(a: list[str], b: list[str]) -> list[str]:
         nx = _norm(x)
         for y in b:
             ny = _norm(y)
-            if nx == ny or fnmatch.fnmatch(nx, ny) or fnmatch.fnmatch(ny, nx):
+            if (
+                nx == ny
+                or fnmatch.fnmatch(nx, ny)
+                or fnmatch.fnmatch(ny, nx)
+                or _glob_patterns_may_overlap(nx, ny)
+            ):
                 hits.append(nx)
                 break
     return hits

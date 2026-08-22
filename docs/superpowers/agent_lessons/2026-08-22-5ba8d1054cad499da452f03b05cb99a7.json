@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5ba8d1054cad499da452f03b05cb99a7",
+  "recorded_at": "2026-08-22T15:49:09+00:00",
+  "session_id": "e829f9466967413394f4053fb62de0e1",
+  "head_at_start": "d6015ee7432da9835974d8dda8e9db78b06f614f",
+  "problem": "B-851: Pattern-Textvergleich erkannte überlappende Glob-Claims nicht; grobe Ankerheuristik blockierte danach disjunkte Klassen und Längen",
+  "cause": "Glob-Sprachen wurden weder als Automaten geschnitten noch malformed Claim-Syntax explizit fail-closed behandelt",
+  "rule": "Exklusive Glob-Claims per endlichem Produktzustandslauf über *, ?, Klassen und Ranges schneiden; ungültige oder unvollständige Syntax konservativ als Konflikt behandeln",
+  "applies_to": "Agent-Session-Registry, Dateipfad-Claims und parallele Worktree-Koordination"
+}

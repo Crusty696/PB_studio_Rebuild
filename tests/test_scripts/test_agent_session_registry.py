@@ -129,6 +129,42 @@ def test_glob_claims_conflict():
     assert c2, "Glob des Zweiten muss die konkrete Datei des Ersten treffen"
 
 
+def test_overlapping_glob_claims_conflict_on_shared_file_language():
+    ag.claim("agent-a", "python ui", ["ui/*.py"])
+    _, conflicts = ag.claim("agent-b", "timeline files", ["ui/timeline.*"])
+
+    assert conflicts, "ueberlappende Glob-Sprachen muessen kollidieren"
+
+
+def test_recursive_and_nested_glob_claims_conflict():
+    ag.claim("agent-a", "all tests", ["tests/**/test_*.py"])
+    _, conflicts = ag.claim("agent-b", "ui tests", ["tests/ui/*.py"])
+
+    assert conflicts, "rekursiver und eingeschraenkter Glob muessen kollidieren"
+
+
+def test_disjoint_character_class_globs_remain_parallel():
+    ag.claim("agent-a", "lower shard", ["tests/test_[0-4]*.py"])
+    second, conflicts = ag.claim("agent-b", "upper shard", ["tests/test_[5-9]*.py"])
+
+    assert second and not conflicts, "disjunkte Zeichenklassen duerfen parallel laufen"
+    assert ag._claims_overlap(["ui/[ab].py"], ["ui/[bc].py"])
+
+
+def test_glob_intersection_respects_fixed_wildcard_length():
+    ag.claim("agent-a", "one char", ["ui/a?.py"])
+    second, conflicts = ag.claim("agent-b", "two chars", ["ui/a??.py"])
+
+    assert second and not conflicts, "unterschiedliche feste Laengen sind disjunkt"
+
+
+def test_unclosed_character_class_claim_fails_closed():
+    ag.claim("agent-a", "malformed class", ["ui/[abc.py"])
+    second, conflicts = ag.claim("agent-b", "matching file", ["ui/a.py"])
+
+    assert not second and conflicts, "unvollstaendige Klasse muss fail-closed blockieren"
+
+
 def test_empty_claim_never_conflicts():
     """Ein Agent ohne exklusiven Anspruch (z.B. reiner Lese-/Test-Lauf) darf
     immer starten — sonst koennte nie jemand neben einem Fixer testen."""
