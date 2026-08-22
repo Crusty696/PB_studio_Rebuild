@@ -2,6 +2,22 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-856 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-856 Code-/Testcommit: `559aceb`.
+- Reviewer-CLI normalisiert konkret erwartete OSError-/Unicode-/JSON-Decode-
+  Fehler als JSON `ok:false` mit Exit 2; Programmer-/Validatorfehler bleiben
+  sichtbar. Signier-Cleanup versucht beide eigenen Pfade best-effort und
+  bewahrt das exakte Primaerfehlerobjekt.
+- Belege: acht echte RED-Faelle; danach Fokus `3 passed, 6 subtests passed`,
+  gesamte betroffene Datei `45 passed, 116 subtests passed`; Ruff, PyCompile,
+  Diffcheck sowie Compliance- und unabhaengiger Code-Review gruen.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter separater CLI-Prozess mit realem I/O-Fehler.
+- Naechster sequenzieller Phase--1-Fix: B-854 stale eigener Agent-Session-
+  Lock-Payload (low). Produkt-Audit/App-Fixes bleiben bis Phase--1-Gate plus
+  realer Trust-Authority gesperrt.
+
 ## B-855 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-855 Code-/Testcommit: `ca46946`.
