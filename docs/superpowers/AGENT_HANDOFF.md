@@ -2,6 +2,28 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-859 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-859 Code-/Testcommit: `80c2c24`.
+- Readiness validiert Artifact-Listen/-Rows samt sämtlichen set-/Git-/Basis-
+  relevanten Skalaren vor Konsum; `bytes` muss echter nichtnegativer `int`
+  sein. Hostile Struktur stoppt vor Bundle, Basis und Gates.
+- Finalreview fand und derselbe Fix schloss zusätzlich High-TOCTOU: CLI las
+  Manifest/Authority nach erfolgreichem Verify erneut und berechnete Basis aus
+  ungeprüften neuen Bytes. Interner Resultkern liefert jetzt Basis + Authority
+  aus genau einem validierten In-Memory-Snapshot; öffentliche Fehlerlisten-API
+  bleibt kompatibel.
+- Belege: echte REDs für `path={}`, Nicht-Dict-Row und erfolgreichen CLI-
+  Zweitread nach hostile Dateiersatz; danach drei Fokusnodes `Ran 3 tests in
+  0.232s — OK` mit sieben hostile Scalarfällen sowie valid/missing/duplicate/
+  foreign/Snapshot; Ruff, Diffcheck sowie Compliance- und Code-RE-FINAL-GO
+  ohne C/H/M/L.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: operationaler Readiness-Lauf mit real provisionierter externer
+  Trust-Authority, Schlüsselpins und Live-Attestations.
+- Nächster sequenzieller Phase--1-Schritt: Readiness-Re-Gate gegen aktuellen
+  Stand; struktureller Status getrennt vom externen operationalen NO-GO.
+
 ## B-858 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-858 Code-/Testcommit: `214b17d`.
