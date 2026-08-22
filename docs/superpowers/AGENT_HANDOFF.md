@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-855 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-855 Code-/Testcommit: `ca46946`.
+- Reviewer-Harness validiert signierte Spawn-Rolle/Parent vor Membership,
+  delegiert Registry-Schema an `agent_session._validate_registry` und
+  preflightet direkte Finalize-Inputs vor Lock/I/O.
+- Belege: sieben echte RED-Faelle; danach Fokus `3 passed, 6 subtests passed`,
+  gesamte betroffene Datei `42 passed, 110 subtests passed`; Ruff, PyCompile,
+  Diffcheck sowie Compliance- und unabhaengiger Code-Review gruen.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter separater CLI-Prozesspfad.
+- Naechster sequenzieller Phase--1-Fix nach Auswirkung: B-856 rohe erwartbare
+  Reviewer-CLI-I/O-Fehler. Danach B-854 low. Produkt-Audit/App-Fixes bleiben
+  bis Phase--1-Gate plus realer Trust-Authority gesperrt.
+
 ## B-853 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-853 Code-/Testcommit: `16db4d8`, synchron auf `main` und `origin/main`.
