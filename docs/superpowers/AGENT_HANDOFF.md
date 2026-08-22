@@ -2,6 +2,22 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-857 Code-final / Live-Verifikation offen — 2026-08-22
+
+- B-857 Code-/Testcommit: `cb9c277`.
+- Reviewer-Enrollment und Signoff-Finalisierung prüfen jetzt unter dem
+  gemeinsamen Kernel-Lock zuerst den exakten B-852-Initialisierungsmarker am
+  selben expliziten Git-Common-dir. Missing, invalid oder unlesbar endet als
+  kontrolliertes JSON `ok:false`/Exit 2; kein Auto-Bootstrap.
+- Belege: vier echte RED-CLI-Fälle; danach sechs Marker-/CLI-Tests und drei
+  bestehende Markerregressionen grün; gesamte Reviewer-Komponente `51 passed,
+  116 subtests passed`; Ruff, PyCompile, Diffcheck und zwei unabhängige
+  Finalreviews grün ohne C/H/M/L.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+  Offen: echter separater CLI-/Registry-Mehrprozesslauf.
+- Nächster sequenzieller Phase--1-Fix: B-858 Runtime-stdlib-Modultypen vor
+  Set-Nutzung validieren; danach B-859 Readiness-Artefaktrow-Typgate.
+
 ## B-854 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-854 Code-/Testcommit: `682ba2f`.
