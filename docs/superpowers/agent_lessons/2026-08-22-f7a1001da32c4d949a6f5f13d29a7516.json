@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f7a1001da32c4d949a6f5f13d29a7516",
+  "recorded_at": "2026-08-22T17:08:59+00:00",
+  "session_id": "f6012024612248e08eea6981960bfcc6",
+  "head_at_start": "993d9638280d809a26f44e8653e8e3265c05198f",
+  "problem": "Signierter Reviewer-Contract konnte mit unhashbaren JSON-Werten vor kontrollierter Fehlernormalisierung TypeError ausloesen.",
+  "cause": "Listen-Elemente sowie skalare Contractfelder wurden in set/dict Membership genutzt, bevor Typ und Nichtleerheit validiert waren.",
+  "rule": "Alle extern signierten JSON-Felder vor jeder Hash-, Set- oder Dict-Operation strukturell und skalar validieren; erst danach Duplikat-, FK- und Enum-Pruefungen ausfuehren.",
+  "applies_to": "tools/audit_reviewer_roster.py und andere signierte JSON-Vertragsvalidatoren"
+}

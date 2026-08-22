@@ -489,11 +489,23 @@ def _live_session(rows: dict[str, dict[str, Any]], session_id: str) -> dict[str,
 
 
 def _validate_patterns(values: Any, regex: re.Pattern[str], label: str) -> list[str]:
-    if not isinstance(values, list) or not values or len(values) != len(set(values)):
+    if not isinstance(values, list) or not values:
         raise ContractError(f"{label} muss eindeutige nichtleere Liste sein")
     if any(not isinstance(value, str) or not regex.fullmatch(value) for value in values):
         raise ContractError(f"{label} verletzt kanonische Prefix-Grammatik")
+    if len(values) != len(set(values)):
+        raise ContractError(f"{label} muss eindeutige nichtleere Liste sein")
     return list(values)
+
+
+def _validate_string_fields(
+    record: dict[str, Any], fields: set[str], label: str
+) -> None:
+    if any(
+        not isinstance(record.get(field), str) or not record[field]
+        for field in fields
+    ):
+        raise ContractError(f"{label} Stringfelder fehlen/ungueltig")
 
 
 def deterministic_reviewer_id(run_id: str, session_id: str, commit: str,
@@ -564,6 +576,9 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
     for spec in reviewers:
         if not isinstance(spec, dict) or set(spec) != {"reviewer_id", "session_id", "role", "output_claims", "review_scope"}:
             raise ContractError("Reviewer-Spec Feldmenge falsch")
+        _validate_string_fields(
+            spec, {"reviewer_id", "session_id", "role"}, "Reviewer-Spec"
+        )
         sid, rid = spec["session_id"], spec["reviewer_id"]
         if not isinstance(sid, str) or not SESSION_RE.fullmatch(sid) or sid in sessions:
             raise ContractError("Reviewer-Spec Session fehlt/doppelt")
@@ -599,6 +614,7 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
                   "output_claim_b", "review_scope"}
         if not isinstance(pair, dict) or set(pair) != fields:
             raise ContractError("reviewer_pair Feldmenge falsch")
+        _validate_string_fields(pair, fields, "reviewer_pair")
         a, b = pair["reviewer_a"], pair["reviewer_b"]
         if a not in by_id or b not in by_id or a == b:
             raise ContractError("fremdes/ungueltiges reviewer_pair")
@@ -623,7 +639,10 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
     for item in assignments:
         keys = {"assignment_id", "pair_id", "reviewer_id", "role", "pass",
                 "output_claim", "review_scope"}
-        if not isinstance(item, dict) or set(item) != keys or item["assignment_id"] in assignment_ids:
+        if not isinstance(item, dict) or set(item) != keys:
+            raise ContractError("Assignment Feldmenge/ID falsch")
+        _validate_string_fields(item, keys, "Assignment")
+        if item["assignment_id"] in assignment_ids:
             raise ContractError("Assignment Feldmenge/ID falsch")
         spec = by_id.get(item["reviewer_id"])
         if spec is None or item["role"] != spec["role"]:
@@ -653,6 +672,9 @@ def _validate_contract(root: Path, contract: dict[str, Any], contract_sha: str,
     for item in signoffs:
         if not isinstance(item, dict) or set(item) != {"reviewer_id", "role"}:
             raise ContractError("required_signoff Feldmenge falsch")
+        _validate_string_fields(
+            item, {"reviewer_id", "role"}, "required_signoff"
+        )
         spec = by_id.get(item["reviewer_id"])
         if spec is None or item["role"] != spec["role"] or item["role"] in seen_roles:
             raise ContractError("required_signoff Reviewer/Rolle falsch/doppelt")

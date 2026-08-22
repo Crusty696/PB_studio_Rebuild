@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -121,6 +122,7 @@ class GateContractTests(unittest.TestCase):
             agent_session, "_git_common_dir", return_value=self.common
         )
         self.registry_patch.start()
+        agent_session.bootstrap_initialize_empty()
         self.receipts = self.base / "receipts"
         self.attestations = self.base / "attestations"
         self.roster_path = self.base / "reviewer_roster.jsonl"
@@ -347,6 +349,29 @@ class GateContractTests(unittest.TestCase):
             "adversarial_public_key_path": self.public_keys["adversarial"],
         }
 
+    def _cli_trust_args(self) -> list[str]:
+        trust = self._trust_args()
+        options = {
+            "--contract": trust["contract_path"],
+            "--contract-signature": trust["contract_signature"],
+            "--spawn-journal": trust["spawn_journal_path"],
+            "--spawn-journal-signature": trust["spawn_journal_signature"],
+            "--readiness-binding": trust["readiness_binding_path"],
+            "--readiness-binding-signature": trust["readiness_binding_signature"],
+            "--readiness-binding-sha256": trust[
+                "expected_readiness_binding_sha256"
+            ],
+            "--tooling-commit": trust["tooling_commit"],
+            "--audit-contract": trust["audit_contract_path"],
+            "--audit-contract-signature": trust["audit_contract_signature"],
+            "--audit-contract-sha256": trust["expected_audit_contract_sha256"],
+            "--authority-public-key": trust["authority_public_key_path"],
+            "--spawn-public-key": trust["spawn_public_key_path"],
+            "--lead-v-public-key": trust["lead_v_public_key_path"],
+            "--adversarial-public-key": trust["adversarial_public_key_path"],
+        }
+        return [value for option, path in options.items() for value in (option, str(path))]
+
     def _enroll(self, session: dict) -> dict:
         return roster.enroll(
             root=self.repo, session_id=session["id"], receipts_dir=self.receipts,
@@ -438,6 +463,82 @@ class GateContractTests(unittest.TestCase):
         self._resign_contract(contract)
         errors = self._verify()
         self.assertTrue(any("Claim/Scope" in error for error in errors), errors)
+
+    def test_signed_contract_unhashable_fields_raise_contract_error(self) -> None:
+        mutations = {
+            "reviewer-role": lambda c: c["reviewers"][0].__setitem__("role", []),
+            "reviewer-id": lambda c: c["reviewers"][0].__setitem__(
+                "reviewer_id", []
+            ),
+            "reviewer-output-claim": lambda c: c["reviewers"][0].__setitem__(
+                "output_claims", [[]]
+            ),
+            "reviewer-scope": lambda c: c["reviewers"][0].__setitem__(
+                "review_scope", [[]]
+            ),
+            "pair-reviewer": lambda c: c["reviewer_pairs"][0].__setitem__(
+                "reviewer_a", []
+            ),
+            "pair-id": lambda c: c["reviewer_pairs"][0].__setitem__("pair_id", []),
+            "assignment-id": lambda c: c["assignments"][0].__setitem__(
+                "assignment_id", []
+            ),
+            "assignment-reviewer": lambda c: c["assignments"][0].__setitem__(
+                "reviewer_id", []
+            ),
+            "assignment-pair": lambda c: c["assignments"][0].__setitem__(
+                "pair_id", []
+            ),
+            "assignment-pass": lambda c: c["assignments"][0].__setitem__(
+                "pass", []
+            ),
+            "signoff-reviewer": lambda c: c["required_signoffs"][0].__setitem__(
+                "reviewer_id", []
+            ),
+            "signoff-role": lambda c: c["required_signoffs"][0].__setitem__(
+                "role", []
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                self._write_trust()
+                contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+                mutate(contract)
+                self._resign_contract(contract)
+                with self.assertRaises(roster.ContractError):
+                    self._enroll(self.lead)
+                self.assertFalse(self.roster_path.exists())
+                self.assertFalse(
+                    self.receipts.exists() and any(self.receipts.rglob("*"))
+                )
+
+    def test_cli_enroll_unhashable_role_returns_json_exit_two(self) -> None:
+        contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
+        contract["reviewers"][0]["role"] = []
+        self._resign_contract(contract)
+        output = io.StringIO()
+        argv = [
+            "enroll",
+            "--root",
+            str(self.repo),
+            *self._cli_trust_args(),
+            "--roster",
+            str(self.roster_path),
+            "--receipts-dir",
+            str(self.receipts),
+            "--session-id",
+            self.lead["id"],
+            "--signing-key",
+            str(self.keys["spawn"]),
+        ]
+        with mock.patch("sys.stdout", output):
+            code = roster.main(argv)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(2, code)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["errors"])
+        self.assertNotIn("Traceback", output.getvalue())
+        self.assertFalse(self.roster_path.exists())
 
     def test_nested_output_shard_prefix_overlap_rejected(self) -> None:
         contract = json.loads(self.contract_path.read_text(encoding="utf-8"))
