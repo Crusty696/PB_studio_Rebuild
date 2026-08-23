@@ -122,6 +122,9 @@ class SchnittTabSchnitt(QWidget):
         self.timeline_view.clip_position_synced.connect(
             self.cut_list_panel.update_cut_start
         )
+        self.timeline_view.clip_geometry_synced.connect(
+            self.cut_list_panel.update_cut_geometry
+        )
         if hasattr(self.timeline_view, "set_playhead_time"):
             self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)
         # B-295: Edit-Affordances aus dem Cutlisten-Kontextmenue an die Timeline-Ops

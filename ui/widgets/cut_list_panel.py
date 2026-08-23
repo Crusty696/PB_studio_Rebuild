@@ -164,6 +164,28 @@ class CutListPanel(QWidget):
             time_item.setData(Qt.ItemDataRole.UserRole, float(start_time))
             return
 
+    def update_cut_geometry(
+        self, entry_id: int, start_time: float, end_time: float
+    ) -> None:
+        """Aktualisiert Start und Dauer nur in der passenden Cutlistenzeile."""
+        duration = max(0.0, float(end_time) - float(start_time))
+        for row in range(self.table.rowCount()):
+            idx_item = self.table.item(row, 0)
+            if idx_item is None or idx_item.data(self._ROLE_ENTRY_ID) != int(entry_id):
+                continue
+            time_item = self.table.item(row, 1)
+            if time_item is None:
+                time_item = QTableWidgetItem()
+                self.table.setItem(row, 1, time_item)
+            time_item.setText(f"{float(start_time):.2f}s")
+            time_item.setData(Qt.ItemDataRole.UserRole, float(start_time))
+            duration_item = self.table.item(row, 2)
+            if duration_item is None:
+                duration_item = QTableWidgetItem()
+                self.table.setItem(row, 2, duration_item)
+            duration_item.setText(f"{duration:.2f}s")
+            return
+
     def _render_cuts(self, cuts: list[dict]) -> None:
         self.table.setRowCount(len(cuts))
         for row, cut in enumerate(cuts):

@@ -1316,6 +1316,7 @@ class TimelineClipItem(QGraphicsRectItem):
             if not self._locked:
                 edge = self._detect_trim_edge(event.pos().x())
                 if edge:
+                    self.setSelected(True)
                     self._trim_mode = edge
                     self._trim_start_mouse_x = event.scenePos().x()
                     self._trim_start_width = self._clip_width
@@ -1475,6 +1476,7 @@ class ClipRecord:
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
     clip_position_synced = Signal(int, float)
+    clip_geometry_synced = Signal(int, float, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
     # Timeline-Perf: grosse Batch-Groesse. Der Build laeuft mit deaktivierten
     # Viewport-Updates (setUpdatesEnabled(False)); JEDER Batch-Yield via
@@ -3401,13 +3403,17 @@ class InteractiveTimeline(QGraphicsView):
         if rec is not None:
             rec.x = new_x
             rec.width = new_width
-        if item is None:
-            return
-        item.setPos(new_x, item._track_y)
-        item.setRect(QRectF(0, 0, new_width, item._clip_height))
-        item._clip_width = new_width
-        # Update right trim handle position
-        item._right_handle.setRect(QRectF(new_width - 3, 0, 3, item._clip_height))
+        if item is not None:
+            item.setPos(new_x, item._track_y)
+            item.setRect(QRectF(0, 0, new_width, item._clip_height))
+            item._clip_width = new_width
+            # Update right trim handle position
+            item._right_handle.setRect(QRectF(new_width - 3, 0, 3, item._clip_height))
+            if item.isSelected():
+                self._on_selection_changed()
+        self.clip_geometry_synced.emit(
+            int(entry_id), float(start), float(start + duration)
+        )
 
     def refresh_clip_geometry_from_db(self, entry_id: int) -> None:
         """B-523-FIX: aktualisiert NUR die Geometrie des betroffenen Clips aus

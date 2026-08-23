@@ -1,0 +1,10 @@
+{
+  "lesson_id": "02029800bc684f029522800a7d57946a",
+  "recorded_at": "2026-08-23T08:18:20+00:00",
+  "session_id": "7486748d5e504704a918f0872b4b40aa",
+  "head_at_start": "8ac512fd2c8718f132b34044d43a4d786702ba97",
+  "problem": "Timeline-Trim wurde persistiert, aber Inspector verlor Auswahl und Cutliste blieb stale.",
+  "cause": "Trim-Kantenklick umging Basisklassen-Selektion; zentraler Trim-Sync aktualisierte nur Record und Item ohne abgeleitete Ansichten zu benachrichtigen.",
+  "rule": "Abgefangene Graphics-Edge-Interaktionen muessen Selektion explizit erhalten; zentrale Geometrie-Kommandos senden schmale ID/Start/Ende-Signale an abgeleitete Ansichten.",
+  "applies_to": "Qt Timeline Trim Undo Redo Inspector Cutlist"
+}
