@@ -1,0 +1,10 @@
+{
+  "lesson_id": "443b0e50d73e440190d06575c6d82b44",
+  "recorded_at": "2026-08-23T10:04:59+00:00",
+  "session_id": "806f1b62e11c49eb901a453be5195526",
+  "head_at_start": "5e85dafb1deb823ab61adf8f4d7f54479ef03239",
+  "problem": "Auto-Edit waehlt gecachte VideoClip-DB-Metadaten, obwohl Quelldateien nach Ingest fehlen.",
+  "cause": "Kandidatenverfuegbarkeit wurde nur aus DB-ID-Mitgliedschaft abgeleitet; dynamische Dateiexistenz wurde am Operationsrand nicht erneut geprueft.",
+  "rule": "Statische Medienmetadaten duerfen gecacht werden; Existenz externer Dateien vor jedem neuen Workflowlauf ausserhalb des Cache revalidieren und ungueltige Kandidaten ohne DB-Loeschung ausschliessen.",
+  "applies_to": "Auto-Edit candidate assembly, export inputs, cached media metadata"
+}

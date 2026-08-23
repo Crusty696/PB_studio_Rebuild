@@ -518,9 +518,27 @@ def _get_video_info(video_ids: list[int]) -> dict[int, dict]:
     import copy
     # B-695 D2: engine_identity im Cache-Key, damit Projektwechsel keinen
     # Stale-Treffer aus dem alten Projekt liefert.
-    return copy.deepcopy(
+    info = copy.deepcopy(
         _get_video_info_cached(_engine_cache_identity(), tuple(sorted(video_ids)))
     )
+    # B-878: DB-Metadaten duerfen gecacht bleiben, Dateiexistenz nicht. Eine
+    # Quelle kann nach dem Cache-Aufbau entfernt/verschoben worden sein. Vor
+    # jedem Auto-Edit-Lauf deshalb verwaiste Kandidaten aus der Arbeitskopie
+    # filtern; DB-Zeilen und bestehende Userdaten bleiben unveraendert.
+    missing_ids = [
+        video_id
+        for video_id, entry in info.items()
+        if not entry.get("path") or not Path(entry["path"]).is_file()
+    ]
+    for video_id in missing_ids:
+        del info[video_id]
+    if missing_ids:
+        logger.warning(
+            "Auto-Edit ignoriert %d Video-Clip(s) mit fehlender Quelldatei: %s",
+            len(missing_ids),
+            missing_ids,
+        )
+    return info
 
 
 @lru_cache(maxsize=32)
