@@ -587,7 +587,7 @@ def _infer_video_status(
             "scene_detection",
             {"scenes": scene_count},
             status_entries,
-            preserve_error=True,
+            preserve_reanalysis_status=True,
         )
 
         # scene_db_storage: implizit auch done wenn Scenes existieren
@@ -740,7 +740,7 @@ def _ensure_status_done(
     value_summary: dict[str, Any],
     status_entries: dict[tuple[int, str], AnalysisStatus] | None = None,
     *,
-    preserve_error: bool = False,
+    preserve_reanalysis_status: bool = False,
 ) -> None:
     """Helper: Hebt einen Schritt auf status='done', wenn die DB es belegt.
 
@@ -757,9 +757,10 @@ def _ensure_status_done(
     loeschen; der Nutzer saehe 'fertig' fuer etwas, das er selbst abgebrochen
     hat, und verloere das Retry-Angebot.
 
-    B-871: Fuer Artefakte, die bei einer Reanalyse bewusst erhalten bleiben,
-    kann ``preserve_error`` einen aktuellen Fehler vor veralteter DB-Evidenz
-    schuetzen. Erfolgreiche Worker setzen den Schritt selbst via ``mark_done``.
+    B-871/B-872: Fuer Artefakte, die bei einer Reanalyse bewusst erhalten
+    bleiben, kann ``preserve_reanalysis_status`` einen aktuellen Fehler oder
+    laufenden Schritt vor veralteter DB-Evidenz schuetzen. Erfolgreiche Worker
+    setzen den Schritt selbst via ``mark_done``.
     """
     key = (media_id, step_key)
     if status_entries is None:
@@ -786,13 +787,20 @@ def _ensure_status_done(
         if status_entries is not None:
             status_entries[key] = entry
         logger.info("Inferred status='done' for %s/%d/%s", media_type, media_id, step_key)
-    elif entry.status == "error" and (
-        entry.error_message == CANCELLED_MARKER or preserve_error
+    elif (
+        entry.status == "error"
+        and (
+            entry.error_message == CANCELLED_MARKER
+            or preserve_reanalysis_status
+        )
+    ) or (
+        entry.status == "running" and preserve_reanalysis_status
     ):
-        # B-820/B-871: User-Cancel oder aktueller Reanalysefehler bleibt
-        # stehen; vorhandene Artefakte koennen aus einem aelteren Lauf stammen.
+        # B-820/B-871/B-872: User-Cancel, aktueller Reanalysefehler oder
+        # laufende Reanalyse bleibt stehen; Artefakte koennen alt sein.
         logger.debug(
-            "Kept error status for %s/%d/%s (kein Reconcile auf 'done')",
+            "Kept status=%s for %s/%d/%s (kein Reconcile auf 'done')",
+            entry.status,
             media_type,
             media_id,
             step_key,

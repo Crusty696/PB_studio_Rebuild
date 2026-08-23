@@ -1,0 +1,10 @@
+{
+  "lesson_id": "700b893a61aa43c084037c4177d3811c",
+  "recorded_at": "2026-08-23T05:53:50+00:00",
+  "session_id": "2c4bc718f75346669c69e2587134a7d9",
+  "head_at_start": "682ebb85c769fa39690dc17c28500f111f89f8d8",
+  "problem": "Eine laufende Scene-Reanalyse wurde durch alte Scene-Zeilen voruebergehend als done reconciled.",
+  "cause": "Der B-871-Guard schuetzte nur error; der generische Reconciler behandelte Altartefakte auch waehrend status=running als aktuellen Erfolgsbeleg.",
+  "rule": "Bei erhaltenen Altartefakten muss ein Reanalyse-Reconciler sowohl laufende als auch fehlgeschlagene aktuelle Zustaende schuetzen; nur explizites mark_done des aktuellen Workers darf Erfolg setzen.",
+  "applies_to": "Analyse-Status-Reconcile, laufende Reanalyse, Altartefakte"
+}
