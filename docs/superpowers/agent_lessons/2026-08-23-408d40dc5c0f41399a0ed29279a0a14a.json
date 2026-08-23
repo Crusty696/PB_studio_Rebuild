@@ -1,0 +1,10 @@
+{
+  "lesson_id": "408d40dc5c0f41399a0ed29279a0a14a",
+  "recorded_at": "2026-08-23T09:31:41+00:00",
+  "session_id": "806f1b62e11c49eb901a453be5195526",
+  "head_at_start": "5e85dafb1deb823ab61adf8f4d7f54479ef03239",
+  "problem": "Qt-Buttonclick wirkte im Live-Test scheinbar nicht und Folgeaktionen erzeugten kuenstliche Worker-Ueberlappung.",
+  "cause": "Ein child-widget-basiertes Bestaetigungsmodal blieb offen, erschien nicht als separates Top-Level-Fenster und blockierte physische Folgeclicks; UIA-Invoke konnte es unnatuerlich umgehen.",
+  "rule": "Bei Qt-Livepfaden nach wirkungslosem Click vor Retry immer PID-Screenshot plus Descendant-Suche nach Modals auswerten; kein Invoke hinter offenem Modal und nur modal-freien Lauf als Beleg verwenden.",
+  "applies_to": "PB Studio Qt/PySide6 Live-Verify, Pacing, Auto-Edit, modale Child-Widgets"
+}

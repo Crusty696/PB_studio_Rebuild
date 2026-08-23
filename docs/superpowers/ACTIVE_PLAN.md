@@ -20,15 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W6 Auto-Edit/Pacing mit fixen Eingaben, flacher/
-benutzerdefinierter Kurve, LLM und Brain jeweils aus/an`.
+`LIVE-VERIFY / W7 Export Hard-Cut/xfade, 8-/10-bit, alle Presets,
+Cancel/Retry; ffprobe prueft Dauer, Frames, Audio und Seek`.
 
-W5 ist mit Funktionspfaden und Pflicht-Evidenz
-`agent-complete-await-user-marker`. W6 beginnt mit der nicht blockierten
-Baseline `flache Kurve + LLM AUS + Brain AUS`; danach Brain AN und
-benutzerdefinierte Kurve. LLM-AN bleibt wegen VLM/B-867 eine explizite
-User-Modellentscheidung. Erster reproduzierbarer Fehler stoppt den jeweiligen
-Lauf und oeffnet genau eine Root-Cause-Task.
+W6 autonomer Scope ist `agent-complete-non-llm`: Flat/Custom jeweils Brain
+AUS/AN bei LLM AUS besitzen Screenshot, Logauszug, DB-Diff und parsebares
+JSON-Verdict. LLM-AN bleibt wegen VLM/B-867 eine explizite
+User-Modellentscheidung; W6 hat deshalb keinen Gesamtmarker. W7 beginnt mit
+festem Projekt-/Timelinezustand und Hard-Cut-Baseline. Erster reproduzierbarer
+Fehler stoppt den jeweiligen Lauf und oeffnet genau eine Root-Cause-Task.
 
 ## Paused Auditplan Handoff
 

@@ -13,11 +13,13 @@ This file is a repository-local continuity checkpoint for all agents.
   Anchor, Undo/Redo und Projektwechsel/Rueckkehr live; Verdict
   `tests/qa_artifacts/w5_schnitt_timeline_verdict_20260823.json`.
 - B-875/B-876/B-877 Commits `818e45e`/`1e77c3a`/`460a960`.
-- Naechste einzige Task: `LIVE-VERIFY / W6 Auto-Edit/Pacing mit fixen
-  Eingaben, flacher/benutzerdefinierter Kurve, LLM und Brain jeweils aus/an`;
-  zuerst `flach + LLM AUS + Brain AUS`.
-- LLM-AN bleibt wegen B-867 User-Modellentscheidung; nicht-LLM-W6-Varianten
-  sind autonom erlaubt.
+- W6 autonom `agent-complete-non-llm`: Flat/Custom jeweils Brain AUS/AN bei
+  LLM AUS live `pass_with_known_warnings`; vier Verdicts unter
+  `tests/qa_artifacts/w6_*_verdict_20260823.json`. LLM-AN bleibt wegen B-867
+  User-Modellentscheidung; kein W6-Gesamtmarker.
+- Naechste einzige Task: `LIVE-VERIFY / W7 Export Hard-Cut/xfade, 8-/10-bit,
+  alle Presets, Cancel/Retry; ffprobe prueft Dauer, Frames, Audio und Seek`;
+  zuerst feste Timeline + Hard-Cut-Baseline.
 - Auditplan bleibt pausiert. Readiness-Re-Gate und externe Trust-Authority offen;
   kein Audit-Snapshot oder Produktaudit ausgefuehrt.
 
