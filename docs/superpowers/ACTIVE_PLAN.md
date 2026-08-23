@@ -20,14 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W5 SCHNITT/Timeline: Preview/Seek, Move/Trim/Lock/Anchor,
-Undo/Redo, Projektwechsel und Rueckkehr`.
+`LIVE-VERIFY / W6 Auto-Edit/Pacing mit fixen Eingaben, flacher/
+benutzerdefinierter Kurve, LLM und Brain jeweils aus/an`.
 
-W4 autonomer Scope ist abgeschlossen; Gesamturteil bleibt
-`blocked-user-decision`, weil VLM/B-867 eine explizite Modellentscheidung
-verlangt. W5 wird im isolierten Liveprojekt sequenziell geprueft. Erster
-reproduzierbarer Fehler stoppt den Workflow und oeffnet genau eine
-Root-Cause-Task.
+W5 ist mit Funktionspfaden und Pflicht-Evidenz
+`agent-complete-await-user-marker`. W6 beginnt mit der nicht blockierten
+Baseline `flache Kurve + LLM AUS + Brain AUS`; danach Brain AN und
+benutzerdefinierte Kurve. LLM-AN bleibt wegen VLM/B-867 eine explizite
+User-Modellentscheidung. Erster reproduzierbarer Fehler stoppt den jeweiligen
+Lauf und oeffnet genau eine Root-Cause-Task.
 
 ## Paused Auditplan Handoff
 

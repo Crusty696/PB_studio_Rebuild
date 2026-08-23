@@ -1,0 +1,10 @@
+{
+  "lesson_id": "fcba4099d9b04dba8909bb6d17158693",
+  "recorded_at": "2026-08-23T08:53:00+00:00",
+  "session_id": "806f1b62e11c49eb901a453be5195526",
+  "head_at_start": "5e85dafb1deb823ab61adf8f4d7f54479ef03239",
+  "problem": "Vault-Living-Plan war auf W6 fortgeschrieben, waehrend ACTIVE_PLAN, PLAN_REGISTRY und AGENT_HANDOFF noch W5 autorisierten.",
+  "cause": "W5-Abschluss aktualisierte nur Vault und lokale Evidenz; Repo-Governance-Autoritaeten wurden nicht atomar mit dem Workflowwechsel synchronisiert.",
+  "rule": "Jeder STAB-Workflowwechsel aktualisiert vor naechster Produktaktion atomar ACTIVE_PLAN, PLAN_REGISTRY, obersten AGENT_HANDOFF, Vault-Living-Plan und Index; agent_start prueft die Gleichheit.",
+  "applies_to": "PB-Studio Masterplan STAB-2 bis STAB-7 Workflowwechsel"
+}

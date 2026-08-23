@@ -9,8 +9,15 @@ This file is a repository-local continuity checkpoint for all agents.
 - W4 autonomer Scope abgeschlossen; VLM/B-867 bleibt User-Modellentscheidung.
 - B-873 Commit `ea98dbe`: sichtbare Video-Combo initialisiert Preview real.
 - B-874 Commit `8ac512f`: Timeline-Reload ohne Fremdscene-Warnungen live belegt.
-- Naechste einzige Task: `LIVE-VERIFY / W5 SCHNITT/Timeline: Preview/Seek,
-  Move/Trim/Lock/Anchor, Undo/Redo, Projektwechsel und Rueckkehr`.
+- W5 `agent-complete-await-user-marker`: Preview/Seek, Move, Trim, Lock,
+  Anchor, Undo/Redo und Projektwechsel/Rueckkehr live; Verdict
+  `tests/qa_artifacts/w5_schnitt_timeline_verdict_20260823.json`.
+- B-875/B-876/B-877 Commits `818e45e`/`1e77c3a`/`460a960`.
+- Naechste einzige Task: `LIVE-VERIFY / W6 Auto-Edit/Pacing mit fixen
+  Eingaben, flacher/benutzerdefinierter Kurve, LLM und Brain jeweils aus/an`;
+  zuerst `flach + LLM AUS + Brain AUS`.
+- LLM-AN bleibt wegen B-867 User-Modellentscheidung; nicht-LLM-W6-Varianten
+  sind autonom erlaubt.
 - Auditplan bleibt pausiert. Readiness-Re-Gate und externe Trust-Authority offen;
   kein Audit-Snapshot oder Produktaudit ausgefuehrt.
 
