@@ -75,6 +75,7 @@ class MediaTableController(PBComponent):
             self.window.audio_combo.blockSignals(audio_blocked)
             self.window.video_combo.blockSignals(video_blocked)
         self._sync_schnitt_audio_selection()
+        self._sync_schnitt_video_selection()
 
     def _a1_audio_combo_index(self, pid: int | None) -> int | None:
         """B-569/B-577: Liefert den audio_combo-Index des Audio-Tracks, der in
@@ -265,6 +266,7 @@ class MediaTableController(PBComponent):
                 self.window.audio_combo.blockSignals(audio_blocked)
                 self.window.video_combo.blockSignals(video_blocked)
             self._sync_schnitt_audio_selection()
+            self._sync_schnitt_video_selection()
         # B-472: Workflow-Gates nach JEDEM Pool-Refresh re-evaluieren. Vorher
         # liefen sie nur beim Workspace-Wechsel (_on_workspace_changed) ->
         # wenn der Medien-Pool erst NACH dem Gate-Lauf async gefuellt wurde,
@@ -311,6 +313,13 @@ class MediaTableController(PBComponent):
         stems = getattr(self.window, "stems", None)
         if stems is not None and audio_id is not None:
             stems._update_stem_workspace(audio_id)
+
+    def _sync_schnitt_video_selection(self) -> None:
+        """B-873: propagate blocked combo selection to SCHNITT preview."""
+        edit_workspace = getattr(self.window, "edit_workspace", None)
+        callback = getattr(edit_workspace, "_on_video_combo_changed", None)
+        if callback is not None:
+            callback(self.window.video_combo.currentIndex())
 
     @staticmethod
     def _audio_item_has_analysis(item: dict) -> bool:

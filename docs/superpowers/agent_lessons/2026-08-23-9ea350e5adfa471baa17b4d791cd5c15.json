@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9ea350e5adfa471baa17b4d791cd5c15",
+  "recorded_at": "2026-08-23T06:19:51+00:00",
+  "session_id": "2c4bc718f75346669c69e2587134a7d9",
+  "head_at_start": "682ebb85c769fa39690dc17c28500f111f89f8d8",
+  "problem": "Sichtbare Video-Combo war nach blockiertem Director-Refresh gesetzt, Preview blieb leer.",
+  "cause": "Beide Refreshpfade setzten currentIndex bei blockierten Signalen und synchronisierten danach nur Audio; einziger Preview-Loader hing am unterdrueckten currentIndexChanged.",
+  "rule": "Wenn Combo-Signale waehrend Bulk-Refresh blockiert werden, jede sichtbare abgeleitete Ansicht nach Entblocken explizit ueber bestehenden Handler synchronisieren; Signale nicht nachtraeglich kuenstlich emittieren.",
+  "applies_to": "Qt Combo-Refresh, Preview/Inspector-Binder, blockSignals-basierte UI-Bulkupdates"
+}
