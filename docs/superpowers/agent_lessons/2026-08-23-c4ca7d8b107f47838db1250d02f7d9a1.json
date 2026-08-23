@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c4ca7d8b107f47838db1250d02f7d9a1",
+  "recorded_at": "2026-08-23T07:54:42+00:00",
+  "session_id": "7486748d5e504704a918f0872b4b40aa",
+  "head_at_start": "8ac512fd2c8718f132b34044d43a4d786702ba97",
+  "problem": "Cutliste blieb nach Timeline-Move trotz korrekter DB- und Inspector-Position stale.",
+  "cause": "Zentraler _sync_clip_position-Pfad synchronisierte Record, Item und Auswahl, emittierte aber kein Ereignis fuer die gerenderte Cutliste.",
+  "rule": "Abgeleitete Timeline-Ansichten aus einem zentralen Move/Undo/Redo-Sync mit engem ID/Wert-Signal aktualisieren; keine synchrone Vollabfrage pro Drag.",
+  "applies_to": "Qt Timeline Move Undo Redo und abgeleitete Tabellenansichten"
+}

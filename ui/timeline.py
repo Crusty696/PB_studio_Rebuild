@@ -1474,6 +1474,7 @@ class ClipRecord:
 
 class InteractiveTimeline(QGraphicsView):
     clip_moved = Signal(int, float)
+    clip_position_synced = Signal(int, float)
     selection_changed = Signal(list)  # emits list of dicts with clip data
     # Timeline-Perf: grosse Batch-Groesse. Der Build laeuft mit deaktivierten
     # Viewport-Updates (setUpdatesEnabled(False)); JEDER Batch-Yield via
@@ -3290,6 +3291,7 @@ class InteractiveTimeline(QGraphicsView):
             is_selected = getattr(item, "isSelected", None)
             if callable(is_selected) and is_selected():
                 self._on_selection_changed()
+        self.clip_position_synced.emit(int(entry_id), float(start_time))
 
     def _remove_clip_item(self, entry_id: int):
         """Entfernt einen Clip (Record + Item, fuer Undo/Redo)."""

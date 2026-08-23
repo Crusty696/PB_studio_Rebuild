@@ -119,6 +119,9 @@ class SchnittTabSchnitt(QWidget):
         self.cut_list_panel.setMinimumHeight(220)
         self.cut_list_panel.setMaximumHeight(380)
         v.addWidget(self.cut_list_panel, stretch=1)
+        self.timeline_view.clip_position_synced.connect(
+            self.cut_list_panel.update_cut_start
+        )
         if hasattr(self.timeline_view, "set_playhead_time"):
             self.cut_list_panel.cut_selected.connect(self.timeline_view.set_playhead_time)
         # B-295: Edit-Affordances aus dem Cutlisten-Kontextmenue an die Timeline-Ops

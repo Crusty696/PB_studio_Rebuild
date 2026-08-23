@@ -150,6 +150,20 @@ class CutListPanel(QWidget):
         self.table.setRowCount(0)
         self.info_label.setText(msg)
 
+    def update_cut_start(self, entry_id: int, start_time: float) -> None:
+        """Aktualisiert nur die bereits gerenderte Zeit des passenden Cuts."""
+        for row in range(self.table.rowCount()):
+            idx_item = self.table.item(row, 0)
+            if idx_item is None or idx_item.data(self._ROLE_ENTRY_ID) != int(entry_id):
+                continue
+            time_item = self.table.item(row, 1)
+            if time_item is None:
+                time_item = QTableWidgetItem()
+                self.table.setItem(row, 1, time_item)
+            time_item.setText(f"{float(start_time):.2f}s")
+            time_item.setData(Qt.ItemDataRole.UserRole, float(start_time))
+            return
+
     def _render_cuts(self, cuts: list[dict]) -> None:
         self.table.setRowCount(len(cuts))
         for row, cut in enumerate(cuts):
