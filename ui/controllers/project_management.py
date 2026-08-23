@@ -200,13 +200,12 @@ class ProjectManagementController(PBComponent):
         """B-773: Beim App-Start das zuletzt geoeffnete Projekt laden.
 
         Ein "Autoload" existierte nie — die App bootet auf
-        ``APP_ROOT/pb_studio.db``; wechselte der Titel frueher automatisch,
-        lag dort zufaellig eine Projekt-Row (Livetest/User-Session
-        2026-08-07: Boot-DB leer -> "Kein aktives Projekt", manuelles
-        Oeffnen noetig). Hat die Boot-DB bereits ein Projekt, passiert
-        nichts. Sonst wird der juengste gueltige Recent-Eintrag ueber
-        denselben async OpenWorker-Pfad geoeffnet wie das Menue
-        "Letzte Projekte".
+        ``APP_ROOT/pb_studio.db``. B-865: Eine Projekt-Row in dieser Boot-DB
+        belegt kein geoeffnetes Projekt; dafuer ist allein
+        ``ProjectManager.current_project_path`` massgeblich. Nur wenn dort
+        bereits ein Pfad gesetzt ist, passiert nichts. Sonst wird der juengste
+        gueltige Recent-Eintrag ueber denselben async OpenWorker-Pfad geoeffnet
+        wie das Menue "Letzte Projekte".
         """
         # Testschutz (Muster: graph_cockpit_tab): PBWindow-Tests pumpen den
         # Event-Loop — ohne Guard oeffnete der Timer hier die ECHTEN
@@ -215,12 +214,8 @@ class ProjectManagementController(PBComponent):
         # diese Funktion gezielt auf False.
         if _running_under_pytest():
             return
-        try:
-            from database import get_active_project_id
-            if get_active_project_id() is not None:
-                return
-        except Exception as exc:
-            logger.warning("B-773: Auto-Resume-Check fehlgeschlagen: %s", exc)
+        manager = getattr(self.window, "_project_manager", None)
+        if manager is not None and manager.current_project_path is not None:
             return
         try:
             from services.recent_projects import RecentProjectsManager
@@ -233,14 +228,16 @@ class ProjectManagementController(PBComponent):
             p = Path(path_str)
             if (p / "pb_studio.db").exists():
                 logger.info("B-773: Auto-Resume letztes Projekt: %s", p)
-                self.open_project_async(p)
+                self.open_project_async(p, skip_preblock=True)
                 return
         logger.info(
             "B-773: kein Auto-Resume — Recent-Liste leer oder keine "
             "gueltigen Projektpfade (%d Eintraege).", len(recent),
         )
 
-    def open_project_async(self, path, on_error_extra=None):
+    def open_project_async(
+        self, path, on_error_extra=None, *, skip_preblock: bool = False,
+    ):
         """Oeffnet ein Projekt asynchron via OpenWorker (gemeinsamer Pfad).
 
         FREEZE-Fix 2026-07-10 (freeze_stacks-Profil): Der Recent-Projekte-Pfad
@@ -254,8 +251,12 @@ class ProjectManagementController(PBComponent):
             path: Projektordner.
             on_error_extra: optionaler Callable(exc) zusaetzlich zum
                 Standard-Fehlerdialog (z.B. Recent-Eintrag entfernen).
+            skip_preblock: B-865 — nur Auto-Resume darf den interaktiven
+                B-465-Hinweis ueberspringen. Der Service-Guard in
+                ``ProjectManager.open_project`` bleibt aktiv und wartet auf
+                laufende Startup-Tasks.
         """
-        if self._tasks_running_block("Projekt oeffnen"):
+        if not skip_preblock and self._tasks_running_block("Projekt oeffnen"):
             return
 
         class OpenWorker(BaseWorker):

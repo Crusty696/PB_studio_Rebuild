@@ -1,0 +1,10 @@
+{
+  "lesson_id": "23a501ffe322492e95a3a3cc8900ceee",
+  "recorded_at": "2026-08-23T03:05:24+00:00",
+  "session_id": "7de1f18eb31147189a16e57995f3d522",
+  "head_at_start": "2329f625dd113a44494e1c77a0050c9a8b347619",
+  "problem": "Auto-Resume blieb trotz gueltigem Recent-Projekt projektlos",
+  "cause": "Boot-DB-Row wurde mit geoeffnetem Projekt verwechselt; danach blockierte interaktiver B-465-Precheck den automatischen OpenWorker waehrend Startup-Medien-Task",
+  "rule": "Projektlebenszyklus immer ueber ProjectManager.current_project_path bestimmen; automatische Startup-Pfade duerfen UI-Preblocks nur ueberspringen, wenn tiefer Service-Idle-Guard aktiv bleibt",
+  "applies_to": "PB-Studio Projektstart, Auto-Resume, asynchroner Projektwechsel"
+}

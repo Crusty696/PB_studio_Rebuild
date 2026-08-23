@@ -4,12 +4,15 @@ Befund (Livetest + User-Session 2026-08-07): "Autoload" existierte nie —
 die App bootet auf APP_ROOT/pb_studio.db. Ist diese Boot-DB projektlos
 (z.B. frischer Worktree), zeigte die App "Kein aktives Projekt" und der
 User musste manuell oeffnen. Vertrag:
-1. Boot-DB hat Projekt -> kein Auto-Open (Bestandsverhalten unveraendert).
-2. Boot-DB leer + gueltiger Recent-Eintrag -> open_project_async(Pfad des
-   juengsten Eintrags mit existierender pb_studio.db).
+1. ProjectManager hat geoeffneten Projektpfad -> kein Auto-Open.
+2. Kein geoeffneter Projektpfad + gueltiger Recent-Eintrag ->
+   open_project_async(Pfad des juengsten Eintrags mit existierender
+   pb_studio.db), unabhaengig von Rows der Boot-DB.
 3. Recent leer/ungueltig -> nichts (kein Crash, kein Dialog).
 """
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,9 +28,19 @@ def ctrl(monkeypatch):
     import ui.controllers.project_management as pm_mod
     monkeypatch.setattr(pm_mod, "_running_under_pytest", lambda: False)
     c = ProjectManagementController.__new__(ProjectManagementController)
+    c.window = SimpleNamespace(
+        _project_manager=SimpleNamespace(current_project_path=None),
+    )
     opened: list = []
-    c.open_project_async = lambda path, on_error_extra=None: opened.append(path)
+    skip_preblocks: list[bool] = []
+
+    def _open(path, on_error_extra=None, *, skip_preblock=False):
+        opened.append(path)
+        skip_preblocks.append(skip_preblock)
+
+    c.open_project_async = _open
     c._opened = opened
+    c._skip_preblocks = skip_preblocks
     return c
 
 
@@ -47,6 +60,9 @@ def test_guard_blocks_auto_resume_under_pytest(monkeypatch):
 
 
 def test_existing_project_skips_auto_resume(ctrl, monkeypatch):
+    ctrl.window = SimpleNamespace(
+        _project_manager=SimpleNamespace(current_project_path=r"C:\offen\projekt"),
+    )
     monkeypatch.setattr(database, "get_active_project_id", lambda: 7)
     monkeypatch.setattr(
         RecentProjectsManager, "get_all",
@@ -54,6 +70,27 @@ def test_existing_project_skips_auto_resume(ctrl, monkeypatch):
     )
     ctrl.auto_resume_last_project()
     assert ctrl._opened == []
+
+
+def test_boot_db_row_does_not_block_resume_without_open_project(
+    ctrl, monkeypatch, tmp_path,
+):
+    ctrl.window = SimpleNamespace(
+        _project_manager=SimpleNamespace(current_project_path=None),
+    )
+    valid = tmp_path / "isoliertes_recent_projekt"
+    valid.mkdir()
+    (valid / "pb_studio.db").write_bytes(b"")
+    monkeypatch.setattr(database, "get_active_project_id", lambda: 7)
+    monkeypatch.setattr(
+        RecentProjectsManager, "get_all",
+        staticmethod(lambda: [str(valid)]),
+    )
+
+    ctrl.auto_resume_last_project()
+
+    assert [str(p) for p in ctrl._opened] == [str(valid)]
+    assert ctrl._skip_preblocks == [True]
 
 
 def test_empty_boot_db_resumes_most_recent_valid(ctrl, monkeypatch, tmp_path):
