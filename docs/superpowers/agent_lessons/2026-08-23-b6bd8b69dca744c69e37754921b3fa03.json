@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b6bd8b69dca744c69e37754921b3fa03",
+  "recorded_at": "2026-08-23T02:22:58+00:00",
+  "session_id": "c452075ebe8b409280ba92136020962c",
+  "head_at_start": "87dcbb99190fec85f843ff3c027595e9df43287e",
+  "problem": "Aktiver Produkt-Masterplan war durch separaten Audit-Harness-Plan pausiert, waehrend dessen letzter Fix bereits sauber committed war.",
+  "cause": "ACTIVE_PLAN und PLAN_REGISTRY hielten Audit-Fortsetzung als alleinigen Fokus, obwohl User W4 wieder priorisierte.",
+  "rule": "Bei explizitem Planwechsel zuerst laufende Teilaufgabe recoverable abschliessen, dann Active Plan, Registry, Repo-Handoff und Vault-Spiegel atomar auf genau eine naechste Task ausrichten; pausierten Plan mit exaktem Resume-Commit erhalten.",
+  "applies_to": "PB-Studio Plan-Governance und Planwechsel"
+}
