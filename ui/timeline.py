@@ -1815,7 +1815,10 @@ class InteractiveTimeline(QGraphicsView):
 
             def _safe_rm(_it):
                 try:
-                    if shiboken6.isValid(_it):
+                    if (
+                        shiboken6.isValid(_it)
+                        and _it.scene() is self._scene
+                    ):
                         self._scene.removeItem(_it)
                 except RuntimeError:
                     pass  # C++-Objekt bereits geloescht
@@ -1858,8 +1861,8 @@ class InteractiveTimeline(QGraphicsView):
             self._dialog_anchor_times = []
             self._dialog_anchor_markers_item.set_data([])
             # Clear sections + beat grid + drop markers (AUD-70)
-            self._clear_sections()
             self._clear_beat_grid()
+            self._clear_sections()
         finally:
             _vp.setUpdatesEnabled(True)
             logger.info(

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "7520904b66974b2aa5556f279bdaceba",
+  "recorded_at": "2026-08-23T06:42:43+00:00",
+  "session_id": "2c4bc718f75346669c69e2587134a7d9",
+  "head_at_start": "682ebb85c769fa39690dc17c28500f111f89f8d8",
+  "problem": "DROP-Marker wurden beim Timeline-Reload trotz Scene-Guard weiterhin doppelt entfernt.",
+  "cause": "Dieselben Marker lebten in Section- und Drop-Registry; Section-Cleanup lief zuerst, loeschte Membership-Beweis und Item, danach entfernte Drop-Cleanup sie erneut.",
+  "rule": "Bei ueberlappenden Ownership-Registries zuerst Registry mit Skip-/Membershiplogik leeren, solange gemeinsame Membership noch sichtbar ist; danach owning Registry physisch entfernen.",
+  "applies_to": "Qt Scene-Cleanup, ueberlappende Itemlisten, Marker/Section-Lifecycle"
+}

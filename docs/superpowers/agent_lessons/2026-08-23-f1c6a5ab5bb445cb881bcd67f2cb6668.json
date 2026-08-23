@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f1c6a5ab5bb445cb881bcd67f2cb6668",
+  "recorded_at": "2026-08-23T06:35:30+00:00",
+  "session_id": "2c4bc718f75346669c69e2587134a7d9",
+  "head_at_start": "682ebb85c769fa39690dc17c28500f111f89f8d8",
+  "problem": "Timeline-Reload loggte QGraphicsScene::removeItem-Warnungen fuer Items ohne aktuelle Scene-Zugehoerigkeit.",
+  "cause": "Zentraler Teardown pruefte nur shiboken-C++-Gueltigkeit; gueltige Wrapper mit scene() None oder fremder Scene wurden an self._scene.removeItem uebergeben.",
+  "rule": "QGraphicsItem-Cleanup braucht zwei Gates: Wrapper gueltig und item.scene() identisch zur Zielscene; Gueltigkeit allein beweist keine Ownership.",
+  "applies_to": "Qt QGraphicsScene-Teardown, Projektwechsel, Virtualisierung, reentrante UI-Rebuilds"
+}
