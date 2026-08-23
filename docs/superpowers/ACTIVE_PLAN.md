@@ -20,11 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+`LIVE-VERIFY / W5 SCHNITT/Timeline: Preview/Seek, Move/Trim/Lock/Anchor,
+Undo/Redo, Projektwechsel und Rueckkehr`.
 
-W4-Vertrag: SceneDetect, RAFT, Keyframes, SigLIP, VLM, defekter Clip,
-Video-Cancel und Reanalyse im isolierten Livepfad pruefen. Erster
-reproduzierbarer Fehler stoppt den Workflow und oeffnet genau eine Root-Cause-Task.
+W4 autonomer Scope ist abgeschlossen; Gesamturteil bleibt
+`blocked-user-decision`, weil VLM/B-867 eine explizite Modellentscheidung
+verlangt. W5 wird im isolierten Liveprojekt sequenziell geprueft. Erster
+reproduzierbarer Fehler stoppt den Workflow und oeffnet genau eine
+Root-Cause-Task.
 
 ## Paused Auditplan Handoff
 

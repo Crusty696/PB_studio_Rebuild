@@ -1,0 +1,10 @@
+{
+  "lesson_id": "7620c13eb8344e64abf9c5b303a7a6f9",
+  "recorded_at": "2026-08-23T06:55:20+00:00",
+  "session_id": "7486748d5e504704a918f0872b4b40aa",
+  "head_at_start": "8ac512fd2c8718f132b34044d43a4d786702ba97",
+  "problem": "Nach Abschluss des W4-Autonomscopes nannten Vault-Living-Plan und Index W5, waehrend ACTIVE_PLAN, PLAN_REGISTRY und Repo-Handoff weiter W4 auswiesen.",
+  "cause": "Workflow-Fortschritt wurde nur im Vault fortgeschrieben; die drei Repo-Governance-Autoritaeten wurden beim W4-Abschluss nicht atomar mitsynchronisiert.",
+  "rule": "Beim Wechsel eines Live-Workflow-Schritts ACTIVE_PLAN, PLAN_REGISTRY, obersten Repo-Handoff, Vault-Living-Plan und Index im selben Governance-Subtask auf exakt denselben naechsten Vertrag setzen und danach gezielt auf aktive Widersprueche pruefen.",
+  "applies_to": "PB-Studio Masterplan-Workflowwechsel und Cross-Agent-Handoff"
+}

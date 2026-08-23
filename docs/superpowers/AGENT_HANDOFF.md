@@ -6,7 +6,11 @@ This file is a repository-local continuity checkpoint for all agents.
 
 - User brach Audit-Fortsetzung nach lokalem B-860-Commit `d365257` ab.
 - Aktiv: `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16`.
-- Naechste einzige Task: `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+- W4 autonomer Scope abgeschlossen; VLM/B-867 bleibt User-Modellentscheidung.
+- B-873 Commit `ea98dbe`: sichtbare Video-Combo initialisiert Preview real.
+- B-874 Commit `8ac512f`: Timeline-Reload ohne Fremdscene-Warnungen live belegt.
+- Naechste einzige Task: `LIVE-VERIFY / W5 SCHNITT/Timeline: Preview/Seek,
+  Move/Trim/Lock/Anchor, Undo/Redo, Projektwechsel und Rueckkehr`.
 - Auditplan bleibt pausiert. Readiness-Re-Gate und externe Trust-Authority offen;
   kein Audit-Snapshot oder Produktaudit ausgefuehrt.
 
