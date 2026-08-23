@@ -3287,6 +3287,9 @@ class InteractiveTimeline(QGraphicsView):
         item = self._find_clip_item(entry_id)
         if item:
             item.setPos(new_x, item._track_y)
+            is_selected = getattr(item, "isSelected", None)
+            if callable(is_selected) and is_selected():
+                self._on_selection_changed()
 
     def _remove_clip_item(self, entry_id: int):
         """Entfernt einen Clip (Record + Item, fuer Undo/Redo)."""

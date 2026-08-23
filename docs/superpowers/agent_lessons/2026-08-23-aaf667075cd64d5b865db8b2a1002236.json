@@ -1,0 +1,10 @@
+{
+  "lesson_id": "aaf667075cd64d5b865db8b2a1002236",
+  "recorded_at": "2026-08-23T07:21:00+00:00",
+  "session_id": "7486748d5e504704a918f0872b4b40aa",
+  "head_at_start": "8ac512fd2c8718f132b34044d43a4d786702ba97",
+  "problem": "Timeline-Move aktualisierte Clipitem und DB, aber selektierter Clip-Inspector blieb auf alten Start-/Endzeiten.",
+  "cause": "MoveClipCommand synchronisierte Position ueber _sync_clip_position, ohne die unveraenderte Selektion erneut zu emittieren; Inspector lud DB-Werte nur auf selection_changed.",
+  "rule": "Wenn ein selektiertes Model-/Scene-Objekt in-place mutiert, muessen an Selection-Payload gebundene Derived Views nach erfolgreichem zentralem Sync erneut signalisiert werden; derselbe Syncpfad muss Undo/Redo abdecken.",
+  "applies_to": "Qt Selection-Inspector-Binder, Timeline Move/Undo/Redo, in-place Scene-Mutationen"
+}
