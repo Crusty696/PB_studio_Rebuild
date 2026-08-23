@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d80a7c36dce648558a6bac0c1f319858",
+  "recorded_at": "2026-08-23T02:17:23+00:00",
+  "session_id": "c452075ebe8b409280ba92136020962c",
+  "head_at_start": "87dcbb99190fec85f843ff3c027595e9df43287e",
+  "problem": "Runtime-Audit vertraute einem PATH-aufgeloesten Git-for-Windows-Shim und geerbter Git-Umgebung statt der realen Git-Implementation samt Loader-DLLs.",
+  "cause": "Trust-Input band nur den Shim-Dateipfad; reale mingw64-Binary, fuenf lokale PE-Abhaengigkeiten, Handle-Lebenszyklus und Exit-Primaerfehler waren nicht gemeinsam gebunden.",
+  "rule": "Externe CLI-Vertrauensanker muessen die tatsaechlich ausgefuehrte Binary plus minimale nicht-System-Dependency-Closure extern hashen, waehrend der Gesamtoperation gegen Write/Delete sperren, vor/nach jedem Aufruf revalidieren und Cleanupfehler ohne Maskierung des Primaerfehlers behandeln.",
+  "applies_to": "Audit-Runner, externe Executable-Pins und Windows-CLI-Provenienz"
+}

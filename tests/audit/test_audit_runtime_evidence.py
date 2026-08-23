@@ -119,6 +119,20 @@ class GateContractTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "trusted tooling harness"], cwd=cls.repo, check=True)
         cls.tooling_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cls.repo, check=True, capture_output=True, text=True).stdout.strip()
         cls.tool = _load_tool()
+        cls.git_shim = Path(shutil.which("git") or "").resolve()
+        cls.git_executable = (
+            cls.git_shim.parent.parent / "mingw64" / "bin" / "git.exe"
+            if cls.git_shim.parent.name.casefold() == "cmd"
+            else cls.git_shim
+        ).resolve()
+        cls.git_sha256 = _sha(cls.git_executable)
+        cls.git_dependency_sha256 = {
+            name: _sha(cls.git_executable.parent / name)
+            for name in (
+                "libiconv-2.dll", "libintl-8.dll", "libpcre2-8-0.dll",
+                "libwinpthread-1.dll", "zlib1.dll",
+            )
+        }
         evil = cls.base / "evil_filter.py"
         evil.write_text("import sys\nsys.stdin.buffer.read()\nsys.stdout.write('raise SystemExit(91)\\n')\n", encoding="utf-8")
         subprocess.run(["git", "config", "filter.evil.smudge", f'"{sys.executable}" "{evil}"'], cwd=cls.repo, check=True)
@@ -244,14 +258,238 @@ class GateContractTests(unittest.TestCase):
             expected_contract_sha256=expected_contract_sha256 or self.expected_contract_sha256,
             authority_commit=authority_commit or self.authority_commit,
             expected_authority_commit=expected_authority_commit or self.authority_commit,
-            authority_policy_path=authority_policy_path, scenario_id=scenario_id, runtime_run_id=runtime_run_id)
+            authority_policy_path=authority_policy_path, scenario_id=scenario_id,
+            runtime_run_id=runtime_run_id, **self.git_trust())
 
     def projection_trust(self) -> dict:
         return {
             "repo_root": self.repo,
             "expected_contract_sha256": self.expected_contract_sha256,
             "expected_authority_commit": self.authority_commit,
+            **self.git_trust(),
         }
+
+    def git_trust(self) -> dict:
+        return {
+            "git_executable": self.git_executable,
+            "expected_git_sha256": self.git_sha256,
+            "expected_git_dependency_sha256": dict(self.git_dependency_sha256),
+        }
+
+    def git_cli_args(self) -> list[str]:
+        args = [
+            "--git-executable", str(self.git_executable),
+            "--expected-git-sha256", self.git_sha256,
+        ]
+        for name, digest in sorted(self.git_dependency_sha256.items()):
+            args.extend(["--git-dependency-sha256", f"{name}={digest}"])
+        return args
+
+    def test_git_executable_pin_bypasses_path_and_scrubs_git_environment(self) -> None:
+        real_run = self.tool.subprocess.run
+        git_calls: list[tuple[list[str], dict[str, str]]] = []
+
+        def inspect_run(argv, *args, **kwargs):
+            if argv[0] == "git":
+                raise AssertionError("literal git/PATH darf nicht verwendet werden")
+            if Path(argv[0]) == self.git_executable:
+                git_calls.append((list(argv), dict(kwargs.get("env", {}))))
+            return real_run(argv, *args, **kwargs)
+
+        hostile = {
+            "GIT_DIR": str(self.base / "foreign.git"),
+            "GIT_WORK_TREE": str(self.base / "foreign-worktree"),
+            "GIT_OBJECT_DIRECTORY": str(self.base / "foreign-objects"),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(self.base / "alternate-objects"),
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "GIT_CONFIG_VALUE_0": str(self.base / "hooks"),
+        }
+        with (
+            mock.patch.dict(self.tool.os.environ, hostile, clear=False),
+            mock.patch.object(self.tool.subprocess, "run", side_effect=inspect_run),
+        ):
+            receipt = self.tool.run_scenario(
+                repo_root=self.repo, evidence_root=self.evidence,
+                contract_path=self.contract_path,
+                expected_contract_sha256=self.expected_contract_sha256,
+                authority_commit=self.authority_commit,
+                expected_authority_commit=self.authority_commit,
+                authority_policy_path="config/audit_runtime_authority_policy.json",
+                scenario_id="SCN-001", runtime_run_id="LIVE-GIT-PIN",
+                **self.git_trust(),
+            )
+        self.assertTrue(git_calls)
+        self.assertEqual(self.git_sha256, receipt["git_executor"]["sha256"])
+        self.assertEqual(
+            self.git_dependency_sha256,
+            {
+                row["name"]: row["sha256"]
+                for row in receipt["git_executor"]["dependencies"]
+            },
+        )
+        controlled_git_env = {
+            "GIT_NO_REPLACE_OBJECTS", "GIT_CONFIG_NOSYSTEM",
+            "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT",
+        }
+        for argv, env in git_calls:
+            self.assertEqual(str(self.git_executable), argv[0])
+            self.assertEqual("1", env.get("GIT_NO_REPLACE_OBJECTS"))
+            self.assertFalse(any(key.startswith("GIT_") and key not in controlled_git_env for key in env))
+
+    def test_wrong_git_pin_fails_before_first_subprocess(self) -> None:
+        with mock.patch.object(self.tool.subprocess, "run") as run:
+            with self.assertRaisesRegex(self.tool.ContractError, "Git.*SHA|Git.*Pin"):
+                self.tool.run_scenario(
+                    repo_root=self.repo, evidence_root=self.evidence,
+                    contract_path=self.contract_path,
+                    expected_contract_sha256=self.expected_contract_sha256,
+                    authority_commit=self.authority_commit,
+                    expected_authority_commit=self.authority_commit,
+                    authority_policy_path="config/audit_runtime_authority_policy.json",
+                    scenario_id="SCN-001", runtime_run_id="LIVE-BAD-GIT-PIN",
+                    git_executable=self.git_executable,
+                    expected_git_sha256="0" * 64,
+                    expected_git_dependency_sha256=dict(self.git_dependency_sha256),
+                )
+        run.assert_not_called()
+
+    def test_git_for_windows_cmd_shim_is_rejected(self) -> None:
+        if self.git_shim == self.git_executable:
+            self.skipTest("kein separater Git-for-Windows-cmd-Shim vorhanden")
+        with self.assertRaisesRegex(self.tool.ContractError, "Shim|mingw64"):
+            self.tool._PinnedGit(
+                self.git_shim, _sha(self.git_shim), self.git_dependency_sha256,
+            )
+
+    def test_git_dependency_pin_exact_set_is_required_before_subprocess(self) -> None:
+        incomplete = dict(self.git_dependency_sha256)
+        incomplete.pop("zlib1.dll")
+        with mock.patch.object(self.tool.subprocess, "run") as run:
+            with self.assertRaisesRegex(self.tool.ContractError, "Dependency.*Exact|Dependency.*zlib"):
+                self.tool.run_scenario(
+                    repo_root=self.repo, evidence_root=self.evidence,
+                    contract_path=self.contract_path,
+                    expected_contract_sha256=self.expected_contract_sha256,
+                    authority_commit=self.authority_commit,
+                    expected_authority_commit=self.authority_commit,
+                    authority_policy_path="config/audit_runtime_authority_policy.json",
+                    scenario_id="SCN-001", runtime_run_id="LIVE-MISSING-GIT-DLL",
+                    git_executable=self.git_executable,
+                    expected_git_sha256=self.git_sha256,
+                    expected_git_dependency_sha256=incomplete,
+                )
+        run.assert_not_called()
+
+    def test_git_lock_enter_failure_closes_windows_handle_once(self) -> None:
+        if self.tool.os.name != "nt":
+            self.skipTest("Windows-Handle-Vertrag")
+
+        class FakeFunction:
+            def __init__(self, result):
+                self.result = result
+                self.calls = 0
+                self.restype = None
+                self.argtypes = None
+
+            def __call__(self, *args):
+                self.calls += 1
+                return self.result
+
+        fake_kernel32 = type("FakeKernel32", (), {})()
+        fake_kernel32.CreateFileW = FakeFunction(123)
+        fake_kernel32.CloseHandle = FakeFunction(1)
+        executor = self.tool._PinnedGit(
+            self.git_executable, self.git_sha256, self.git_dependency_sha256,
+        )
+        with (
+            mock.patch.object(self.tool.ctypes, "WinDLL", return_value=fake_kernel32),
+            mock.patch.object(
+                executor, "_verify_record",
+                side_effect=self.tool.ContractError("post-lock-revalidation"),
+            ),
+        ):
+            with self.assertRaisesRegex(self.tool.ContractError, "post-lock-revalidation"):
+                executor.__enter__()
+        self.assertEqual(1, fake_kernel32.CloseHandle.calls)
+
+    def test_git_lock_exit_preserves_primary_error(self) -> None:
+        executor = self.tool._PinnedGit(
+            self.git_executable, self.git_sha256, self.git_dependency_sha256,
+        )
+        executor.__enter__()
+        primary = ValueError("primary-body-error")
+        with mock.patch.object(
+            executor, "_verify", side_effect=self.tool.ContractError("exit-revalidation"),
+        ):
+            result = executor.__exit__(ValueError, primary, None)
+        self.assertFalse(result)
+        self.assertIn("exit-revalidation", "\n".join(getattr(primary, "__notes__", [])))
+
+    def test_git_pin_path_and_cli_flags_are_mandatory(self) -> None:
+        with self.assertRaisesRegex(self.tool.ContractError, "Git-Executable-Pfad muss absolut"):
+            self.tool.run_scenario(
+                repo_root=self.repo, evidence_root=self.evidence,
+                contract_path=self.contract_path,
+                expected_contract_sha256=self.expected_contract_sha256,
+                authority_commit=self.authority_commit,
+                expected_authority_commit=self.authority_commit,
+                authority_policy_path="config/audit_runtime_authority_policy.json",
+                scenario_id="SCN-001", runtime_run_id="LIVE-RELATIVE-GIT",
+                git_executable=Path("git.exe"), expected_git_sha256=self.git_sha256,
+                expected_git_dependency_sha256=dict(self.git_dependency_sha256),
+            )
+        argv = [
+            "audit_runtime_evidence.py", "--root", str(self.repo),
+            "--evidence-root", str(self.evidence),
+            "--audit-contract", str(self.contract_path),
+            "--expected-contract-sha256", self.expected_contract_sha256,
+            "--authority-commit", self.authority_commit,
+            "--expected-authority-commit", self.authority_commit,
+            "--scenario-id", "SCN-001", "--runtime-run-id", "LIVE-NO-GIT-PIN",
+        ]
+        with mock.patch.object(self.tool.sys, "argv", argv):
+            with self.assertRaisesRegex(SystemExit, "2"):
+                self.tool.main()
+
+    def test_git_binary_change_is_detected_after_subprocess(self) -> None:
+        executor = self.tool._PinnedGit(
+            self.git_executable, self.git_sha256, self.git_dependency_sha256,
+        )
+        with executor:
+            with (
+                mock.patch.object(
+                    self.tool.subprocess, "run",
+                    return_value=subprocess.CompletedProcess([], 0, b"", b""),
+                ),
+                mock.patch.object(
+                    self.tool, "_sha", side_effect=[self.git_sha256, "0" * 64],
+                ),
+            ):
+                with self.assertRaisesRegex(self.tool.ContractError, "nach Pin-Pruefung veraendert"):
+                    executor.run(self.repo, "rev-parse", "HEAD")
+
+    def test_git_executor_receipt_tamper_is_rejected(self) -> None:
+        receipt = self.tool.run_scenario(
+            repo_root=self.repo, evidence_root=self.evidence,
+            contract_path=self.contract_path,
+            expected_contract_sha256=self.expected_contract_sha256,
+            authority_commit=self.authority_commit,
+            expected_authority_commit=self.authority_commit,
+            authority_policy_path="config/audit_runtime_authority_policy.json",
+            scenario_id="SCN-001", runtime_run_id="LIVE-GIT-RECEIPT",
+            **self.git_trust(),
+        )
+        run_dir = self.evidence / "runs" / "LIVE-GIT-RECEIPT"
+        tampered = copy.deepcopy(receipt)
+        tampered["git_executor"]["sha256"] = "0" * 64
+        tampered["evidence_id"] = self.tool.canonical_evidence_id(tampered)
+        tampered_bytes = _json_bytes(tampered) + b"\n"
+        with self.assertRaisesRegex(self.tool.ContractError, "Git.*Executor|Git.*Pin"):
+            self.tool.build_runtime_projection(
+                tampered, tampered_bytes, run_dir,
+                **self.projection_trust(),
+            )
 
     def test_positive_minimal(self) -> None:
         receipt = self.run_valid()
@@ -415,12 +653,14 @@ class GateContractTests(unittest.TestCase):
                 self.evidence, repo_root=self.repo,
                 expected_contract_sha256="0" * 64,
                 expected_authority_commit=self.authority_commit,
+                **self.git_trust(),
             )
         with self.assertRaisesRegex(self.tool.ContractError, "externer Authority-Pin"):
             self.tool.export_runtime_evidence(
                 self.evidence, repo_root=self.repo,
                 expected_contract_sha256=self.expected_contract_sha256,
                 expected_authority_commit="0" * 40,
+                **self.git_trust(),
             )
 
     def test_required_modules_rejects_structured_item_with_contract_error(self) -> None:
@@ -466,6 +706,7 @@ class GateContractTests(unittest.TestCase):
                     "--evidence-root", str(self.evidence),
                     "--audit-contract", str(self.contract_path),
                     "--expected-contract-sha256", self.expected_contract_sha256,
+                    *self.git_cli_args(),
                     "--authority-commit", self.authority_commit,
                     "--expected-authority-commit", self.authority_commit,
                     "--scenario-id", "SCN-001",
@@ -1140,7 +1381,13 @@ class GateContractTests(unittest.TestCase):
                 raise OSError("ledger-publish-crash")
             original_write(path, data)
 
-        with mock.patch.object(self.tool, "_durable_write", side_effect=replace_with_foreign_then_fail):
+        with (
+            self.tool._git_scope(
+                self.git_executable, self.git_sha256,
+                self.git_dependency_sha256,
+            ),
+            mock.patch.object(self.tool, "_durable_write", side_effect=replace_with_foreign_then_fail),
+        ):
             with self.assertRaisesRegex(OSError, "ledger-publish-crash"):
                 self.tool._publish_run_and_ledgers(
                     stage_run, final_run, ledger, receipt,
@@ -1219,6 +1466,7 @@ class GateContractTests(unittest.TestCase):
                 repo_root=self.repo, evidence_root=self.evidence, contract_path=self.contract_path,
                 expected_contract_sha256=self.expected_contract_sha256,
                 authority_commit=self.authority_commit,
+                **self.git_trust(),
                 authority_policy_path="config/audit_runtime_authority_policy.json",
                 scenario_id="SCN-001", runtime_run_id="LIVE-NO-PIN",
             )

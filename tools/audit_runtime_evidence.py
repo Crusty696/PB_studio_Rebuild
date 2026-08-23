@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
+import ctypes
 import hashlib
 import importlib.metadata
 import json
@@ -10,6 +13,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -74,7 +78,7 @@ RICH_RECEIPT_FIELDS = {
     "plan_id", "run_id", "runtime_run_id", "audited_commit", "tooling_commit",
     "snapshot_id", "scenario_id", "scenario_sha256", "timestamp", "authority",
     "audit_contract", "scenario_catalog", "sealed_contract_inputs",
-    "materialization", "runner", "environment", "observer", "input", "inputs",
+    "materialization", "git_executor", "runner", "environment", "observer", "input", "inputs",
     "harness", "target", "stdout", "stderr", "exit", "trace", "postcondition",
     "artifacts", "covered_feature_paths", "covered_symbol_ids", "covered_axes",
     "final_integrity_sha256", "evidence_id",
@@ -92,6 +96,220 @@ RUN_OWNERSHIP_FILE = ".publish-owner.json"
 
 class ContractError(RuntimeError):
     """Fail-closed contract violation."""
+
+
+_ACTIVE_GIT: contextvars.ContextVar["_PinnedGit | None"] = contextvars.ContextVar(
+    "audit_runtime_pinned_git", default=None,
+)
+GIT_FOR_WINDOWS_DEPENDENCIES = frozenset({
+    "libiconv-2.dll", "libintl-8.dll", "libpcre2-8-0.dll",
+    "libwinpthread-1.dll", "zlib1.dll",
+})
+
+
+@contextlib.contextmanager
+def _git_scope(
+    executable: Path, expected_sha256: str,
+    expected_dependency_sha256: dict[str, str],
+):
+    executor = _PinnedGit(
+        executable, expected_sha256, expected_dependency_sha256,
+    )
+    with executor:
+        token = _ACTIVE_GIT.set(executor)
+        try:
+            yield executor
+        finally:
+            _ACTIVE_GIT.reset(token)
+
+
+def _is_reparse_point(path: Path) -> bool:
+    attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+class _PinnedGit:
+    """One externally pinned Git executable held stable for a trust operation."""
+
+    def __init__(
+        self, executable: Path, expected_sha256: str,
+        expected_dependency_sha256: dict[str, str],
+    ) -> None:
+        if os.name != "nt":
+            raise ContractError("Git-Executor-Trust ist nur fuer Git for Windows provisioniert")
+        try:
+            raw = Path(executable)
+        except TypeError as exc:
+            raise ContractError("Git-Executable-Pfad ungueltig") from exc
+        if not raw.is_absolute():
+            raise ContractError("Git-Executable-Pfad muss absolut sein")
+        try:
+            if raw.is_symlink() or _is_reparse_point(raw):
+                raise ContractError("Git-Executable darf kein Symlink/Reparse-Point sein")
+            resolved = raw.resolve(strict=True)
+            info = resolved.stat()
+        except (OSError, RuntimeError) as exc:
+            raise ContractError("Git-Executable fehlt/ist nicht aufloesbar") from exc
+        if not stat.S_ISREG(info.st_mode):
+            raise ContractError("Git-Executable ist keine regulaere Datei")
+        if (
+            resolved.name.casefold() != "git.exe"
+            or resolved.parent.name.casefold() != "bin"
+            or resolved.parent.parent.name.casefold() != "mingw64"
+        ):
+            raise ContractError("Git-for-Windows-Shim verboten; mingw64/bin/git.exe erforderlich")
+        if not isinstance(expected_sha256, str) or not HASH_RE.fullmatch(expected_sha256):
+            raise ContractError("Git-Executor-Pin SHA-256 ungueltig")
+        try:
+            actual_sha256 = _sha(resolved)
+        except OSError as exc:
+            raise ContractError("Git-Executable kann nicht gehasht werden") from exc
+        if actual_sha256 != expected_sha256:
+            raise ContractError("Git-Executor-Pin SHA-256 stimmt nicht")
+        if (
+            not isinstance(expected_dependency_sha256, dict)
+            or set(expected_dependency_sha256) != GIT_FOR_WINDOWS_DEPENDENCIES
+        ):
+            raise ContractError("Git-Dependency-Pins haben falsche Exact-Set-Menge")
+        self.path = resolved
+        self.sha256 = expected_sha256
+        self.bytes = info.st_size
+        self._records = [self._record("git.exe", resolved, expected_sha256)]
+        for name in sorted(GIT_FOR_WINDOWS_DEPENDENCIES):
+            expected = expected_dependency_sha256.get(name)
+            if not isinstance(expected, str) or not HASH_RE.fullmatch(expected):
+                raise ContractError(f"Git-Dependency-Pin ungueltig: {name}")
+            self._records.append(self._record(name, resolved.parent / name, expected))
+        self._handles: list[int] = []
+
+    @property
+    def receipt(self) -> dict[str, Any]:
+        return {
+            "path": str(self.path), "sha256": self.sha256, "bytes": self.bytes,
+            "dependencies": [
+                {
+                    "name": record["name"], "path": str(record["path"]),
+                    "sha256": record["sha256"], "bytes": record["bytes"],
+                }
+                for record in self._records[1:]
+            ],
+        }
+
+    @staticmethod
+    def _record(name: str, path: Path, expected_sha256: str) -> dict[str, Any]:
+        try:
+            if path.is_symlink() or _is_reparse_point(path):
+                raise ContractError(f"Git-Runtime-Datei ist Symlink/Reparse-Point: {name}")
+            resolved = path.resolve(strict=True)
+            info = resolved.stat()
+            actual_sha256 = _sha(resolved)
+        except (OSError, RuntimeError) as exc:
+            raise ContractError(f"Git-Runtime-Datei fehlt/nicht hashbar: {name}") from exc
+        if not stat.S_ISREG(info.st_mode):
+            raise ContractError(f"Git-Runtime-Datei ist nicht regulaer: {name}")
+        if actual_sha256 != expected_sha256:
+            raise ContractError(f"Git-Runtime-Pin SHA-256 stimmt nicht: {name}")
+        return {
+            "name": name, "path": resolved, "sha256": expected_sha256,
+            "bytes": info.st_size,
+            "identity": (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns),
+        }
+
+    @staticmethod
+    def _verify_record(record: dict[str, Any]) -> None:
+        path = record["path"]
+        try:
+            if path.is_symlink() or _is_reparse_point(path):
+                raise ContractError(f"Git-Runtime-Datei wurde durch Reparse ersetzt: {record['name']}")
+            info = path.stat()
+            actual_sha256 = _sha(path)
+        except OSError as exc:
+            raise ContractError(f"Git-Runtime-Datei kann nicht revalidiert werden: {record['name']}") from exc
+        identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+        if identity != record["identity"] or actual_sha256 != record["sha256"]:
+            raise ContractError(f"Git-Runtime-Datei wurde nach Pin-Pruefung veraendert: {record['name']}")
+
+    def _verify(self) -> None:
+        for record in self._records:
+            self._verify_record(record)
+
+    @staticmethod
+    def _kernel32():
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        return kernel32
+
+    def _close_handles(self) -> list[BaseException]:
+        errors: list[BaseException] = []
+        kernel32 = self._kernel32()
+        while self._handles:
+            handle = self._handles.pop()
+            if not kernel32.CloseHandle(ctypes.c_void_p(handle)):
+                errors.append(ContractError(
+                    f"Git-Runtime-Handle konnte nicht geschlossen werden: {ctypes.get_last_error()}"
+                ))
+        return errors
+
+    def __enter__(self) -> "_PinnedGit":
+        kernel32 = self._kernel32()
+        try:
+            for record in self._records:
+                handle = kernel32.CreateFileW(
+                    str(record["path"]), 0x80000000, 0x00000001,
+                    None, 3, 0x00000080, None,
+                )
+                if handle in (0, ctypes.c_void_p(-1).value):
+                    raise ContractError(
+                        "Git-Runtime-Datei konnte nicht gegen Write/Delete gesperrt werden: "
+                        f"{record['name']} ({ctypes.get_last_error()})"
+                    )
+                self._handles.append(int(handle))
+                self._verify_record(record)
+            return self
+        except BaseException as primary:
+            for cleanup_error in self._close_handles():
+                primary.add_note(f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}")
+            raise
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        secondary: list[BaseException] = []
+        try:
+            self._verify()
+        except BaseException as verify_error:
+            secondary.append(verify_error)
+        secondary.extend(self._close_handles())
+        if exc is not None:
+            for cleanup_error in secondary:
+                exc.add_note(f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}")
+            return False
+        if secondary:
+            primary = secondary[0]
+            for cleanup_error in secondary[1:]:
+                primary.add_note(f"Weiterer Git-Lock-Cleanupfehler: {cleanup_error}")
+            raise primary
+        return False
+
+    def run(
+        self, repo: Path, *args: str, input_data: bytes | None = None,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[bytes]:
+        self._verify()
+        keep = ("SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP")
+        env = {key: os.environ[key] for key in keep if key in os.environ}
+        env.update({
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+        })
+        try:
+            return subprocess.run(
+                [str(self.path), *args], cwd=repo, input=input_data, check=check,
+                capture_output=True, shell=False, env=env,
+            )
+        finally:
+            self._verify()
 
 
 def _canonical_bytes(value: Any, *, omit: set[str] | None = None) -> bytes:
@@ -121,12 +339,14 @@ def _sha(path: Path) -> str:
 
 
 def _git(repo: Path, *args: str, input_data: bytes | None = None, check: bool = True) -> subprocess.CompletedProcess[bytes]:
-    env = os.environ.copy()
-    env["GIT_NO_REPLACE_OBJECTS"] = "1"
-    return subprocess.run(
-        ["git", *args], cwd=repo, input=input_data, check=check,
-        capture_output=True, shell=False, env=env,
-    )
+    return _active_git().run(repo, *args, input_data=input_data, check=check)
+
+
+def _active_git() -> _PinnedGit:
+    executor = _ACTIVE_GIT.get()
+    if executor is None:
+        raise ContractError("Git-Executor-Trust fehlt")
+    return executor
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -1264,6 +1484,13 @@ def _validate_receipt_for_projection(
     expected_evidence_id = canonical_evidence_id(receipt)
     if receipt.get("evidence_id") != expected_evidence_id:
         raise ContractError("Runtime-Receipt evidence_id ist nicht kanonisch")
+    git_executor = receipt.get("git_executor")
+    if (
+        not isinstance(git_executor, dict)
+        or set(git_executor) != {"path", "sha256", "bytes", "dependencies"}
+        or git_executor != _active_git().receipt
+    ):
+        raise ContractError("Runtime-Receipt Git-Executor stimmt nicht mit externem Pin ueberein")
 
     forced = sorted({"error", "cancel", "retry"} & set(axes))
     expected_optional: set[str] = set()
@@ -1711,7 +1938,7 @@ def _validate_receipt_for_projection(
             raise ContractError("Rich Receipt Artifact-Scenario-Bindung falsch")
 
 
-def build_runtime_projection(
+def _build_runtime_projection(
     receipt: dict[str, Any], receipt_bytes: bytes, run_dir: Path, *,
     repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
 ) -> dict[str, Any]:
@@ -1741,7 +1968,7 @@ def build_runtime_projection(
     return projection
 
 
-def validate_runtime_projection(
+def _validate_runtime_projection(
     projection: dict[str, Any], receipt: dict[str, Any], receipt_bytes: bytes,
     run_dir: Path, *, repo_root: Path, expected_contract_sha256: str,
     expected_authority_commit: str,
@@ -1754,7 +1981,7 @@ def validate_runtime_projection(
         raise ContractError("Runtime-Projection record_sha256 ungueltig")
     if seal != canonical_sha256(projection, omit={"record_sha256"}):
         raise ContractError("Runtime-Projection record_sha256 stimmt nicht")
-    expected = build_runtime_projection(
+    expected = _build_runtime_projection(
         receipt, receipt_bytes, run_dir, repo_root=repo_root,
         expected_contract_sha256=expected_contract_sha256,
         expected_authority_commit=expected_authority_commit,
@@ -1777,7 +2004,7 @@ def _read_projection_pair(
         raise ContractError(f"Runtime-Run {run_dir.name}: Verzeichnis/Receipt-ID falsch")
     projection_bytes = projection_path.read_bytes()
     projection = _parse_json(projection_bytes, f"Runtime-Run {run_dir.name} Projection")
-    validate_runtime_projection(
+    _validate_runtime_projection(
         projection, receipt, receipt_bytes, run_dir, repo_root=repo_root,
         expected_contract_sha256=expected_contract_sha256,
         expected_authority_commit=expected_authority_commit,
@@ -1851,7 +2078,7 @@ def _export_runtime_evidence_locked(
     return projections
 
 
-def export_runtime_evidence(
+def _export_runtime_evidence(
     evidence_root: Path, *, repo_root: Path, expected_contract_sha256: str,
     expected_authority_commit: str,
 ) -> list[dict[str, Any]]:
@@ -2089,6 +2316,7 @@ def _publish_run_and_ledgers(
         existing = ledger.read_bytes() if ledger.exists() else b""
         if existing and not existing.endswith(b"\n"):
             raise ContractError("runtime_runs.jsonl endet nicht mit Newline")
+        _active_git()._verify()
         os.replace(stage_run, final_run)
         _fsync_directory(final_run.parent)
         published = True
@@ -2096,6 +2324,7 @@ def _publish_run_and_ledgers(
         os.close(descriptor)
         temp_path = Path(name)
         _durable_write(temp_path, existing + _canonical_bytes(receipt) + b"\n")
+        _active_git()._verify()
         os.replace(temp_path, ledger)
         _fsync_directory(ledger.parent)
         ledger_committed = True
@@ -2104,6 +2333,7 @@ def _publish_run_and_ledgers(
             expected_contract_sha256=expected_contract_sha256,
             expected_authority_commit=expected_authority_commit,
         )
+        _active_git()._verify()
     except BaseException as exc:
         primary_error = exc
         raise
@@ -2140,7 +2370,7 @@ def _owns_published_run(path: Path, runtime_run_id: str, token: str) -> bool:
         return False
 
 
-def run_scenario(
+def _run_scenario(
     *, repo_root: Path, evidence_root: Path, contract_path: Path,
     expected_contract_sha256: str, authority_commit: str, expected_authority_commit: str,
     authority_policy_path: str,
@@ -2438,6 +2668,7 @@ def run_scenario(
                 "method": "git-cat-file", "audited": audited_materialization,
                 "tooling": tooling_materialization,
             },
+            "git_executor": _active_git().receipt,
             "runner": {"path": "tools/audit_runtime_evidence.py",
                        "ref": f"runs/{runtime_run_id}/sealed/runner.py",
                        "tooling_commit": contract["tooling_commit"],
@@ -2487,7 +2718,7 @@ def run_scenario(
             raise ContractError("evidence_id bereits vorhanden")
         receipt_bytes = _canonical_bytes(receipt) + b"\n"
         _durable_write(stage_run / "receipt.json", receipt_bytes)
-        projection = build_runtime_projection(
+        projection = _build_runtime_projection(
             receipt, receipt_bytes, stage_run, repo_root=repo,
             expected_contract_sha256=expected_contract_sha256,
             expected_authority_commit=expected_authority_commit,
@@ -2515,6 +2746,7 @@ def run_scenario(
             expected_authority_commit=expected_authority_commit,
             ownership_token=publish_owner_token,
         )
+        _active_git()._verify()
         success = True
         return receipt
     except BaseException as exc:
@@ -2529,12 +2761,102 @@ def run_scenario(
         _finish_cleanup(primary_error, cleanup_steps)
 
 
+def build_runtime_projection(
+    receipt: dict[str, Any], receipt_bytes: bytes, run_dir: Path, *,
+    repo_root: Path, expected_contract_sha256: str, expected_authority_commit: str,
+    git_executable: Path, expected_git_sha256: str,
+    expected_git_dependency_sha256: dict[str, str],
+) -> dict[str, Any]:
+    with _git_scope(
+        git_executable, expected_git_sha256, expected_git_dependency_sha256,
+    ):
+        return _build_runtime_projection(
+            receipt, receipt_bytes, run_dir, repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
+
+
+def validate_runtime_projection(
+    projection: dict[str, Any], receipt: dict[str, Any], receipt_bytes: bytes,
+    run_dir: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str, git_executable: Path,
+    expected_git_sha256: str,
+    expected_git_dependency_sha256: dict[str, str],
+) -> None:
+    with _git_scope(
+        git_executable, expected_git_sha256, expected_git_dependency_sha256,
+    ):
+        _validate_runtime_projection(
+            projection, receipt, receipt_bytes, run_dir, repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
+
+
+def export_runtime_evidence(
+    evidence_root: Path, *, repo_root: Path, expected_contract_sha256: str,
+    expected_authority_commit: str, git_executable: Path,
+    expected_git_sha256: str,
+    expected_git_dependency_sha256: dict[str, str],
+) -> list[dict[str, Any]]:
+    with _git_scope(
+        git_executable, expected_git_sha256, expected_git_dependency_sha256,
+    ):
+        return _export_runtime_evidence(
+            evidence_root, repo_root=repo_root,
+            expected_contract_sha256=expected_contract_sha256,
+            expected_authority_commit=expected_authority_commit,
+        )
+
+
+def run_scenario(
+    *, repo_root: Path, evidence_root: Path, contract_path: Path,
+    expected_contract_sha256: str, authority_commit: str,
+    expected_authority_commit: str, authority_policy_path: str,
+    scenario_id: str, runtime_run_id: str, git_executable: Path,
+    expected_git_sha256: str,
+    expected_git_dependency_sha256: dict[str, str],
+) -> dict[str, Any]:
+    """Run one scenario under an externally pinned, locked Git executable."""
+    with _git_scope(
+        git_executable, expected_git_sha256, expected_git_dependency_sha256,
+    ):
+        return _run_scenario(
+            repo_root=repo_root, evidence_root=evidence_root,
+            contract_path=contract_path,
+            expected_contract_sha256=expected_contract_sha256,
+            authority_commit=authority_commit,
+            expected_authority_commit=expected_authority_commit,
+            authority_policy_path=authority_policy_path,
+            scenario_id=scenario_id, runtime_run_id=runtime_run_id,
+        )
+
+
+def _parse_git_dependency_pins(values: list[str]) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for value in values:
+        if not isinstance(value, str) or value.count("=") != 1:
+            raise ContractError("Git-Dependency-Pin braucht NAME=SHA256")
+        name, digest = value.split("=", 1)
+        if name in pins:
+            raise ContractError(f"Git-Dependency-Pin doppelt: {name}")
+        pins[name] = digest
+    return pins
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--audit-contract", type=Path, required=True)
     parser.add_argument("--expected-contract-sha256", required=True)
+    parser.add_argument("--git-executable", type=Path, required=True)
+    parser.add_argument("--expected-git-sha256", required=True)
+    parser.add_argument(
+        "--git-dependency-sha256", action="append", required=True,
+        metavar="NAME=SHA256",
+    )
     parser.add_argument("--authority-commit", required=True)
     parser.add_argument(
         "--expected-authority-commit", required=True,
@@ -2545,9 +2867,13 @@ def main() -> int:
     parser.add_argument("--runtime-run-id", required=True)
     args = parser.parse_args()
     try:
+        git_dependency_pins = _parse_git_dependency_pins(args.git_dependency_sha256)
         receipt = run_scenario(
             repo_root=args.root, evidence_root=args.evidence_root,
             contract_path=args.audit_contract, expected_contract_sha256=args.expected_contract_sha256,
+            git_executable=args.git_executable,
+            expected_git_sha256=args.expected_git_sha256,
+            expected_git_dependency_sha256=git_dependency_pins,
             authority_commit=args.authority_commit,
             expected_authority_commit=args.expected_authority_commit,
             authority_policy_path=args.authority_policy_path,
