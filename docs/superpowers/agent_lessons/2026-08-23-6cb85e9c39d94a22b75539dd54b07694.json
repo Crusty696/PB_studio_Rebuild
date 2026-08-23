@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6cb85e9c39d94a22b75539dd54b07694",
+  "recorded_at": "2026-08-23T05:17:02+00:00",
+  "session_id": "b45f31a9dfa649b8ad8b19ca993b39e9",
+  "head_at_start": "9f4942990840fec2154479c7d911bb4397cfad59",
+  "problem": "Fehlgeschlagene Scene-Reanalyse wurde bei vorhandenen alten Scene-Zeilen als done angezeigt.",
+  "cause": "Generischer DB-Reconciler behandelte Artefaktexistenz ohne Laufprovenienz als aktuellen Erfolg und ueberschrieb mark_error.",
+  "rule": "Bei Reanalyse mit bewusst erhaltenen Altartefakten darf Status-Reconcile einen aktuellen Error nicht aus blosser Artefaktexistenz auf done heben; erfolgreicher Lauf muss explizit mark_done schreiben.",
+  "applies_to": "Analyse-Status-Reconcile, Reanalyse, persistierte Altartefakte"
+}
