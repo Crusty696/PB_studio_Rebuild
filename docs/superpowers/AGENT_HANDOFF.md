@@ -2,6 +2,14 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## Masterplan reaktiviert — 2026-08-23
+
+- User brach Audit-Fortsetzung nach lokalem B-860-Commit `d365257` ab.
+- Aktiv: `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16`.
+- Naechste einzige Task: `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
+- Auditplan bleibt pausiert. Readiness-Re-Gate und externe Trust-Authority offen;
+  kein Audit-Snapshot oder Produktaudit ausgefuehrt.
+
 ## B-859 Code-final / Live-Verifikation offen — 2026-08-22
 
 - B-859 Code-/Testcommit: `80c2c24`.

@@ -1,36 +1,36 @@
 # PB Studio Active Plan
 
 status: active
-active_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
-repo_plan: docs/superpowers/plans/2026-08-15-exhaustive-line-feature-state-audit-plan.md
-vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-exhaustive-line-feature-state-audit-2026-08-15.md
-decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-090-exhaustive-line-feature-state-audit-draft.md
-paused_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
-paused_plan_next_task: LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse
-paused_plan_resume_commit: 4b94c2608ff6e3561a81580236235247e28122fa
-updated: 2026-08-15
-worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild\.worktrees\audit-phase-minus-1
-branch: codex/audit-phase-minus-1
+active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
+repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
+vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
+decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\decisions\D-071-master-offene-tasks-konsolidierung.md
+paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
+paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
+paused_plan_resume_commit: d365257
+updated: 2026-08-23
+worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
+branch: main
 
 ## Why This Plan Is Active
 
-User autorisierte am 2026-08-15 explizit die separate Phase--1-Harness-
-Implementierung des revidierten Exhaustive-Auditplans. W4 ist nur pausiert,
-nicht abgeschlossen oder ersetzt. Produktaudit und Produktfixes bleiben verboten.
+User autorisierte am 2026-08-23 explizit den Abbruch der Audit-Fortsetzung und
+die Reaktivierung des Masterplans. Audit-Phase--1 bleibt pausiert, nicht
+abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PHASE -1 / sechs kanonische Audit-Harnesses samt Contracttests implementieren`.
+`LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse`.
 
-Gate: `verify_audit_readiness.py` muss nach realer Harness-, Runtime-Runner-,
-Reviewer-Receipt-, Delta-/TTL- und Atomic-Import-Validierung fail-closed gruen
-werden. Kein Snapshot und kein eigentlicher Auditlauf vorher.
+W4-Vertrag: SceneDetect, RAFT, Keyframes, SigLIP, VLM, defekter Clip,
+Video-Cancel und Reanalyse im isolierten Livepfad pruefen. Erster
+reproduzierbarer Fehler stoppt den Workflow und oeffnet genau eine Root-Cause-Task.
 
-## Paused Masterplan Handoff
+## Paused Auditplan Handoff
 
-Masterplan bleibt bei `LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip
-und Reanalyse`. Resume-Basis `4b94c2608ff6e3561a81580236235247e28122fa`;
-keine W4-Datei wurde fuer Phase -1 geaendert.
+Auditplan pausiert nach B-860-Commit `d365257`. Readiness-Re-Gate und reale
+externe Trust-Authority bleiben offen. Kein Audit-Snapshot und kein
+Produktaudit wurden freigegeben oder ausgefuehrt.
 
 ## Historical Masterplan Context (paused)
 
