@@ -2,6 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 Auto-Edit A agent-complete — 2026-08-24
+
+- Echter PID-gebundener UI-Lauf 6: 101 Decisions/Cuts ueber exakt 337.137 s.
+- 101/101 Brain V3, Rang 1 aus je 109 Kandidaten; je Decision exakt 18
+  kanonische Brain-Achsen.
+- Timeline ohne Gaps, Overlaps oder Medien-/Szenenwiederholung; Waveform,
+  Marker, Thumbnails und Cutliste sichtbar; Crashscan 0.
+- Ohne Feedback: Patterns 0, Feedback 0, `weights.db` unveraendert.
+- B-886 Preflight-Modellbindung Commit `c34aa80`. Evidence:
+  `tests/qa_artifacts/stab3_auto_edit_a_20260824.json`.
+- Status `agent-complete`; Usermarker offen. Naechste einzige Task:
+  `STAB-3 / Negativkontrolle ohne Feedback muss deterministisch bleiben`.
+  Kein Push.
+
 ## STAB-3 Preflight agent-complete — 2026-08-24
 
 - Stability-Projekt/DB, 28 Videoquellen, 96 Timelinezeilen und Audio per

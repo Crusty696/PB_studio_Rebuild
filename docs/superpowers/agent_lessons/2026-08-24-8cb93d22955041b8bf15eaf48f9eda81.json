@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8cb93d22955041b8bf15eaf48f9eda81",
+  "recorded_at": "2026-08-24T21:11:29+00:00",
+  "session_id": "cc5b28020dee47a6bd5abfbc2ecaa760",
+  "head_at_start": "4cbb88e534815c034b344bdfc0f15a6532497989",
+  "problem": "Auto-Edit-Qualitaet und Brain-Nutzung mussten ohne pauschale Erfolgsaussage live belegt werden",
+  "cause": "UI-Ergebnis allein belegt weder Kandidatenrang noch 18 Achsen noch ausbleibende Lernmutation",
+  "rule": "Bei Auto-Edit-Liveverifikation UI-Sichtbefund mit Run-gebundener DB-Rangfolge, exakter Achsenmenge, Timeline-Invarianten sowie Pattern-/Weight-Digest-Diff gemeinsam bewerten",
+  "applies_to": "STAB-3 Auto-Edit, Brain-V3, Pacing und Lernpfad-Verifikation"
+}

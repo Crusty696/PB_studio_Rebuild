@@ -20,19 +20,18 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Auto-Edit A inklusive Rangfolge, 18 Brain-Achsen, Pacing, Pattern
-und Gewichten`.
+`STAB-3 / Negativkontrolle ohne Feedback muss deterministisch bleiben`.
 
-W8 ist `agent-complete-await-user-marker`: Shutdown ohne Task sowie waehrend
-laufender Audio-, Video- und Exporttasks ist Current-live belegt. Running-
-Export wurde bei real aktivem GTX-1060-NVENC-FFmpeg per Task-Prompt kooperativ
-abgebrochen; Exit 0, Prozessnull, kein Partialoutput, DB quick_check ok und
-Kerncounts unveraendert. Unmittelbarer Pre-Logical-Digest fehlt und bleibt als
-Beleggrenze dokumentiert. Kein User-`fixed`-/W8-Phasenmarker gesetzt.
-W6-LLM-AN bleibt separat wegen VLM/B-867 userentscheidungsgebunden. STAB-3
-beginnt gemaess Plan sequenziell mit fixierten Inputs; keine Modellwahl wird
-eigenmaechtig geaendert. Erster reproduzierbarer Fehler stoppt den Lauf und
-oeffnet genau eine Root-Cause-Task.
+Auto-Edit A ist `agent-complete`: echter PID-gebundener UI-Lauf 6 erzeugte
+101 Decisions/Cuts ueber exakt 337.137 s. 101/101 nutzten Brain V3, waehlten
+Rang 1 aus je 109 Kandidaten und enthielten exakt 18 kanonische Brain-Achsen.
+Timeline ohne Gaps, Overlaps oder Medien-/Szenenwiederholung; Waveform, Marker,
+Thumbnails und Cutliste sichtbar. Ohne Feedback blieben Patterns/Feedback 0
+und `weights.db` unveraendert. B-886 band getrennte Auto-Edit-SigLIP-1- und
+Brain-V3-SigLIP2-Artefakte in Preflight ein, Commit `c34aa80`. Kein User-
+`fixed`-/STAB-3-Phasenmarker gesetzt. Naechster Lauf verwendet identische
+Inputs/Settings/Modelldigests und darf keine Gewichts- oder Patternmutation
+zeigen.
 
 ## Paused Auditplan Handoff
 

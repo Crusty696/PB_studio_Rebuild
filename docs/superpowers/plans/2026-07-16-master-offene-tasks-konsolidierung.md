@@ -1073,3 +1073,18 @@ Decision: Vault
   quick_check ok. Evidence: `tests/qa_artifacts/stab3_preflight_freeze_20260824.json`.
 - Naechste einzige Task:
   `STAB-3 / Auto-Edit A inklusive Rangfolge, 18 Brain-Achsen, Pacing, Pattern und Gewichten`.
+
+#### STAB-3 Auto-Edit A agent-complete — 2026-08-24
+
+- Echter PID-gebundener UI-Lauf 6: 101 Decisions/Cuts, exakt 337.137 s,
+  101/101 Brain V3 und Rang 1 aus je 109 Kandidaten.
+- Jede Decision enthaelt exakt 18 kanonische Brain-Achsen; Timeline ohne
+  Gaps, Overlaps oder Medien-/Szenenwiederholung. Waveform, Marker, Thumbnails
+  und Cutliste sichtbar; Crashscan 0.
+- Ohne Feedback: Patterns 0, Feedback 0, `weights.db` unveraendert.
+- B-886 band Auto-Edit-SigLIP-1 getrennt von Brain-V3-SigLIP2 in Preflight;
+  Commit `c34aa80`. Evidence:
+  `tests/qa_artifacts/stab3_auto_edit_a_20260824.json`.
+- Status `agent-complete`; kein User-`fixed`-/STAB-3-Phasenmarker.
+- Naechste einzige Task:
+  `STAB-3 / Negativkontrolle ohne Feedback muss deterministisch bleiben`.
