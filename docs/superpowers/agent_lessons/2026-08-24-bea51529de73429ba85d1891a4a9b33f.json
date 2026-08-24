@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bea51529de73429ba85d1891a4a9b33f",
+  "recorded_at": "2026-08-24T21:03:47+00:00",
+  "session_id": "cc5b28020dee47a6bd5abfbc2ecaa760",
+  "head_at_start": "4cbb88e534815c034b344bdfc0f15a6532497989",
+  "problem": "STAB-3 Preflight fixierte nur Brain-V3-SigLIP2, waehrend echter Auto-Edit separaten SigLIP-1-Pfad lud",
+  "cause": "Modellinventar behandelte SigLIP als einen Pfad, obwohl Brain-V3 768-d und Auto-Edit/V1-V2 1152-d bewusst getrennte Modelle nutzen",
+  "rule": "Vor reproduzierbaren Live-Laeufen alle tatsaechlich aufgerufenen Modellpfade aus Produktlogs inventarisieren und jede Modell-ID mit Revision/Blob binden; gleichnamige Modellfamilie nicht als einzelne Identitaet behandeln",
+  "applies_to": "PB Studio STAB-Laeufe, Auto-Edit, Brain-V3 und Multi-Modell-Pipelines"
+}

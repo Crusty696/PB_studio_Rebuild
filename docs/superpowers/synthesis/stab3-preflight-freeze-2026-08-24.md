@@ -25,6 +25,11 @@ current_commit: bc29c5140c44ac5b04174dc7f291d8ca4afb7e83
   `71306567...`, Modelllayer `e791f710...`, Projektor `204d757d...`.
 - SigLIP2 `google/siglip2-base-patch16-384` v1.0, HF-Revision
   `f775b65a79762255128c981547af89addcfe0f88`.
+- Auto-Edit/V1-V2-SigLIP `google/siglip-so400m-patch14-384`, HF-Revision
+  `9fdffc58afc957d1a03a25b10dba0329ab15c2a3`, Modellblob
+  `ea2abad2b7f8a9c1aa5e49a244d5d57ffa71c56f720c94bc5d240ef4d6e1d94a`
+  (3,511,950,624 Bytes). B-886 korrigiert das urspruenglich unvollstaendige
+  Inventar; Produktkonfiguration blieb unveraendert.
 - CLAP `laion/larger_clap_music` v1.0; lokaler Cache fehlt und wird nicht
   still heruntergeladen oder ersetzt. Enricher v1.
 
