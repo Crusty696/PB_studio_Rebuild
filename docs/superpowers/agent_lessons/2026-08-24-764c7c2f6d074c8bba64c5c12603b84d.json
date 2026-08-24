@@ -1,0 +1,10 @@
+{
+  "lesson_id": "764c7c2f6d074c8bba64c5c12603b84d",
+  "recorded_at": "2026-08-24T23:02:07+00:00",
+  "session_id": "26436eda4ad341e28aeb6874c205f5d0",
+  "head_at_start": "820679bf411c893aac823fd470b77c69e4c23277",
+  "problem": "Brain-V3-Feedbackpfad endete beim QAction-Dispatch mit Windows Heap-Korruption 0xc0000374.",
+  "cause": "Parentlose QMenu/QDialog-Objekte verloren ihre einzige Python-Referenz synchron innerhalb von aboutToHide/finished, waehrend Qt noch den Signal-/Action-Stack abarbeitete.",
+  "rule": "Asynchrone Qt-Menues und Dialoge an langlebigen QObject-Owner parenten; Referenzfreigabe und deleteLater erst ueber naechsten Eventloop-Tick ausfuehren.",
+  "applies_to": "PySide6 QMenu/QDialog-Lifecycle; ui/timeline.py"
+}

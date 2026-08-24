@@ -1103,3 +1103,18 @@ Decision: Vault
   Evidence: `tests/qa_artifacts/stab3_negative_control_20260824.json`.
 - Naechste einzige Task:
   `STAB-3 / Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart`.
+
+#### STAB-3 Feedback/Persistenz agent-complete — 2026-08-25
+
+- Negatives Feedback an Decision 795/Scene 127 und positives Feedback an
+  Decision 821/Scene 32 wurden ueber den echten Timeline-UI-Pfad gespeichert.
+- Nach Debounce, sauberem Shutdown und komplettem Neustart blieben 2
+  Feedbackevents, 2 bewertete Decisions und 2 `mem_learned_pattern` erhalten;
+  accept/reject je 1, globale Achsengewichte 138, beide DB-quick_checks ok.
+- Direkte Defekte B-889, B-890 und B-891 stehen
+  `agent-fixed-await-user`; kein User-`fixed`-/STAB-3-Phasenmarker gesetzt.
+- Evidence:
+  `docs/superpowers/synthesis/stab3-feedback-persistence-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-3 / Auto-Edit B mit identischen Eingaben; erklaerbare Aenderung nur
+  adressierter Beitraege und Kandidatenrangfolge beweisen`.

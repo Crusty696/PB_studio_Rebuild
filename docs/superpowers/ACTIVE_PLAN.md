@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-24
+updated: 2026-08-25
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -20,16 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart`.
+`STAB-3 / Auto-Edit B mit identischen Eingaben; erklaerbare Aenderung nur
+adressierter Beitraege und Kandidatenrangfolge beweisen`.
 
-Negativkontrolle ist `agent-complete`. Direkter Run 6/7 war wegen bewusst
-persistierter Playback-Offsets kein identischer Input; B-887 korrigierte
-Kontrollmethode ohne Produktcodeaenderung. Kontrollpaar Run 8/9 stellte 112
-Offsets exakt wieder her und ist in Decisions, Timeline, Brain-Cuts sowie
-resultierenden Offsets digestidentisch. Je 101/101 Brain V3, Rang 1 aus 109
-Kandidaten und 18 Achsen; Patterns/Feedback 0, Settings/Weights unveraendert.
-B-888 erfasst separates, noch nicht reproduziertes Tie-Break-Risiko. Kein
-User-`fixed`-/STAB-3-Phasenmarker gesetzt. App PID 3276 bleibt offen.
+Feedback/Persistenz ist `agent-complete-await-user-marker`: negatives und
+positives Feedback an zwei verschiedenen Decisions/Scenes, 2 Events und 2
+`mem_learned_pattern` nach Flush, sauberem Shutdown und komplettem Neustart
+erhalten; accept/reject je 1, 138 Achsengewichte, beide DB-quick_checks ok.
+B-889/B-890/B-891 stehen `agent-fixed-await-user`; kein User-`fixed`- oder
+STAB-3-Phasenmarker. App beendet. Kein Push.
 
 ## Paused Auditplan Handoff
 

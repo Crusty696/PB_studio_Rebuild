@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9b3177dfe934466b87eea4c77ad2a2b2",
+  "recorded_at": "2026-08-24T23:02:20+00:00",
+  "session_id": "26436eda4ad341e28aeb6874c205f5d0",
+  "head_at_start": "820679bf411c893aac823fd470b77c69e4c23277",
+  "problem": "Feedback nach App-Neustart aktualisierte globale Gewichte, aber erzeugte keine projektgebundenen mem_learned_pattern.",
+  "cause": "Aktiver mem_pacing_run wurde nur nach neuem Auto-Edit gesetzt; Projekt-/Audio-Rehydration mit blockierten Combo-Signalen stellte Kontext nicht wieder her.",
+  "rule": "Persistenten UI-Kontext nach finaler Widget-Rehydration explizit aus DB restaurieren und bei fehlender Auswahl aktiv auf None loeschen; nicht auf blockierte change-Signale vertrauen.",
+  "applies_to": "ui/controllers/edit_workspace.py; ui/controllers/media_table.py; persistente Combo-Rehydration"
+}

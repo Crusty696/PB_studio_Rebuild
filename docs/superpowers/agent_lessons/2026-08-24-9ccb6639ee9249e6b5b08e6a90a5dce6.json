@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9ccb6639ee9249e6b5b08e6a90a5dce6",
+  "recorded_at": "2026-08-24T23:01:53+00:00",
+  "session_id": "26436eda4ad341e28aeb6874c205f5d0",
+  "head_at_start": "820679bf411c893aac823fd470b77c69e4c23277",
+  "problem": "Timeline-Kontextmenue fand bei sichtbarem Clip kein Ziel, sobald ein parentloses Marker-Overlay unter dem Klick lag.",
+  "cause": "Hit-Test pruefte nur QGraphicsScene.itemAt und damit ausschliesslich das oberste Overlay statt alle Items und deren Parentkette.",
+  "rule": "Bei interaktiven QGraphicsScene-Overlays alle Treffer in Z-Reihenfolge pruefen und Parentketten bis zum gesuchten semantischen Item verfolgen.",
+  "applies_to": "ui/timeline.py; QGraphicsScene-Hit-Testing mit Overlays"
+}

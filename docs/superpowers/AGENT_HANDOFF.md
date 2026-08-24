@@ -2,6 +2,25 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 Feedback/Persistenz agent-complete — 2026-08-25
+
+- Echter Timeline-UI-Pfad: negativ Decision 795/Scene 127, positiv Decision
+  821/Scene 32.
+- Nach Flush, sauberem Shutdown und komplettem Neustart: 2 Feedbackevents,
+  2 bewertete Decisions, 2 `mem_learned_pattern`, accept/reject je 1,
+  138 globale Achsengewichte; beide DB-quick_checks ok.
+- B-889 Overlay-Hit-Test, B-890 Qt-Lifecycle und B-891 Pacing-Run-
+  Rehydration korrigiert; alle `agent-fixed-await-user`.
+- Produktcommits: B-889/B-890 `ed13280`; B-891 `2ed783f`.
+- Gezielte RED/GREEN-Fokuschecks, PyCompile, Ruff und Diffcheck gruen. Kein
+  breiter Sweep. B-890 ohne nativen Dump; exakte Crashinstruktion unbewiesen.
+- Evidence:
+  `docs/superpowers/synthesis/stab3-feedback-persistence-2026-08-25.md`.
+- App beendet. Kein Push. Kein User-`fixed`-/STAB-3-Phasenmarker.
+- Naechste einzige Task: `STAB-3 / Auto-Edit B mit identischen Eingaben;
+  erklaerbare Aenderung nur adressierter Beitraege und Kandidatenrangfolge
+  beweisen`.
+
 ## STAB-3 Negativkontrolle agent-complete — 2026-08-24
 
 - Direkter Run 6/7 rot; B-887 belegt Playback-Offset-Inputdrift statt Brain-
