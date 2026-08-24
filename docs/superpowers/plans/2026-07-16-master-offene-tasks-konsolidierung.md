@@ -1088,3 +1088,18 @@ Decision: Vault
 - Status `agent-complete`; kein User-`fixed`-/STAB-3-Phasenmarker.
 - Naechste einzige Task:
   `STAB-3 / Negativkontrolle ohne Feedback muss deterministisch bleiben`.
+
+#### STAB-3 Negativkontrolle agent-complete — 2026-08-24
+
+- Direkter Run 6/7 war rot: 95/101 Szenen und 101/101 Scores verschieden.
+  Root Cause B-887: bewusst persistierte Playback-Offsets machten Inputs
+  verschieden; kein Brain-/RNG-/Feedback-Defekt.
+- Produktcode/F-001 unveraendert. Kontrollpaar Run 8/9 restaurierte 112
+  Offsetwerte exakt und ist in Decisions, Timeline, Brain-Cuts sowie
+  resultierenden Offsets digestidentisch.
+- Je Lauf 101/101 Brain V3, Rang 1 aus 109 Kandidaten, 18 Achsen; Patterns/
+  Feedback 0, Settings/Weights unveraendert, quick_checks und Errorgate gruen.
+- B-887 `agent-fixed-await-user`; B-888 separates offenes Tie-Break-Risiko.
+  Evidence: `tests/qa_artifacts/stab3_negative_control_20260824.json`.
+- Naechste einzige Task:
+  `STAB-3 / Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart`.

@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 Negativkontrolle agent-complete — 2026-08-24
+
+- Direkter Run 6/7 rot; B-887 belegt Playback-Offset-Inputdrift statt Brain-
+  oder RNG-Defekt. Produkt-F-001 blieb unveraendert.
+- Kontrollpaar Run 8/9 mit exakt restaurierten 112 Offsets: Decisions,
+  Timeline, Brain-Cuts und Post-Offsets digestidentisch.
+- 101/101 Brain V3, Rang 1/109, 18 Achsen; keine Pattern-/Feedback-/Weight-
+  Mutation; quick_checks/Errorgate gruen.
+- B-887 `agent-fixed-await-user`; B-888 separates offenes Tie-Break-Risiko.
+- Evidence: `tests/qa_artifacts/stab3_negative_control_20260824.json`.
+- Naechste einzige Task: `STAB-3 / Gezieltes positives/negatives Feedback,
+  Flush, kompletter App-Neustart`. App PID 3276 offen. Kein Push.
+
 ## STAB-3 Auto-Edit A agent-complete — 2026-08-24
 
 - Echter PID-gebundener UI-Lauf 6: 101 Decisions/Cuts ueber exakt 337.137 s.

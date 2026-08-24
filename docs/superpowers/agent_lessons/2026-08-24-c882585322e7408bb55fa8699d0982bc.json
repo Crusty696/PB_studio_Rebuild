@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c882585322e7408bb55fa8699d0982bc",
+  "recorded_at": "2026-08-24T21:40:52+00:00",
+  "session_id": "7a7aadd480c54ad89f1f7fa3cd83c4a7",
+  "head_at_start": "d32ed2454417d019c56e164f5a5a3d2ccc16faa0",
+  "problem": "STAB-3-Negativkontrolle zeigte trotz gleichem Seed andere Brain-Rangfolge",
+  "cause": "Auto-Edit persistiert VideoClip.playback_offset bewusst; direkter Folgelauf hatte dadurch andere Scene-, Motionkurven- und Restdauerinputs",
+  "rule": "Deterministische Auto-Edit-A/B-Laeufe muessen neben Medien, Seed, Settings und Modellen auch alle playback_offset-Werte binden und vor jedem Vergleichslauf exakt restaurieren; Seed allein definiert keinen identischen Zustand",
+  "applies_to": "PB Studio Auto-Edit, Pacing/Brain-A-B, STAB-3-Liveverifikation"
+}

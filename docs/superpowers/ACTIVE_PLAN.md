@@ -20,18 +20,16 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Negativkontrolle ohne Feedback muss deterministisch bleiben`.
+`STAB-3 / Gezieltes positives/negatives Feedback, Flush, kompletter App-Neustart`.
 
-Auto-Edit A ist `agent-complete`: echter PID-gebundener UI-Lauf 6 erzeugte
-101 Decisions/Cuts ueber exakt 337.137 s. 101/101 nutzten Brain V3, waehlten
-Rang 1 aus je 109 Kandidaten und enthielten exakt 18 kanonische Brain-Achsen.
-Timeline ohne Gaps, Overlaps oder Medien-/Szenenwiederholung; Waveform, Marker,
-Thumbnails und Cutliste sichtbar. Ohne Feedback blieben Patterns/Feedback 0
-und `weights.db` unveraendert. B-886 band getrennte Auto-Edit-SigLIP-1- und
-Brain-V3-SigLIP2-Artefakte in Preflight ein, Commit `c34aa80`. Kein User-
-`fixed`-/STAB-3-Phasenmarker gesetzt. Naechster Lauf verwendet identische
-Inputs/Settings/Modelldigests und darf keine Gewichts- oder Patternmutation
-zeigen.
+Negativkontrolle ist `agent-complete`. Direkter Run 6/7 war wegen bewusst
+persistierter Playback-Offsets kein identischer Input; B-887 korrigierte
+Kontrollmethode ohne Produktcodeaenderung. Kontrollpaar Run 8/9 stellte 112
+Offsets exakt wieder her und ist in Decisions, Timeline, Brain-Cuts sowie
+resultierenden Offsets digestidentisch. Je 101/101 Brain V3, Rang 1 aus 109
+Kandidaten und 18 Achsen; Patterns/Feedback 0, Settings/Weights unveraendert.
+B-888 erfasst separates, noch nicht reproduziertes Tie-Break-Risiko. Kein
+User-`fixed`-/STAB-3-Phasenmarker gesetzt. App PID 3276 bleibt offen.
 
 ## Paused Auditplan Handoff
 
