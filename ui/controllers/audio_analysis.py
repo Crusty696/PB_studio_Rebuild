@@ -31,7 +31,7 @@ class AudioAnalysisController(PBComponent):
     """Audio analysis methods for PBWindow."""
 
     def _get_selected_audio_track(self):
-        """B-293: Checkbox-first, Maus-Selection-Fallback. Symmetrisch zu Video-Helper."""
+        """Checkbox-first, dann Maus-Selektion, dann aktiver Combo-Track."""
         from database import engine, AudioTrack
         from sqlalchemy.orm import Session as DBSession
         from sqlalchemy import select  # B-625
@@ -56,8 +56,21 @@ class AudioAnalysisController(PBComponent):
                     audio_id = int(val)
 
         if audio_id is None:
+            combo_id = self.window.audio_combo.currentData()
+            try:
+                audio_id = int(combo_id) if combo_id is not None else None
+            except (ValueError, TypeError):
+                audio_id = None
+            if audio_id is not None:
+                logger.info(
+                    "B-882: Einzeltrack-Aktion nutzt aktiven Audio-Combo-Track id=%s",
+                    audio_id,
+                )
+
+        if audio_id is None:
             self.window.console_text.append(
-                "[Warnung] Kein Audio-Track ausgewaehlt (weder Checkbox noch Maus-Selection)."
+                "[Warnung] Kein Audio-Track ausgewaehlt "
+                "(weder Checkbox, Maus-Selection noch aktiver Track)."
             )
             return None
 

@@ -2,6 +2,27 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-882 agentseitig live gruen / W8 Audio-Branch gruen — 2026-08-24
+
+- Root Cause: Audio-Aktionsbuttons wurden bei aktivem `audio_combo` enabled;
+  `_get_selected_audio_track()` akzeptierte nur Checkbox/Maus-Selektion und
+  beendete `Stems` still.
+- Minimalfix: Checkbox zuerst, Maus-Selektion danach, aktiver Combo-Track als
+  letzter Einzeltrack-Fallback. Batch-/Video-Pfade unveraendert.
+- Echter RED vor Fix; danach Regression plus B-293-Prioritaet `2 passed`;
+  PyCompile und Ruff gruen.
+- Live nach Neustart im W8-Projekt: Checkbox leer, keine Mauszeile, Maceo Plex
+  rechts aktiv; physischer `Stems`-Klick erzeugt sichtbaren Running-Task.
+- W8 Audio-Shutdown: physischer Fenster-X bei Running/67 % (Chunk 9/12),
+  Dirty-Dialog `Yes`; danach App/Ollama/Demucs/FFmpeg 0 Prozesse,
+  DB `quick_check=ok`, Kerncounts 1/125/3/96/342/43 unveraendert.
+- Vier bestehende Stems nach Abbruch ffprobe-lesbar und mit 337.137347 s
+  vollstaendig; Quelle 337.137333 s. Kein partieller Output.
+- Ehrlicher Status: B-882 `agent-fixed-await-user`; W8 insgesamt offen.
+  Naechste W8-Branches: laufender Video-Task, laufender Export-Task.
+- Belege: `tests/qa_artifacts/w8_shutdown_audio_task_20260824.png` und lokale
+  W8-Prompt-/Cleanup-Screenshots. Kein Push angeordnet.
+
 ## B-881 agentseitig live gruen / W7-Matrix agent-complete — 2026-08-24
 
 - Echter Standard-xfade-Export ueber UI mit 95 Video-/1 Audioeintrag;

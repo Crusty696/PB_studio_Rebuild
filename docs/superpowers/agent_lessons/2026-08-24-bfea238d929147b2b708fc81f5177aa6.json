@@ -1,0 +1,10 @@
+{
+  "lesson_id": "bfea238d929147b2b708fc81f5177aa6",
+  "recorded_at": "2026-08-24T16:21:59+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "Enabled Audio-Einzelaktion endete ohne Task, wenn Track nur rechts aktiv war.",
+  "cause": "Enable-Logik akzeptierte audio_combo.currentData(), Auswahl-Helper dagegen nur Checkbox oder Maus-Selektion.",
+  "rule": "Enable-Vertrag und Handler-Auswahlquelle muessen identisch sein; aktiven Combo-Wert mit echtem UI-Lauf ohne Tabellen-Selektion regressieren.",
+  "applies_to": "PB-Studio Audio-Einzeltrack-Aktionen und gekoppelte Detail-/Combo-UI"
+}
