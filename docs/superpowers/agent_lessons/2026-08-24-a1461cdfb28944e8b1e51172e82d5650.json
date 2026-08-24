@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a1461cdfb28944e8b1e51172e82d5650",
+  "recorded_at": "2026-08-24T19:45:00+00:00",
+  "session_id": "07667cd112384d9d99eb98c9e259d084",
+  "head_at_start": "435397d4da7bc97349daca53819346331016a269",
+  "problem": "Running-Export-Shutdown war trotz sichtbarem Task nicht als echter Cancel belegt, weil synchroner UIA-Close bis nach Exportende blockierte",
+  "cause": "Der Close-Aufruf wartete im modalen Laufende-Tasks-Dialog; derselbe Kontrollfluss konnte den Prompt nicht bestaetigen, waehrend FFmpeg noch lebte",
+  "rule": "Modalen Qt-Shutdown in Live-Tests per nicht blockierendem WM_CLOSE ausloesen, Childprozess direkt vor Prompt-Antwort erneut belegen und Prompt sofort PID-gebunden bestaetigen",
+  "applies_to": "Qt-Desktop-Live-Tests mit laufenden Worker- oder FFmpeg-Prozessen und modalen Close-Prompts"
+}

@@ -20,16 +20,17 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W8 Persistenz/Shutdown ohne und mit laufenden
-Audio-/Video-/Exporttasks`.
+`STAB-3 / Medien, Seed, Settings und Modellversion fixieren`.
 
-W7 ist `agent-complete-await-user-marker`: Hard-Cut/xfade, 8-/10-bit,
-Standard/High-Quality/Draft, Cancel/Retry sowie Dauer/Frames/Audio/Seek sind
-Current-live belegt. B-881 schloss den letzten +38-Frame-Defekt in Commit
-`d90122e`; echter Main10-UI-Retry hat 10018 Frames/333.933333 s bei
-333.9385 s Video-Timeline. Kein User-`fixed`-/W7-Phasenmarker gesetzt.
-W6-LLM-AN bleibt separat wegen VLM/B-867 userentscheidungsgebunden. W8 nutzt
-dasselbe isolierte Projekt; erster reproduzierbarer Fehler stoppt den Lauf und
+W8 ist `agent-complete-await-user-marker`: Shutdown ohne Task sowie waehrend
+laufender Audio-, Video- und Exporttasks ist Current-live belegt. Running-
+Export wurde bei real aktivem GTX-1060-NVENC-FFmpeg per Task-Prompt kooperativ
+abgebrochen; Exit 0, Prozessnull, kein Partialoutput, DB quick_check ok und
+Kerncounts unveraendert. Unmittelbarer Pre-Logical-Digest fehlt und bleibt als
+Beleggrenze dokumentiert. Kein User-`fixed`-/W8-Phasenmarker gesetzt.
+W6-LLM-AN bleibt separat wegen VLM/B-867 userentscheidungsgebunden. STAB-3
+beginnt gemaess Plan sequenziell mit fixierten Inputs; keine Modellwahl wird
+eigenmaechtig geaendert. Erster reproduzierbarer Fehler stoppt den Lauf und
 oeffnet genau eine Root-Cause-Task.
 
 ## Paused Auditplan Handoff

@@ -2,6 +2,21 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## W8 agent-complete / STAB-3 naechste Task — 2026-08-24
+
+- No-Task, Running-Audio, Running-Video und Running-Export live bestanden.
+- Final-Export bei 57 % und real aktivem GTX-1060-NVENC-FFmpeg per
+  asynchronem WM_CLOSE plus sofortigem Task-Prompt-Yes kooperativ abgebrochen.
+- Exit 0; App/FFmpeg/Ollama/Demucs 0; kein Partialoutput/Temp; WER 0;
+  DB quick_check ok und Kerncounts 1/125/3/96/147/1053 unveraendert.
+- Ehrliche Grenze: kein unmittelbarer Pre-Logical-Digest fuer Final-Lauf;
+  verworfener Host-AppData-Zwischenstart neu serialisierte Host-Settings,
+  Inhaltsdrift mangels Pre-Baseline unbekannt.
+- W8 `agent-complete-await-user-marker`; User setzt Marker.
+- Naechste einzige Task:
+  `STAB-3 / Medien, Seed, Settings und Modellversion fixieren`.
+  Keine Modellwahl eigenmaechtig aendern. Kein Push.
+
 ## B-879 agentseitig live gruen / W8 Export weiter offen — 2026-08-24
 
 - W8-Exportstart abortete zweimal waehrend Projekt-Auto-Resume, bevor ein

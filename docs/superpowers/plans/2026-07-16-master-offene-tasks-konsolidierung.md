@@ -1049,3 +1049,16 @@ Decision: Vault
   User-`fixed`-/Phasenmarker gesetzt.
 - Naechste einzige Task:
   `LIVE-VERIFY / W8 Persistenz/Shutdown ohne und mit laufenden Audio-/Video-/Exporttasks`.
+
+#### W8 agent-complete / STAB-3 aktiv — 2026-08-24
+
+- No-Task, Running-Audio, Running-Video und Running-Export Current-live
+  bestanden; W8 bleibt `agent-complete-await-user-marker`.
+- Running-Export: 57 %/TASKS `Running`, echter GTX-1060-NVENC-FFmpeg vor
+  Prompt-Yes; kooperativer Cancel, App Exitcode 0, Prozessnull, kein
+  Partialoutput/Temp, WER 0, DB quick_check ok/Kerncounts unveraendert.
+- Beleggrenze: kein unmittelbarer Pre-Logical-Digest; Host-Settings-Incident
+  des verworfenen nichtisolierten Zwischenstarts dokumentiert.
+- Evidence: `tests/qa_artifacts/w8_persistence_shutdown_verdict_20260824.json`.
+- Naechste einzige Task:
+  `STAB-3 / Medien, Seed, Settings und Modellversion fixieren`.
