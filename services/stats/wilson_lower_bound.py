@@ -55,3 +55,26 @@ def wilson_lower_bound(accepts: int, total: int, z: float = 1.96) -> float:
 
     # Clamp to [0.0, 1.0] to guard against floating-point drift at extremes
     return max(0.0, min(1.0, lower))
+
+
+def wilson_preference_score(accepts: int, total: int, z: float = 1.96) -> float:
+    """Return a neutral-centred Wilson score for candidate ranking.
+
+    The lower confidence bound is suitable for confidence displays but not as
+    a preference value beside the uninformed 0.5 fallback: Wilson(1, 1) is
+    about 0.207 and would make first positive feedback a penalty.  The centre
+    of the Wilson interval keeps sparse evidence shrunk towards 0.5 while
+    preserving direction: accept-majority > 0.5, reject-majority < 0.5.
+    """
+    if accepts < 0 or total < 0:
+        raise ValueError(
+            f"accepts and total must be non-negative, got accepts={accepts}, total={total}"
+        )
+    if accepts > total:
+        raise ValueError(f"accepts ({accepts}) must not exceed total ({total})")
+    if total == 0:
+        return 0.5
+
+    z2 = z * z
+    centre = (accepts / total + z2 / (2 * total)) / (1 + z2 / total)
+    return max(0.0, min(1.0, centre))

@@ -26,8 +26,9 @@ drei Priors hier direkt aggregiert:
   key      : accept-Rate je (at_key, clip_mood_refined)
   spectral : accept-Rate je (at_spectral_hash, clip_style_bucket_id)
 
-Bewertet wird mit `wilson_lower_bound` — identisch zum w_memory-Term, damit
-wenige Stichproben nicht wie Gewissheit wirken.
+Bewertet wird mit dem neutral-zentrierten Wilson-Preference-Score — identisch
+zum w_memory-Term, damit wenige Stichproben Richtung zeigen, aber gegen 0.5
+gedaempft bleiben.
 
 Solange es zu einem Kontext KEIN Nutzer-Feedback gibt, ist das Ergebnis
 0/0 -> 0.5 fuer alle Kandidaten. Das ist dann ehrlich "kein Signal" (und
@@ -50,7 +51,7 @@ from typing import Any, Callable
 
 from sqlalchemy import text
 
-from services.stats.wilson_lower_bound import wilson_lower_bound
+from services.stats.wilson_lower_bound import wilson_preference_score
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class LearnedPatternLookup:
             return 0.5
         table = self._prior_table(kind, norm_ctx)
         accepts, total = table.get(self._normalize_target(kind, target), (0, 0))
-        return wilson_lower_bound(accepts, total)
+        return wilson_preference_score(accepts, total)
 
     @staticmethod
     def _normalize_ctx(kind: str, ctx_value: Any) -> str | None:

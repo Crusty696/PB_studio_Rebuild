@@ -176,3 +176,23 @@ def test_historical_accept_rate_neutral_for_unseen_clip() -> None:
         ("x", "y", "140"), clip, pattern_lookup=lambda fp, cid: (0, 0)
     )
     assert v == 0.5
+
+
+def test_historical_accept_rate_first_feedback_has_correct_direction() -> None:
+    """B-892: first accept boosts; first reject lowers versus unseen."""
+    from services.pacing.scorer import historical_accept_rate
+
+    clip = _make_clip()
+    fingerprint = ("house", "chorus", "130")
+
+    unseen = historical_accept_rate(
+        fingerprint, clip, pattern_lookup=lambda _fp, _sid: (0, 0)
+    )
+    accepted = historical_accept_rate(
+        fingerprint, clip, pattern_lookup=lambda _fp, _sid: (1, 1)
+    )
+    rejected = historical_accept_rate(
+        fingerprint, clip, pattern_lookup=lambda _fp, _sid: (0, 1)
+    )
+
+    assert accepted > unseen > rejected

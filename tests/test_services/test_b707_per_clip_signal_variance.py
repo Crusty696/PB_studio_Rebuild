@@ -310,6 +310,24 @@ def test_b707_4_genre_prior_varies_per_style_bucket(tmp_path):
     assert unseen == pytest.approx(0.5)  # 0/0 -> ehrlich neutral
 
 
+def test_b892_first_positive_feedback_boosts_all_matching_priors(tmp_path):
+    """One real accept must not rank below an unseen neutral target."""
+    from services.pacing.pattern_lookup import LearnedPatternLookup
+
+    factory = _mem_decision_db(tmp_path)
+    with factory() as session:
+        session.execute(text(
+            "DELETE FROM mem_decision WHERE rowid NOT IN "
+            "(SELECT rowid FROM mem_decision WHERE user_verdict='accept' LIMIT 1)"
+        ))
+        session.commit()
+
+    lookup = LearnedPatternLookup(factory)
+    assert lookup("genre", "techno", 3) > lookup("genre", "techno", 42)
+    assert lookup("key", "Am", "dark") > lookup("key", "Am", "unseen")
+    assert lookup("spectral", "h1", 3) > lookup("spectral", "h1", 42)
+
+
 def test_b707_4_key_prior_varies_per_clip_mood(tmp_path):
     from services.pacing.pattern_lookup import LearnedPatternLookup
 

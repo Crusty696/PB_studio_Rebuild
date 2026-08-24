@@ -8,7 +8,7 @@ import weakref
 import numpy as np
 import yaml  # PyYAML already in the project via alembic
 
-from services.stats.wilson_lower_bound import wilson_lower_bound
+from services.stats.wilson_lower_bound import wilson_preference_score
 
 # ── Public data-transfer types ──────────────────────────────────────────────
 
@@ -410,7 +410,7 @@ def historical_accept_rate(
         Callable[[tuple[str | None, ...], int], tuple[int, int]] | None
     ) = None,
 ) -> float:
-    """Wilson-lower-bound confidence that this clip is accepted in this context.
+    """Neutral-centred Wilson preference for this clip in this context.
     0/0 → 0.5 (neutral, per release-gate rule).
 
     B-159: Memory-Lookups sind auf scene_id keyed (mem_decision.scene_id ist
@@ -421,7 +421,7 @@ def historical_accept_rate(
     if pattern_lookup is None:
         return 0.5
     accepts, total = pattern_lookup(context_fingerprint, clip.scene_id)
-    return wilson_lower_bound(accepts, total)
+    return wilson_preference_score(accepts, total)
 
 
 def collision_penalty(predecessor: ClipFeatures | None, clip: ClipFeatures) -> float:
