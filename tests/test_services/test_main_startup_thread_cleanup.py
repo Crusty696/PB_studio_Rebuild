@@ -12,10 +12,11 @@ def test_b342_startup_check_thread_quits_and_deletes_on_all_done_paths():
     assert "window._startup_check_thread.quit()" in exit_window
     assert "app.quit()" in exit_window
 
-    load_idx = src.find("window.timeline_view.load_from_db()")
-    assert load_idx > 0, "Startup success branch not found"
-    success_window = src[load_idx: load_idx + 180]
-    assert "window._startup_check_thread.quit()" in success_window
+    # B-885: project_changed is the single owner of timeline loading.  The
+    # startup-check completion used to start a competing load immediately
+    # before/after auto-resume emitted project_changed.
+    assert "window.timeline_view.load_from_db()" not in src
+    assert src.count("window._startup_check_thread.quit()") >= 2
 
     assert (
         "window._startup_check_thread.finished.connect(\n"

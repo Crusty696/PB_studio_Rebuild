@@ -1834,6 +1834,21 @@ Active plan:
 PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
 ```
 
+## Current B-885 status (2026-08-24)
+
+```text
+agent-fixed-await-user: intermittent Shiboken access violation during
+auto-resume traced to two owners starting the same timeline DB load:
+ProjectManager.project_changed and StartupCheck.on_done. StartupCheck no
+longer calls timeline.load_from_db directly; an identical in-flight project
+load is coalesced before teardown. Targeted regression suite: 9 passed;
+PyCompile, Ruff, and diff check green. Two controlled root-fix auto-resume runs
+each had exactly one timeline teardown and one build, exit code 0, no
+Fatal/Traceback/new WER, process count zero, and SQLite quick_check ok. User
+has not set fixed. Next masterplan work remains W8 running-export
+shutdown/cancel verification. No push.
+```
+
 Current next task:
 
 ```text

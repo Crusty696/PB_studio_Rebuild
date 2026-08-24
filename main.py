@@ -2350,8 +2350,11 @@ def main():
                     if window.close():
                         app.quit()
                     return
-                # 3. Timeline laden wenn alles bereit ist
-                window.timeline_view.load_from_db()
+                # B-885: Timeline-Laden gehoert ausschliesslich dem
+                # ProjectManager.project_changed-Pfad. Ein zweiter Load hier
+                # konkurrierte beim Auto-Resume mit demselben Projekt-Load und
+                # erzeugte intermittierende Shiboken/QThread-Crashes. Ohne
+                # geoeffnetes Projekt bleibt die Timeline bewusst leer.
                 window._startup_check_thread.quit()
 
             window._startup_check_worker.finished.connect(on_done)

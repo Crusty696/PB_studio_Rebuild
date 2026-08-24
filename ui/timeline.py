@@ -1783,6 +1783,35 @@ class InteractiveTimeline(QGraphicsView):
     def load_from_db(self, project_id: int | None = None):
         """Asynchrones Laden der Timeline-Daten (Fix für Main-Thread Blocking)."""
         logger.debug("[B-283] load_from_db called for project_id=%s", project_id)
+
+        if project_id is None:
+            from database import get_active_project_id
+            project_id = get_active_project_id()
+
+        # B-885: Projekt-Open und StartupCheck-on_done koennen nahezu
+        # gleichzeitig denselben Timeline-Load anfordern. Den laufenden
+        # Same-Project-Load wiederverwenden statt dessen Worker zu
+        # disconnecten und sofort ein zweites QThread/Worker-Paar zu starten.
+        _active_db_thread = getattr(self, "_db_thread", None)
+        if (
+            _active_db_thread is not None
+            and getattr(self, "_db_load_project_id", object()) == project_id
+        ):
+            import shiboken6
+            try:
+                if (
+                    shiboken6.isValid(_active_db_thread)
+                    and _active_db_thread.isRunning()
+                ):
+                    logger.debug(
+                        "B-885: laufenden Timeline-DB-Load fuer Projekt %s "
+                        "koalesziert",
+                        project_id,
+                    )
+                    return
+            except RuntimeError:
+                pass
+
         teardown_started_at = time.perf_counter()
         teardown_counts = {
             "clips": len(self.clip_items),
@@ -1792,10 +1821,6 @@ class InteractiveTimeline(QGraphicsView):
         }
         # M3-FIX: Alten Worker canceln bevor ein neuer gestartet wird
         self._cancel_pending_db_load()
-
-        if project_id is None:
-            from database import get_active_project_id
-            project_id = get_active_project_id()
 
         # UI sofort bereinigen.
         # B-470 Stack A: Der Szene-Teardown laeuft synchron auf dem Main-Thread.
@@ -1957,6 +1982,7 @@ class InteractiveTimeline(QGraphicsView):
                 except RuntimeError:
                     pass  # C++-Objekt bereits geloescht (App-Shutdown-Race)
 
+        self._db_load_project_id = project_id
         self._db_worker = TimelineDBWorker(project_id)
         self._db_thread = QThread(self)
         self._db_worker.moveToThread(self._db_thread)

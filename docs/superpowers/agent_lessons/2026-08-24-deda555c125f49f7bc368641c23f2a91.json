@@ -1,0 +1,10 @@
+{
+  "lesson_id": "deda555c125f49f7bc368641c23f2a91",
+  "recorded_at": "2026-08-24T19:22:45+00:00",
+  "session_id": "07c19ce366dc4d0686997773fb2901aa",
+  "head_at_start": "81de34bd455d578b7ea574759f4aa0eeb2bc8c27",
+  "problem": "Intermittierender Shiboken-Zugriffsfehler beim Auto-Resume nach Projekt-Open",
+  "cause": "ProjectManager.project_changed und StartupCheck.on_done starteten beide denselben initialen Timeline-DB-Load und erzeugten konkurrierende QThread/Worker-Lifecycles",
+  "rule": "Pro initialem Ressourcenload genau einen Lifecycle-Eigentuemer verwenden; redundante identische In-Flight-Anfragen vor Teardown koaleszieren und Log-Kardinalitaet im Livepfad pruefen",
+  "applies_to": "Qt-Startup, Projektwechsel und asynchrone QThread-Loader"
+}
