@@ -1,0 +1,60 @@
+{
+  "workflow": "W7 B-880 Draft xfade cancel/retry",
+  "verdict": "pass",
+  "evidence_recorded_at": "2026-08-24T16:29:00+02:00",
+  "execution_time_note": "Exact wall-clock interval not trusted because inherited run notes conflicted with the system clock; process, log, UI, ffprobe and seek evidence is retained.",
+  "commit_under_test": "42ed5b3",
+  "app_pid": 9848,
+  "gpu": {
+    "name": "NVIDIA GeForce GTX 1060",
+    "driver": "546.33",
+    "cuda": "11.3"
+  },
+  "timeline": {
+    "video_segments": 98,
+    "audio_tracks": 1,
+    "total_entries": 99,
+    "duration_seconds": 337.137
+  },
+  "cancel": {
+    "active_ffmpeg_pid": 11020,
+    "renderer": "h264_nvenc preset p1 cq28 yuv420p",
+    "ui_status": "Abbruch",
+    "target_removed": true,
+    "temporary_output_count": 0,
+    "cancel_info_count": 1,
+    "fallback_count": 0,
+    "crash_count": 0,
+    "error_or_critical_count": 0
+  },
+  "retry": {
+    "ui_status": "Fertig",
+    "output": "C:\\Users\\David_Lochmann\\AppData\\Local\\PBStudioStability\\20260823T0438-w4-video\\project\\exports\\w7_xfade_draft_cancel.mp4",
+    "size_bytes": 369651224,
+    "format_duration_seconds": 337.137,
+    "format_bitrate": 8771537,
+    "video": {
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "pixel_format": "yuv420p",
+      "frame_rate": "30/1",
+      "duration_seconds": 337.133333,
+      "frames": 10114
+    },
+    "audio": {
+      "codec": "aac",
+      "sample_rate": 48000,
+      "channels": 2,
+      "duration_seconds": 337.137,
+      "frames": 15805
+    }
+  },
+  "seek_checks": [
+    {"second": 0, "video_cuda_exit_code": 0, "audio_exit_code": 0},
+    {"second": 168, "video_cuda_exit_code": 0, "audio_exit_code": 0},
+    {"second": 336, "video_cuda_exit_code": 0, "audio_exit_code": 0}
+  ],
+  "screenshot": "tests/qa_artifacts/w7_b880_cancel_retry_after_20260824.png",
+  "status_note": "Agent-side live verification passed; fixed marker remains user-controlled."
+}

@@ -2,23 +2,25 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-880 Code komplett / W7-Livegate durch Hardware blockiert — 2026-08-24
+## B-880 agentseitig live gruen / W7 10-bit offen — 2026-08-24
 
-- B-880-Cancelvertrag implementiert: `ExportCancelled` wird nie als B-603-
-  Renderfehler behandelt; Worker loggt normalen Cancel; Controller erhaelt
-  Taskstatus `cancelled`; partielles Batch-Hauptziel wird entfernt.
-- Gezielter RED belegte liegenbleibende Partialdatei; danach B-880-Testdatei
-  `3 passed`. Betroffene vier Pfade `py_compile`, Ruff und Diffcheck gruen.
-- Echter isolierter W7-Retry wurde vorbereitet, aber nicht gestartet: Windows
-  listete GTX 1060 nicht, Startup Code 45, CUDA `device_count=0`, Systemcheck
-  CUDA/NVENC rot. Nur Intel UHD 620 sichtbar; kein verbotener Intel-/CPU-
-  Encode. App Exit 0, kein FFmpeg-Rest.
-- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
-- Naechste einzige Task bei wieder verfuegbarer GTX 1060: realer Draft-xfade-
-  Cancel, Ziel-/Temp-/Logcleanup; danach gleicher Draft-Retry bis ffprobe fuer
-  Dauer, Frames, Audio und Seek gruen. Danach W7 10-bit-Input/Restmatrix.
-- Branch `main`, Basis-HEAD vor B-880-Commit `01e6656`, 16 Commits vor
-  `origin/main`; kein Push angeordnet.
+- Commit unter Test: `42ed5b3`. GTX 1060 real verfuegbar: Windows Code 0,
+  Treiber 546.33, Torch CUDA 11.3 auf `cuda:0`.
+- Echter Draft-xfade-Cancel auf 98-Segment-/32-Crossfade-Timeline: aktiver
+  FFmpeg PID 11020 nutzte `h264_nvenc`; UI endete `Abbruch`.
+- Ziel und relevante Temps entfernt; FFmpeg beendet; kein B-603-Fallback,
+  Worker-Crash, Traceback, TaskEngine-Fehler oder ERROR/CRITICAL.
+- Gleicher Retry sichtbar `Fertig`. ffprobe: 337.137 s, H.264 1920x1080
+  yuv420p 30 fps/10114 Frames, AAC 48 kHz Stereo/15805 Frames. CUDA-Video-
+  und Audioseeks bei 0/168/336 s jeweils Exitcode 0; App responsiv.
+- Belege: `tests/qa_artifacts/w7_b880_cancel_retry_verdict_20260824.json`
+  und `tests/qa_artifacts/w7_b880_cancel_retry_after_20260824.png`.
+- Ehrlicher Status: `agent-fixed-await-user`; vorgeschriebener `fixed`-Marker
+  bleibt Userrecht.
+- Naechste einzige Task: W7-10-bit-Eingang finden/erzeugen und gezielte
+  Export-/ffprobe-Restmatrix live pruefen. Standard-, High-Quality- und
+  Draft-Presets sowie 8-bit Hard-Cut/xfade sind bereits live belegt.
+- Branch `main`, 17 Commits vor `origin/main`; kein Push angeordnet.
 
 ## Masterplan reaktiviert — 2026-08-23
 

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8c2f7626cb404125bbe72c2ccf4f6795",
+  "recorded_at": "2026-08-24T14:28:33+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "UI-Automation meldete nach Export-Refresh scheinbar 0 Clips und Screenshot zeigte falsches Fenster",
+  "cause": "Physischer Klick und Screenshot liefen ohne vorherigen Fokus auf das PB-Studio-Fenster derselben PID",
+  "rule": "Vor jedem physischen UI-Klick und Screenshot PB-Studio-Fenster ueber exakte PID fokussieren; sichtbares Ergebnis und App-Log danach gegenpruefen",
+  "applies_to": "PB-Studio Live-Verifikation mit pywinauto und Screenshots"
+}
