@@ -20,15 +20,18 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Auto-Edit B mit identischen Eingaben; erklaerbare Aenderung nur
-adressierter Beitraege und Kandidatenrangfolge beweisen`.
+`STAB-3 / Tool- und Non-Tool-LLM-Pfade muessen Recall/Stats/Explain/Learn
+erhalten`.
 
-Feedback/Persistenz ist `agent-complete-await-user-marker`: negatives und
-positives Feedback an zwei verschiedenen Decisions/Scenes, 2 Events und 2
-`mem_learned_pattern` nach Flush, sauberem Shutdown und komplettem Neustart
-erhalten; accept/reject je 1, 138 Achsengewichte, beide DB-quick_checks ok.
-B-889/B-890/B-891 stehen `agent-fixed-await-user`; kein User-`fixed`- oder
-STAB-3-Phasenmarker. App beendet. Kein Push.
+Auto-Edit B ist `agent-complete-await-user-marker`: Run 11 mit identischen
+Inputs/Kandidaten gegen Run 9; negatives Ziel sank korrekt von Rang 1/17 auf
+4/17, positives Ziel stieg in Memory/Brainfinal/Softscore. B-892 ist in
+Commit `7ebdaf2` repariert und `agent-fixed-await-user`. B-893/B-894/B-895
+bleiben separat offen. Evidence:
+`docs/superpowers/synthesis/stab3-auto-edit-b-2026-08-25.md`.
+LLM-AN-Liveausfuehrung bleibt wegen B-867/Modellwahl user-blockiert. Kein
+User-`fixed`-/STAB-3-Phasenmarker. App PID 4088 sauber beendet; kein
+PB-Studio-Stability-Prozessrest. Kein Push.
 
 ## Paused Auditplan Handoff
 

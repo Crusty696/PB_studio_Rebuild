@@ -2,6 +2,26 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 Auto-Edit B agent-complete — 2026-08-25
+
+- Run 11: identische 112 Playback-Offsets, Seed 42, 101 Input-Kontexte und
+  Kandidatenreihenfolgen gegen Referenz Run 9.
+- Negativ Scene 127/Clip 106: Memory `0.1 -> 0.0793456709`, Rang
+  `1/17 -> 4/17`; positiv Scene 32/Clip 19: Memory
+  `0.1 -> 0.1206543292`, Brainfinal/Softscore ebenfalls hoeher.
+- B-892 Commit `7ebdaf2`; 5 fokussierte Tests gruen. Run 11 live:
+  101 Decisions/Cuts, 18 Achsen, 101/101 Brain V3, Timeline ohne
+  Gaps/Overlaps/Medienwiederholung.
+- Run 10/11 Clipauswahl identisch: Score-Richtung korrigiert, keine positive
+  Endauswahl-Aenderung im Pool-1/1-Datensatz behauptet.
+- `weights.db` unveraendert; B-893/B-894/B-895 separat offen.
+- Evidence: `docs/superpowers/synthesis/stab3-auto-edit-b-2026-08-25.md`.
+- Status `agent-complete-await-user-marker`; kein Push. App PID 4088 sauber
+  beendet; kein PB-Studio-Stability-Prozessrest.
+- Naechste einzige Task: `STAB-3 / Tool- und Non-Tool-LLM-Pfade muessen
+  Recall/Stats/Explain/Learn erhalten`. LLM-AN bleibt wegen B-867/Modellwahl
+  user-blockiert.
+
 ## STAB-3 Feedback/Persistenz agent-complete — 2026-08-25
 
 - Echter Timeline-UI-Pfad: negativ Decision 795/Scene 127, positiv Decision

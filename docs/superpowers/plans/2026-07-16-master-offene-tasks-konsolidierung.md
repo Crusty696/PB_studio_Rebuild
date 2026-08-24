@@ -1118,3 +1118,25 @@ Decision: Vault
 - Naechste einzige Task:
   `STAB-3 / Auto-Edit B mit identischen Eingaben; erklaerbare Aenderung nur
   adressierter Beitraege und Kandidatenrangfolge beweisen`.
+
+#### STAB-3 Auto-Edit B agent-complete — 2026-08-25
+
+- Run 11 nutzte dieselben 112 Playback-Offsets, Seed 42, 101 Input-Kontexte
+  und Kandidatenreihenfolgen wie Referenz Run 9.
+- Negativziel Scene 127/Clip 106: Memory `0.1 -> 0.0793456709`, Rang
+  `1/17 -> 4/17`, nicht gewaehlt.
+- Positivziel Scene 32/Clip 19: Memory `0.1 -> 0.1206543292`, Brainfinal
+  `0.7118881634 -> 0.7263461964`, Softscore
+  `0.8470252301 -> 0.8676795634`.
+- B-892 Root Cause repariert, Commit `7ebdaf2`; zwei Richtungs- und drei
+  Nachbarregressionstests gruen.
+- 101 Decisions/Cuts, 18 Achsen, 101/101 Brain V3; Timeline ohne Gaps,
+  Overlaps oder Medienwiederholung. `weights.db` unveraendert.
+- Run 10/11 Auswahl identisch: Richtungsfix belegt, keine positive
+  Endauswahl-Aenderung im Pool-1/1-Datensatz behauptet.
+- B-893/B-894/B-895 separat offen; kein Co-Fix. Evidence:
+  `docs/superpowers/synthesis/stab3-auto-edit-b-2026-08-25.md`.
+- Status `agent-complete-await-user-marker`; kein User-`fixed`-/STAB-3-Marker.
+- Naechste einzige Task:
+  `STAB-3 / Tool- und Non-Tool-LLM-Pfade muessen Recall/Stats/Explain/Learn erhalten`.
+  LLM-AN-Liveausfuehrung bleibt wegen B-867/Modellwahl user-blockiert.

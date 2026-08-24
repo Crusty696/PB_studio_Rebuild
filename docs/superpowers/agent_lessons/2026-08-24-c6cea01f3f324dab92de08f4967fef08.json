@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c6cea01f3f324dab92de08f4967fef08",
+  "recorded_at": "2026-08-24T23:33:28+00:00",
+  "session_id": "26436eda4ad341e28aeb6874c205f5d0",
+  "head_at_start": "820679bf411c893aac823fd470b77c69e4c23277",
+  "problem": "Erstes positives Feedback senkte Memory- und Prior-Score unter neutral 0.5.",
+  "cause": "Wilson-Untergrenze wurde zugleich als Evidenzkonfidenz und Praeferenzwert verwendet; bei 1/1 liegt sie unter 0.5.",
+  "rule": "Praeferenzrichtung und Konfidenz trennen: sparse positive/negative Evidenz um neutral 0.5 schrumpfen; Wilson-Untergrenze nur fuer Konfidenz verwenden.",
+  "applies_to": "Pacing Memory, Pattern Priors, sparse feedback scoring"
+}
