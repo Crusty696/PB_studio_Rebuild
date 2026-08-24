@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b1fc98dcd654470384afc589f86ce912",
+  "recorded_at": "2026-08-24T16:54:50+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "Qt6Core c0000409 bei Video-Pipeline und zweitem Autoload",
+  "cause": "VideoPreview-Cleanup verwendete mutable aktuelle Worker/Thread-Felder; alter queued finished-Slot konnte dadurch einen neu gestarteten laufenden QThread loeschen",
+  "rule": "Asynchroner QThread-Cleanup muss immer an das exakt beendete Sender-/Worker-Paar gebunden sein; nie ueber ueberschreibbare current-Felder loeschen",
+  "applies_to": "PySide6 QThread lifecycle, VideoPreview, queued finished cleanup"
+}

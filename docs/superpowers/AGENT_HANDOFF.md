@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-883 agentseitig live gruen / W8 Video-Branch gruen — 2026-08-24
+
+- Root Cause: `VideoPreviewWidget._on_frame_thread_finished()` bereinigte
+  mutable aktuelle Felder. Alter queued Cleanup konnte dadurch neuen laufenden
+  Frame-QThread loeschen -> Qt6Core `c0000409`, Fast-Fail-Subcode 7.
+- Fix: Jeder Frame-Job wird als QThread/Worker-Paar registriert; finished nimmt
+  echten Sender und bereinigt nur dieses Paar. Aktuelle Felder nur bei
+  Identitaet leeren; doppeltes hideEvent-`deleteLater` entfernt.
+- Echter RED, danach Target `1 passed`; PyCompile, Ruff, Diffcheck gruen.
+- Live: gleicher W8-Autoload `video 1097 -> 125`; Pipeline 112 Videos auf GTX
+  1060/CUDA0 bis Clip 102 statt frueherem Crash nach ~7. Kein neuer WER-Event.
+- Running-Video-Shutdown: physisches Fenster-X, Save-Yes, Active-Task-Yes;
+  kooperativer Cancel, RAFT/SigLIP unload, Ollama/Scheduler cleanup, danach
+  PB Studio/Ollama/Kinder 0. SQLite quick_check ok; 125 Videos/122 Szenen/
+  3 Audio/96 Timeline.
+- Ehrlicher Status: B-883 `agent-fixed-await-user`. W8 Running-Export bleibt
+  offen. App beendet; kein Push angeordnet.
+
 ## B-882 agentseitig live gruen / W8 Audio-Branch gruen — 2026-08-24
 
 - Root Cause: Audio-Aktionsbuttons wurden bei aktivem `audio_combo` enabled;

@@ -133,6 +133,11 @@ class VideoPreviewWidget(QLabel):
         self._duration: float = 0.0
         self._frame_thread: QThread | None = None
         self._frame_worker: FrameExtractWorker | None = None
+        # B-883: Jeder finished-Slot muss exakt sein eigenes Paar bereinigen.
+        # Nur die beiden "aktuellen" Felder reichen nicht: Zwischen nativem
+        # Thread-Ende und queued finished-Slot kann bereits ein neuer Frame-Job
+        # starten und diese Felder ueberschreiben.
+        self._frame_jobs: dict[QThread, FrameExtractWorker] = {}
         self._pending_frame_request: tuple[float, str] | None = None
         # B-387: Pfad, fuer den der aktuell laufende Worker erzeugt wurde.
         # Spaet eintreffende Frames eines frueheren Videos werden verworfen.
@@ -324,16 +329,31 @@ class VideoPreviewWidget(QLabel):
 
         self._frame_thread = thread
         self._frame_worker = worker
+        self._frame_jobs[thread] = worker
         thread.start()
 
     def _on_frame_thread_finished(self):
-        """Cleanup nach Frame-Extraction — Referenzen freigeben."""
-        if self._frame_worker is not None:
-            self._frame_worker.deleteLater()
+        """Cleanup genau fuer den QThread, der ``finished`` emittiert hat."""
+        thread = self.sender()
+        if not isinstance(thread, QThread):
+            return
+        worker = self._frame_jobs.pop(thread, None)
+        self._cleanup_frame_job(thread, worker)
+
+    def _cleanup_frame_job(self, thread, worker) -> None:
+        """B-883: Paargebundener Cleanup ohne neueren Frame-Job anzufassen."""
+        if worker is not None:
+            worker.deleteLater()
+        thread.deleteLater()
+
+        # Stale finished-Signal eines alten Jobs: Das eigene Paar ist jetzt
+        # aufgeraeumt, der inzwischen gestartete aktuelle Job bleibt intakt.
+        if self._frame_thread is not thread:
+            return
+
+        self._frame_thread = None
+        if self._frame_worker is worker:
             self._frame_worker = None
-        if self._frame_thread is not None:
-            self._frame_thread.deleteLater()
-            self._frame_thread = None
         pending = self._pending_frame_request
         self._pending_frame_request = None
         if pending is not None and self._current_path:
@@ -355,7 +375,6 @@ class VideoPreviewWidget(QLabel):
             self.stop()
         if self._frame_thread is not None and self._frame_thread.isRunning():
             self._frame_thread.quit()
-            # Nicht blockierend warten — deleteLater raeumt async auf.
-            # wait(500) blockierte Main-Thread beim Tab-Wechsel.
-            self._frame_thread.finished.connect(self._frame_thread.deleteLater)
+            # Nicht blockierend warten. Paargebundener finished-Slot oben ist
+            # alleiniger Owner des deleteLater-Cleanups (kein Doppel-Delete).
         super().hideEvent(event)
