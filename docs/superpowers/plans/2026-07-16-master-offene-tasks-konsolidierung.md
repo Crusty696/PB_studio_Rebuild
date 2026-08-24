@@ -1062,3 +1062,14 @@ Decision: Vault
 - Evidence: `tests/qa_artifacts/w8_persistence_shutdown_verdict_20260824.json`.
 - Naechste einzige Task:
   `STAB-3 / Medien, Seed, Settings und Modellversion fixieren`.
+
+#### STAB-3 Preflight agent-complete — 2026-08-24
+
+- Stability-Projekt, 28 Videoquellen/96 Timelinezeilen, Audio, Seed 42,
+  isolierte Settings und Modellartefakte digestgebunden.
+- LLM AUS, Studio Brain AN; Modellwahl unveraendert. Ollama-`latest` wird
+  durch Manifest-/Layer-Digests gebunden. Fehlender CLAP-Cache bleibt offen.
+- DB-Baseline: Runs 5, Decisions 486, Patterns 0, Feedbackevents 0;
+  quick_check ok. Evidence: `tests/qa_artifacts/stab3_preflight_freeze_20260824.json`.
+- Naechste einzige Task:
+  `STAB-3 / Auto-Edit A inklusive Rangfolge, 18 Brain-Achsen, Pacing, Pattern und Gewichten`.

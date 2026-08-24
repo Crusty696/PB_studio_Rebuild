@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 Preflight agent-complete — 2026-08-24
+
+- Stability-Projekt/DB, 28 Videoquellen, 96 Timelinezeilen und Audio per
+  Digest fixiert; `PB_PACING_SEED=42`.
+- Isolierte Settings: LLM AUS, Studio Brain AN; keine Modellwahl geaendert.
+- Ollama 0.21.2 plus Manifest-/Model-/Projektor-Digests, SigLIP-HF-Revision,
+  CLAP/Enricher-Versionen erfasst. CLAP-Cache fehlt lokal; kein Download.
+- DB-Baseline: `mem_pacing_run=5`, `mem_decision=486`,
+  `mem_learned_pattern=0`, Feedbackevents 0; quick_check ok.
+- Evidence: `tests/qa_artifacts/stab3_preflight_freeze_20260824.json`.
+- Naechste einzige Task: `STAB-3 / Auto-Edit A inklusive Rangfolge, 18
+  Brain-Achsen, Pacing, Pattern und Gewichten`. Kein Push.
+
 ## W8 agent-complete / STAB-3 naechste Task — 2026-08-24
 
 - No-Task, Running-Audio, Running-Video und Running-Export live bestanden.

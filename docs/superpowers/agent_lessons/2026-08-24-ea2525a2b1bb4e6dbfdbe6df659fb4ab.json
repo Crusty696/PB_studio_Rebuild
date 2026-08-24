@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ea2525a2b1bb4e6dbfdbe6df659fb4ab",
+  "recorded_at": "2026-08-24T19:57:08+00:00",
+  "session_id": "07667cd112384d9d99eb98c9e259d084",
+  "head_at_start": "435397d4da7bc97349daca53819346331016a269",
+  "problem": "Brain/Pacing-A-B-Livevergleich waere ohne feste Medien, Seed, Settings und immutable Modellidentitaeten nicht reproduzierbar",
+  "cause": "Produktions-Pacing waehlt ohne PB_PACING_SEED zufaellig pro Run und Ollama-Settings referenzieren einen veraenderlichen latest-Tag",
+  "rule": "Vor Lern-A-B-Laeufen Projektmedien und Timeline per Digest binden, PB_PACING_SEED explizit setzen, Settings hashen und mutable Modell-Tags zusaetzlich per Manifest- und Layer-Digest fixieren",
+  "applies_to": "PB Studio STAB-3, Auto-Edit-Vergleiche, Pacing und Brain-Lernverifikation"
+}

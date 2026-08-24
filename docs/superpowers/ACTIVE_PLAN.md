@@ -20,7 +20,8 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Medien, Seed, Settings und Modellversion fixieren`.
+`STAB-3 / Auto-Edit A inklusive Rangfolge, 18 Brain-Achsen, Pacing, Pattern
+und Gewichten`.
 
 W8 ist `agent-complete-await-user-marker`: Shutdown ohne Task sowie waehrend
 laufender Audio-, Video- und Exporttasks ist Current-live belegt. Running-
