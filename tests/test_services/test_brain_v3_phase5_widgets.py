@@ -9,9 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QRectF, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QGraphicsRectItem
 
 from services.brain.brain_v3_service import BrainV3Service
 from services.brain.cold_start import BRIDGE_AXES
@@ -496,6 +496,104 @@ def test_interactive_timeline_resolves_child_item_context_target(qt_app, monkeyp
     monkeypatch.setattr(timeline, "itemAt", lambda _pos: item._right_handle)
 
     assert timeline._timeline_clip_item_at(object()) is item
+    timeline.deleteLater()
+
+
+def test_interactive_timeline_context_target_skips_parentless_overlay(qt_app, monkeypatch):
+    from ui.timeline import InteractiveTimeline, TimelineClipItem
+
+    timeline = InteractiveTimeline()
+    item = TimelineClipItem(
+        entry_id=81,
+        media_id=16,
+        track_type="video",
+        title="clip",
+        x=0,
+        y=0,
+        width=120,
+        height=50,
+        anchors=[],
+    )
+    overlay = QGraphicsRectItem(QRectF(0, 0, 120, 50))
+    overlay.setZValue(3)
+    timeline._scene.addItem(item)
+    timeline._scene.addItem(overlay)
+    monkeypatch.setattr(timeline, "itemAt", lambda _pos: overlay)
+    monkeypatch.setattr(timeline, "items", lambda _pos: [overlay, item._right_handle])
+
+    assert timeline._timeline_clip_item_at(object()) is item
+    timeline.deleteLater()
+
+
+def test_timeline_feedback_menu_and_popup_are_owned_by_timeline(qt_app, monkeypatch):
+    import ui.timeline as timeline_module
+    import ui.widgets.brain_v3_feedback_popup as feedback_popup_module
+    from ui.timeline import InteractiveTimeline, TimelineClipItem
+
+    timeline = InteractiveTimeline()
+    item = TimelineClipItem(
+        entry_id=82,
+        media_id=17,
+        track_type="video",
+        title="clip",
+        x=0,
+        y=0,
+        width=120,
+        height=50,
+        anchors=[],
+    )
+    timeline._scene.addItem(item)
+    monkeypatch.setattr(timeline_module.QMenu, "popup", lambda *_args: None)
+
+    item.show_context_menu_at(screen_pos=timeline.mapToGlobal(timeline.rect().center()), local_x=10)
+
+    menu = item._context_menu
+    assert menu.parent() is timeline
+    menu.aboutToHide.emit()
+    assert item._context_menu is menu
+    QCoreApplication.processEvents()
+    assert item._context_menu is None
+
+    captured = {}
+
+    class _Signal:
+        def __init__(self):
+            self._callback = None
+
+        def connect(self, callback):
+            self._callback = callback
+
+        def emit(self, code):
+            self._callback(code)
+
+    class _FakeFeedbackPopup:
+        def __init__(self, *args, parent=None, **kwargs):
+            captured["parent"] = parent
+            self.finished = _Signal()
+
+        def isVisible(self):
+            return False
+
+        def open(self):
+            captured["opened"] = True
+
+        def deleteLater(self):
+            captured["deleted"] = True
+
+    monkeypatch.setattr(feedback_popup_module, "BrainV3FeedbackPopup", _FakeFeedbackPopup)
+    monkeypatch.setattr(timeline, "_brain_v3_learning_signal", lambda _item: (None, {}))
+    monkeypatch.setattr(item, "_brain_v3_pattern_feedback_target", lambda: None)
+
+    item._open_brain_v3_feedback_popup()
+
+    assert captured["parent"] is timeline
+    assert captured["opened"] is True
+    popup = item._brain_v3_feedback_popup
+    popup.finished.emit(0)
+    assert item._brain_v3_feedback_popup is popup
+    QCoreApplication.processEvents()
+    assert item._brain_v3_feedback_popup is None
+    assert captured["deleted"] is True
     timeline.deleteLater()
 
 

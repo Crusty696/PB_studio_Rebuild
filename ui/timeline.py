@@ -1123,7 +1123,8 @@ class TimelineClipItem(QGraphicsRectItem):
 
     def show_context_menu_at(self, screen_pos, local_x: float) -> None:
         """Zeigt das Clip-Kontextmenue auch fuer View-Fallbacks."""
-        menu = QMenu()
+        owner = self._owning_timeline()
+        menu = QMenu(owner)
         menu.setStyleSheet(
             "QMenu { background: #1A1A1A; color: #E0E0E0; border: 1px solid #333; }"
             "QMenu::item:selected { background: rgba(212,175,55,0.15); color: #E8CC6A; }"
@@ -1151,8 +1152,21 @@ class TimelineClipItem(QGraphicsRectItem):
             brain_action.triggered.connect(self._open_brain_v3_feedback_popup)
 
         self._context_menu = menu
-        menu.aboutToHide.connect(lambda: setattr(self, "_context_menu", None))
+        menu.aboutToHide.connect(
+            lambda menu=menu: QTimer.singleShot(
+                0, lambda: self._release_context_menu(menu)
+            )
+        )
         menu.popup(screen_pos)
+
+    def _release_context_menu(self, menu: QMenu) -> None:
+        """Raeumt das async Menue erst ausserhalb seines Signal-Dispatchs ab."""
+        if self._context_menu is menu:
+            self._context_menu = None
+        try:
+            menu.deleteLater()
+        except RuntimeError:
+            pass
 
     def set_brain_v3_feedback(self, service=None, context=None, enabled: bool = True) -> None:
         """Verdrahtet Brain-V3-Feedback fuer diesen Timeline-Clip."""
@@ -1247,12 +1261,26 @@ class TimelineClipItem(QGraphicsRectItem):
             service=self._brain_v3_feedback_service,
             context=learn_ctx if learn_ctx is not None else self._brain_v3_feedback_context,
             cut_label=f"{self.title} | Timeline #{self.entry_id}",
+            parent=self._owning_timeline(),
             axis_contributions=contribs or None,
             pattern_feedback_target=self._brain_v3_pattern_feedback_target(),
         )
         self._brain_v3_feedback_popup = popup
-        popup.finished.connect(lambda _code: setattr(self, "_brain_v3_feedback_popup", None))
+        popup.finished.connect(
+            lambda _code, popup=popup: QTimer.singleShot(
+                0, lambda: self._release_brain_v3_feedback_popup(popup)
+            )
+        )
         popup.open()
+
+    def _release_brain_v3_feedback_popup(self, popup) -> None:
+        """Raeumt den async Dialog erst ausserhalb seines finished-Signals ab."""
+        if self._brain_v3_feedback_popup is popup:
+            self._brain_v3_feedback_popup = None
+        try:
+            popup.deleteLater()
+        except RuntimeError:
+            pass
 
     def set_brain_v3_confidence(self, confidence: float | None) -> None:
         if confidence is None:
@@ -4032,14 +4060,19 @@ class InteractiveTimeline(QGraphicsView):
         menu.exec(event.globalPos())
 
     def _timeline_clip_item_at(self, view_pos) -> TimelineClipItem | None:
-        item = self.itemAt(view_pos)
-        while item is not None:
-            if isinstance(item, TimelineClipItem):
-                return item
-            parent = item.parentItem()
-            if parent is item:
-                break
-            item = parent
+        try:
+            candidates = list(self.items(view_pos))
+        except (TypeError, RuntimeError):
+            item = self.itemAt(view_pos)
+            candidates = [item] if item is not None else []
+        for item in candidates:
+            while item is not None:
+                if isinstance(item, TimelineClipItem):
+                    return item
+                parent = item.parentItem()
+                if parent is item:
+                    break
+                item = parent
         return None
 
     def _open_story_map_for_recent_run(self) -> None:
