@@ -140,6 +140,7 @@ class EditWorkspaceController(PBComponent):
     def _on_audio_combo_changed(self, index: int):
         """Audio-Track gewechselt: Pacing-Kurven-Dauer aktualisieren."""
         audio_id = self.window.audio_combo.currentData()
+        self._restore_active_pacing_run(audio_id)
         if hasattr(self.window, "_schnitt_coordinator"):
             self.window._schnitt_coordinator.refresh_audio(audio_id)
         if audio_id is None:
@@ -867,6 +868,30 @@ class EditWorkspaceController(PBComponent):
                 {"audio_id": int(audio_id)},
             ).fetchone()
             return int(row[0]) if row is not None else None
+
+    def _restore_active_pacing_run(self, audio_id: int | None) -> int | None:
+        """Bindet Brain-Feedback nach Boot/Projekt- oder Audio-Wechsel neu."""
+        timeline = getattr(self.window, "timeline_view", None)
+        setter = getattr(timeline, "set_active_pacing_run", None)
+        if not callable(setter):
+            return None
+        try:
+            run_id = self._latest_mem_pacing_run_id(audio_id)
+        except Exception as exc:
+            logger.warning(
+                "B-891: Aktiver Brain-Feedback-Run fuer Audio %s nicht ladbar: %s",
+                audio_id,
+                exc,
+            )
+            run_id = None
+        setter(run_id)
+        if run_id is not None:
+            logger.info(
+                "B-891: Brain-Feedback fuer Audio %s an mem_pacing_run #%s gebunden.",
+                audio_id,
+                run_id,
+            )
+        return run_id
 
     def _build_otio_timeline(self, segments: list, audio_id: int | None = None):
         if audio_id is None:

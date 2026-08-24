@@ -150,6 +150,7 @@ def test_audio_combo_change_refreshes_schnitt_coordinator(test_engine, monkeypat
     durations = []
     refreshes = []
     stem_updates = []
+    active_runs = []
     window = SimpleNamespace(
         logger=None,
         audio_combo=SimpleNamespace(currentData=lambda: audio_id),
@@ -157,20 +158,24 @@ def test_audio_combo_change_refreshes_schnitt_coordinator(test_engine, monkeypat
         _schnitt_coordinator=SimpleNamespace(refresh_audio=lambda value: refreshes.append(value)),
         stems=SimpleNamespace(_update_stem_workspace=lambda value: stem_updates.append(value)),
         console_text=SimpleNamespace(append=lambda text: None),
+        timeline_view=SimpleNamespace(set_active_pacing_run=active_runs.append),
     )
 
     controller = edit_mod.EditWorkspaceController(window)
+    monkeypatch.setattr(controller, "_latest_mem_pacing_run_id", lambda value: 9)
     controller._on_audio_combo_changed(0)
 
     assert durations == [60.0]
     assert refreshes == [audio_id]
     assert stem_updates == [audio_id]
+    assert active_runs == [9]
 
 
 def test_audio_combo_none_clears_schnitt_stems(monkeypatch):
     from ui.controllers import edit_workspace as edit_mod
 
     calls = []
+    active_runs = []
     window = SimpleNamespace(
         logger=None,
         audio_combo=SimpleNamespace(currentData=lambda: None),
@@ -179,6 +184,7 @@ def test_audio_combo_none_clears_schnitt_stems(monkeypatch):
             update_stems=lambda track_id, stems: calls.append(("stems", track_id, stems)),
             set_duration=lambda duration: calls.append(("duration", duration)),
         ),
+        timeline_view=SimpleNamespace(set_active_pacing_run=active_runs.append),
     )
 
     controller = edit_mod.EditWorkspaceController(window)
@@ -189,3 +195,4 @@ def test_audio_combo_none_clears_schnitt_stems(monkeypatch):
         ("stems", None, None),
         ("duration", 0.0),
     ]
+    assert active_runs == [None]

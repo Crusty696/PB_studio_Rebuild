@@ -70,11 +70,15 @@ def test_b577_async_path_reflects_a1(
     audio_combo = QComboBox()
     video_combo = QComboBox()
     refresh_audio_calls = []
+    restore_run_calls = []
     window = SimpleNamespace(
         logger=SimpleNamespace(debug=lambda *args, **kwargs: None),
         audio_combo=audio_combo,
         video_combo=video_combo,
         _schnitt_coordinator=SimpleNamespace(refresh_audio=refresh_audio_calls.append),
+        edit_workspace=SimpleNamespace(
+            _restore_active_pacing_run=restore_run_calls.append,
+        ),
     )
 
     # Reihenfolge wie aus get_all_audio: analysierter/erster Track zuerst.
@@ -91,3 +95,4 @@ def test_b577_async_path_reflects_a1(
         "und zeigt den falschen Audio-Track."
     )
     assert refresh_audio_calls == [3]
+    assert restore_run_calls == [3]

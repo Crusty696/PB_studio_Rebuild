@@ -307,6 +307,10 @@ class MediaTableController(PBComponent):
     def _sync_schnitt_audio_selection(self) -> None:
         """Propagate blocked combo selection to SCHNITT audio binders."""
         audio_id = self.window.audio_combo.currentData()
+        edit_workspace = getattr(self.window, "edit_workspace", None)
+        restore_run = getattr(edit_workspace, "_restore_active_pacing_run", None)
+        if callable(restore_run):
+            restore_run(audio_id)
         coordinator = getattr(self.window, "_schnitt_coordinator", None)
         if coordinator is not None:
             coordinator.refresh_audio(audio_id)
