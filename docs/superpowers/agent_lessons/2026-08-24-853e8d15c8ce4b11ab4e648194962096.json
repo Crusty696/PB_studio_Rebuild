@@ -1,0 +1,10 @@
+{
+  "lesson_id": "853e8d15c8ce4b11ab4e648194962096",
+  "recorded_at": "2026-08-24T17:26:16+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "PB Studio blieb nach bestaetigtem Shutdown mit Lingering-QThread und FFmpeg unsichtbar aktiv.",
+  "cause": "Daemonischer Python-Hard-Exit startete erst nach Qt-Basis-Close und konnte beim Qt/COM-Abbruch selbst stranden; Parent-Exit beendet Windows-Kindprozesse nicht.",
+  "rule": "Nach synchronem Cleanup bei Lingering-Threads Hard-Exit vor Qt-Teardown ausfuehren und rekursive App-Kindprozesse vor Parent-Exit explizit beenden; Exit immer extern per PID pruefen.",
+  "applies_to": "PB Studio closeEvent, QThread-Shutdown, FFmpeg/Ollama-Kindprozesse"
+}

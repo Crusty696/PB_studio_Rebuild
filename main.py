@@ -1332,34 +1332,44 @@ class PBWindow(QMainWindow):
         logger.info("Cleanup-Tasks gestartet. App-Fenster wird geschlossen.")
         event.accept()
 
-        super().closeEvent(event)
-
         # B-570: QThread.terminate() beendet Python-Worker nicht zuverlässig.
-        # Nach vollständigem synchronem Cleanup darf kein unsichtbarer Prozess
-        # minutenlang weiterleben. Ein daemonischer Wächter gibt Qt noch eine
-        # kurze natürliche Exit-Chance und beendet dann ausschließlich den
-        # bereits bestätigten App-Shutdown hart.
+        # B-884: Hard-Exit muss VOR Qt-Basisklassen-Close erfolgen. Ein zuvor
+        # hier gestarteter daemonischer Python-Waechter blieb bei Qt/COM-Fehler
+        # 0x80010108 selbst haengen; App und Frame-FFmpeg lebten unsichtbar
+        # weiter. Synchrones Cleanup ist an dieser Stelle abgeschlossen.
         if lingering_shutdown_threads:
             import os as _os
-            import threading as _threading
-            import time as _time
 
             lingering_ids = ", ".join(lingering_shutdown_threads)
             logger.error(
                 "closeEvent: Threads nach Join-Deadline aktiv (%s); "
-                "Hard-Exit-Wächter in 1s aktiviert.",
+                "sofortiger Hard-Exit nach synchronem Cleanup.",
                 lingering_ids,
             )
+            try:
+                import psutil as _psutil
 
-            def _hard_exit_after_cleanup() -> None:
-                _time.sleep(1.0)
-                _os._exit(0)
+                children = _psutil.Process(_os.getpid()).children(recursive=True)
+                for child in reversed(children):
+                    try:
+                        child.kill()
+                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                        pass
+                _, alive = _psutil.wait_procs(children, timeout=2.0)
+                logger.info(
+                    "closeEvent: Hard-Exit-Kindprozesse beendet (%d/%d; aktiv=%d).",
+                    len(children) - len(alive),
+                    len(children),
+                    len(alive),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "closeEvent: Hard-Exit-Kindprozessbereinigung fehlgeschlagen: %s",
+                    exc,
+                )
+            _os._exit(0)
 
-            _threading.Thread(
-                target=_hard_exit_after_cleanup,
-                daemon=True,
-                name="pb-shutdown-hard-exit",
-            ).start()
+        super().closeEvent(event)
 
 
 # ======================================================================

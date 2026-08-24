@@ -2,6 +2,30 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-884 agentseitig live gruen / W8 Export weiter offen — 2026-08-24
+
+- Korrektur: vorherige Aussage „PB Studio/Ollama/Kinder 0“ nach Running-Video-
+  Shutdown war falsch/zu frueh. PB Studio PID 4220 und Frame-FFmpeg PID 10808
+  lebten unsichtbar weiter.
+- Root Cause: daemonischer Python-Hard-Exit wurde erst nach
+  `super().closeEvent()` gestartet und strandete bei Qt/COM `0x80010108` selbst.
+  Windows beendet App-Kinder beim Parent-Exit nicht automatisch.
+- Fix: Bei Lingering-Tasks erfolgt Hard-Exit nach synchronem Cleanup direkt vor
+  Qt-Basis-Close; rekursive psutil-Kinder werden vorher beendet/max. 2 s
+  abgewartet.
+- Ein FrameExtract-`Popen`/Cancel-Versuch erzeugte zweimal reproduzierbar
+  Qt6Core-Startup-Access-Violations und wurde vollstaendig zurueckgenommen;
+  `workers/video.py` und `ui/widgets/video_preview.py` bleiben unveraendert.
+- RED/GREEN `2 passed`; PyCompile/Ruff gruen. Echter B-570-Prozess mit 30-s-
+  stubborn QThread Exit 0. Temporaere 60-s-Kindprobe PID 6612 nach Parent-Exit
+  `CHILD_ALIVE=False`; Fixture danach ohne Diff.
+- Normaler echter W8-App-Shutdown: PB Studio/Ollama/Frame-FFmpeg 0, SQLite
+  `quick_check=ok`, 125 Videos/147 Szenen/3 Audio/96 Timeline/1053 Status,
+  kein neuer WER-Crash.
+- Ehrlicher Status: B-884 `agent-fixed-await-user`; Fix, Test, Lesson und dieser
+  Handoff liegen im selben Commit. W8
+  Running-Export bleibt einzige offene Teilpruefung. Kein Push angeordnet.
+
 ## B-883 agentseitig live gruen / W8 Video-Branch gruen — 2026-08-24
 
 - Root Cause: `VideoPreviewWidget._on_frame_thread_finished()` bereinigte
