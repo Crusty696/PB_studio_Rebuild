@@ -1,0 +1,65 @@
+{
+  "bug_id": "B-881",
+  "status": "agent-fixed-await-user",
+  "verified_at": "2026-08-24T17:32:12+02:00",
+  "workflow": "EXPORT / Standard (H.264 fast) / real UI / Main10 final clip",
+  "timeline": {
+    "video_entries": 95,
+    "audio_entries": 1,
+    "video_end_seconds": 333.9385,
+    "last_video_entry_id": 96,
+    "last_video_media_id": 125,
+    "last_video_source": "w7_10bit_hevc_main10.mp4"
+  },
+  "source_probe": {
+    "codec": "hevc",
+    "profile": "Main 10",
+    "pix_fmt": "yuv420p10le",
+    "width": 854,
+    "height": 480,
+    "fps": "30/1",
+    "duration_seconds": 8.0,
+    "frames": 240
+  },
+  "before_fix": {
+    "output_duration_seconds": 335.2,
+    "output_frames": 10056,
+    "duration_overrun_seconds": 1.2615,
+    "frame_overrun": 38
+  },
+  "after_fix": {
+    "output": "w7_10bit_standard_b881_retry.mp4",
+    "ui_task_status": "Fertig",
+    "ui_runtime_seconds": 87.5,
+    "codec": "h264",
+    "profile": "Main",
+    "pix_fmt": "yuv420p",
+    "width": 1920,
+    "height": 1080,
+    "fps": "30/1",
+    "video_duration_seconds": 333.933333,
+    "video_frames": 10018,
+    "audio_codec": "aac",
+    "audio_sample_rate": 48000,
+    "audio_channels": 2,
+    "audio_duration_seconds": 333.93,
+    "duration_delta_vs_video_timeline_seconds": -0.005167,
+    "size_bytes": 680804830
+  },
+  "seek_verification": {
+    "video_cuda0_seconds": [0, 166, 333],
+    "video_exit_codes": [0, 0, 0],
+    "audio_seconds": [0, 166, 333],
+    "audio_exit_codes": [0, 0, 0]
+  },
+  "runtime_log": {
+    "baseline_line": 32334,
+    "batch_count": 8,
+    "segment_count": 95,
+    "encoder": "h264_nvenc",
+    "errors_after_baseline": 0,
+    "fallbacks_after_baseline": 0
+  },
+  "screenshot": "tests/qa_artifacts/w7_b881_10bit_after_20260824.png",
+  "user_fixed_marker_pending": true
+}

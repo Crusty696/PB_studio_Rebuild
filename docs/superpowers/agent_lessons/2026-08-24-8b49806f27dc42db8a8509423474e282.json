@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8b49806f27dc42db8a8509423474e282",
+  "recorded_at": "2026-08-24T15:35:11+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "B-603 Batch-xfade export was 38 frames longer than a 95-segment timeline",
+  "cause": "Seeked filter inputs retained non-zero PTS and per-input fps filters independently rounded short slot durations upward before concat/xfade",
+  "rule": "For multi-input concat/xfade, normalize every input with setpts=PTS-STARTPTS and cap the finished composite once to round(sum(timeline slot durations) * fps) frames; verify the final frame count against the video timeline",
+  "applies_to": "FFmpeg filtergraph exports with many trimmed inputs, concat, xfade, or batch stream-copy concat"
+}

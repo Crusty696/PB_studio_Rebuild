@@ -1205,7 +1205,12 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
 
     filter_parts = []
     for i, seg in enumerate(video_segments):
+        # B-881: concat/xfade erwarten jeden Input bei PTS 0. Seeked Quellen
+        # koennen sonst variable positive Start-PTS behalten; jeder B-603-
+        # Einzelbatch wird dadurch um weitere Frames verlaengert und der
+        # Stream-Copy-Concat summiert den Drift. Vor allen Bildfiltern nullen.
         base_filter = (
+            f"setpts=PTS-STARTPTS,"
             f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
             f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
         )
@@ -1276,6 +1281,22 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
                 )
                 accumulated_duration += seg_durations[i]
             current_label = f"xf{i-1}"
+
+    # B-881: ``fps`` arbeitet pro Input. Bei vielen kurzen Slots rundet FFmpeg
+    # jeden Input bis zum naechsten Frame auf; concat/xfade summiert diese
+    # unabhaengigen Ceils (Live-Befund: +38 Frames bei 95 Segmenten). Das
+    # fertige Composite deshalb auf die EINMAL gerundete Timeline-Slot-Summe
+    # begrenzen. Framecap statt Sekunden-Trim vermeidet neue Rundungsdrift.
+    timeline_slot_duration = sum(
+        float(seg["end"]) - float(seg["start"])
+        for seg in video_segments
+    )
+    target_frames = max(1, int(round(timeline_slot_duration * float(fps))))
+    filter_parts.append(
+        f"[{current_label}]trim=end_frame={target_frames},"
+        "setpts=PTS-STARTPTS[vout]"
+    )
+    current_label = "vout"
 
     filter_complex = ";".join(filter_parts)
     # B-169: Lange Filtergraphs ueber filter_complex_script ausweichen.

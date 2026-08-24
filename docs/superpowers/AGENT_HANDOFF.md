@@ -2,25 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
-## B-880 agentseitig live gruen / W7 10-bit offen — 2026-08-24
+## B-881 agentseitig live gruen / W7-Matrix agent-complete — 2026-08-24
 
-- Commit unter Test: `42ed5b3`. GTX 1060 real verfuegbar: Windows Code 0,
-  Treiber 546.33, Torch CUDA 11.3 auf `cuda:0`.
-- Echter Draft-xfade-Cancel auf 98-Segment-/32-Crossfade-Timeline: aktiver
-  FFmpeg PID 11020 nutzte `h264_nvenc`; UI endete `Abbruch`.
-- Ziel und relevante Temps entfernt; FFmpeg beendet; kein B-603-Fallback,
-  Worker-Crash, Traceback, TaskEngine-Fehler oder ERROR/CRITICAL.
-- Gleicher Retry sichtbar `Fertig`. ffprobe: 337.137 s, H.264 1920x1080
-  yuv420p 30 fps/10114 Frames, AAC 48 kHz Stereo/15805 Frames. CUDA-Video-
-  und Audioseeks bei 0/168/336 s jeweils Exitcode 0; App responsiv.
-- Belege: `tests/qa_artifacts/w7_b880_cancel_retry_verdict_20260824.json`
-  und `tests/qa_artifacts/w7_b880_cancel_retry_after_20260824.png`.
-- Ehrlicher Status: `agent-fixed-await-user`; vorgeschriebener `fixed`-Marker
-  bleibt Userrecht.
-- Naechste einzige Task: W7-10-bit-Eingang finden/erzeugen und gezielte
-  Export-/ffprobe-Restmatrix live pruefen. Standard-, High-Quality- und
-  Draft-Presets sowie 8-bit Hard-Cut/xfade sind bereits live belegt.
-- Branch `main`, 17 Commits vor `origin/main`; kein Push angeordnet.
+- Echter Standard-xfade-Export ueber UI mit 95 Video-/1 Audioeintrag;
+  letzter Clip real HEVC Main10/yuv420p10le, 8.0 s/240 Frames.
+- Root Causes fuer vorherige +38 Frames: seeked Inputs ohne PTS-Nullung und
+  unabhaengige per-Input-`fps`-Ceils. Fix: `setpts=PTS-STARTPTS` je Input plus
+  einmaliger Composite-Cap auf gerundete Timeline-Slot-Frames.
+- Vor Fix 335.200 s/10056 Frames; nach Fix 333.933333 s/10018 Frames bei
+  Video-Timelineende 333.9385 s. H.264 Main/yuv420p 1920x1080/30 fps, AAC
+  48 kHz Stereo 333.930 s.
+- CUDA0-Video- und Audioseeks bei 0/166/333 s jeweils Exit 0. UI-Task
+  `Fertig` nach 87.5 s; App responsiv; kein B-603-Fallback/Exportfehler.
+- Gezielt B-881/B-687/B-707: 8 Tests gruen; PyCompile, Ruff, Diffcheck gruen.
+- Belege: `tests/qa_artifacts/w7_b881_10bit_verdict_20260824.json` und
+  `tests/qa_artifacts/w7_b881_10bit_after_20260824.png`.
+- Ehrlicher Status: B-881 `agent-fixed-await-user`; W7-Matrix agentseitig
+  komplett. `fixed`-/Phasenmarker bleibt Userrecht.
+- Branch `main`; B-881 liegt in diesem Commit; kein Push angeordnet.
 
 ## Masterplan reaktiviert — 2026-08-23
 
