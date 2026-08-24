@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-880 Code komplett / W7-Livegate durch Hardware blockiert — 2026-08-24
+
+- B-880-Cancelvertrag implementiert: `ExportCancelled` wird nie als B-603-
+  Renderfehler behandelt; Worker loggt normalen Cancel; Controller erhaelt
+  Taskstatus `cancelled`; partielles Batch-Hauptziel wird entfernt.
+- Gezielter RED belegte liegenbleibende Partialdatei; danach B-880-Testdatei
+  `3 passed`. Betroffene vier Pfade `py_compile`, Ruff und Diffcheck gruen.
+- Echter isolierter W7-Retry wurde vorbereitet, aber nicht gestartet: Windows
+  listete GTX 1060 nicht, Startup Code 45, CUDA `device_count=0`, Systemcheck
+  CUDA/NVENC rot. Nur Intel UHD 620 sichtbar; kein verbotener Intel-/CPU-
+  Encode. App Exit 0, kein FFmpeg-Rest.
+- Ehrlicher Status: `code-fix-pending-live-verification`, nicht `fixed`.
+- Naechste einzige Task bei wieder verfuegbarer GTX 1060: realer Draft-xfade-
+  Cancel, Ziel-/Temp-/Logcleanup; danach gleicher Draft-Retry bis ffprobe fuer
+  Dauer, Frames, Audio und Seek gruen. Danach W7 10-bit-Input/Restmatrix.
+- Branch `main`, Basis-HEAD vor B-880-Commit `01e6656`, 16 Commits vor
+  `origin/main`; kein Push angeordnet.
+
 ## Masterplan reaktiviert — 2026-08-23
 
 - User brach Audit-Fortsetzung nach lokalem B-860-Commit `d365257` ab.

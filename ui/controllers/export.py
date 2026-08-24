@@ -212,6 +212,9 @@ class ExportController(PBComponent):
         self.window.btn_export.setText("Video exportieren")
         self.window.export_progress.setVisible(False)
         if not output_path:
+            task = task_manager.get_task(task_id) if task_id else None
+            if task is not None and task.status == "cancelled":
+                return
             if task_id:
                 task_manager.finish_task(task_id, "error", "Leerer Export-Pfad")
             return

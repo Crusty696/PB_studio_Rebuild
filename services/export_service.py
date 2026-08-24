@@ -65,6 +65,10 @@ _export_nvenc_available: bool | None = None
 logger = logging.getLogger(__name__)
 
 
+class ExportCancelled(RuntimeError):
+    """Expected cooperative user cancel; never eligible for render fallback."""
+
+
 def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
                          temp_files: list, cancel_check=None) -> dict:
     """Standardisiert ein einzelnes Segment auf target-Aufloesung/FPS/H.264.
@@ -951,7 +955,7 @@ def _export_with_filtergraph_batched(video_segments, audio_path, output_path,
         batch_outputs: list[str] = []
         for b_idx, batch in enumerate(batches):
             if cancel_check is not None and cancel_check():
-                raise RuntimeError("Export abgebrochen (User-Cancel)")
+                raise ExportCancelled("Export abgebrochen (User-Cancel)")
             tmp = tempfile.NamedTemporaryFile(
                 suffix=".mp4", delete=False, prefix=f"pb_xfb_{b_idx}_"
             )
@@ -1088,7 +1092,17 @@ def _export_with_filtergraph(video_segments, audio_path, output_path,
                 w, h, fps, progress_cb, total_steps,
                 cancel_check=cancel_check,
             )
-        except Exception as batch_exc:  # broad: JEDER Fehler -> hard-cut-Rettung
+        except ExportCancelled:
+            try:
+                Path(output_path).unlink(missing_ok=True)
+            except PermissionError:
+                logger.warning(
+                    "B-880: Abgebrochene Ausgabedatei '%s' konnte nicht "
+                    "geloescht werden (Windows-Dateilock).",
+                    output_path,
+                )
+            raise
+        except Exception as batch_exc:  # broad: echter Renderfehler -> hard-cut-Rettung
             logger.warning(
                 "B-603: Batch-xfade-Pfad fehlgeschlagen (%s) -> Fallback auf "
                 "hard-cut/concat (abspielbares Video ohne Crossfades statt "
@@ -1469,7 +1483,7 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
     B-116 Fix: ``cancel_check`` kann eine ``Callable[[], bool]`` sein.
     Wird in der Progress-Schleife UND vom Watchdog-Thread regelmaessig
     abgefragt; bei True wird der ffmpeg-Prozess terminiert und eine
-    ``RuntimeError("Export abgebrochen")`` geworfen.
+    ``ExportCancelled``-Exception geworfen.
     """
     # -progress pipe:1 einfuegen falls nicht vorhanden (fuer Progress-Parsing)
     if "-progress" not in cmd and progress_cb and total_duration > 0:
@@ -1620,7 +1634,7 @@ def _run_ffmpeg_impl(cmd: list[str], timeout: int = 600, progress_cb=None,
             timeout_watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     if cancelled.is_set():
-        raise RuntimeError("Export abgebrochen (User-Cancel)")
+        raise ExportCancelled("Export abgebrochen (User-Cancel)")
 
     # B-677: der Wall-Clock-Watchdog hat den Prozess gekillt — als Timeout
     # melden (vor dem generischen returncode-Zweig), damit die Diagnose stimmt.

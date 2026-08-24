@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from database import engine, VideoClip
-from services.export_service import export_timeline, export_preview
+from services.export_service import ExportCancelled, export_timeline, export_preview
 from services.ingest_service import (
     ingest_audio,
     ingest_video,
@@ -176,6 +176,8 @@ class ExportWorker(QObject, CancellableMixin):
             )
             self.finished.emit(path)
             _ok = True
+        except ExportCancelled:
+            logging.info("ExportWorker: Export durch User abgebrochen")
         except Exception as e:  # broad catch intentional — top-level worker safety net
             logging.error("ExportWorker crashed: %s\n%s", e, traceback.format_exc())
             self._errored = True

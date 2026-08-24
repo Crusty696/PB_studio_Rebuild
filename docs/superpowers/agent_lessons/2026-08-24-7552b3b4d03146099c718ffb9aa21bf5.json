@@ -1,0 +1,10 @@
+{
+  "lesson_id": "7552b3b4d03146099c718ffb9aa21bf5",
+  "recorded_at": "2026-08-24T13:50:48+00:00",
+  "session_id": "806f1b62e11c49eb901a453be5195526",
+  "head_at_start": "5e85dafb1deb823ab61adf8f4d7f54479ef03239",
+  "problem": "Kooperativer Export-Cancel startete Render-Fallback, Worker-Crash und liess partielles Hauptziel liegen.",
+  "cause": "User-Cancel nutzte denselben generischen RuntimeError wie echte FFmpeg-/Batchfehler; Catch- und Workergrenzen konnten Intent nicht unterscheiden und Cleanup besass keinen Cancel-spezifischen Hauptzielpfad.",
+  "rule": "Erwartete Kontrollflussabbrueche mit eigenem Exception-Typ ueber alle Schichtgrenzen propagieren; vor Re-Raise eigene Partialartefakte entfernen; generische Rettungsfallbacks duerfen nur echte Renderfehler fangen.",
+  "applies_to": "Export-, Worker-, TaskEngine- und andere kooperative Cancelpfade mit Fallback/Cleanup"
+}
