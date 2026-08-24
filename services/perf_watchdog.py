@@ -1,14 +1,9 @@
-"""Main-Thread Performance Watchdog.
+"""Legacy-Eventprofiler und sicherer Produktionsinstaller.
 
-Misst die Dauer jedes Qt-Events im Main-Thread.
-Wenn ein Event laenger als THRESHOLD_MS dauert, wird es geloggt
-mit Typ, Empfaenger-Widget und Dauer.
-
-Aktivierung in main.py:
-    from services.perf_watchdog import install_watchdog
-    install_watchdog(app, threshold_ms=50)
-
-Deaktivierung: einfach den Aufruf entfernen.
+B-879: Globales Ersetzen von ``QApplication.notify`` durch Python-Code war
+unter parallelen Qt-Thread-Events nicht stabil. ``install_watchdog`` belaesst
+den nativen Dispatcher deshalb unangetastet. Main-Threads-Hangs schreibt die
+separate Freeze-Probe in ``main.py`` weiterhin nach ``logs/freeze_stacks.log``.
 """
 
 import logging
@@ -263,12 +258,15 @@ class SlowEventHook:
 
 
 def install_watchdog(app: QApplication, threshold_ms: int = 50):
-    """Installiert den Performance-Watchdog auf der QApplication.
+    """Belasse Qts nativen Event-Dispatcher unveraendert.
 
-    Misst jedes Event im Main-Thread. Events die laenger als threshold_ms
-    dauern werden geloggt mit Typ und Empfaenger-Widget.
+    B-879: Python-Monkey-Patch von ``QApplication.notify`` wird auch aus
+    Worker-QThreads betreten und ist unter parallelen Qt-Events nicht stabil.
+    Main-Thread-Hangs erfasst bereits unabhaengige Freeze-Probe in ``main.py``.
+    Parameter bleiben fuer API-Kompatibilitaet erhalten.
     """
-    hook = SlowEventHook(app, threshold_ms)
-    # Referenz halten damit GC den Hook nicht loescht
-    app._perf_watchdog = hook
-    return hook
+    logger.info(
+        "[PerfWatchdog] notify-Patch deaktiviert (B-879); "
+        "Main-Thread-Freeze-Probe bleibt aktiv."
+    )
+    return None

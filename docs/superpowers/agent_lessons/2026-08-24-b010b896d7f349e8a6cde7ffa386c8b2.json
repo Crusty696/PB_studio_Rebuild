@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b010b896d7f349e8a6cde7ffa386c8b2",
+  "recorded_at": "2026-08-24T17:51:43+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "Intermittent native Qt abort during project auto-resume while media and timeline workers deliver events",
+  "cause": "Production diagnostics monkey-patched QApplication.notify with Python; Qt invokes notify from worker QThreads too, and concurrent event delivery crossed the Python/Shiboken override. Administrative pacing reset also emitted curve_changed and started an unnecessary cut worker during project reload.",
+  "rule": "Never monkey-patch QApplication.notify in production. Keep Qt dispatcher native; use independent main-thread heartbeat/freeze probes. Block user-action signals with QSignalBlocker during administrative project-state resets.",
+  "applies_to": "PySide6 startup, project switching, background QThreads, UI diagnostics"
+}

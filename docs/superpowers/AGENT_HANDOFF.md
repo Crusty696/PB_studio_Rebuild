@@ -2,6 +2,32 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## B-879 agentseitig live gruen / W8 Export weiter offen — 2026-08-24
+
+- W8-Exportstart abortete zweimal waehrend Projekt-Auto-Resume, bevor ein
+  Export-Klick erfolgte. Verwaiste Ollama/Conhost/FFmpeg-Kinder wurden jeweils
+  exakt beendet.
+- Ursache 1: administrativer `pacing_curve.reset_curve()` emittierte
+  `curve_changed` und startete ungewollt Cut-Worker mitten im Projektwechsel.
+  Fix: `QSignalBlocker` nur um diesen Reset.
+- Ursache 2: Produktions-Perf-Watchdog monkey-patchte
+  `QApplication.notify` mit Python. Qt betrat Override auch aus QThreads;
+  beide Fatal-Stacks endeten dort. Identischer A/B-Start ohne Patch blieb
+  stabil.
+- Produktionsfix: `install_watchdog()` belaesst Qt-Dispatcher nativ.
+  Freeze-Probe (`logs/freeze_stacks.log`), App-Logging und UI-Action-Logging
+  bleiben aktiv.
+- Normaler Fixed-Start via `main.py`: sichtbares/responsives Fenster,
+  Auto-Resume, Projekt, 96 Timeline-Records, Medien, vier Stems, CUDA und
+  Ollama-GPU-Check gruen. Kein Fatal/Abort, kein ungewollter Cut-Worker.
+- Weitere 20 s stabil; WM_CLOSE + Cleanup gruen; danach PB Studio/Ollama/
+  FFmpeg/Kinder 0.
+- Gezielt: 8 passed; `py_compile`, Ruff, `git diff --check` gruen. Review ohne
+  Critical/Important Findings. B-879 `agent-fixed-await-user`; User setzt
+  `fixed`.
+- Beleg: `tests/qa_artifacts/b879_live_verdict_20260824.json`. W8
+  Running-Export bleibt einzige offene Teilpruefung. Kein Push angeordnet.
+
 ## B-884 agentseitig live gruen / W8 Export weiter offen — 2026-08-24
 
 - Korrektur: vorherige Aussage „PB Studio/Ollama/Kinder 0“ nach Running-Video-

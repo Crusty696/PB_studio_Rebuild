@@ -14,7 +14,7 @@ User dachte "nichts passiert ist".
 
 import logging
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
 from ui.base_component import PBComponent
 from workers.base import BaseWorker
@@ -425,7 +425,12 @@ class ProjectManagementController(PBComponent):
         try:
             pacing_curve = getattr(self.window, "pacing_curve", None)
             if pacing_curve is not None:
-                pacing_curve.reset_curve()
+                # B-879: Administrativer Projekt-Reset darf nicht das
+                # Nutzer-Signal ausloesen. curve_changed ist mit
+                # _generate_timeline verbunden und startete sonst mitten im
+                # Projekt-/Timeline-Reload einen konkurrierenden Cut-Worker.
+                with QSignalBlocker(pacing_curve):
+                    pacing_curve.reset_curve()
         except (AttributeError, RuntimeError) as e:
             logging.warning("Pacing-Kurven-Reset nach Projektwechsel fehlgeschlagen: %s", e)
         try:
