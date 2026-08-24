@@ -1,0 +1,10 @@
+{
+  "lesson_id": "845073b9002a4b42b5b96fd1554afc99",
+  "recorded_at": "2026-08-24T15:42:08+00:00",
+  "session_id": "1be51edb55ec431f9c330d5d90e46a40",
+  "head_at_start": "42ed5b376e7df44c94f122e41e55db585cf996ab",
+  "problem": "Active plan and registry still named W7 after its final live evidence and B-881 commit",
+  "cause": "Workflow evidence advanced faster than the plan-governance mirrors, leaving the next_allowed_task stale",
+  "rule": "After a workflow is agent-complete, update registry, ACTIVE_PLAN, repo plan, vault mirror, and handoff together to the exact next plan item while preserving user-only fixed and phase markers",
+  "applies_to": "PB Studio sequential masterplan workflow transitions"
+}

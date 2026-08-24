@@ -19,6 +19,8 @@ This file is a repository-local continuity checkpoint for all agents.
   `tests/qa_artifacts/w7_b881_10bit_after_20260824.png`.
 - Ehrlicher Status: B-881 `agent-fixed-await-user`; W7-Matrix agentseitig
   komplett. `fixed`-/Phasenmarker bleibt Userrecht.
+- Naechste einzige Task: `LIVE-VERIFY / W8 Persistenz/Shutdown ohne und mit
+  laufenden Audio-/Video-/Exporttasks`.
 - Branch `main`; B-881 liegt in diesem Commit; kein Push angeordnet.
 
 ## Masterplan reaktiviert — 2026-08-23

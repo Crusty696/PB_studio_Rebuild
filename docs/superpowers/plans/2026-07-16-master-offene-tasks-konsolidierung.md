@@ -1035,3 +1035,17 @@ Decision: Vault
 - Naechste einzige Task:
   `ROOT-CAUSE / B-819 Appstart rekreiert von Alembic entfernte SQLite-Indizes`.
 - Danach: B-758-Manifest-Recheck, dann W3.
+
+#### W7 Export agent-complete / W8 aktiv — 2026-08-24
+
+- Hard-Cut/xfade, 8-/10-bit, Standard/High-Quality/Draft sowie Cancel/Retry
+  Current-live mit ffprobe-Dauer, Frames, Audio und Seek belegt.
+- Letzter Fehler B-881: Batch-xfade war 38 Frames/1.2615 s zu lang. Commit
+  `d90122e` nullt Input-PTS und deckelt jedes fertige Batch-Composite einmal
+  auf gerundete Timeline-Slot-Frames.
+- Echter Main10-UI-Retry: 333.933333 s/10018 Frames bei Video-Timeline
+  333.9385 s; H.264 yuv420p/AAC, CUDA0-Video-/Audioseeks gruen.
+- B-881 und W7 bleiben `agent-fixed/complete-await-user-marker`; kein
+  User-`fixed`-/Phasenmarker gesetzt.
+- Naechste einzige Task:
+  `LIVE-VERIFY / W8 Persistenz/Shutdown ohne und mit laufenden Audio-/Video-/Exporttasks`.

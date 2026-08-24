@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-23
+updated: 2026-08-24
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -20,15 +20,17 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`LIVE-VERIFY / W7 Export Hard-Cut/xfade, 8-/10-bit, alle Presets,
-Cancel/Retry; ffprobe prueft Dauer, Frames, Audio und Seek`.
+`LIVE-VERIFY / W8 Persistenz/Shutdown ohne und mit laufenden
+Audio-/Video-/Exporttasks`.
 
-W6 autonomer Scope ist `agent-complete-non-llm`: Flat/Custom jeweils Brain
-AUS/AN bei LLM AUS besitzen Screenshot, Logauszug, DB-Diff und parsebares
-JSON-Verdict. LLM-AN bleibt wegen VLM/B-867 eine explizite
-User-Modellentscheidung; W6 hat deshalb keinen Gesamtmarker. W7 beginnt mit
-festem Projekt-/Timelinezustand und Hard-Cut-Baseline. Erster reproduzierbarer
-Fehler stoppt den jeweiligen Lauf und oeffnet genau eine Root-Cause-Task.
+W7 ist `agent-complete-await-user-marker`: Hard-Cut/xfade, 8-/10-bit,
+Standard/High-Quality/Draft, Cancel/Retry sowie Dauer/Frames/Audio/Seek sind
+Current-live belegt. B-881 schloss den letzten +38-Frame-Defekt in Commit
+`d90122e`; echter Main10-UI-Retry hat 10018 Frames/333.933333 s bei
+333.9385 s Video-Timeline. Kein User-`fixed`-/W7-Phasenmarker gesetzt.
+W6-LLM-AN bleibt separat wegen VLM/B-867 userentscheidungsgebunden. W8 nutzt
+dasselbe isolierte Projekt; erster reproduzierbarer Fehler stoppt den Lauf und
+oeffnet genau eine Root-Cause-Task.
 
 ## Paused Auditplan Handoff
 
