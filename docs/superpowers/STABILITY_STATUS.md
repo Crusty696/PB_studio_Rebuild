@@ -1,17 +1,17 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-14 11:20 Europe/Zurich
+Letztes Update: 2026-08-25 11:13 Europe/Zurich
 
-Gesamtfortschritt: **ca. 27–29 %**
+Gesamtfortschritt: **nicht neu berechnet; letzter belastbarer Wert 27–29 % vom 2026-08-14**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
+Aktiv: **STAB-4 / B-723 GPU-/Cancel-/Projektwechsel-Livepfad**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
 | STAB-0 Governance/Wahrheit | **100 %** | abgeschlossen |
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
-| STAB-2 Acht Live-Workflows | **37,5 %** | W1/W2/W3 live-pass (3/8); B-758 live gruen. W3 komplett durchlaufen inkl. Cancel, Cancel-Persistenz nach B-820-Fix, Retry, Neustartvergleich und Stem-Selbstheilung. Usermarker offen |
-| STAB-3 Brain/Lernen A/B | **ca. 15 %** | B-737/B-738 codefix gruen; echter A/B-/Ollama-Livebeweis offen |
+| STAB-2 Acht Live-Workflows | **100 %** | W1-W8 agent-complete-await-user-marker; Usermarker offen |
+| STAB-3 Brain/Lernen A/B | **agent-complete*** | A/B, Feedback, Persistenz und Tool-ChatDock 4/4 live; aktueller Non-Tool-ChatDock userautorisiert uebersprungen/nicht PASS; Usermarker offen |
 | STAB-4 GPU/Threads/Soak | **ca. 20 %** | B-723/B-725/B-726 codefix live-pending; Stressgate offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
@@ -19,6 +19,11 @@ Aktiv: **LIVE-VERIFY / W4 Videoanalyse inklusive defektem Clip und Reanalyse**
 
 ## Aktueller Beweisstand
 
+- STAB-3 Tool-ChatDock mit `qwen2.5:3b`: Learn, Recall, Stats und Explain
+  Current-live gruen. B-896 `90e1472`, B-897 `50ce61d`.
+- B-738 Non-Tool: User-`fixed`, echter headless Learn-/Recall-Beleg vom
+  2026-08-11 und aktueller Regressionstest; kein aktueller ChatDock-PASS.
+- STAB-3 bleibt `agent-complete-await-user-marker`; STAB-4/B-723 aktiv.
 - STAB-0 vollständig synchron.
 - 13 reale DBs extern gesichert; bisherige Baseline byte-/logisch identisch.
 - B-727 Negativkontrollen bestanden; kein `fixed`, Livebeweis offen.

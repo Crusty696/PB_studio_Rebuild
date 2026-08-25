@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b00fc2710fad4642934e85f460e63064",
+  "recorded_at": "2026-08-25T09:17:28+00:00",
+  "session_id": "5cb93a694e4546fbbc2f555768836962",
+  "head_at_start": "2a50f978a49bffd14596dd5dd506281d87f9433a",
+  "problem": "STAB-3 verlangte Tool- und Non-Tool-Livebelege, aber das bessere Ersatzmodell nutzte native Tools und der aktuelle Gemma-Non-Tool-Learn-Pfad blieb rot",
+  "cause": "Modellfaehigkeit bestimmt den real erreichten Chatpfad; ein gruener Toollauf belegt keinen aktuellen Non-Tool-ChatDock-Lauf",
+  "rule": "Live-Matrix immer an tatsaechlich geloggte Route binden; userautorisierten Skip explizit als offene Live-Luecke dokumentieren und niemals aus Code- oder Altbelegen einen Current-PASS ableiten",
+  "applies_to": "LLM-Routing, Gateway-Verifikation, Modellwechsel, Phasenabschluss"
+}

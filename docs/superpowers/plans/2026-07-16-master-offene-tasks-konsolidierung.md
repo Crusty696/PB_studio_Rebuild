@@ -1140,3 +1140,25 @@ Decision: Vault
 - Naechste einzige Task:
   `STAB-3 / Tool- und Non-Tool-LLM-Pfade muessen Recall/Stats/Explain/Learn erhalten`.
   LLM-AN-Liveausfuehrung bleibt wegen B-867/Modellwahl user-blockiert.
+
+#### STAB-3 LLM-Pfade agent-complete — 2026-08-25
+
+- B-896 Commit `90e1472` bindet das konfigurierte Chatmodell durch
+  LocalAgentService und Orchestrator; echter ChatDock-Aufruf nutzte danach
+  das gewaehlte Modell statt Auto-Default.
+- Ersatzmodell `qwen2.5:3b` lief unter gepinntem Ollama 0.21.2 auf
+  GTX-1060/CUDA0. Echter ChatDock-Toolpfad: Learn speicherte Note #2,
+  Recall fand exakten Marker, Stats zeigte reale Counts/Luecken, Explain
+  lieferte Decision 821 mit Scorebeitraegen.
+- B-897 Commit `50ce61d` normalisiert fehlenden Learn-Titel und optionale
+  JSON-null-Parameter identisch fuer native/non-tool Gatewaypfade. Fokus:
+  7 bestanden, 29 abgewaehlt; PyCompile/Ruff/Diffcheck gruen.
+- Non-Tool: B-738 steht userseitig `fixed`; echter headless
+  Learn->Recall-/Promptbeleg vom 2026-08-11 und aktueller fokussierter
+  Regressionstest bleiben gruen. Gemma-ChatDock-Learn war aktuell rot;
+  erneuter Non-Tool-ChatDock-Lauf wurde gemaess Useralternative
+  "besseres LLM oder ueberspringen" uebersprungen. Kein Live-PASS behauptet.
+- Evidence: `docs/superpowers/synthesis/stab3-llm-paths-2026-08-25.md`.
+- STAB-3 `agent-complete-await-user-marker`; kein User-`fixed`-Marker.
+- Naechste einzige Task:
+  `STAB-4 / B-723 echten GPU-/Cancel-/Projektwechsel-Pfad live verifizieren`.

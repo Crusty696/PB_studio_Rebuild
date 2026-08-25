@@ -20,18 +20,17 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-3 / Tool- und Non-Tool-LLM-Pfade muessen Recall/Stats/Explain/Learn
-erhalten`.
+`STAB-4 / B-723 echten GPU-/Cancel-/Projektwechsel-Pfad live verifizieren`.
 
-Auto-Edit B ist `agent-complete-await-user-marker`: Run 11 mit identischen
-Inputs/Kandidaten gegen Run 9; negatives Ziel sank korrekt von Rang 1/17 auf
-4/17, positives Ziel stieg in Memory/Brainfinal/Softscore. B-892 ist in
-Commit `7ebdaf2` repariert und `agent-fixed-await-user`. B-893/B-894/B-895
-bleiben separat offen. Evidence:
-`docs/superpowers/synthesis/stab3-auto-edit-b-2026-08-25.md`.
-LLM-AN-Liveausfuehrung bleibt wegen B-867/Modellwahl user-blockiert. Kein
-User-`fixed`-/STAB-3-Phasenmarker. App PID 4088 sauber beendet; kein
-PB-Studio-Stability-Prozessrest. Kein Push.
+STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
+Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
+`90e1472`, B-897 Commit `50ce61d`. Non-Tool besitzt User-`fixed` B-738,
+echten headless Learn-/Recall-Beleg vom 2026-08-11 und aktuellen fokussierten
+Regressionstest. Ein erneuter Non-Tool-ChatDock-Lauf wurde nach Gemma-FAIL
+gemaess Useralternative "besseres LLM oder ueberspringen" uebersprungen und
+ist nicht als Live-PASS markiert. Evidence:
+`docs/superpowers/synthesis/stab3-llm-paths-2026-08-25.md`. Kein
+User-`fixed`-/STAB-3-Phasenmarker. App PID 8660 bleibt responsiv; kein Push.
 
 ## Paused Auditplan Handoff
 

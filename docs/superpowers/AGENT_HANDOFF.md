@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-3 LLM-Pfade agent-complete — 2026-08-25
+
+- Konfiguriertes Chatmodell wird seit B-896 Commit `90e1472` durch
+  LocalAgentService/Orchestrator respektiert.
+- `qwen2.5:3b`, Ollama 0.21.2, GTX-1060/CUDA0: echter ChatDock-Pfad lieferte
+  Learn, Recall, Stats und Explain. Learn persistierte Note #2; DB
+  `quick_check=ok`; Recall fand exakten Marker; Explain Decision 821.
+- B-897 Commit `50ce61d`: Learn-Toolargumente normalisiert; Fokus 7/7,
+  PyCompile/Ruff/Diffcheck gruen.
+- Ehrliche Grenze: aktueller Non-Tool-ChatDock-Lauf nicht bestanden. B-738
+  besitzt User-`fixed`, echten headless Non-Tool-Beleg vom 11.08 und aktuellen
+  Regressionstest; erneuter Livepfad wurde nach Useralternative uebersprungen.
+- Evidence: `docs/superpowers/synthesis/stab3-llm-paths-2026-08-25.md`.
+- STAB-3 `agent-complete-await-user-marker`; App PID 8660 responsiv;
+  kein Push.
+- Naechste einzige Task: `STAB-4 / B-723 echten GPU-/Cancel-/Projektwechsel-
+  Pfad live verifizieren`.
+
 ## STAB-3 Auto-Edit B agent-complete — 2026-08-25
 
 - Run 11: identische 112 Playback-Offsets, Seed 42, 101 Input-Kontexte und
