@@ -1,0 +1,10 @@
+{
+  "lesson_id": "546b7aa259844d7c94d52ffcb62855b6",
+  "recorded_at": "2026-08-25T08:24:39+00:00",
+  "session_id": "5cb93a694e4546fbbc2f555768836962",
+  "head_at_start": "2a50f978a49bffd14596dd5dd506281d87f9433a",
+  "problem": "UI-selected Ollama model was ignored by the first OrchestratorAgent LLM path",
+  "cause": "LocalAgentService stored the configured model but constructed OrchestratorAgent without it; orchestrator calls used OllamaService auto-default",
+  "rule": "Any user-selected model must be propagated through every earlier routing layer and asserted at the final LLM call boundary, including runtime reconfiguration",
+  "applies_to": "LocalAgentService, OrchestratorAgent, model routing"
+}

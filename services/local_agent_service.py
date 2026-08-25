@@ -282,7 +282,7 @@ class LocalAgentService:
             with self._lock:
                 if self._orchestrator is None:
                     from agents.orchestrator_agent import OrchestratorAgent
-                    orch = OrchestratorAgent()
+                    orch = OrchestratorAgent(ollama_model=self._ollama_model)
                     from services.model_manager import ModelManager
                     orch.set_model_manager(ModelManager())
                     self._orchestrator = orch
@@ -397,6 +397,8 @@ class LocalAgentService:
         self._ollama_model = model
         self._use_ollama = enabled if enabled else False
         self._ollama_client = None  # Client neu erstellen beim nächsten Zugriff
+        if self._orchestrator is not None:
+            self._orchestrator.set_ollama_model(model)
         logger.info(
             "LocalAgentService: Ollama neu konfiguriert — URL=%s, Modell=%s, Aktiv=%s",
             url, model, enabled,

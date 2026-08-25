@@ -115,12 +115,17 @@ class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
     domain = "orchestrator"
 
-    def __init__(self, agents: list[BaseAgent] | None = None):
+    def __init__(
+        self,
+        agents: list[BaseAgent] | None = None,
+        ollama_model: str | None = None,
+    ):
         """Initialisiert den Orchestrator.
 
         Args:
             agents: Liste von spezialisierten Agenten. Falls None, wird die
                    Default-Liste verwendet. P2-FIX: Dependency Injection für Testbarkeit.
+            ollama_model: Vom LocalAgentService gebundenes Chatmodell.
         """
         super().__init__()
         self._agents: list[BaseAgent] = agents or [
@@ -130,6 +135,7 @@ class OrchestratorAgent(BaseAgent):
             EditorAgent(),
         ]
         self._model_manager = None  # Wird vom LocalAgentService gesetzt
+        self._ollama_model = ollama_model
 
     @property
     def agents(self) -> list[BaseAgent]:
@@ -138,6 +144,10 @@ class OrchestratorAgent(BaseAgent):
     def set_model_manager(self, manager) -> None:
         """Setzt den ModelManager für Modell-Swapping."""
         self._model_manager = manager
+
+    def set_ollama_model(self, model: str | None) -> None:
+        """Bindet die aktuelle Chat-Modellwahl des LocalAgentService."""
+        self._ollama_model = model
 
     def can_handle(self, user_text: str) -> float:
         # Der Orchestrator kann alles handeln
@@ -450,7 +460,7 @@ class OrchestratorAgent(BaseAgent):
         if not svc.is_ready:
             return None
 
-        model = svc.get_default_model()
+        model = self._ollama_model or svc.get_default_model()
         if not model:
             return None
 
@@ -606,6 +616,7 @@ class OrchestratorAgent(BaseAgent):
 
         try:
             result = svc.chat(
+                model=self._ollama_model,
                 messages=[
                     {"role": "system", "content": _CLASSIFY_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text}
@@ -1068,6 +1079,7 @@ class OrchestratorAgent(BaseAgent):
                 )
 
                 llm_response = svc.chat(
+                    model=self._ollama_model,
                     messages=[
                         {
                             "role": "system",
