@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a7b29490f3634cbb8fd0294f5733d461",
+  "recorded_at": "2026-08-25T09:56:59+00:00",
+  "session_id": "18ebab8c130e4222ad5f834d8d4b3340",
+  "head_at_start": "de1537e04ec9d84be8f9b991228bb90ee19c710b",
+  "problem": "Ein UI-Stream-Copy-Batch war so schnell, dass ein sequenzieller GPU-Nachtest das Parallelitaetsfenster verpasste und 109 lokale Testoutputs erzeugte.",
+  "cause": "Beobachtung und GPU-Start waren getrennte Schritte; kurzer Remux pro Clip beendete Batch vor dem konkurrierenden Demucs-Start.",
+  "rule": "Kurze Concurrency-Livepfade atomar automatisieren: CPU-Task starten, GPU-Task sofort starten und PASS nur bei zeitgleichem realem Prozess plus GPU-Progress; Output-Baseline vorher erfassen und Testartefakte recoverable isolieren.",
+  "applies_to": "FFmpeg-Remux, GPU-Lock-Verifikation, kurze Concurrency-Fenster, lokale Medienartefakte"
+}

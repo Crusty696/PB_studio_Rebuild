@@ -2,6 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 B-725 agent-complete — 2026-08-25
+
+- UI-Stream-Copy real gestartet; FFmpeg PID 7732 lief zeitgleich zu htdemucs
+  Chunk 1/12 auf GTX 1060/cuda:0. Copy haelt GPU_EXECUTION_LOCK nicht.
+- TASKS-Cancel fuer Convert und Stem; kein FFmpeg-Rest, App PID 3392
+  responsiv, DB quick_check ok. Zwei Outputs ffprobe-parsebar, Codec erhalten.
+- B-725/B-401 Fokus `3 passed in 0.83s`; kein Produktcode geaendert.
+- 142 lokale Testoutputs aus aktiven Outputpfaden entfernt und recoverable in
+  vier `converted_b725_quarantine_*20260825`-Verzeichnisse verschoben
+  (ca. 1.4 GB). Quellen unangetastet; nichts committed.
+- Evidence: `docs/superpowers/synthesis/stab4-b725-copy-concurrency-2026-08-25.md`.
+- Naechste einzige Task: `STAB-4 / B-726 oeffentlichen RAFT-Direktpfad unter
+  Execution-Lease live verifizieren`.
+
 ## STAB-4 B-723 agent-complete, VRAM-Gesamtgate offen — 2026-08-25
 
 - Echter htdemucs-Lauf auf GTX 1060/cuda:0: Projekt-Open waehrend Task

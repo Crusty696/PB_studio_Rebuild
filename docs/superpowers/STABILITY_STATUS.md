@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-25 11:44 Europe/Zurich
+Letztes Update: 2026-08-25 11:56 Europe/Zurich
 
 Gesamtfortschritt: **nicht neu berechnet; letzter belastbarer Wert 27–29 % vom 2026-08-14**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease**
+Aktiv: **STAB-4 / B-726 RAFT-Direktpfad unter Execution-Lease**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -27,6 +27,8 @@ Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease**
 - B-723 agentseitig live belegt: echter Demucs-Cancel, Projektwechsel-Block,
   DB-Konsistenz und Exception-Referenzfreigabe unter Execution-Lock. Kaltes
   STAB-4-VRAM-Gesamtgate bleibt rot: +813 MiB statt maximal +512 MiB.
+- B-725 agentseitig live belegt: UI-Copy-FFmpeg lief zeitgleich mit echtem
+  Demucs-CUDA-Chunk; Cancel, Prozesscleanup, ffprobe und DB gruen.
 - STAB-0 vollständig synchron.
 - 13 reale DBs extern gesichert; bisherige Baseline byte-/logisch identisch.
 - B-727 Negativkontrollen bestanden; kein `fixed`, Livebeweis offen.
@@ -50,8 +52,8 @@ Aktiv: **STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease**
 - B-723: Stem- und Video-Exception-Cleanup unter Execution-Lease; realer
   GPU-/Cancel-/Projektwechsel-Pfad und enger Folgefix agentseitig gruen.
   Gesamt-VRAM-Gate bleibt separat offen.
-- B-725: CPU-/Copy-Codecs außerhalb GPU-Lease; zwei Fokusverträge grün.
-  FFmpeg-/GPU-/Cancel-Livebeweis bleibt offen.
+- B-725: CPU-/Copy-Codecs ausserhalb GPU-Lease; echter FFmpeg-/GPU-
+  Parallelitaets- und Cancel-Livebeweis gruen. Kein neuer Codefix.
 - B-726: öffentlicher RAFT-Direktpfad unter Execution-Lease; Fokus 2/2.
 - B-715: SCHNITT-Projektsnapshot vor Workerstart; Fokus 8/8.
 - B-735: 18. lernbare `role_match_weight`-Achse; Fokus 59/59.

@@ -1176,3 +1176,14 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-b723-gpu-cancel-project-switch-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease live verifizieren`.
+
+### B-725 Copy-/GPU-Parallelitaet 2026-08-25
+
+- Echter UI-Stream-Copy-FFmpeg PID 7732 lief zeitgleich mit htdemucs
+  Chunk 1/12 auf GTX 1060/cuda:0; kein GPU-Lock-Block.
+- TASKS-Cancel, Prozessnull, App responsiv, DB quick_check und ffprobe gruen.
+- Fokus B-725/B-401: 3/3. Kein neuer Produktcodefix.
+- Evidence:
+  `docs/superpowers/synthesis/stab4-b725-copy-concurrency-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / B-726 oeffentlichen RAFT-Direktpfad unter Execution-Lease live verifizieren`.
