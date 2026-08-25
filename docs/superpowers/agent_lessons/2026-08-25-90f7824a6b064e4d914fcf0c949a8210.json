@@ -1,0 +1,10 @@
+{
+  "lesson_id": "90f7824a6b064e4d914fcf0c949a8210",
+  "recorded_at": "2026-08-25T22:19:02+00:00",
+  "session_id": "1f08c9a9f08f4373b555cd849c630df7",
+  "head_at_start": "581b803d62947b3c4b0d99f04921ed5d7e921a6f",
+  "problem": "STAB-4 verlangte nach Demucs-CUDA maximal Kaltbaseline plus 512 MiB, waehrend ein allocator-sauberer isolierter echter Demucs-Prozess 624 MiB Kontextrest hielt.",
+  "cause": "CUDA/cuDNN-Prozesskontext bleibt bis Prozessende resident, obwohl Torch allocated und reserved beide null sind; Cache- und IPC-Cleanup koennen ihn nicht freigeben.",
+  "rule": "VRAM-Restgates vor Fixarbeit gegen isolierten echten Modelllauf und allocator-Metriken kalibrieren; prozessgebundenen Kontext nicht als Tensorleck behandeln. Unerreichbare Gates nur per Architektur- oder expliziter Acceptance-Entscheidung aendern.",
+  "applies_to": "CUDA-Langlaufgates, Demucs, In-Process-ML, VRAM-Leakdiagnose"
+}

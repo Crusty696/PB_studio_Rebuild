@@ -1,6 +1,6 @@
 # PB Studio Active Plan
 
-status: active
+status: blocked-needs-user-selection
 active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
 vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
@@ -20,7 +20,8 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / Kalt-VRAM-Gesamtgate (+813 > +512 MiB) ursächlich schließen`.
+`B-899 / Userentscheidung: Demucs in eigenen Prozess verschieben oder
+STAB-4-In-Process-VRAM-Gate anpassen`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -80,6 +81,16 @@ Marker. Evidence:
 `docs/superpowers/synthesis/b898-export-cancel-no-fallback-2026-08-26.md`.
 Naechstes konkretes rotes STAB-4-Gate: Kalt-VRAM +813 MiB statt maximal
 +512 MiB. B-774-Realbeleg bleibt danach separat offen.
+
+B-899 blockiert autonome Fortsetzung: isolierter echter `htdemucs`-CUDA-Lauf
+liegt nach Loeschen aller Modell-/Tensorreferenzen, GC und doppeltem
+`empty_cache()` bei 624 MiB globalem VRAM, obwohl Torch `allocated=0` und
+`reserved=0` meldet. `ipc_collect()` aendert nichts; erst Prozessende bringt
+0 MiB. Damit ist +512 MiB unter aktueller In-Process-Architektur bereits um
+112 MiB unmoeglich. Technisch ehrliche Wege: Demucs-Out-of-Process
+(Architekturumbau) oder Gate-Anpassung (Acceptance-Criteria-Aenderung). Keine
+Option ohne Userentscheidung. Evidence:
+`docs/superpowers/synthesis/b899-cold-vram-gate-decision-2026-08-26.md`.
 
 ## Paused Auditplan Handoff
 

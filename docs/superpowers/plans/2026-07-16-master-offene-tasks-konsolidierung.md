@@ -1272,3 +1272,16 @@ Decision: Vault
   `docs/superpowers/synthesis/b898-export-cancel-no-fallback-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-4 / Kalt-VRAM-Gesamtgate (+813 > +512 MiB) ursächlich schließen`.
+
+### B-899 Kalt-VRAM-Gate blockiert — 2026-08-26
+
+- Isolierter echter `htdemucs`-CUDA-Lauf: global 0 -> Peak 1548 -> nach
+  `del`, GC und doppeltem `empty_cache` 624 MiB; Torch `allocated=0`,
+  `reserved=0`. `ipc_collect()` aendert nichts; Prozessende setzt 0 MiB.
+- Das +512-MiB-Gate ist unter aktueller In-Process-Demucs-Architektur bereits
+  ohne lebende Torch-Allokationen um 112 MiB ueberschritten.
+- Kein stilles Lockern des Gates; kein eigenmaechtiger Prozessarchitektur-
+  Umbau. Evidence:
+  `docs/superpowers/synthesis/b899-cold-vram-gate-decision-2026-08-26.md`.
+- Blockierte einzige Task: Userentscheidung zwischen Out-of-Process-Demucs
+  und Anpassung des In-Process-VRAM-Gates. B-774-Realbeleg bleibt danach.

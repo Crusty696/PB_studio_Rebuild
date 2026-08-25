@@ -2,6 +2,18 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 / B-899 blocked-needs-user-selection — 2026-08-26
+
+- Isolierter echter Demucs-CUDA-Lauf: 0 -> Peak 1548 -> allocator-clean
+  624 MiB; Torch allocated/reserved 0/0. `ipc_collect()` ohne Wirkung; erst
+  Prozessende bringt 0 MiB.
+- Aktives +512-MiB-Gate ist unter In-Process-Demucs um mindestens 112 MiB
+  unerreichbar. Kein nachgewiesenes lebendes Torch-Tensorleck.
+- Entscheidung noetig: Demucs-Out-of-Process oder hardware-/stackbasierte
+  Anpassung des In-Process-Gates. Kein stiller Umbau/Thresholdwechsel.
+- Evidence: `docs/superpowers/synthesis/b899-cold-vram-gate-decision-2026-08-26.md`.
+  B-774-Realbeleg bleibt danach offen. Kein Push.
+
 ## STAB-4 / B-898 agent-complete — 2026-08-26
 
 - Root Cause behoben: User-Cancel bleibt `ExportCancelled` statt generischem
