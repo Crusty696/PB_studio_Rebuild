@@ -531,7 +531,8 @@ Fehler einzeln schließen, bevor nächster Workflow startet.
   UI-Heartbeat, DB und Lockzeiten erfassen.
 - Gate: kein Hang/Crash/Lock-Inversion/Zombie; UI-Block höchstens 2 s;
   Progress spätestens 10 s; Threads Baseline +5; VRAM nach 60 s höchstens
-  Baseline +512 MiB; DB konsistent.
+  Baseline +1024 MiB; Torch allocated/reserved nach Cleanup 0/0; kein
+  wachsender VRAM-Rest ueber Wiederholungsläufe; DB konsistent (D-093).
 
 #### STAB-5 — UI-Ehrlichkeit
 
@@ -1285,3 +1286,24 @@ Decision: Vault
   `docs/superpowers/synthesis/b899-cold-vram-gate-decision-2026-08-26.md`.
 - Blockierte einzige Task: Userentscheidung zwischen Out-of-Process-Demucs
   und Anpassung des In-Process-VRAM-Gates. B-774-Realbeleg bleibt danach.
+
+### D-093 In-Process-VRAM-Gate genehmigt — 2026-08-26
+
+- User genehmigt `Baseline +1024 MiB`; Out-of-Process-Demucs entfällt.
+- Zusatzgates: Torch allocated/reserved nach Cleanup 0/0, kein wachsender
+  VRAM-Rest ueber Wiederholungsläufe, keine Zombies.
+- Naechste einzige Task:
+  `B-899 / +1024-MiB-Gate gezielt auf Wiederholungswachstum pruefen`.
+  Danach B-774-Realbeleg.
+
+### B-899 +1024-MiB-Gate agent-complete — 2026-08-26
+
+- Zwei echte htdemucs-Load+10-s-CUDA-Inferenz+Cleanup-Zyklen im selben
+  Prozess: Baseline 402 MiB; beide Peaks 1944 MiB; beide Cleanup-Werte
+  1020 MiB, also Delta +618 MiB.
+- Nach beiden Zyklen Torch allocated/reserved 0/0; kein Wachstum. Nach
+  Prozessende 396 MiB und 0 passende Prozessreste.
+- D-093-Gate bestanden. B-899 `agent-complete-await-user-marker`, kein
+  `fixed`.
+- Naechste einzige Task:
+  `STAB-4 / B-774 realen CUDA-Kontextverlust-Dauerlastbeleg bewerten`.

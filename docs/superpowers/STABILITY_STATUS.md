@@ -1,10 +1,10 @@
 # PB Studio Stabilitätsstatus — Current
 
-Letztes Update: 2026-08-25 22:41 Europe/Zurich
+Letztes Update: 2026-08-26 00:56 Europe/Zurich
 
 Gesamtfortschritt: **nicht neu berechnet; letzter belastbarer Wert 27–29 % vom 2026-08-14**
 Risikobasierte Pflichtgates: **2/9 abgeschlossen**
-Aktiv: **STAB-4 / 30-Minuten-Soak**
+Aktiv: **STAB-4 / B-774 CUDA-Kontextverlust-Dauerlastbeleg**
 
 | Phase | Stand | Zustand |
 |---|---:|---|
@@ -12,7 +12,7 @@ Aktiv: **STAB-4 / 30-Minuten-Soak**
 | STAB-1 Testfundament | **ca. 70 %** | B-740/B-741 codefix live-pending; breite Gates D-078-verschoben |
 | STAB-2 Acht Live-Workflows | **100 %** | W1-W8 agent-complete-await-user-marker; Usermarker offen |
 | STAB-3 Brain/Lernen A/B | **agent-complete*** | A/B, Feedback, Persistenz und Tool-ChatDock 4/4 live; aktueller Non-Tool-ChatDock userautorisiert uebersprungen/nicht PASS; Usermarker offen |
-| STAB-4 GPU/Threads/Soak | **agent-live partial** | Einzelpfade + Kombinationszyklus live; Soak, Kalt-VRAM, B-774 und B-898 offen |
+| STAB-4 GPU/Threads/Soak | **agent-live partial** | Einzelpfade, Kombinationszyklus, Soak, B-898 und D-093-VRAM-Gate agent-complete; B-774 offen |
 | STAB-5 UI-Ehrlichkeit | **0 %** | blockiert durch STAB-4 |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
 | STAB-7 Endabnahme | **0 %** | blockiert durch STAB-6 |
@@ -23,15 +23,16 @@ Aktiv: **STAB-4 / 30-Minuten-Soak**
   Current-live gruen. B-896 `90e1472`, B-897 `50ce61d`.
 - B-738 Non-Tool: User-`fixed`, echter headless Learn-/Recall-Beleg vom
   2026-08-11 und aktueller Regressionstest; kein aktueller ChatDock-PASS.
-- STAB-3 bleibt `agent-complete-await-user-marker`; STAB-4/B-725 aktiv.
+- STAB-3 bleibt `agent-complete-await-user-marker`; STAB-4/B-774 aktiv.
 - B-723 agentseitig live belegt: echter Demucs-Cancel, Projektwechsel-Block,
-  DB-Konsistenz und Exception-Referenzfreigabe unter Execution-Lock. Kaltes
-  STAB-4-VRAM-Gesamtgate bleibt rot: +813 MiB statt maximal +512 MiB.
+  DB-Konsistenz und Exception-Referenzfreigabe unter Execution-Lock.
+- D-093/B-899: In-Process-Gate +1024 MiB; zwei echte Demucs-Zyklen jeweils
+  +618 MiB nach Cleanup, allocator/reserved 0/0, kein Wachstum/Zombie.
 - B-725 agentseitig live belegt: UI-Copy-FFmpeg lief zeitgleich mit echtem
   Demucs-CUDA-Chunk; Cancel, Prozesscleanup, ffprobe und DB gruen.
-- Kombinationszyklus agentseitig live belegt: Preview, qwen2.5, Audio-/
-  Video-Cancel, NVENC-Export-Cancel, Projektwechsel und Shutdown. B-898
-  Export-Cancel-Fallback neu `open`; 30-Minuten-Soak bleibt aktiv.
+- Kombinationszyklus und 30-Minuten-Soak agentseitig live belegt. B-898-
+  Export-Cancel-Fallback behoben und real ohne Fallback/Restprozess belegt;
+  Usermarker offen.
 - STAB-0 vollständig synchron.
 - 13 reale DBs extern gesichert; bisherige Baseline byte-/logisch identisch.
 - B-727 Negativkontrollen bestanden; kein `fixed`, Livebeweis offen.

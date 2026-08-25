@@ -1,0 +1,10 @@
+{
+  "lesson_id": "95c44ce889b641059fdc32b236c47e1e",
+  "recorded_at": "2026-08-25T22:57:39+00:00",
+  "session_id": "79cc23fd1dca4275972307a9c4a79e3a",
+  "head_at_start": "841db89ae7fe6ff2f5a3001e1ea60a1dd9e24ff6",
+  "problem": "Ein absoluter VRAM-Restgrenzwert war wegen legitimen CUDA-Kontextkosten unerreichbar, durfte aber nicht ohne Leakschutz erhoeht werden.",
+  "cause": "Globaler WDDM-VRAM-Wert mischt prozessgebundenen Kontext und echte Torch-Allokationen; nur Gesamt-MiB kann beides nicht unterscheiden.",
+  "rule": "Bei usergenehmigter VRAM-Gate-Anpassung Gesamt-Delta immer mit allocator=0/reserved=0, identischen Wiederholungswerten und Prozessrestkontrolle koppeln.",
+  "applies_to": "CUDA-Stabilitaetsgates, WDDM, In-Process-ML, Langlaufverifikation"
+}

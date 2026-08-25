@@ -1,6 +1,6 @@
 # PB Studio Active Plan
 
-status: blocked-needs-user-selection
+status: active
 active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
 vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
@@ -20,8 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`B-899 / Userentscheidung: Demucs in eigenen Prozess verschieben oder
-STAB-4-In-Process-VRAM-Gate anpassen`.
+`STAB-4 / B-774 realen CUDA-Kontextverlust-Dauerlastbeleg bewerten`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -91,6 +90,20 @@ liegt nach Loeschen aller Modell-/Tensorreferenzen, GC und doppeltem
 (Architekturumbau) oder Gate-Anpassung (Acceptance-Criteria-Aenderung). Keine
 Option ohne Userentscheidung. Evidence:
 `docs/superpowers/synthesis/b899-cold-vram-gate-decision-2026-08-26.md`.
+
+Userentscheidung D-093: In-Process-Gate auf `Baseline +1024 MiB` erhoehen;
+Out-of-Process-Demucs nicht umsetzen. Verbindliche Zusatzkontrollen:
+Torch allocated/reserved nach Cleanup 0/0, kein wachsender VRAM-Rest ueber
+Wiederholungsläufe, keine Zombie-/Kindprozesse. Naechste einzige Task ist
+gezielter Wiederholungsbeleg; danach B-774-Realbeleg.
+
+B-899 ist `agent-complete-await-user-marker`: zwei echte htdemucs-
+Load+10-s-CUDA-Inferenz+Cleanup-Zyklen im selben Prozess hatten identische
+Peaks 1944 MiB und identische Cleanup-Werte 1020 MiB bei Baseline 402 MiB
+(Delta +618 MiB); Torch allocated/reserved nach beiden Zyklen 0/0, kein
+Wachstum. Nach Prozessende 396 MiB und keine passenden Prozessreste. D-093-
+Gate bestanden; kein User-`fixed`-Marker. Naechste einzige Task: B-774-
+Realbeleg bewerten.
 
 ## Paused Auditplan Handoff
 

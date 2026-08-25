@@ -1,7 +1,7 @@
 # STAB-4 / B-899 Kalt-VRAM-Gate — Entscheidungsbeleg
 
 Datum: 2026-08-26
-Status: blocked-needs-user-selection
+Status: agent-complete-await-user-marker
 
 ## Reproduzierter Befund
 
@@ -31,3 +31,16 @@ Demucs nicht erreichbar.
 
 Agent entscheidet weder Architektur noch Gate selbst. B-774-Realbeleg bleibt
 nach dieser Entscheidung separat offen.
+
+## Userentscheidung
+
+D-093: In-Process-Gate `Baseline +1024 MiB`; kein Demucs-Prozessumbau.
+Zusatzkontrollen allocator/reserved 0/0, kein Wiederholungswachstum, keine
+Zombies. Gezielter Wiederholungsbeleg folgt im naechsten Abschnitt.
+
+## Wiederholungsbeleg
+
+Zwei echte htdemucs-Zyklen im selben Prozess: Baseline 402 MiB, beide Peaks
+1944 MiB, beide Cleanup-Werte 1020 MiB (+618). Torch allocated/reserved nach
+beiden Zyklen 0/0; kein Wachstum. Prozessende: 396 MiB, keine passenden
+Prozessreste. D-093-Gate agentseitig bestanden; Usermarker offen.

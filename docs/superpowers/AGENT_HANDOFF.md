@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 / B-899 agent-complete — 2026-08-26
+
+- D-093-Gate +1024 MiB gezielt belegt: zwei echte htdemucs-Zyklen im selben
+  Prozess, Baseline 402 MiB, Peaks 1944/1944, Cleanup 1020/1020 MiB
+  (je +618), Torch allocated/reserved 0/0, kein Wachstum.
+- Prozessende 396 MiB; 0 passende PB-/Demucs-/Ollama-/FFmpeg-Prozesse.
+- B-899 `agent-complete-await-user-marker`; kein `fixed`/Push.
+- Naechste einzige Task: B-774 realen CUDA-Kontextverlust-Dauerlastbeleg
+  bewerten.
+
+## STAB-4 / D-093 Gateentscheidung — 2026-08-26
+
+- User genehmigt In-Process-VRAM-Gate `Baseline +1024 MiB`.
+- Zusatzgates: Torch allocated/reserved nach Cleanup 0/0, kein wachsender
+  Rest ueber Wiederholungsläufe, keine Zombies. Out-of-Process-Demucs entfällt.
+- Naechste einzige Task: B-899 gezielter Wiederholungsbeleg; danach B-774.
+  Kein Push/User-`fixed`-Marker.
+
 ## STAB-4 / B-899 blocked-needs-user-selection — 2026-08-26
 
 - Isolierter echter Demucs-CUDA-Lauf: 0 -> Peak 1548 -> allocator-clean
