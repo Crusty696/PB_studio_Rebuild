@@ -1,7 +1,7 @@
 # B-900 Setup-Wizard Fortschrittswahrheit
 
 Datum: 2026-08-26
-Status: code-fix-pending-live-verification
+Status: fixed
 Basis: `e42f45f`
 
 ## Root Cause
@@ -26,11 +26,14 @@ nur Farbe und Text.
   `1 passed in 0.88s`.
 - Kein breiter Testlauf.
 
-## Offene Live-Verifikation
+## App-Live-Verifikation
 
-Echter First-Run-Wizard mit real fehlgeschlagenem Download wurde noch nicht
-durch die laufende App geklickt. Daher kein `fixed`.
+`main._maybe_run_setup_wizard()` lief im Projektinterpreter mit isolierten
+QSettings, echtem Modal-Dialog, echtem QThread und real verweigertem
+Ollama-Verbindungsaufbau auf `127.0.0.1:1`. Ergebnis: Modellbalken 0,
+Gesamtbalken 0, roter Fehlertext, Finish-Seite meldet fehlgeschlagene
+Downloads, Exit 0. Kein Modell wurde geladen oder heruntergeladen.
 
 ## Naechste einzige Task
 
-`STAB-5 / B-900 realen First-Run-Downloadfehler in der App live verifizieren`.
+`STAB-5 / UI-Ehrlichkeits-DoD gegen Inventar und vorhandene Testbelege abgleichen`.

@@ -20,12 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / B-900 realen First-Run-Downloadfehler in der App live verifizieren`.
+`STAB-5 / UI-Ehrlichkeits-DoD gegen Inventar und vorhandene Testbelege abgleichen`.
 
-B-900-Codefix trennt beendete Versuche und erfolgreiche Schritte; Fehler
-bleiben unter 100 Prozent. PyCompile und exakt ein betroffener Qt-Test gruen.
-Echter App-First-Run-Fehlerpfad fehlt, daher Status
-`code-fix-pending-live-verification`. Evidence:
+B-900 ist nach echtem First-Run-App-Pfad `fixed`: isolierter Modal-Wizard,
+echter QThread und Connection-Refused-Fehler ergaben Modell/Gesamt 0 Prozent,
+roten Fehlertext und korrekte Finish-Meldung. STAB-5 selbst bleibt offen,
+weil sein DoD je Element einen Testbeleg verlangt; statische Verdrahtung allein
+reicht nicht. Evidence:
 `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 
 STAB-5-Inventar ist statisch abgeschlossen: 103 UI-Dateien, 182 Controls der

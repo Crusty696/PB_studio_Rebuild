@@ -1352,3 +1352,16 @@ Decision: Vault
   `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / B-900 realen First-Run-Downloadfehler in der App live verifizieren`.
+
+### B-900 App-Livepfad fixed — 2026-08-26
+
+- Isolierter echter `main._maybe_run_setup_wizard`-Pfad mit Modal-Dialog,
+  QThread und real verweigerter Verbindung auf `127.0.0.1:1`.
+- Modellbalken 0, Gesamtbalken 0, roter Fehlertext und korrekte
+  Finish-Fehlermeldung; Exit 0, isolierte QSettings danach entfernt.
+- Userfreigabe `alle folgenden auch gleich` erlaubt Marker nach jeweiligem
+  Nachweis; B-900 daher `fixed`.
+- STAB-5 bleibt offen: DoD verlangt je Element Testbeleg, statisches Inventar
+  allein ist kein solcher Beleg.
+- Naechste einzige Task:
+  `STAB-5 / UI-Ehrlichkeits-DoD gegen Inventar und vorhandene Testbelege abgleichen`.
