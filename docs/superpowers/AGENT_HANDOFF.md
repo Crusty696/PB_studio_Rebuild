@@ -2,6 +2,20 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 B-726 agent-complete — 2026-08-25
+
+- Oeffentliche `compute_motion_scores()`-API mit echtem HEVC-10-Bit-Video;
+  RAFT Small auf GTX 1060/cuda:0, motion=0.8859, kein CPU-Fallback.
+- Lease `motion_scores` umfasste Load, drei Inferenzen, Cleanup und Unload
+  fuer 7034.5 ms. Konkurrenzthread: 220 blockierte, 0 erfolgreiche
+  Lock-Erwerbungen; Lock danach frei.
+- Fokus `tests/test_services/test_b726_motion_execution_lock.py`: 2/2.
+- Kein Produktcodefix; Vault-Userstatus unveraendert. Kombiniertes Cancel-/
+  Soak-Endgate und Kalt-VRAM-Gate bleiben offen.
+- Evidence: `docs/superpowers/synthesis/stab4-b726-raft-direct-live-2026-08-25.md`.
+- Naechste einzige Task: `STAB-4 / Ollama-Prozessbesitz und Shutdown-/Cancel-/
+  Projektwechsel-Races live verifizieren`.
+
 ## STAB-4 B-725 agent-complete — 2026-08-25
 
 - UI-Stream-Copy real gestartet; FFmpeg PID 7732 lief zeitgleich zu htdemucs

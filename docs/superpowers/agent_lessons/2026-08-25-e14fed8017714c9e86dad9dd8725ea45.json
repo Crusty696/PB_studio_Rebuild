@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e14fed8017714c9e86dad9dd8725ea45",
+  "recorded_at": "2026-08-25T10:07:34+00:00",
+  "session_id": "71525006880648ea95fbf0f83a769da2",
+  "head_at_start": "9b9d48ce056f3539e1f938b15759ccdc4b48ae54",
+  "problem": "Ein Lease-Vertragstest mit fehlender Datei belegte keine echte RAFT-Inferenz unter Konkurrenz.",
+  "cause": "Test kehrte vor Modellload und CUDA-Inferenz zurueck; nur Wrapper-Aufruf wurde beobachtet.",
+  "rule": "GPU-Lease-Livebeweise muessen reales Modell, reale Eingabe, konkurrierenden Lock-Versuch waehrend Inferenz und Lock-Freigabe danach gemeinsam messen.",
+  "applies_to": "CUDA-Service-Direktpfade und GPU_EXECUTION_LOCK-Verifikation"
+}

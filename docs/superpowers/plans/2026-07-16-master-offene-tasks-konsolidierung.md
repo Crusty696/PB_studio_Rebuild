@@ -1187,3 +1187,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-b725-copy-concurrency-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / B-726 oeffentlichen RAFT-Direktpfad unter Execution-Lease live verifizieren`.
+
+### B-726 RAFT-Direktpfad unter Execution-Lease 2026-08-25
+
+- Oeffentliche API mit realem HEVC-10-Bit-Video und RAFT Small auf GTX
+  1060/cuda:0 ausgefuehrt; motion=0.8859, kein CPU-Fallback.
+- Lease hielt Load, drei Inferenzen, Cleanup und Unload 7034.5 ms zusammen.
+  Konkurrenzthread: 220 blockierte, 0 erfolgreiche Lock-Erwerbungen; Lock
+  danach frei.
+- Fokusvertrag: 2/2. Kein neuer Produktcodefix; Vault-Userstatus unveraendert.
+- Kombinierter Cancel-/Soak-Lauf und Kalt-VRAM-Gesamtgate bleiben offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab4-b726-raft-direct-live-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / Ollama-Prozessbesitz und Shutdown-/Cancel-/Projektwechsel-Races live verifizieren`.
