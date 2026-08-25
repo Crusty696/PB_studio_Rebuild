@@ -1,7 +1,7 @@
 # STAB-4 agentseitiger Abschluss
 
 Datum: 2026-08-26
-Status: agent-complete-await-user-marker
+Status: fixed
 
 ## DoD
 
@@ -19,9 +19,9 @@ Status: agent-complete-await-user-marker
   Fault-Injection 9/9.
 - [ ] B-774 echter seltener Kontexttod nach Fix: nicht aufgetreten, ohne
   riskanten Treiber-/Hardware-Reset nicht sicher erzwingbar.
-- [ ] User-Phasenmarker.
+- [x] User-Phasenmarker: bestaetigt 2026-08-26.
 
 ## Abschluss
 
-STAB-4 ist agentseitig abgeschlossen. Kein Agent setzt `fixed`. User
-entscheidet anhand belegter Livepfade und offen ausgewiesener B-774-Grenze.
+STAB-4 ist vom User am 2026-08-26 als Phase bestaetigt. B-774-Grenze bleibt
+ehrlich dokumentiert: echter seltener Kontexttod trat nach Fix nicht erneut auf.

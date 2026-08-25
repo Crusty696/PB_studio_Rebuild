@@ -1,0 +1,10 @@
+{
+  "lesson_id": "38c9b27a4957419c8373b973ce8efadc",
+  "recorded_at": "2026-08-25T23:20:07+00:00",
+  "session_id": "2dff6c97039c4305a625019f767ef0a1",
+  "head_at_start": "c1ab21d0e10775e5611aaeccd70697bb9bf3ce6d",
+  "problem": "User bestaetigte aktuelle Phase und gab Folgephasen autonom frei.",
+  "cause": "Fortsetzungsfreigabe und evidenzgebundener Abschlussmarker sind zwei verschiedene Governance-Akte.",
+  "rule": "Aktuelle bestaetigte Phase sofort markieren; Folgephasen autonom bearbeiten, ihren fixed-/Abschlussmarker aber erst nach phaseneigenem Nachweis setzen.",
+  "applies_to": "Phasenplaene, Usermarker, autonome Masterplan-Fortsetzung"
+}

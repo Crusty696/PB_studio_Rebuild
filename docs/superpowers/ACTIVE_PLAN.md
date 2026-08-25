@@ -20,7 +20,12 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / User-Phasenmarker nach Sichtung des agentseitigen Abschlusses`.
+`STAB-5 / sichtbare UI-Aktionen inventarisieren und ihren realen Handler-/Zustandspfad belegen`.
+
+STAB-4 wurde vom User am 2026-08-26 als Phase bestaetigt. Folgephasen duerfen
+autonom fortgesetzt werden; ihr Abschlussmarker wird trotzdem erst nach dem
+jeweiligen Nachweis geschrieben. B-774s seltener echter Kontexttod bleibt als
+nicht erneut beobachtete Grenze dokumentiert.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit

@@ -1319,3 +1319,12 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-b774-evidence-evaluation-2026-08-26.md`
   und `docs/superpowers/synthesis/phase-stab4-done-2026-08-26.md`.
 - Naechste einzige Task: User-Phasenmarker; STAB-5 erst danach.
+
+### STAB-4 User-Phasenmarker / STAB-5 Start — 2026-08-26
+
+- User bestaetigte STAB-4 mit offen dokumentierter B-774-Grenze.
+- Folgephasen duerfen autonom fortgesetzt werden; Statusmarker erst nach
+  jeweiligem Nachweis.
+- Naechste einzige Task:
+  `STAB-5 / sichtbare UI-Aktionen inventarisieren und ihren realen Handler-/Zustandspfad belegen`.
+- Testvorgabe: nur minimal betroffene Pfade, am spaetestmoeglichen Endgate.

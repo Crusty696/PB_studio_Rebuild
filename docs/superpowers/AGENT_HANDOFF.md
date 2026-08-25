@@ -2,6 +2,14 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-5 aktiv — 2026-08-26
+
+- User bestaetigte STAB-4 trotz offen ausgewiesener B-774-Grenze.
+- Folgephasen autonom freigegeben; Statusmarker erst nach jeweiligem Nachweis.
+- Naechste einzige Task: sichtbare UI-Aktionen inventarisieren und realen
+  Handler-/Zustandspfad belegen.
+- Tests: minimal, direkt betroffen, spaetestmoegliches Endgate.
+
 ## STAB-4 agent-complete-await-user-marker — 2026-08-26
 
 - B-774: Current 9/9 Fault-Injection; Post-Fix-App-Dauerlast mindestens
