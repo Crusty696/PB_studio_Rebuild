@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5897505e47ee427fbe17fef18b18e730",
+  "recorded_at": "2026-08-25T21:48:09+00:00",
+  "session_id": "1e934d0401e94935ad8e6cac6234a55b",
+  "head_at_start": "75688d2bf4cc0b3349e40c84385e4a0cc999cf83",
+  "problem": "SQLite-Hauptdatei hatte waehrend App-Lauf Baseline-Hash, wechselte aber erst beim Shutdown trotz stabiler Tabellenzaehler.",
+  "cause": "Projekt-Open schrieb erwartete project_sources.last_seen_at-Werte in WAL; Shutdown-Checkpoint uebernahm WAL-Seiten in Hauptdatei. Baseline hatte keinen logischen Zeilen-Digest.",
+  "rule": "Bei WAL-DB-Stabilitaetslaeufen vor Start und nach Ende immer database+wal+shm sowie logischen Inhaltsdigest erfassen; Hauptdatei-Hash allein ist kein Mutationsbeleg.",
+  "applies_to": "SQLite/WAL Live-Tests, Stability-Manifeste, DB-vor-nach-Gates"
+}

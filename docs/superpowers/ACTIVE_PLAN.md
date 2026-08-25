@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / 30-Minuten-Soak mit GPU-/RAM-/Thread-/Prozess-/DB-Monitoring ausfuehren`.
+`STAB-4 / B-898 Export-Cancel darf keinen Fallback/Precheck mehr starten`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -59,6 +59,15 @@ native Shutdowns. Prozesse/Teiloutput wurden bereinigt, beide Test-DBs sind
 rund 13 Sekunden spaeter. Kalt-VRAM-Gate (+813 > +512 MiB), B-774 und
 30-Minuten-Soak bleiben offen. Evidence:
 `docs/superpowers/synthesis/stab4-combined-cycle-2026-08-25.md`.
+
+30-Minuten-Idle-Soak ist agentseitig abgeschlossen: 361 Samples/30:00.5 min,
+UI-Heartbeat max. 3.3 ms, Threads +2, RSS max. 449.4 MiB, Idle-VRAM 0 MiB,
+keine DB-/Log-/Prozessfehler. Geschuetzte DBs: 15 Rohteile und 5 logische
+DBs ohne Differenz. Isolierte Test-DB ist konsistent; erwarteter
+`project_sources.last_seen_at`-Write plus WAL-Checkpoint erklaert Hashwechsel,
+aber exakter 22:57-Vor-Digest fehlt. STAB-4 gesamt bleibt wegen Kalt-VRAM,
+B-774 und B-898 offen/rot. Evidence:
+`docs/superpowers/synthesis/stab4-30min-soak-2026-08-25.md`.
 
 ## Paused Auditplan Handoff
 

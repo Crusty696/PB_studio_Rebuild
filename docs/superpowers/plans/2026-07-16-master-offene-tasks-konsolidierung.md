@@ -1236,3 +1236,20 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-combined-cycle-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / 30-Minuten-Soak mit GPU-/RAM-/Thread-/Prozess-/DB-Monitoring ausfuehren`.
+
+### STAB-4 30-Minuten-Soak agent-complete — 2026-08-25
+
+- 361 Samples ueber 30:00.5 min im 5-s-Raster; sichtbare App auf isoliertem
+  Projekt, danach nativer Shutdown.
+- UI-Heartbeat 0 Fehler/max. 3.3 ms; Threads 17 -> max. 19; RSS max.
+  449.4 MiB; Idle-VRAM 0 MiB; keine DB-/Log-/Prozessfehler.
+- Geschuetzter Scope: 15 Rohteile/5 DBs und 5 logische DBs ohne Differenz.
+  Isolierte Test-DB `quick_check: ok` und zaehlerstabil. Open aktualisierte
+  erwartungsgemaess drei `project_sources.last_seen_at`; Shutdown checkpointete
+  WAL. Exakter logischer 22:57-Vor-Digest fehlt, daher keine Behauptung
+  isolierter Byte-Identitaet.
+- Idle-Soak messbar gruen; STAB-4 gesamt bleibt rot/offen wegen aktivem
+  Kalt-VRAM +813 MiB > +512 MiB, B-774 und B-898. Evidence:
+  `docs/superpowers/synthesis/stab4-30min-soak-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / B-898 Export-Cancel darf keinen Fallback/Precheck mehr starten`.
