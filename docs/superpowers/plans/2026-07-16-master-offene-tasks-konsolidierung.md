@@ -1217,3 +1217,22 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-ollama-ownership-races-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / einen gezielten Kombinationszyklus Audio, Video, Ollama, Preview, Export, Cancel, Projektwechsel und Shutdown ausfuehren`.
+
+### STAB-4 Kombinationszyklus agent-complete — 2026-08-25
+
+- Preview, qwen2.5-Chat, echter htdemucs-Cancel und realer
+  SigLIP-/RAFT-CUDA-Video-Cancel physisch ausgefuehrt.
+- Echter App-Kind-FFmpeg mit `h264_nvenc` bei 63 % abgebrochen; FFmpeg,
+  Ziel-/Teilfile danach null.
+- Projektwechsel waehrend laufender Task korrekt blockiert; nach Cancel und
+  kontrolliertem `--stability-root`-Neustart real zu `W5-Switch-Target`
+  gewechselt. Native Shutdowns bereinigten App/Ollama/Runner/FFmpeg.
+- Beide Test-DBs `quick_check: ok`; Hauptzaehler erhalten; Host-Settings-SHA
+  unveraendert.
+- B-898 neu `open`: Cancel startete xfade-Fallback/Precheck und endete erst
+  rund 13 Sekunden spaeter. Kein Nebenbei-Fix.
+- Kalt-VRAM-Gate (+813 statt maximal +512 MiB), B-774 und 30-Minuten-Soak
+  bleiben offen. Evidence:
+  `docs/superpowers/synthesis/stab4-combined-cycle-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / 30-Minuten-Soak mit GPU-/RAM-/Thread-/Prozess-/DB-Monitoring ausfuehren`.

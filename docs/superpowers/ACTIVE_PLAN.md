@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / einen gezielten Kombinationszyklus Audio, Video, Ollama, Preview, Export, Cancel, Projektwechsel und Shutdown ausfuehren`.
+`STAB-4 / 30-Minuten-Soak mit GPU-/RAM-/Thread-/Prozess-/DB-Monitoring ausfuehren`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -49,6 +49,16 @@ und Cleanup gruen. Evidence:
 App bleibt nach Shutdown-Test geschlossen. Ollama PID 1464 ueberlebte den
 direkten Postcheck, war beim spaeteren Recheck 22:09 aber beendet; Ursache
 unbekannt, kein PB-Studio-Prozess lief mehr. Kein Push.
+
+Der STAB-4-Kombinationszyklus ist agentseitig live ausgefuehrt: Preview,
+qwen2.5-Chat, htdemucs-Cancel, SigLIP-/RAFT-Video-Cancel, echter
+`h264_nvenc`-Export-Cancel, Projektwechsel unter isoliertem Root-Scope und
+native Shutdowns. Prozesse/Teiloutput wurden bereinigt, beide Test-DBs sind
+`quick_check: ok`, Host-Settings blieben digestidentisch. Neuer B-898 bleibt
+`open`: Export-Cancel startete noch einen Fallback/Precheck und endete erst
+rund 13 Sekunden spaeter. Kalt-VRAM-Gate (+813 > +512 MiB), B-774 und
+30-Minuten-Soak bleiben offen. Evidence:
+`docs/superpowers/synthesis/stab4-combined-cycle-2026-08-25.md`.
 
 ## Paused Auditplan Handoff
 

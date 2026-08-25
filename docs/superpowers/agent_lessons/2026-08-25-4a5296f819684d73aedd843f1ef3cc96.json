@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4a5296f819684d73aedd843f1ef3cc96",
+  "recorded_at": "2026-08-25T20:45:06+00:00",
+  "session_id": "0a806d1f4da542d78e6b938e6bc1f764",
+  "head_at_start": "269b8d6d9f91c56de481971e868c2c2c21008efc",
+  "problem": "Nach GUI-Neustart trafen koordinatenbasierte Klicks und Texteingabe das Codex-Fenster statt PB Studio.",
+  "cause": "Harness-Start brachte PB Studio nicht dauerhaft in den Vordergrund; der Fokus wurde vor der ersten physischen Eingabe nicht erneut titelgebunden bestaetigt.",
+  "rule": "Nach jedem GUI-App-Start oder Neustart vor jeder koordinatenbasierten Eingabe das Zielfenster per Harness/Fenstertitel fokussieren und bestaetigen; bei fehlendem App-Log sofort Screenshot pruefen statt weitere Eingaben zu senden.",
+  "applies_to": "PB-Studio-Liveverifikation mit pyautogui oder Bildschirmkoordinaten"
+}

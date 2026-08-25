@@ -2,6 +2,19 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 Kombinationszyklus agent-complete — 2026-08-25
+
+- Preview, qwen2.5-Chat, htdemucs-Cancel, SigLIP-/RAFT-Cancel, echter
+  `h264_nvenc`-Export-Cancel, Projektwechsel und zwei native Shutdowns live.
+- App/Ollama/Runner/FFmpeg null; keine Ziel-/Teilfiles; beide isolierten DBs
+  `quick_check: ok`; Host-Settings-SHA unveraendert.
+- B-898 neu `open`: User-Cancel startet noch xfade-Fallback/Precheck; rund
+  13 Sekunden bis ExportWorker-Ende. Kein Produktcodefix in dieser Task.
+- Kalt-VRAM-Gate (+813 > +512 MiB), B-774 und 30-Minuten-Soak offen.
+- Evidence: `docs/superpowers/synthesis/stab4-combined-cycle-2026-08-25.md`.
+- Naechste einzige Task: `STAB-4 / 30-Minuten-Soak mit GPU-/RAM-/Thread-/
+  Prozess-/DB-Monitoring ausfuehren`. App/Ollama geschlossen; kein Push.
+
 ## STAB-4 Ollama-Ownership/Races agent-complete — 2026-08-25
 
 - Current-App PID 3392 uebernahm externen Ollama-Serve PID 1464 ohne eigenen
