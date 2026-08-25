@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / B-723 echten GPU-/Cancel-/Projektwechsel-Pfad live verifizieren`.
+`STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease live verifizieren`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -30,7 +30,12 @@ Regressionstest. Ein erneuter Non-Tool-ChatDock-Lauf wurde nach Gemma-FAIL
 gemaess Useralternative "besseres LLM oder ueberspringen" uebersprungen und
 ist nicht als Live-PASS markiert. Evidence:
 `docs/superpowers/synthesis/stab3-llm-paths-2026-08-25.md`. Kein
-User-`fixed`-/STAB-3-Phasenmarker. App PID 8660 bleibt responsiv; kein Push.
+User-`fixed`-/STAB-3-Phasenmarker. B-723 Lockscope/Cancel/Projektwechsel/DB
+agentseitig live belegt; enger Exception-Frame-Cleanup-Fix implementiert und
+live nachgeprueft.
+STAB-4-Kaltbaseline-VRAM-Gate bleibt rot (+813 statt maximal +512 MiB).
+Evidence: `docs/superpowers/synthesis/stab4-b723-gpu-cancel-project-switch-2026-08-25.md`.
+App PID 3392 bleibt responsiv; kein Push.
 
 ## Paused Auditplan Handoff
 

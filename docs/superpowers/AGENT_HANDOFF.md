@@ -2,6 +2,23 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 B-723 agent-complete, VRAM-Gesamtgate offen — 2026-08-25
+
+- Echter htdemucs-Lauf auf GTX 1060/cuda:0: Projekt-Open waehrend Task
+  blockiert; TASKS-Cancel kooperativ; danach Projektordner-Dialog wieder frei.
+- Neuer RED/GREEN-Fix: Exception-Traceback-Frames werden samt GPU-Referenzen
+  vor GC/empty_cache unter `GPU_EXECUTION_LOCK` geleert. Fokus 3/3,
+  PyCompile/Ruff gruen.
+- Neuer App-Prozess PID 3392; Cancelpfad responsiv; DB quick_check ok,
+  Kernzaehler unveraendert, kanonischer `error/cancelled`-Status.
+- Ehrliche Grenze: kalte GPU-Baseline 338 MiB, 81 s nach Cancel 1151 MiB;
+  STAB-4-Gesamtgate +512 MiB bleibt rot. B-723-Lockordnung trotzdem real
+  belegt; kein Agent-`fixed`-Marker.
+- Evidence:
+  `docs/superpowers/synthesis/stab4-b723-gpu-cancel-project-switch-2026-08-25.md`.
+- Naechste einzige Task: `STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb
+  GPU-Lease live verifizieren`.
+
 ## STAB-3 LLM-Pfade agent-complete — 2026-08-25
 
 - Konfiguriertes Chatmodell wird seit B-896 Commit `90e1472` durch

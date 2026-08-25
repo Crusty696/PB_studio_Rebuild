@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8dafeaddcb2e432a836539862fb1452e",
+  "recorded_at": "2026-08-25T09:44:33+00:00",
+  "session_id": "5cb93a694e4546fbbc2f555768836962",
+  "head_at_start": "2a50f978a49bffd14596dd5dd506281d87f9433a",
+  "problem": "GPU-Cleanup lief zwar unter Execution-Lock, Exception-lokale CUDA-Referenzen wurden aber erst nach Lock-Freigabe zerstoert.",
+  "cause": "Exception-Traceback hielt den abgewickelten Service-Frame; empty_cache vor gc konnte referenzierte Tensoren nicht freigeben, waehrend gc erst ausserhalb des Locks lief.",
+  "rule": "Bei GPU-Worker-Exceptions Traceback-Frames innerhalb derselben Execution-Lease leeren, danach gc.collect und erst dann empty_cache; Regressionstest muss Destruktor-Lockzustand pruefen.",
+  "applies_to": "GPU-Worker, CUDA-Modell-Cleanup, kooperativer Cancel, Exception-Pfade"
+}

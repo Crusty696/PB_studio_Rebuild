@@ -1162,3 +1162,17 @@ Decision: Vault
 - STAB-3 `agent-complete-await-user-marker`; kein User-`fixed`-Marker.
 - Naechste einzige Task:
   `STAB-4 / B-723 echten GPU-/Cancel-/Projektwechsel-Pfad live verifizieren`.
+
+### B-723 Livepfad und Exception-Frame-Cleanup 2026-08-25
+
+- Echter htdemucs-Lauf auf GTX 1060/cuda:0; Projektwechsel waehrend Task
+  blockiert, kooperativer Cancel und Freigabe nach Taskende belegt.
+- Neuer RED/GREEN-Beleg: Exception-lokale GPU-Referenzen werden nun vor
+  Freigabe des Execution-Locks zerstoert; Fokus 3/3, PyCompile/Ruff gruen.
+- DB quick_check ok und Kernzaehler unveraendert.
+- STAB-4-Gesamtgate bleibt rot: kalte VRAM-Baseline 338 MiB, nach 81 s
+  1151 MiB (+813 statt maximal +512 MiB). Kein Agent-`fixed`-Marker.
+- Evidence:
+  `docs/superpowers/synthesis/stab4-b723-gpu-cancel-project-switch-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / B-725 CPU-/Copy-Konvertierung ausserhalb GPU-Lease live verifizieren`.

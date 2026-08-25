@@ -37,10 +37,18 @@ class StemSeparationWorker(QObject, CancellableMixin):
                         progress_cb=lambda pct, msg: self.progress.emit(pct, msg),
                         should_stop=self.should_stop,
                     )
+                except Exception as gpu_error:
+                    # B-723: Die Exception haelt sonst den kompletten Service-
+                    # Frame samt Demucs-CUDA-Tensoren bis hinter das Lock fest.
+                    # Frames vor dem Cache-Cleanup leeren, damit Referenzen noch
+                    # innerhalb derselben GPU-Operation freigegeben werden.
+                    traceback.clear_frames(gpu_error.__traceback__)
+                    raise
                 finally:
                     # B-723: CUDA-Cleanup ist Teil derselben GPU-Operation wie
                     # die Inferenz. Ein neuer Job darf nicht zwischen Inferenz
                     # und empty_cache() dieselbe GPU betreten.
+                    gc.collect()
                     try:
                         import torch
                         if torch.cuda.is_available():
@@ -159,4 +167,3 @@ class AutoDuckingWorker(QObject, CancellableMixin):
         finally:
             if not _ok and not self._errored:
                 self.finished.emit("")
-
