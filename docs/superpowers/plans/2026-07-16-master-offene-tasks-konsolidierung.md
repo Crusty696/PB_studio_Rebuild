@@ -1341,3 +1341,14 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / B-900 Setup-Wizard darf Fehler nicht als 100 Prozent darstellen`.
+
+### B-900 Setup-Wizard-Fortschrittswahrheit — 2026-08-26
+
+- Root Cause: beendete Versuche wurden als Erfolgsprozent dargestellt.
+- Codefix trennt `_completed` und `_succeeded`; Fehlerzeile maximal 99.
+- PyCompile und exakt ein betroffener Qt-Test gruen (`1 passed in 0.88s`).
+- Status `code-fix-pending-live-verification`; kein breiter Lauf.
+- Evidence:
+  `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-900 realen First-Run-Downloadfehler in der App live verifizieren`.

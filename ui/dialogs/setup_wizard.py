@@ -533,11 +533,13 @@ class _PageDownload(QWidget):
 
         self._model_rows: dict[str, tuple[QLabel, QProgressBar]] = {}
         self._completed = 0
+        self._succeeded = 0
         self._total = 0
 
     def start(self, ollama_models: list[str], hf_models: list[str]) -> None:
         self._total = len(ollama_models) + len(hf_models)
         self._completed = 0
+        self._succeeded = 0
 
         if self._total == 0:
             self._status_lbl.setText("Nichts zu tun — alle Modelle bereits vorhanden.")
@@ -598,10 +600,16 @@ class _PageDownload(QWidget):
 
     def _on_step_done(self, model_id: str, ok: bool, msg: str) -> None:
         self._completed += 1
-        self._overall_bar.setValue(int(self._completed / self._total * 100))
+        if ok:
+            self._succeeded += 1
+        self._overall_bar.setValue(int(self._succeeded / self._total * 100))
         if model_id in self._model_rows:
             lbl, bar = self._model_rows[model_id]
-            bar.setValue(100)
+            # B-900: 100 % ist ein Erfolgswert. Ein fehlgeschlagener Download
+            # darf trotz beendetem Versuch nicht wie vollstaendige Leistung
+            # aussehen; den zuletzt gemeldeten Arbeitsfortschritt erhalten,
+            # aber bei 99 deckeln.
+            bar.setValue(100 if ok else min(bar.value(), 99))
             color = OK if ok else ERR
             status = "✓ Fertig" if ok else f"✗ Fehler: {msg}"
             bar.setStyleSheet(

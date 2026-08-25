@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4973712a4d7a4da0b8308b5b886f7c60",
+  "recorded_at": "2026-08-25T23:41:24+00:00",
+  "session_id": "2dff6c97039c4305a625019f767ef0a1",
+  "head_at_start": "c1ab21d0e10775e5611aaeccd70697bb9bf3ce6d",
+  "problem": "Setup-Wizard stellte beendete Fehlversuche als 100 Prozent Fortschritt dar",
+  "cause": "Ein gemeinsamer Zaehler repraesentierte sowohl beendete Versuche als auch erfolgreiche Ergebnisse; Modellbalken wurde unabhaengig vom Resultat auf 100 gesetzt",
+  "rule": "Fortschritts-UI muss Versuchabschluss und Erfolg getrennt zaehlen; 100 Prozent bleibt ausschliesslich erfolgreichem Ergebnis vorbehalten",
+  "applies_to": "Setup-Wizard, Download- und Pipeline-Fortschrittsanzeigen"
+}
