@@ -1307,3 +1307,15 @@ Decision: Vault
   `fixed`.
 - Naechste einzige Task:
   `STAB-4 / B-774 realen CUDA-Kontextverlust-Dauerlastbeleg bewerten`.
+
+### B-774-Evidenzbewertung und STAB-4-Closeout — 2026-08-26
+
+- B-774 Current 9/9 Fault-Injection gruen.
+- Echter Post-Fix-App-Lauf mindestens 100 RAFT-/SigLIP-GPU-Clips; VRAM-
+  Marken 25/50/75/100 ohne Kontextfehler, danach weitere erfolgreiche Clips.
+- Echter gestorbener CUDA-Kontext trat nicht erneut auf; kein riskanter
+  Treiber-/Hardware-Reset zur kuenstlichen Erzeugung.
+- STAB-4 `agent-complete-await-user-marker`. Evidence:
+  `docs/superpowers/synthesis/stab4-b774-evidence-evaluation-2026-08-26.md`
+  und `docs/superpowers/synthesis/phase-stab4-done-2026-08-26.md`.
+- Naechste einzige Task: User-Phasenmarker; STAB-5 erst danach.

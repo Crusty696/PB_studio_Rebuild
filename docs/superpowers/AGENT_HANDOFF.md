@@ -2,6 +2,17 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 agent-complete-await-user-marker — 2026-08-26
+
+- B-774: Current 9/9 Fault-Injection; Post-Fix-App-Dauerlast mindestens
+  100 echte RAFT-/SigLIP-GPU-Clips, stabile VRAM-Marken, kein Kontextfehler.
+- Echter gestorbener Kontext trat nicht erneut auf; kein riskanter GPU-Reset.
+- STAB-4-DoD dokumentiert. Kein Agent-`fixed`.
+- Naechste einzige Task: User-Phasenmarker; danach STAB-5.
+- Evidence: `docs/superpowers/synthesis/phase-stab4-done-2026-08-26.md`.
+  Kein Push. Keine weiteren STAB-4-Tests; kuenftig nur minimal betroffene
+  Pfade am spaetestmoeglichen Endgate (Uservorgabe 2026-08-26).
+
 ## STAB-4 / B-899 agent-complete — 2026-08-26
 
 - D-093-Gate +1024 MiB gezielt belegt: zwei echte htdemucs-Zyklen im selben

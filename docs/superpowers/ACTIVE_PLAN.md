@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / B-774 realen CUDA-Kontextverlust-Dauerlastbeleg bewerten`.
+`STAB-4 / User-Phasenmarker nach Sichtung des agentseitigen Abschlusses`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -104,6 +104,18 @@ Peaks 1944 MiB und identische Cleanup-Werte 1020 MiB bei Baseline 402 MiB
 Wachstum. Nach Prozessende 396 MiB und keine passenden Prozessreste. D-093-
 Gate bestanden; kein User-`fixed`-Marker. Naechste einzige Task: B-774-
 Realbeleg bewerten.
+
+B-774-Evidenzbewertung agent-complete: Current 9/9 Fault-Injection; echter
+Post-Fix-App-Lauf mindestens 100 RAFT-/SigLIP-GPU-Clips mit stabilen
+25er-VRAM-Marken und weiteren erfolgreichen Clips. Mehrere Power-Resume-
+Probes, folgende CUDA-Inferenzen gruen. Echter gestorbener Kontext trat nicht
+erneut auf und wird nicht per riskantem Treiber-/Hardware-Reset erzwungen.
+Evidence:
+`docs/superpowers/synthesis/stab4-b774-evidence-evaluation-2026-08-26.md`.
+STAB-4 ist `agent-complete-await-user-marker`; DoD:
+`docs/superpowers/synthesis/phase-stab4-done-2026-08-26.md`.
+Uservorgabe 2026-08-26: keine weiteren STAB-4-Tests; kuenftige Tests nur
+minimal, direkt betroffen und am spaetestmoeglichen Endgate.
 
 ## Paused Auditplan Handoff
 

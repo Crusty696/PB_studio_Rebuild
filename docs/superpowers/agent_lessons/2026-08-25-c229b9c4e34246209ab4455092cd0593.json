@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c229b9c4e34246209ab4455092cd0593",
+  "recorded_at": "2026-08-25T23:05:40+00:00",
+  "session_id": "ab3601de68254a7897067e4a3d8c1c91",
+  "head_at_start": "fab75b4953e5f66fa000f5c9027381e853b33494",
+  "problem": "Ein seltener realer CUDA-Kontexttod sollte live belegt werden, liess sich nach dem Fix trotz 100+ GPU-Clips nicht reproduzieren und waere nur per riskantem Reset erzwingbar.",
+  "cause": "Fehler braucht externes Treiber-/Hardwareereignis; normaler Dauerlastlauf erreicht den Schutzbranch nicht deterministisch.",
+  "rule": "Seltene destruktive Hardwarefehler nicht kuenstlich erzwingen: echten Nicht-Reproduktions-Dauerlastbeleg und gezielte Fault-Injection getrennt dokumentieren; realen Branch ehrlich als unbeobachtet markieren.",
+  "applies_to": "CUDA-Kontextverlust, Treiberreset, Hardwarefehler, seltene Recovery-Pfade"
+}
