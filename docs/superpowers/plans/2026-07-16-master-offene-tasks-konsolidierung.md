@@ -1201,3 +1201,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-b726-raft-direct-live-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / Ollama-Prozessbesitz und Shutdown-/Cancel-/Projektwechsel-Races live verifizieren`.
+
+### Ollama-Prozessbesitz und Race-Pfade 2026-08-25
+
+- Current-App uebernahm externen Ollama-Serve PID 1464 ohne eigenen Popen.
+  Nativer spontaneous Alt+F4 beendete App PID 3392; externer Serve und HTTP
+  200 blieben aktiv. Kein Fremdprozess-Kill, kein App-/FFmpeg-Rest.
+- DB quick_check und Counts 125/147/3/102 vor/nach identisch; synchroner
+  Scheduler-/ModelManager-/CUDA-/MemoryUpdater-Cleanup ohne Fehler.
+- B-723/B-725 liefern aktuelle Cancel-/Projektwechsel-/Parallelbelege;
+  B-762/B-883/B-884 reale Video-Shutdown-/Hardexit-Belege. Keine redundante
+  Wiederholung nach D-078/User-Minimaltestvorgabe.
+- Kombinationszyklus, 30-Minuten-Soak, Kalt-VRAM-Gate und B-774-Realbeweis
+  bleiben offen. Evidence:
+  `docs/superpowers/synthesis/stab4-ollama-ownership-races-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / einen gezielten Kombinationszyklus Audio, Video, Ollama, Preview, Export, Cancel, Projektwechsel und Shutdown ausfuehren`.

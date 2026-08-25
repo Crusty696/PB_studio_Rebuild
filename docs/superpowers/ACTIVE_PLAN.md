@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / Ollama-Prozessbesitz und Shutdown-/Cancel-/Projektwechsel-Races live verifizieren`.
+`STAB-4 / einen gezielten Kombinationszyklus Audio, Video, Ollama, Preview, Export, Cancel, Projektwechsel und Shutdown ausfuehren`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -42,7 +42,13 @@ B-726 oeffentliche RAFT-API real auf GTX 1060/cuda:0 belegt: 220
 Konkurrenzversuche blockiert, 0 Lock-Erwerbungen waehrend Load/Inferenz/Unload;
 Lock danach frei. Evidence:
 `docs/superpowers/synthesis/stab4-b726-raft-direct-live-2026-08-25.md`.
-App PID 3392 bleibt responsiv; kein Push.
+Externer Ollama-Ownershippfad real belegt: nativer App-Shutdown beendete App
+PID 3392, liess externen Serve PID 1464 samt HTTP-200-API unangetastet; DB
+und Cleanup gruen. Evidence:
+`docs/superpowers/synthesis/stab4-ollama-ownership-races-2026-08-25.md`.
+App bleibt nach Shutdown-Test geschlossen. Ollama PID 1464 ueberlebte den
+direkten Postcheck, war beim spaeteren Recheck 22:09 aber beendet; Ursache
+unbekannt, kein PB-Studio-Prozess lief mehr. Kein Push.
 
 ## Paused Auditplan Handoff
 

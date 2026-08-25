@@ -2,6 +2,24 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 Ollama-Ownership/Races agent-complete — 2026-08-25
+
+- Current-App PID 3392 uebernahm externen Ollama-Serve PID 1464 ohne eigenen
+  Popen. Nativer spontaneous Alt+F4 beendete App, liess externen Serve plus
+  HTTP-200-API unangetastet; kein App-/FFmpeg-Rest.
+- DB quick_check und Counts 125/147/3/102 vor/nach identisch; synchroner
+  Scheduler-/ModelManager-/CUDA-/MemoryUpdater-Cleanup ohne Fehler.
+- B-723/B-725 liefern aktuelle Cancel-/Projektwechsel-/Parallelbelege;
+  B-762/B-883/B-884 reale Video-Shutdown-/Hardexit-Belege. Keine redundante
+  Wiederholung gemaess D-078/User-Minimaltestvorgabe.
+- Offen: einmaliger Kombinationszyklus, 30-Minuten-Soak, Kalt-VRAM-Gate und
+  B-774-Realbeweis. App geschlossen. Ollama PID 1464 ueberlebte direkten
+  Postcheck, war 22:09 beendet; spaeter Endzeitpunkt/Ursache unbekannt.
+- Evidence: `docs/superpowers/synthesis/stab4-ollama-ownership-races-2026-08-25.md`.
+- Naechste einzige Task: `STAB-4 / einen gezielten Kombinationszyklus Audio,
+  Video, Ollama, Preview, Export, Cancel, Projektwechsel und Shutdown
+  ausfuehren`.
+
 ## STAB-4 B-726 agent-complete — 2026-08-25
 
 - Oeffentliche `compute_motion_scores()`-API mit echtem HEVC-10-Bit-Video;

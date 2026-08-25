@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ed45120d9249481aaa062d692de14526",
+  "recorded_at": "2026-08-25T20:10:57+00:00",
+  "session_id": "53b470398adf434eb21395c9eca650de",
+  "head_at_start": "cc7d2138f6ba26eaa01a0ef16951b4fa53655e79",
+  "problem": "Ein externer Ollama-Prozess ueberlebte den unmittelbaren App-Shutdown-Test, war Stunden spaeter aber beendet.",
+  "cause": "Externer Prozessbesitz liegt ausserhalb PB Studio; spaeterer Endzeitpunkt und Ausloeser wurden nicht beobachtet.",
+  "rule": "Ownership-PASS nur am PID-/Parent-/API-Direktpostcheck festmachen; spaetere Fremdprozesszustaende getrennt mit unbekannter Ursache dokumentieren und niemals der App zuschreiben.",
+  "applies_to": "Externe Services, Prozess-Ownership, Shutdown-Livetests"
+}
