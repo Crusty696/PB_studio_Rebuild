@@ -8,10 +8,13 @@ This file is a repository-local continuity checkpoint for all agents.
   Cross-File-Kandidaten alle verdrahtet.
 - B-900 `fixed`: echter First-Run-App-Pfad mit QThread und lokal verweigerter
   Verbindung; Modell/Gesamt 0, roter Fehlertext, Finish-Fehlermeldung, Exit 0.
-- Naechste einzige Task: STAB-5-DoD gegen Inventar und vorhandene Testbelege
-  abgleichen; keine breite Testwelle.
+- DoD-Abgleich: 190 UI-Testdateien/142 Synthesen vorhanden; keine stabile
+  Zuordnung je 182 Controls. STAB-5 bleibt `in_progress`.
+- Naechste einzige Task: 182 Controls in elementgenaue Evidence-Matrix
+  ueberfuehren; erst danach echte Restluecken minimal testen.
 - Evidence: `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 - Evidence: `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
+- Evidence: `docs/superpowers/synthesis/stab5-ui-action-evidence-2026-08-26.md`.
 - User bestaetigte STAB-4 trotz offen ausgewiesener B-774-Grenze.
 - Folgephasen autonom freigegeben; Statusmarker erst nach jeweiligem Nachweis.
 - Tests: minimal, direkt betroffen, spaetestmoegliches Endgate.

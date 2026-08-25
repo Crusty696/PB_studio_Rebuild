@@ -13,7 +13,7 @@ Aktiv: **STAB-5 UI-Ehrlichkeit**
 | STAB-2 Acht Live-Workflows | **100 %** | W1-W8 agent-complete-await-user-marker; Usermarker offen |
 | STAB-3 Brain/Lernen A/B | **agent-complete*** | A/B, Feedback, Persistenz und Tool-ChatDock 4/4 live; aktueller Non-Tool-ChatDock userautorisiert uebersprungen/nicht PASS; Usermarker offen |
 | STAB-4 GPU/Threads/Soak | **100 %*** | User-Phasenmarker 2026-08-26; seltener echter Kontexttod nach Fix unbeobachtet und als Grenze dokumentiert |
-| STAB-5 UI-Ehrlichkeit | **in_progress** | Inventar abgeschlossen; B-900 echter App-Fehlerpfad gruen/`fixed`; Testbeleg je Element noch abzugleichen |
+| STAB-5 UI-Ehrlichkeit | **in_progress** | B-900 `fixed`; 190 UI-Tests/142 Synthesen vorhanden, aber elementgenaue Zuordnung fuer 182 Controls fehlt |
 | STAB-6 Installer/Clean-VM | **0 %** | blockiert durch STAB-5 |
 | STAB-7 Endabnahme | **0 %** | blockiert durch STAB-6 |
 

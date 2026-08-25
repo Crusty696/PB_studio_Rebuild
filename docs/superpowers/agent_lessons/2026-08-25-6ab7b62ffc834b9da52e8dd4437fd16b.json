@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6ab7b62ffc834b9da52e8dd4437fd16b",
+  "recorded_at": "2026-08-25T23:53:59+00:00",
+  "session_id": "3a8ce0f0d9fe4ec0a52e748c8134a435",
+  "head_at_start": "b18c4482d85dbca3c40b76852629113d2ffebf9e",
+  "problem": "Viele UI-Tests und ein aggregiertes Control-Inventar lagen vor, aber STAB-5 verlangte Testbeleg je sichtbarem Element",
+  "cause": "Inventar und Evidenz waren nur nach Bereichen zusammengefasst; stabile Control-zu-Signal-zu-Handler-zu-Test-Zeilen fehlten",
+  "rule": "Phasen-DoD mit 'je Element' nur aus einer elementgenauen, stabil adressierten Evidence-Matrix ableiten; Testanzahl oder Bereichsabdeckung ersetzt diese Zuordnung nicht",
+  "applies_to": "UI-Ehrlichkeitsgates, Control-Inventare, Release-Evidence-Matrizen"
+}

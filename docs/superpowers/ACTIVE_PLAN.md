@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / UI-Ehrlichkeits-DoD gegen Inventar und vorhandene Testbelege abgleichen`.
+`STAB-5 / 182 Controls in elementgenaue Evidence-Matrix ueberfuehren`.
 
 B-900 ist nach echtem First-Run-App-Pfad `fixed`: isolierter Modal-Wizard,
 echter QThread und Connection-Refused-Fehler ergaben Modell/Gesamt 0 Prozent,
@@ -28,6 +28,11 @@ roten Fehlertext und korrekte Finish-Meldung. STAB-5 selbst bleibt offen,
 weil sein DoD je Element einen Testbeleg verlangt; statische Verdrahtung allein
 reicht nicht. Evidence:
 `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
+
+DoD-Abgleich fand 190 UI-Testdateien und 142 Synthesen, aber keine stabile
+Zuordnung je 182 Controls zu Signal, Handler/Worker, Zustandsaenderung und
+konkretem Test-/Livebeleg. STAB-5 bleibt deshalb `in_progress`. Evidence:
+`docs/superpowers/synthesis/stab5-ui-action-evidence-2026-08-26.md`.
 
 STAB-5-Inventar ist statisch abgeschlossen: 103 UI-Dateien, 182 Controls der
 Pflichtklassen, 636 Signalverbindungen und 25 Cross-File-Kandidaten. Alle

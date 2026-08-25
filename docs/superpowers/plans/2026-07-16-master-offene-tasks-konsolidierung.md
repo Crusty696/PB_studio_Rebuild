@@ -1365,3 +1365,15 @@ Decision: Vault
   allein ist kein solcher Beleg.
 - Naechste einzige Task:
   `STAB-5 / UI-Ehrlichkeits-DoD gegen Inventar und vorhandene Testbelege abgleichen`.
+
+### STAB-5 DoD-/Evidenzabgleich — 2026-08-26
+
+- 190 UI-Testdateien und 142 Repo-Synthesen vorhanden; alle grossen
+  UI-Bereiche besitzen Belege.
+- Ehrliche Luecke: 182 Controls sind nur aggregiert inventarisiert, nicht je
+  Element mit Source-Line, Signal, Handler/Worker, Zustand und konkretem
+  Test-/Livebeleg verbunden.
+- Keine Tests ausgefuehrt; vorhandene Evidenz nur gelesen.
+- STAB-5 bleibt `in_progress`.
+- Naechste einzige Task:
+  `STAB-5 / 182 Controls in elementgenaue Evidence-Matrix ueberfuehren`.
