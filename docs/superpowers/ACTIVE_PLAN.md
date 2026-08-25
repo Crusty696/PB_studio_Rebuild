@@ -20,7 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / sichtbare UI-Aktionen inventarisieren und ihren realen Handler-/Zustandspfad belegen`.
+`STAB-5 / B-900 Setup-Wizard darf Fehler nicht als 100 Prozent darstellen`.
+
+STAB-5-Inventar ist statisch abgeschlossen: 103 UI-Dateien, 182 Controls der
+Pflichtklassen, 636 Signalverbindungen und 25 Cross-File-Kandidaten. Alle
+direkten Actions/Handler sind verdrahtet. Neues High-Finding B-900: Setup-
+Wizard zeigt bei `ok=False` rote Fehlerzeile, setzt Modell- und Gesamtbalken
+aber dennoch auf 100 Prozent. Evidence:
+`docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
 
 STAB-4 wurde vom User am 2026-08-26 als Phase bestaetigt. Folgephasen duerfen
 autonom fortgesetzt werden; ihr Abschlussmarker wird trotzdem erst nach dem

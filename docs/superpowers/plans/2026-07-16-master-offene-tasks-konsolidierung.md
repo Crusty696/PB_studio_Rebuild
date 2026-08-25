@@ -1328,3 +1328,16 @@ Decision: Vault
 - Naechste einzige Task:
   `STAB-5 / sichtbare UI-Aktionen inventarisieren und ihren realen Handler-/Zustandspfad belegen`.
 - Testvorgabe: nur minimal betroffene Pfade, am spaetestmoeglichen Endgate.
+
+### STAB-5 UI-Aktionsinventar — 2026-08-26
+
+- 103 UI-Dateien, 182 Controls der Pflichtklassen und 636 Signalverbindungen
+  statisch inventarisiert.
+- 25 Cross-File-Controls und alle Menue-/Shortcut-Kandidaten besitzen reale
+  Handler-/Zustandspfade; keine direkten leeren Signalhandler.
+- Neuer B-900 high: Setup-Wizard zeigt Modell- und Gesamtfortschritt trotz
+  `ok=False` als 100 Prozent.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-900 Setup-Wizard darf Fehler nicht als 100 Prozent darstellen`.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "be945821eb5040dcb5b70c0814c0137a",
+  "recorded_at": "2026-08-25T23:32:10+00:00",
+  "session_id": "2dff6c97039c4305a625019f767ef0a1",
+  "head_at_start": "c1ab21d0e10775e5611aaeccd70697bb9bf3ce6d",
+  "problem": "UI-Controlscan meldete 25 Controls ohne lokale Signalverbindung und haette sie faelschlich als No-Ops klassifizieren koennen.",
+  "cause": "PB Studio erstellt Controls in View-Dateien, bindet sie aber zentral in workspace_setup, SchnittController oder ueber exponierte Child-Properties.",
+  "rule": "UI-No-Op erst nach repo-weiter Attribut-, Signal-, QMenu- und Controllerverfolgung bestaetigen; fehlender Local-Connect allein ist kein Finding.",
+  "applies_to": "PySide6 UI-Audits, Cross-File-Controller, Signal-Wiring"
+}

@@ -4,10 +4,13 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## STAB-5 aktiv — 2026-08-26
 
+- Inventar: 103 UI-Dateien, 182 Controls, 636 Signalverbindungen; 25
+  Cross-File-Kandidaten alle verdrahtet.
+- B-900 high offen: Setup-Wizard setzt Fehlerfortschritt auf 100 Prozent.
+- Naechste einzige Task: enger B-900-Fix; Minimaltest erst am Fix-Endgate.
+- Evidence: `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
 - User bestaetigte STAB-4 trotz offen ausgewiesener B-774-Grenze.
 - Folgephasen autonom freigegeben; Statusmarker erst nach jeweiligem Nachweis.
-- Naechste einzige Task: sichtbare UI-Aktionen inventarisieren und realen
-  Handler-/Zustandspfad belegen.
 - Tests: minimal, direkt betroffen, spaetestmoegliches Endgate.
 
 ## STAB-4 agent-complete-await-user-marker — 2026-08-26
