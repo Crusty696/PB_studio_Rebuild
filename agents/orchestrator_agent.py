@@ -478,7 +478,11 @@ class OrchestratorAgent(BaseAgent):
 
         # System-Prompt + DB-Kontext (summarize_project)
         logger.info("Tool-Use-Loop: starte mit model=%s, %d tools", model, len(tool_defs))
-        from services.brain_gateway import build_tool_prompt, has_explicit_learn_intent
+        from services.brain_gateway import (
+            build_tool_prompt,
+            has_explicit_learn_intent,
+            normalize_brain_learn_params,
+        )
 
         system_content = build_tool_prompt(_TOOL_USE_SYSTEM_PROMPT, user_text)
         try:
@@ -565,6 +569,8 @@ class OrchestratorAgent(BaseAgent):
                     )
                 else:
                     try:
+                        if tool_name == "brain_learn_note":
+                            tool_args = normalize_brain_learn_params(tool_args)
                         logger.info("Tool-Use-Loop: execute tool=%s, args=%s", tool_name, tool_args)
                         tool_result = action_registry.execute(tool_name, tool_args)
                         if (

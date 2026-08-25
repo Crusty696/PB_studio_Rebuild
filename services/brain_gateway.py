@@ -352,6 +352,18 @@ def _validate_params(action: str, params: Any, mode: GatewayMode) -> dict[str, A
     return clean
 
 
+def normalize_brain_learn_params(params: Any) -> dict[str, Any]:
+    """Normalisiert Learn-Parameter fuer Tool- und Non-Tool-Gateway identisch."""
+    if isinstance(params, dict):
+        required = {"title", "body"}
+        params = {
+            key: value
+            for key, value in params.items()
+            if value is not None or key in required
+        }
+    return _validate_params("brain_learn_note", params, "chat")
+
+
 def execute_gateway_response(
     raw: str,
     mode: GatewayMode = "chat",
@@ -379,7 +391,10 @@ def execute_gateway_response(
     if action == "brain_learn_note" and not allow_learn:
         return _reject("brain_learn_note braucht ausdruecklichen Merk-/Speicherauftrag")
     try:
-        params = _validate_params(action, payload.get("params", {}), mode)
+        if action == "brain_learn_note":
+            params = normalize_brain_learn_params(payload.get("params", {}))
+        else:
+            params = _validate_params(action, payload.get("params", {}), mode)
     except ValueError as exc:
         return _reject(str(exc))
 

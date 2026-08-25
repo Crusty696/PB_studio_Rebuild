@@ -1,0 +1,10 @@
+{
+  "lesson_id": "581ee759e3514ebea0c216b54cc80ab0",
+  "recorded_at": "2026-08-25T08:51:23+00:00",
+  "session_id": "5cb93a694e4546fbbc2f555768836962",
+  "head_at_start": "2a50f978a49bffd14596dd5dd506281d87f9433a",
+  "problem": "Native LLM tool call omitted required title and emitted null for an optional integer",
+  "cause": "The native tool path trusted model arguments directly while the non-tool Brain gateway already normalized the same learn contract",
+  "rule": "Route native and non-tool variants of one action through one shared normalizer; derive safe display metadata and treat optional JSON null as absent while keeping required fields strict",
+  "applies_to": "Brain gateway, native Ollama tool calls, action parameter validation"
+}

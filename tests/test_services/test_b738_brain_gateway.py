@@ -260,6 +260,7 @@ def test_actual_orchestrator_nontool_learn_prefix_bypasses_b411(monkeypatch):
     orch = OrchestratorAgent.__new__(OrchestratorAgent)
     orch.name = "orchestrator"
     orch._model_manager = None
+    orch._ollama_model = None
     params = {"title": "Drop-Regel", "body": "Hero-Clips in den Drop."}
 
     class _Svc:
