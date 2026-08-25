@@ -1253,3 +1253,22 @@ Decision: Vault
   `docs/superpowers/synthesis/stab4-30min-soak-2026-08-25.md`.
 - Naechste einzige Task:
   `STAB-4 / B-898 Export-Cancel darf keinen Fallback/Precheck mehr starten`.
+
+### B-898 Export-Cancel ohne Fallback agent-complete — 2026-08-26
+
+- Root Cause: FFmpeg-Runner wandelte User-Cancel in generischen
+  `RuntimeError`; Export-Service behandelte ihn als Renderfehler und startete
+  B-603-Fallback. LUFS-Vor-/Zwischenchecks gaben bei Cancel nur `False`
+  zurueck.
+- `ExportCancelled` liegt jetzt am Runner-Vertrag und wird durch Runner sowie
+  beide LUFS-Cancelchecks typisiert propagiert. Echte Renderfehler bleiben
+  fallbackfaehig.
+- Echter GTX-1060-`h264_nvenc`-xfade-Export via TASKS abgebrochen:
+  kooperativer Abbruch und Worker-Ende in derselben Sekunde; kein B-603-
+  Fallback/Precheck, kein FFmpeg-/Teilfile-Rest, App responsiv, DB
+  `quick_check: ok`, nativer Shutdown ohne Prozessrest.
+- Vier gezielte Tests, PyCompile und fokussierter Ruff gruen. B-898 bleibt
+  `agent-fixed-await-user`; kein User-`fixed`-Marker. Evidence:
+  `docs/superpowers/synthesis/b898-export-cancel-no-fallback-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-4 / Kalt-VRAM-Gesamtgate (+813 > +512 MiB) ursächlich schließen`.

@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-25
+updated: 2026-08-26
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-4 / B-898 Export-Cancel darf keinen Fallback/Precheck mehr starten`.
+`STAB-4 / Kalt-VRAM-Gesamtgate (+813 > +512 MiB) ursächlich schließen`.
 
 STAB-3 ist `agent-complete-await-user-marker`. Aktueller qwen2.5-ChatDock-
 Toolpfad lieferte Learn, Recall, Stats und Explain real; B-896 Commit
@@ -68,6 +68,18 @@ DBs ohne Differenz. Isolierte Test-DB ist konsistent; erwarteter
 aber exakter 22:57-Vor-Digest fehlt. STAB-4 gesamt bleibt wegen Kalt-VRAM,
 B-774 und B-898 offen/rot. Evidence:
 `docs/superpowers/synthesis/stab4-30min-soak-2026-08-25.md`.
+
+B-898 ist `agent-fixed-await-user`: Cancel wird ueber den gesamten
+Export-/FFmpeg-Pfad als `ExportCancelled` propagiert; LUFS-Vor- und
+Zwischenchecks brechen gleichartig ab. Echter `h264_nvenc`-xfade-Export wurde
+ueber TASKS abgebrochen: kooperativer Abbruch und Worker-Ende in derselben
+Sekunde, kein B-603-Fallback/Precheck, kein FFmpeg-/Teilfile-Rest, App
+responsiv, DB `quick_check: ok`, nativer Shutdown ohne Prozessrest. Vier
+gezielte Tests, PyCompile und fokussierter Ruff gruen. Kein User-`fixed`-
+Marker. Evidence:
+`docs/superpowers/synthesis/b898-export-cancel-no-fallback-2026-08-26.md`.
+Naechstes konkretes rotes STAB-4-Gate: Kalt-VRAM +813 MiB statt maximal
++512 MiB. B-774-Realbeleg bleibt danach separat offen.
 
 ## Paused Auditplan Handoff
 

@@ -55,6 +55,7 @@ from services.export.probe import (
     clear_probe_cache,
 )
 from services.export.ffmpeg_runner import (
+    ExportCancelled,
     _run_subprocess_cancellable,
     _video_encode_args,
 )
@@ -63,10 +64,6 @@ _export_nvenc_available: bool | None = None
 
 
 logger = logging.getLogger(__name__)
-
-
-class ExportCancelled(RuntimeError):
-    """Expected cooperative user cancel; never eligible for render fallback."""
 
 
 def _preprocess_segment(seg: dict, index: int, w: str, h: str, fps: float,
@@ -1376,10 +1373,10 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
             True Peak (TP) und Threshold.
     Pass 2: Wendet die gemessenen Werte an um auf target_lufs zu normalisieren.
 
-    B-125: ``cancel_check`` Callable wird zwischen Pass1 und Pass2 sowie
-    waehrend des Subprocess-Runs alle 200ms abgefragt. Bei Cancel raised
-    es RuntimeError, sodass der Caller (export_timeline) sauber abbrechen
-    kann.
+    B-125/B-898: ``cancel_check`` Callable wird zwischen Pass1 und Pass2
+    sowie waehrend des Subprocess-Runs alle 200ms abgefragt. Jeder
+    User-Cancel wirft ``ExportCancelled`` und darf keinen Render-Fallback
+    starten.
 
     B-086: optional ``progress_cb(pct, msg)`` + ``total_duration`` (Sek).
     Pass1 mappt 0-50%, Pass2 mappt 50-100% des inneren LUFS-Schritts.
@@ -1391,7 +1388,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
     try:
         # B-125: Cancel-Check zwischen den Passes.
         if cancel_check is not None and cancel_check():
-            return False
+            raise ExportCancelled("LUFS-Normalisierung abgebrochen (User-Cancel)")
 
         # B-086: ``-progress pipe:1`` aktiviert ``out_time_ms=...``-Output
         # in stdout, der vom Subprocess-Helper geparsed wird.
@@ -1430,7 +1427,7 @@ def _normalize_audio_lufs(input_path: str, output_path: str,
 
         # B-125: Cancel-Check zwischen Pass1 und Pass2.
         if cancel_check is not None and cancel_check():
-            return False
+            raise ExportCancelled("LUFS-Normalisierung abgebrochen (User-Cancel)")
 
         loudnorm_filter = (
             f"loudnorm=I={target_lufs}:LRA=11:TP=-1"

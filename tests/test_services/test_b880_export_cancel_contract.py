@@ -9,6 +9,40 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.mark.parametrize("cancel_values", ([True], [False, True]))
+def test_lufs_cancel_raises_export_cancelled_before_or_between_passes(
+    monkeypatch, cancel_values
+):
+    from services import export_service
+
+    values = iter(cancel_values)
+    subprocess_calls: list[bool] = []
+
+    def _cancel_check():
+        return next(values)
+
+    def _measure(*args, **kwargs):
+        subprocess_calls.append(True)
+        return SimpleNamespace(
+            returncode=0,
+            stderr=(
+                '{"input_i":"-20.0","input_lra":"5.0",'
+                '"input_tp":"-2.0","input_thresh":"-30.0"}'
+            ),
+        )
+
+    monkeypatch.setattr(export_service, "_run_subprocess_cancellable", _measure)
+
+    with pytest.raises(export_service.ExportCancelled):
+        export_service._normalize_audio_lufs(
+            "input.wav",
+            "output.wav",
+            cancel_check=_cancel_check,
+        )
+
+    assert len(subprocess_calls) == (0 if cancel_values[0] else 1)
+
+
 def test_batch_cancel_propagates_without_hardcut_fallback(monkeypatch, tmp_path):
     from services import export_service
 

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "2c73794e544b4568ab9ab00cfa744825",
+  "recorded_at": "2026-08-25T22:10:53+00:00",
+  "session_id": "4a5d1147271246a2b114f1b82c0961b2",
+  "head_at_start": "2dacf904879bbed2d92f1297c537ff8ec11cb07a",
+  "problem": "Export-Cancel wurde im FFmpeg-Runner zu generischem RuntimeError und aktivierte dadurch Render-Fallback; LUFS-Cancelchecks setzten nur False.",
+  "cause": "Subsystemgrenze verlor die Cancel-Semantik; Recovery-Logik konnte User-Abbruch nicht von echtem Renderfehler unterscheiden.",
+  "rule": "Kooperative Abbrueche muessen ueber alle Runner-, Prepass- und Servicegrenzen denselben typisierten Cancel-Fehler propagieren; nur echte Arbeitsfehler duerfen Recovery/Fallback starten.",
+  "applies_to": "Export-, FFmpeg-, Analyse- und mehrstufige Prepass-Pipelines"
+}

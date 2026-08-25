@@ -2,6 +2,37 @@
 
 This file is a repository-local continuity checkpoint for all agents.
 
+## STAB-4 / B-898 agent-complete — 2026-08-26
+
+- Root Cause behoben: User-Cancel bleibt `ExportCancelled` statt generischem
+  Renderfehler; damit kein B-603-Fallback. LUFS-Vor-/Zwischenchecks brechen
+  ebenfalls typisiert ab.
+- Vier gezielte Tests, PyCompile und fokussierter Ruff gruen. Zwei bestehende
+  E731-Lambdas in `tests/test_services/test_ffmpeg_cancel.py` unveraendert.
+- Echter GTX-1060-`h264_nvenc`-xfade-Export via TASKS abgebrochen:
+  kooperativer Abbruch und Worker-Ende in derselben Sekunde, kein Fallback/
+  Precheck, FFmpeg 0, kein Teilfile, App responsiv, DB `quick_check: ok`.
+  Nativer Shutdown ohne App/Ollama/FFmpeg-Rest.
+- Status `agent-fixed-await-user`; kein User-`fixed`-Marker. Evidence:
+  `docs/superpowers/synthesis/b898-export-cancel-no-fallback-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-4 / Kalt-VRAM-Gesamtgate (+813 > +512 MiB) ursächlich schließen`.
+  B-774-Realbeleg bleibt danach offen. Kein Push.
+
+## STAB-4 30-Minuten-Soak agent-complete — 2026-08-25
+
+- Commit `2dacf90`: 361 Samples/30:00.5 min; UI-Heartbeat max. 3.3 ms,
+  Threads +2, RSS max. 449.4 MiB, Idle-VRAM 0 MiB, keine DB-/Log-/
+  Prozessfehler. Nativer Shutdown ohne App/Ollama/Runner/FFmpeg-Rest.
+- Geschuetzter Scope: 15 Rohteile/5 DBs und 5 logische DBs ohne Differenz.
+  Isolierte Test-DB konsistent; erwartete `project_sources.last_seen_at`-
+  Updates plus WAL-Checkpoint. Exakter 22:57-Vor-Digest fehlt.
+- STAB-4 gesamt bleibt rot/offen: aktives Kalt-VRAM +813 > +512 MiB,
+  B-774 und B-898. Kein User-`fixed`-/Phasenmarker; kein Push.
+- Evidence: `docs/superpowers/synthesis/stab4-30min-soak-2026-08-25.md`.
+- Naechste einzige Task:
+  `STAB-4 / B-898 Export-Cancel darf keinen Fallback/Precheck mehr starten`.
+
 ## STAB-4 Kombinationszyklus agent-complete — 2026-08-25
 
 - Preview, qwen2.5-Chat, htdemucs-Cancel, SigLIP-/RAFT-Cancel, echter

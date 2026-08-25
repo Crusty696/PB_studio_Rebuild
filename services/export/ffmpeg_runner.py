@@ -20,6 +20,10 @@ from services.ffmpeg_utils import sanitize_ffmpeg_error as _sanitize_ffmpeg_erro
 from services.nvenc_policy import require_nvenc, required_message
 from services.video_encode_args import nvenc_video_args, libx264_fallback_args
 
+
+class ExportCancelled(RuntimeError):
+    """Expected cooperative user cancel; never eligible for render fallback."""
+
 logger = logging.getLogger("services.export_service")
 
 
@@ -147,7 +151,7 @@ def _run_subprocess_cancellable(
     Pass2).
 
     Returns: subprocess.CompletedProcess (returncode/stdout/stderr).
-    Raises: RuntimeError("LUFS-Normalisierung abgebrochen") bei Cancel.
+    Raises: ExportCancelled bei kooperativem User-Cancel.
     """
     kwargs: dict = subprocess_kwargs()
 
@@ -268,7 +272,7 @@ def _run_subprocess_cancellable(
         watchdog.join(timeout=THREAD_JOIN_TIMEOUT_SEC)
 
     if cancelled.is_set():
-        raise RuntimeError("LUFS-Normalisierung abgebrochen (User-Cancel)")
+        raise ExportCancelled("LUFS-Normalisierung abgebrochen (User-Cancel)")
     if timeout_error is not None:
         raise subprocess.TimeoutExpired(
             cmd=cmd,

@@ -75,6 +75,25 @@ def test_export_run_ffmpeg_accepts_and_honours_cancel_check() -> None:
         "_run_ffmpeg should raise on cancel (so callers can distinguish "
         "from successful completion)."
     )
+    assert isinstance(error[0], export_service.ExportCancelled)
+
+
+def test_lufs_subprocess_cancel_uses_export_cancel_contract() -> None:
+    from services import export_service
+
+    cancel_event = threading.Event()
+    timer = threading.Timer(0.2, cancel_event.set)
+    timer.start()
+    try:
+        with pytest.raises(export_service.ExportCancelled):
+            export_service._run_subprocess_cancellable(
+                _make_long_running_cmd(seconds=30),
+                timeout=60,
+                cancel_check=cancel_event.is_set,
+            )
+    finally:
+        timer.cancel()
+        timer.join(timeout=1.0)
 
 
 def test_convert_run_ffmpeg_accepts_and_honours_cancel_check() -> None:
