@@ -1,0 +1,10 @@
+{
+  "lesson_id": "06b28bea7e9c4d84b362a98104f6154e",
+  "recorded_at": "2026-08-26T21:07:46+00:00",
+  "session_id": "3e87770ffaf84c72a838685f821c1f05",
+  "head_at_start": "166bea6414cc8a402278bbd667e6be612e795c49",
+  "problem": "Recent-Projekte-Leerzustand war nur als Quellzeile sichtbar; echter QMenu.exec-Aufruf wuerde einen kleinen automatischen Test blockieren.",
+  "cause": "UI-Control mischt reale QAction-Erzeugung mit modalem Popup-Rand in derselben Methode.",
+  "rule": "Bei modalen QMenu-Controls nur exec durch erfassende QMenu-Unterklasse isolieren; reale QAction, enabled/visible-Zustand, Parent, Menueinhalt und Popup-Position weiter ausfuehren und assertieren.",
+  "applies_to": "STAB-5 QMenu-Leerzustaende und modal blockierende Qt-Menues"
+}

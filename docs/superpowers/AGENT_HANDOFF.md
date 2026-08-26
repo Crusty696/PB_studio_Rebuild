@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #17 Letzte-Projekte-Leerzustand elementgenau pruefen und belegen`.
+`STAB-5 / Control #18 Letztes-Projekt-Aktion elementgenau pruefen und belegen`.
 
-Scope: `_show_recent_projects_menu` ohne vorhandene Projekte; sichtbare,
-deaktivierte QAction `(Keine letzten Projekte)` elementgenau pruefen.
+Scope: `_show_recent_projects_menu` mit vorhandenem Projektpfad; QAction-Text,
+Pfaddaten und Trigger bis `_open_recent_project` elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #16 Tools-Menuebutton elementgenau zielgetestet; PBWindow-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08-26.md`.
+Control #17 Letzte-Projekte-Leerzustand elementgenau zielgetestet; Popup-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-17-recent-projects-empty-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08
 
 ## Verifikation
 
-#16: Produktbuilder + sichtbarer/aktiver Tools-Button → echter Mausclick →
-gebundenes QMenu sichtbar; `1 passed in 2.15s`. PBWindow-Live offen. Naechste
-Task #17 Letzte-Projekte-Leerzustand.
+#17: leerer Recent-Store → echte sichtbare/deaktivierte QAction → korrekte
+Popup-Position; `1 passed in 1.35s`. Modales PBWindow-Popup offen. Naechste Task
+#18 Letztes-Projekt-Aktion.

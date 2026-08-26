@@ -1746,3 +1746,16 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #17 Letzte-Projekte-Leerzustand elementgenau pruefen und belegen`.
+
+### STAB-5 Control #17 Letzte-Projekte-Leerzustand — 2026-08-26
+
+- Candidate-Refs waren semantisch fremd.
+- Leerer RecentProjectsManager erzeugt genau eine echte, sichtbare, deaktivierte
+  QAction `(Keine letzten Projekte)` mit Window-Parent.
+- Nur modales `QMenu.exec` isoliert; Popup-Position am Tools-Button belegt.
+- Zieltest `1 passed in 1.35s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: echtes PBWindow-Popup offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-17-recent-projects-empty-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #18 Letztes-Projekt-Aktion elementgenau pruefen und belegen`.
