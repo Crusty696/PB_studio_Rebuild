@@ -20,7 +20,12 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.
+`STAB-5 / Control #3 Ctrl+B-Studio-Brain-Shortcut elementgenau pruefen und belegen`.
+
+Control #2 Ctrl+? nutzt denselben Hilfehandler und ist mit echtem
+Ctrl+Question-Keyevent belegt: `1 passed in 1.19s`, kein Produktcodeedit.
+PBWindow-App-Live bleibt offen. Evidence:
+`docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

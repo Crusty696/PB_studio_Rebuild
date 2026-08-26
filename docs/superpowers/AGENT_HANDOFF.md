@@ -16,7 +16,7 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.
+`STAB-5 / Control #3 Ctrl+B-Studio-Brain-Shortcut elementgenau pruefen und belegen`.
 
 Scope: erster verbleibender `no-candidate`-Eintrag nach 0 unresolved-Zeilen.
 Shortcut auslösen, echten Handler-/Dialogpfad und sichtbaren Zustand prüfen;
@@ -24,7 +24,7 @@ nur bei belegtem Defekt enger Produktfix.
 
 ## Letzter Abschluss
 
-Control #1 F1 zielgetestet, kein Produktfix. Evidence:
+Controls #1/#2 Hilfe-Shortcuts zielgetestet, kein Produktfix. Evidence:
 `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 
 ## Letzte relevante Commits
@@ -37,6 +37,6 @@ Control #1 F1 zielgetestet, kein Produktfix. Evidence:
 
 ## Verifikation
 
-#1: echter Qt-F1-Keyevent aktiviert denselben QShortcut-Konstruktor, realen
-ProjectManagement-Handler und Dialog-Mock genau einmal; `1 passed`. Produktcode
-unverändert, PBWindow-App-Livepfad offen. Nächste Matrixlücke #2.
+#1/#2: echte Qt-F1-/Ctrl+Question-Keyevents aktivieren jeweiligen QShortcut,
+realen Handler und Dialog-Mock genau einmal; beide Zieltests grün. Produktcode
+unverändert, PBWindow-App-Live offen. Nächste Matrixlücke #3.

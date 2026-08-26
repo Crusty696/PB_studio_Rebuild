@@ -1500,3 +1500,14 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.
+
+### STAB-5 Control #2 Ctrl+?-Shortcut — 2026-08-26
+
+- Echter Qt-Ctrl+Question-Keyevent aktiviert denselben Hilfehandler und Dialog
+  genau einmal: `1 passed in 1.19s`.
+- Kein Produktcodeedit; PBWindow-App-Livepfad bleibt offen.
+- Matrixstatus `target-test-pass-live-pending`.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #3 Ctrl+B-Studio-Brain-Shortcut elementgenau pruefen und belegen`.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a7e1a22e0f3d4c63b3f8bef22ff501db",
+  "recorded_at": "2026-08-26T02:24:40+00:00",
+  "session_id": "f3f092e48462416ea096b7f0c71e230c",
+  "head_at_start": "0a472c9f5212272a5d4f22ed2a46e12b93ae0eb3",
+  "problem": "Ctrl+?-Hilfe war verdrahtet, aber wegen Tastaturlayout-Risiko nicht elementgenau belegt.",
+  "cause": "Nur statischer QKeySequence-Text lag vor; ein echter Ctrl+Question-Keyevent fehlte.",
+  "rule": "Zeichenbasierte Qt-Shortcuts zusätzlich mit realem Keyevent plus Modifier im aktuellen Zielsystem prüfen; statischer Sequence-Text allein belegt Layoutauflösung nicht.",
+  "applies_to": "Ctrl+?-Shortcut, internationale Tastaturlayouts, STAB-5"
+}

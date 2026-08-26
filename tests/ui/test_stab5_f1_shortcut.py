@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
+import pytest
 
 from ui.controllers.project_management import ProjectManagementController
 
@@ -21,13 +22,32 @@ def _qapp() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def test_f1_shortcut_invokes_real_help_handler(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("sequence", "key", "modifiers", "source_line"),
+    [
+        (
+            QKeySequence(Qt.Key.Key_F1),
+            Qt.Key.Key_F1,
+            Qt.KeyboardModifier.NoModifier,
+            "QShortcut(_QKS(Qt.Key.Key_F1), self, "
+            "self.project_management._show_shortcut_help)",
+        ),
+        (
+            QKeySequence("Ctrl+?"),
+            Qt.Key.Key_Question,
+            Qt.KeyboardModifier.ControlModifier,
+            'QShortcut(_QKS("Ctrl+?"), self, '
+            "self.project_management._show_shortcut_help)",
+        ),
+    ],
+    ids=("f1", "ctrl_question"),
+)
+def test_help_shortcut_invokes_real_handler(
+    monkeypatch, sequence, key, modifiers, source_line
+) -> None:
     app = _qapp()
     source = (REPO_ROOT / "main.py").read_text(encoding="utf-8")
-    assert (
-        "QShortcut(_QKS(Qt.Key.Key_F1), self, "
-        "self.project_management._show_shortcut_help)"
-    ) in source
+    assert source_line in source
 
     host = QWidget()
     dialog_calls: list[tuple[str, QWidget]] = []
@@ -50,15 +70,13 @@ def test_f1_shortcut_invokes_real_help_handler(monkeypatch) -> None:
     controller._show_shortcut_help = MethodType(
         ProjectManagementController._show_shortcut_help, controller
     )
-    shortcut = QShortcut(
-        QKeySequence(Qt.Key.Key_F1), host, controller._show_shortcut_help
-    )
+    shortcut = QShortcut(sequence, host, controller._show_shortcut_help)
 
     host.show()
     host.activateWindow()
     host.setFocus()
     app.processEvents()
-    QTest.keyClick(host, Qt.Key.Key_F1)
+    QTest.keyClick(host, key, modifiers)
     app.processEvents()
 
     assert shortcut.parent() is host
