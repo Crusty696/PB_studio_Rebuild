@@ -16,24 +16,25 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
+`STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
 
-Scope: B-901 Root Cause und enger Produktfix laut aktivem Masterplan. Tests
-minimal, direkt betroffen, spät.
+Scope: erster geordneter unresolved-Eintrag aus STAB-5-Control-Matrix. Erst
+echten Handler-/Zustandspfad pruefen; nur bei belegtem Defekt enger Produktfix.
 
 ## Letzter Abschluss
 
-Governance-/Planhygiene-Folgebereinigung documentation-complete. Evidence:
-`docs/superpowers/synthesis/plan-handoff-vault-authority-cleanup-2026-08-26.md`.
+B-901 code-complete, nicht live verifiziert. Evidence:
+`docs/superpowers/synthesis/b901-update-controls-default-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
 - `6de5fdc` — superseded Pläne archiviert, Links neu gebaut
 - `8cb1e55` — B-902 Code-Fix; Installer-/Frozen-Livetest bleibt STAB-6-Gate
 - `e3f191c` — verbleibende Authority-/Handoff-/Vault-Linkaltlasten bereinigt
+- `9cfc961` — B-901 als einzige aktive Task gesetzt
 - Kein Push durch aktuellen Agenten.
 
 ## Verifikation
 
-Governance-Endgate: gezielter Test 3/3, Link-/Marker-/Diffchecks grün. B-901
-noch nicht implementiert oder getestet.
+B-901: Zieltest 2/2, Syntax und Diffcheck gruen. Echter App-Start mit neuer
+Release-Version sowie Banner-/Download-/Fehlerpfad fehlen; daher nicht `fixed`.

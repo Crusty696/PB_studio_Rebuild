@@ -197,7 +197,7 @@ from ui.theme import get_stylesheet, ERR
 from services.ollama_service import OllamaService
 
 APP_VERSION = "0.5.0"
-ENABLE_VERSION_CHECK = False  # Deaktiviert bis Update-Server konfiguriert
+ENABLE_VERSION_CHECK = True
 
 import logging
 logger = logging.getLogger(__name__)

@@ -20,7 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
+`STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
+
+B-901 ist code-complete: Versionspruefung im Defaultpfad aktiviert, kanonische
+GitHub-API korrigiert, Override erhalten. Zwei Zieltests, Syntax und Diffcheck
+sind gruen. Echter App-/Release-Bannerpfad fehlt; Status bleibt
+`code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b901-update-controls-default-2026-08-26.md`.
 
 Governance-/Planhygiene-Folgebereinigung ist documentation-complete. Evidence:
 `docs/superpowers/synthesis/plan-handoff-vault-authority-cleanup-2026-08-26.md`.

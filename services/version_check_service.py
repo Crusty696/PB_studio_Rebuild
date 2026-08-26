@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 #   PBSTUDIO_UPDATE_API_URL=https://api.github.com/repos/youruser/pb-studio-rebuild/releases/latest
 _DEFAULT_API_URL = os.environ.get(
     "PBSTUDIO_UPDATE_API_URL",
-    "https://api.github.com/repos/PB-Studio/pb-studio-rebuild/releases/latest",
+    "https://api.github.com/repos/Crusty696/PB_studio_Rebuild/releases/latest",
 )
 _REQUEST_TIMEOUT = 8  # seconds
 

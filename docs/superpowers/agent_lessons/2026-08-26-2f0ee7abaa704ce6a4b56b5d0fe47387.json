@@ -1,0 +1,10 @@
+{
+  "lesson_id": "2f0ee7abaa704ce6a4b56b5d0fe47387",
+  "recorded_at": "2026-08-26T01:54:00+00:00",
+  "session_id": "4690c5d87ec74ea69ca8c263b7f2cf14",
+  "head_at_start": "e3f191c907784cd2d679b6d4b113937aab2c061b",
+  "problem": "Update-Steuerung war trotz vollständig verdrahtetem Worker und Banner im Standardstart unerreichbar.",
+  "cause": "Repo-Default deaktivierte Versionsprüfung und Fallback-API zeigte auf ein nicht-kanonisches Repository.",
+  "rule": "Bei sichtbaren Update-Funktionen sowohl Feature-Gate-Default als auch kanonischen Remote-Endpunkt mit einem engen Vertragstest absichern; Env-Override getrennt erhalten.",
+  "applies_to": "App-Start, Feature-Gates, Versionsprüfung, externe Repo-Endpunkte"
+}

@@ -1440,3 +1440,17 @@ Decision: Vault
   `docs/superpowers/synthesis/plan-handoff-vault-authority-cleanup-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
+
+### B-901 Update-Controls im Defaultpfad — 2026-08-26
+
+- Root Cause: Versionspruefung im Repo-Default deaktiviert; Fallback-API zeigte
+  auf nicht-kanonisches GitHub-Repository.
+- Codefix aktiviert Defaultpfad, korrigiert Fallback auf
+  `Crusty696/PB_studio_Rebuild` und erhaelt Env-Override.
+- Zieltest 2/2, Syntax und Diffcheck gruen.
+- Status `code-fix-pending-live-verification`: echter App-/Release-Bannerpfad
+  fehlt.
+- Evidence:
+  `docs/superpowers/synthesis/b901-update-controls-default-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
