@@ -16,16 +16,19 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.
+`PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
 
-Scope: `ui/dialogs/crash_dialog.py` -> `btn_log / Log-Datei öffnen`;
-Sichtbarkeit, Click, Erfolgs- und Fehlerpfad elementgenau pruefen.
+Scope nach sauberem Control-#26-Evidence-Commit: B-893 Root Cause in
+`services/feedback_service.py`, `services/brain/feedback_logger.py`,
+`services/brain/reranker.py` und `services/brain/context_mapping.py` mit
+kleinstem RED/GREEN-Vertrag. Danach B-895, B-894, B-888, B-832-Entscheid.
 
 ## Letzter Abschluss
 
-Control #25 About-Schliessen per echtem Mausclick fuer Accepted-Signal,
-Dialogresultat und Unsichtbarkeit zielgetestet; PBWindow-/Menu-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md`.
+Control #26 Erfolgspfad per echtem Mausclick bis Windows-Viewer zielgetestet;
+B-906 dokumentiert stillen Missing-/Open-Fehlerpfad. User setzte danach Pacing
+als oberste Produktprioritaet; B-906 bleibt offen hinter Pacing.
+Evidence: `docs/superpowers/synthesis/stab5-control-26-crash-log-open-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +40,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md
 
 ## Verifikation
 
-#25: echter AboutDialog/Schliessen-Button → QTest-Mausclick → Accepted-Signal,
-Accepted-Resultat und Dialog zu; `1 passed in 2.02s`. PBWindow-/Menu-Live offen.
-Naechste Task #26 Crashdialog-Log-Datei oeffnen.
+#26 Erfolg: echter CrashDialog/Log-Button → QTest-Mausclick → Windows-Viewer;
+`1 passed in 0.84s`. B-906 offen. Naechste Task nach Evidence-Commit B-893;
+Pacing hat explizit oberste Produktprioritaet.

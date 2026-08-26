@@ -20,7 +20,21 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.
+`PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
+
+Userentscheid 2026-08-27: sichtbarer Pacing-/Auto-Edit-Bereich ist wichtigstes
+App-Element und hat ab jetzt oberste Produktprioritaet. Reihenfolge innerhalb
+aktiven Masterplans: B-893 (high), B-895 (high), B-894 (medium), B-888
+(medium), danach B-832 mit expliziter Vibe-Produktentscheidung. Laufende
+Control #26 Evidence wird sauber committed; B-906 bleibt als separater
+Medium-Fund offen und wartet hinter Pacing.
+
+Control #26 Erfolgspfad ist elementgenau belegt: echter CrashDialog erzeugt
+genau einen sichtbaren/aktiven Log-Button; echter QTest-Mausclick reicht
+existierende Logdatei an Windows-Viewer weiter. Zieltest `1 passed in 0.84s`,
+kein Produktcodeedit. Finding B-906: fehlende Logdatei endet sichtbar still;
+OS-Open-Fehler bleiben ungefangen. Status `finding-open:B-906`. Evidence:
+`docs/superpowers/synthesis/stab5-control-26-crash-log-open-2026-08-27.md`.
 
 Control #25 ist elementgenau belegt: echter AboutDialog erzeugt genau einen
 sichtbaren/aktiven Accent-Button `Schliessen`. Echter QTest-Mausclick emittiert

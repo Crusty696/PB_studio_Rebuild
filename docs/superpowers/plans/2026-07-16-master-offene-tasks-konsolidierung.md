@@ -1879,3 +1879,29 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #26 Crashdialog Log-Datei oeffnen — 2026-08-27
+
+- Echter CrashDialog erzeugt genau einen sichtbaren/aktiven Log-Button.
+- Echter QTest-Mausclick reicht existierende Logdatei an Windows-Viewer weiter.
+- Erfolgspfad-Zieltest `1 passed in 0.84s`; kein Produktcodeedit.
+- Echter Medium-Fund B-906: fehlen beide Logpfade, bleibt Aktion sichtbar still;
+  OS-Open-Fehler sind ungefangen.
+- Matrixstatus `finding-open:B-906`; Control #26 noch nicht abgeschlossen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-26-crash-log-open-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-906 Crashdialog-Log-Oeffnen darf bei Fehler nicht still bleiben`.
+- Danach: Control #26 Abschluss und Control #27 Crashdialog-Schliessen.
+
+### User-Prioritaetswechsel: Pacing zuerst — 2026-08-27
+
+- User: Pacing-Bereich ist wichtigstes Element der gesamten App und muss
+  oberste Prioritaet haben.
+- Laufende Control-#26-Erfolgsevidence wird zuerst sauber committed; B-906
+  bleibt als Medium-Fund offen und wird nicht verworfen.
+- Danach verbindliche Pacing-Reihenfolge: B-893 high, B-895 high, B-894 medium,
+  B-888 medium, anschliessend B-832 mit expliziter Vibe-Produktentscheidung.
+- Genau naechste Produkttask:
+  `PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
+- STAB-5 Control #26/B-906 und #27+ warten hinter dieser Pacing-Welle.

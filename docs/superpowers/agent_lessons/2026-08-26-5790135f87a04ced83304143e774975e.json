@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5790135f87a04ced83304143e774975e",
+  "recorded_at": "2026-08-26T22:41:31+00:00",
+  "session_id": "b4105fb2d9f04d24b2abc3b42e957035",
+  "head_at_start": "2949f9c5e7030ab4f34e401ef0eda8b95e25c122",
+  "problem": "Crashdialog-Logbutton oeffnete vorhandene Datei, blieb bei fehlender Datei aber sichtbar still.",
+  "cause": "Handler besass nur einen positiven exists-Zweig; Missing- und OS-Open-Fehler hatten weder Feedback noch Exception-Behandlung.",
+  "rule": "Recovery-/Diagnose-Buttons immer getrennt fuer Erfolg, fehlendes Artefakt und externen Open-Fehler pruefen; stiller No-op bleibt Finding statt PASS.",
+  "applies_to": "STAB-5 Diagnose-, Log- und externe Viewer-Controls"
+}
