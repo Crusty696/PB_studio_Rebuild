@@ -16,16 +16,17 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.
+`STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.
 
-Scope: Candidate-Refs gegen `scene_combo.currentData()` bis gespeicherten
-Anchor-/Timelinezustand prüfen. Vorhandenen Test bevorzugen; kleinsten Zusatz
-nur bei Evidence-Lücke, Produktedit nur bei reproduziertem Defekt.
+Scope: RED-Test im vorhandenen Control-#7-Test: Accepted mit unveraenderter
+Placeholder-Auswahl darf kein TreeItem erzeugen. Danach Auswahlvalidierung eng
+im Dialog; nur denselben Testpfad. Anschliessend Matrix-Control #8.
 
 ## Letzter Abschluss
 
-Control #6 Chat-Senden zielgetestet, Candidate-Refs korrigiert, kein Produktfix.
-Evidence: `docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
+Control #7 gueltige Szenenauswahl zielgetestet; B-905 als direkter Finding
+erfasst. Evidence:
+`docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +38,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
 
 ## Verifikation
 
-#6: echter Send-Click → Userzeile/Input-clear/sichtbarer Kein-Agent-Fehler;
-`1 passed in 0.69s`, drei Reviews ohne Produktfinding. Worker-/App-Live offen.
-Nächster Matrixeintrag #7 Add-Anchor-Szenenauswahl.
+#7: gueltige Combo-ID/Label → TreeItem/Collector/Console; `1 passed in 1.30s`.
+PBWindow-/DB-/Sync-Live offen. B-905 Placeholder-Akzeptanz ist naechste enge
+Fix-Task; danach Matrixeintrag #8 Hinzufuegen.

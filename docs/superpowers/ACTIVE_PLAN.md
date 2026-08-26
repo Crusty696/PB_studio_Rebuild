@@ -20,13 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.
+`STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.
 
-Control #6 ist elementgenau belegt: echter Send-Click schreibt Usertext,
-leert Input und zeigt ohne Agent sichtbaren Fehler. Falsch zugeordnete
-Candidate-Refs ersetzt; nach isoliertem AiStatusDot-Testteardown `1 passed in
-0.69s`, drei Reviews ohne Produktfinding. Worker-/App-Live offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
+Control #7 ist fuer gueltige Auswahl elementgenau belegt: Combo-ID/Label
+erreichen TreeItem, Collector und Console; `1 passed in 1.30s`. Candidate-Refs
+waren falsch. Direkter Finding B-905: Placeholder ohne Szene bleibt akzeptierbar
+und erzeugt leeren Anchor. Evidence:
+`docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

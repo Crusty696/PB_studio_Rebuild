@@ -1582,3 +1582,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.
+
+### STAB-5 Control #7 Add-Anchor-Szenenauswahl — 2026-08-26
+
+- Candidate-Refs waren keine Dialog-/Combo-Belege und wurden ersetzt.
+- Gueltige Combo-ID/Label erreichen TreeItem-UserRole, Anchor-Collector und
+  Console.
+- Erster Lauf rot wegen falschem Testparent; mit QMainWindow-Parent
+  `1 passed in 1.30s`.
+- Drei gefuehrte Read-only-Reviews bestätigen gueltigen Auswahlpfad; kein
+  Produktcodeedit.
+- Direkter Finding B-905: Placeholder ohne Szene akzeptierbar, erzeugt leeren
+  scheinbaren Anchor.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.

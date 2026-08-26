@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ce9658b709d44d9e809abe0db4384012",
+  "recorded_at": "2026-08-26T03:09:35+00:00",
+  "session_id": "9eafb3064feb49fbb221f9dfc5f6ad2d",
+  "head_at_start": "a07aba9bf6ce0180671f5f752f0c355f4086b1c1",
+  "problem": "Add-Anchor-Szenencombo hatte falsch zugeordnete Tests; erster Dialogtest verwendete ungueltigen Nicht-QWidget-Parent.",
+  "cause": "Candidate-Matching basierte nur auf Dateinähe; Testhost bildete QDialog-Parentvertrag nicht ab.",
+  "rule": "Dialog-Controls mit echtem QWidget-Parent und lokal isoliertem Modal-/DB-Rand testen; gewaehlte Combo-Daten bis gespeicherten UI-Consumer verfolgen, Candidate-Refs semantisch validieren.",
+  "applies_to": "STAB-5 Dialogcontrols, QComboBox, EditWorkspace Anchor-Dialog"
+}
