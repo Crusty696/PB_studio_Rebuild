@@ -1850,3 +1850,18 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #24 About-Dokumentation-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #24 About-Dokumentation — 2026-08-27
+
+- Bestehender B-902-Test rief Handler direkt auf und umging Button.
+- Echter AboutDialog erzeugt genau einen sichtbaren/aktiven
+  Dokumentationsbutton.
+- Echte QTest-Mausclicks erreichen lokale README-Oeffnung und sichtbare
+  Missing-Warnung.
+- Zieltest `1 passed in 1.37s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: Frozen-/Installer-Bundle und realer
+  OS-Viewer bleiben STAB-6-Livegate.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-24-about-documentation-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #25 About-Schliessen-Button elementgenau pruefen und belegen`.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8f80508740e143afbffecb2a04d9674a",
+  "recorded_at": "2026-08-26T22:28:43+00:00",
+  "session_id": "8140f5f718394be982c1c816790bccf4",
+  "head_at_start": "b6f24d33d4d735d8532dd2dbab8917b44c78cece",
+  "problem": "B-902 belegte Dokumentationshandler und Bundle-Spec, aber nicht sichtbaren About-Button und Signalpfad.",
+  "cause": "Vorhandener Test rief statische _open_docs-Methode direkt auf und umging QPushButton.clicked.",
+  "rule": "Bereits handlergetestete Dialogfunktionen zusaetzlich mit echtem sichtbarem Button und QTest-Click bis Erfolg sowie sichtbarem Fehlerzustand belegen.",
+  "applies_to": "STAB-5 Dialogbuttons mit bestehenden direkten Handlertests"
+}

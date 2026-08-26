@@ -16,15 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #24 About-Dokumentation-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #25 About-Schliessen-Button elementgenau pruefen und belegen`.
 
-Scope: `ui/dialogs/about.py` -> `btn_docs / Dokumentation`;
-Sichtbarkeit, Click, Bundle-/Sourcepfad, Erfolg und Fehlerpfad elementgenau pruefen.
+Scope: `ui/dialogs/about.py` -> `btn / Schliessen`;
+Sichtbarkeit, Click und Dialogresultat elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #23 A/B-Vergleich-Run-Button per echten Mausklicks fuer Erfolg/Fehler zielgetestet; Projekt-DB-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27.md`.
+Control #24 About-Dokumentation per echten Mausklicks fuer README-Oeffnung und
+Missing-Warnung zielgetestet; Frozen-/Installer-/OS-Viewer-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-24-about-documentation-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +37,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27
 
 ## Verifikation
 
-#23: echter ABCompareDialog/Accent-Button → QTest-Mausclick → Scorer-Ergebnis
-und sichtbarer Fehlerpfad; `2 passed in 1.30s`. Projekt-DB-Live offen. Naechste
-Task #24 About-Dokumentation.
+#24: echter AboutDialog/Dokumentationsbutton → QTest-Mausclick → README-Oeffnung
+und sichtbare Missing-Warnung; `1 passed in 1.37s`. Frozen-/Installer-/OS-
+Viewer-Live offen. Naechste Task #25 About-Schliessen.
