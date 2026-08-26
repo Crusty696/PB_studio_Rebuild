@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #24 About-Dokumentation-Button elementgenau pruefen und belegen`.
 
-Scope: `ui/dialogs/ab_compare_dialog.py` -> `btn_run / Vergleich ausfuehren`;
-Sichtbarkeit, Click, Validierung, Erfolg und Fehlerpfad elementgenau pruefen.
+Scope: `ui/dialogs/about.py` -> `btn_docs / Dokumentation`;
+Sichtbarkeit, Click, Bundle-/Sourcepfad, Erfolg und Fehlerpfad elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #22 Speichern-Aktion im echten PBWindow bis ProjectManagementController zielgetestet; Persistenz-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md`.
+Control #23 A/B-Vergleich-Run-Button per echten Mausklicks fuer Erfolg/Fehler zielgetestet; Projekt-DB-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md
 
 ## Verifikation
 
-#22: echter PBWindow-Build → Window-QAction/StandardKey.Save → echter
-ProjectManagementController; `1 passed in 9.44s`. Persistenz/Ctrl+S-App-Live
-offen. Naechste Task #23 A/B-Vergleich ausfuehren.
+#23: echter ABCompareDialog/Accent-Button → QTest-Mausclick → Scorer-Ergebnis
+und sichtbarer Fehlerpfad; `2 passed in 1.30s`. Projekt-DB-Live offen. Naechste
+Task #24 About-Dokumentation.

@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #24 About-Dokumentation-Button elementgenau pruefen und belegen`.
+
+Control #23 ist elementgenau belegt: echter ABCompareDialog erzeugt sichtbaren/
+aktiven Accent-Button `Vergleich ausfuehren`. Echte QTest-Mausclicks erreichen
+realen Scorer-/Ergebnisrenderpfad bei isoliertem DB-Loader sowie sichtbaren
+Fehlerpfad. Zieltests `2 passed in 1.30s`, kein Produktcodeedit. Echter
+Projekt-/DB-Liveworkflow bleibt offen. Status `target-test-pass-live-pending`.
+Evidence:
+`docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27.md`.
 
 Control #22 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
 sichtbare/aktive Window-QAction `Speichern` mit StandardKey.Save und Window-

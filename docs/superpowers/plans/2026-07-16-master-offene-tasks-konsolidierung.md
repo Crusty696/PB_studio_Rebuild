@@ -1836,3 +1836,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #23 A/B-Vergleich ausfuehren — 2026-08-27
+
+- Bestehende T2.5.6-Tests riefen Handler direkt auf und umgingen Button.
+- Echter ABCompareDialog erzeugt sichtbaren/aktiven Accent-Button mit korrektem
+  Text/ObjectName.
+- Echte QTest-Mausclicks erreichen realen Scorer-/Renderingpfad bei isoliertem
+  DB-Loader sowie sichtbaren Fehlerpfad.
+- Zieltestdatei `2 passed in 1.30s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: echter Projekt-/DB-Liveworkflow offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-23-ab-compare-run-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #24 About-Dokumentation-Button elementgenau pruefen und belegen`.

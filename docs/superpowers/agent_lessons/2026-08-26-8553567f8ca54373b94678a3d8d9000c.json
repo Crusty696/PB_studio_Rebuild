@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8553567f8ca54373b94678a3d8d9000c",
+  "recorded_at": "2026-08-26T22:21:28+00:00",
+  "session_id": "0af86fc8cf444621b6d46e0d45d268a0",
+  "head_at_start": "094da05fb353105488ad22de77740603d6a62fb8",
+  "problem": "Direkte _on_run-Tests belegten A/B-Vergleichslogik, aber nicht den sichtbaren Button-Ausloeser.",
+  "cause": "Vorhandener Test umging QPushButton.clicked und damit UI-Erreichbarkeit sowie Signalverdrahtung.",
+  "rule": "Dialogaktionen mit sichtbarem echtem Widget und QTest-Mausclick pruefen; Erfolgs- und sichtbaren Fehlerpfad bis beobachtbaren UI-Text belegen.",
+  "applies_to": "PyQt6 Dialog-Buttons und STAB-5 Control-Evidence"
+}
