@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #21 Redo-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #22 Speichern-Aktion elementgenau pruefen und belegen`.
 
-Scope: `workspace_setup.py` -> Window-Action `redo_action / Redo`;
-Konstruktion, Standardshortcut, Trigger und Timeline-Redo-Stack elementgenau pruefen.
+Scope: `workspace_setup.py` -> Window-Action `save_action / Speichern`;
+Konstruktion, Standardshortcut und Trigger zum echten Save-Handler elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #20 Undo-Aktion im echten PBWindow/Timeline-Undo-Stack zielgetestet; Ctrl+Z-App-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-20-undo-action-2026-08-27.md`.
+Control #21 Redo-Aktion im echten PBWindow/Timeline-Undo-Stack zielgetestet; Shortcut-App-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-21-redo-action-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-20-undo-action-2026-08-27.md
 
 ## Verifikation
 
-#20: echter PBWindow-Build → Window-QAction/StandardKey.Undo → echter Timeline-
-QUndoStack/MarkerCommand von 1 auf 0; `1 passed in 11.08s`. Ctrl+Z-App-Live offen.
-Naechste Task #21 Redo-Aktion.
+#21: echter PBWindow-Build → Window-QAction/StandardKey.Redo → echter Timeline-
+QUndoStack/MarkerCommand von 0 auf 1; `1 passed in 11.05s`. Redo-Shortcut-App-Live
+offen. Naechste Task #22 Speichern-Aktion.

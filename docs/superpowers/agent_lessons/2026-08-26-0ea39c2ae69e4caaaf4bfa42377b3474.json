@@ -1,0 +1,10 @@
+{
+  "lesson_id": "0ea39c2ae69e4caaaf4bfa42377b3474",
+  "recorded_at": "2026-08-26T22:10:10+00:00",
+  "session_id": "4a404c63c64c4f14ab132fee779d40ff",
+  "head_at_start": "6622f2e9a9294ef437a625d39c63c4fe5bd1dd01",
+  "problem": "Redo-QAction hatte keinen eigenen Ausloeserbeleg; Undo-Nachweis beweist Redo-Wiring und Standardshortcut nicht.",
+  "cause": "Gespiegelte Undo/Redo-Aktionen wurden als gemeinsamer Vertrag behandelt, obwohl Text, StandardKey und Handler getrennte Mutationspunkte sind.",
+  "rule": "Undo und Redo als separate Controls belegen; StandardKey-Objekt und jeweiligen Stack-Handler sowie entgegengesetzte Zustandsrichtung einzeln assertieren.",
+  "applies_to": "STAB-5 gespiegelte QAction-Paare und QUndoStack"
+}

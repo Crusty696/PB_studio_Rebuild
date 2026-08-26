@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #21 Redo-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #22 Speichern-Aktion elementgenau pruefen und belegen`.
+
+Control #21 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
+sichtbare/aktive Window-QAction `Redo` mit StandardKey.Redo und Window-Parent.
+Vorab undone MarkerCommand im echten Timeline-QUndoStack wird durch
+QAction-Trigger von 0 auf 1 wiederhergestellt; Stack danach undo-faehig.
+Zieltest `1 passed in 11.05s`, kein Produktcodeedit. Physischer Redo-Shortcut-
+App-Livepfad bleibt offen. Status `target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-21-redo-action-2026-08-27.md`.
 
 Control #20 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
 sichtbare/aktive Window-QAction `Undo` mit StandardKey.Undo und Window-Parent.
