@@ -1700,3 +1700,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #14 Log-Anzeige elementgenau pruefen und belegen`.
+
+### STAB-5 Control #14 Log-Anzeige — 2026-08-26
+
+- Matrix-Candidates betrafen Tooltip bzw. fremdes Statuspanel.
+- Echter WorkspaceSetupController baut sichtbare Tools-QAction `Log anzeigen`
+  und versteckten Konsole-Proxy; PBWindow-Callsite/Tabrouting quellguardiert.
+- Produktive `PanelSetupController.setup_console()`-Montage des `LOG`-Tabs
+  zusaetzlich mutationssensitiv geschuetzt.
+- QAction bleibt sichtbar/aktiv, Proxy hidden; Aktion oeffnet ContextPanel/Dock
+  und wechselt von Tasks auf Log.
+- Geschaerfter Zieltest `1 passed in 4.15s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-Vollstart offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-14-log-display-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #15 KI-Chat-Anzeige elementgenau pruefen und belegen`.

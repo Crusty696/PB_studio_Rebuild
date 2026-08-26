@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b199c07b1a964517af0b9048dc525685",
+  "recorded_at": "2026-08-26T20:52:14+00:00",
+  "session_id": "845ff7948fbd46779460004f544e3a30",
+  "head_at_start": "7274efb862d2bf8afa71e14fd02ddce0bc86ffba",
+  "problem": "Control-14-Test konnte mit selbst benanntem Log-Fixture-Tab trotz fehlendem oder umbenanntem Produkt-LOG-Tab false-passen.",
+  "cause": "Erster Test guardierte Builder und PBWindow-Routing, aber nicht den getrennten PanelSetupController-Consumer, der den echten LOG-Tab mountet.",
+  "rule": "Cross-file Tab-Routingtests muessen neben Ausloeser und Router auch die produktive Tab-Montage beziehungsweise ihr stabiles Label mutationssensitiv belegen.",
+  "applies_to": "STAB-5 Tools-Menueaktionen, ContextPanel-Tabs und cross-file Qt-Routing"
+}

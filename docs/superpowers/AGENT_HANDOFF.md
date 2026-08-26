@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #14 Log-Anzeige elementgenau pruefen und belegen`.
+`STAB-5 / Control #15 KI-Chat-Anzeige elementgenau pruefen und belegen`.
 
-Scope: versteckten internen Konsole-Button und sichtbare Tools-Menueaktion
-`Log anzeigen` gemeinsam bis ContextPanel/Log-Tab belegen oder ehrlich als
+Scope: versteckten internen KI-Chat-Button und sichtbare Tools-Menueaktion
+`KI Chat anzeigen` gemeinsam bis ContextPanel/Chat-Tab belegen oder ehrlich als
 hidden-proxy klassifizieren; Candidate-Refs semantisch pruefen.
 
 ## Letzter Abschluss
 
-Control #13 Tasks-Anzeige elementgenau zielgetestet; PBWindow-Vollstart offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.md`.
+Control #14 Log-Anzeige elementgenau zielgetestet; PBWindow-Vollstart offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-14-log-display-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,7 +37,7 @@ Evidence: `docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.
 
 ## Verifikation
 
-#13: Produktbuilder + sichtbare Tools-QAction → versteckter Tasks-Proxy →
-PBWindow-Tabrouting → sichtbares ContextPanel/Dock und aktiver Tasks-Tab;
-`1 passed in 11.74s`, Nachreview PASS. PBWindow-Vollstart offen. Naechste Task
-#14 Log-Anzeige.
+#14: Produktbuilder + sichtbare Tools-QAction → versteckter Konsole-Proxy →
+PBWindow-Tabrouting → sichtbares ContextPanel/Dock und produktiver `LOG`-Tab;
+geschaerfter Test `1 passed in 4.15s`. PBWindow-Vollstart offen. Naechste Task
+#15 KI-Chat-Anzeige.
