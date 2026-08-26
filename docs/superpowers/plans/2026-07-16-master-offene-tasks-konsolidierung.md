@@ -1377,3 +1377,20 @@ Decision: Vault
 - STAB-5 bleibt `in_progress`.
 - Naechste einzige Task:
   `STAB-5 / 182 Controls in elementgenaue Evidence-Matrix ueberfuehren`.
+
+### STAB-5 Evidenz-/Altlastbereinigung — 2026-08-26
+
+- 182 als Controlzahl verworfen: rohe Constructor-Sites, Factory-Definitionen
+  unterzaehlten sichtbare Call-Sites. Factory-Expansion ergibt 222 statische
+  Deklarationsstellen, aber keine gemessene Runtime-Anzahl.
+- Automatische Testrefs sind nur Kandidaten. Review: 105 reine Modulnamen-
+  Treffer; viele weitere nur Tooltip/Existenz/Text/direkter Handler.
+- Strenger Rest: 36 Element-Belegluecken, zwei Current-Pfad-Caveats, zwei voll
+  belegte Controls.
+- B-901 neu `open`: Update-Controls default unerreichbar; Repo-Default falsch.
+- B-902 neu `open`: About-Dokumentation im installierten Build stiller No-Op.
+- Planwahrheit: genau dieser Masterplan aktiv; Altplaene Registry-`superseded`,
+  Auditplan bewusst pausiert/`blocked`. Physische Planfiles nicht massenhaft
+  verschoben, damit Links nicht brechen.
+- Naechste einzige Task:
+  `STAB-5 / B-902 About-Dokumentation im installierten Build funktionsfaehig machen`.

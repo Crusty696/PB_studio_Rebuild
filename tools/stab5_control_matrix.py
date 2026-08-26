@@ -36,12 +36,6 @@ MANUAL_BINDINGS = {
         "cross-file-exposed",
     ),
 }
-MANUAL_EVIDENCE = {
-    ("main.py", 495): "tests/ui/test_shortcut_manager.py",
-    ("main.py", 496): "tests/ui/test_shortcut_manager.py",
-    ("main.py", 500): "tests/ui/test_studio_brain_singleton_invariant.py",
-    ("ui/widgets/stem_mixer_panel.py", 91): "tests/ui/test_b321_stems_controller_lightweight.py",
-}
 
 
 @dataclass
@@ -56,7 +50,7 @@ class Control:
     binding: str = ""
     binding_scope: str = "unresolved"
     evidence: str = ""
-    evidence_level: str = "static-only"
+    evidence_level: str = "no-candidate"
 
 
 def dotted(node: ast.AST) -> str:
@@ -268,11 +262,6 @@ def attach_evidence(controls: list[Control]) -> None:
     tests, syntheses = evidence_files()
     synth_rel = [path.relative_to(ROOT) for path in syntheses]
     for control in controls:
-        manual = MANUAL_EVIDENCE.get((control.path.as_posix(), control.line))
-        if manual:
-            control.evidence = manual
-            control.evidence_level = "manual-test-ref"
-            continue
         token = target_token(control.target)
         module = control.path.stem
         handler_tokens = re.findall(r"\b(?:self\.)?(_[A-Za-z_]\w*)", control.binding)
@@ -294,12 +283,12 @@ def attach_evidence(controls: list[Control]) -> None:
         candidates.sort(key=lambda item: (-item[0], item[1].as_posix()))
         if candidates:
             control.evidence = ", ".join(path.as_posix() for _, path in candidates[:2])
-            control.evidence_level = "test-ref"
+            control.evidence_level = "candidate-ref"
             continue
         synth_candidates = [path for path in synth_rel if module in path.name]
         if synth_candidates:
             control.evidence = synth_candidates[0].as_posix()
-            control.evidence_level = "synthesis-ref"
+            control.evidence_level = "candidate-synthesis-ref"
         else:
             control.evidence = "kein elementgenauer Beleg automatisch gefunden"
 
@@ -321,8 +310,7 @@ def render(controls: list[Control], raw_constructor_sites: int) -> str:
         "",
         "## Ergebnis",
         "",
-        f"- Historische rohe Constructor-Sites: **{raw_constructor_sites}**.",
-        f"- Nach Factory-Expansion sichtbare Deklarationsstellen: **{len(controls)}**.",
+        f"- Factory-expandierte sichtbare Deklarationsstellen: **{len(controls)}**.",
         "- Typen: " + ", ".join(f"{kind}={kinds[kind]}" for kind in sorted(kinds)) + ".",
         "- Bindung: " + ", ".join(f"{scope}={scopes[scope]}" for scope in sorted(scopes)) + ".",
         "- Evidenzreferenz: " + ", ".join(f"{level}={evidence[level]}" for level in sorted(evidence)) + ".",
@@ -331,9 +319,9 @@ def render(controls: list[Control], raw_constructor_sites: int) -> str:
         "Deklarationsstelle und kann mehrere Runtime-Widgets erzeugen. Die Zahl ist",
         "deshalb keine gemessene Runtime-Widgetanzahl.",
         "",
-        "Statische Zuordnung. `test-ref` bedeutet nur: Test referenziert Modul,",
-        "Control oder Handler; kein aktueller Testlauf und kein Live-PASS.",
-        "Automatische Kandidaten muessen vor STAB-5-Abschluss manuell bewertet werden.",
+        "Statische Zuordnung. `candidate-ref` ist ausdrücklich kein Testbeleg:",
+        "Test referenziert nur Modul, Control oder Handler. Read-only-Review fand",
+        "zahlreiche Fehlzuordnungen. Kein aktueller Testlauf und kein Live-PASS.",
         "",
         "## Matrix",
         "",
@@ -369,6 +357,12 @@ def render(controls: list[Control], raw_constructor_sites: int) -> str:
             "Automatisch unresolved/indirekt gebundene Controls und reine",
             "`synthesis-ref`/`static-only`-Zeilen manuell pruefen. Danach nur echte",
             "Belegluecken gezielt am spaetestmoeglichen Endgate testen.",
+            "",
+            "## Methodikkorrektur",
+            "",
+            f"Veraltete fruehere Zahl: `{raw_constructor_sites}` rohe Constructor-Sites.",
+            "Sie darf nicht als Control-, Fortschritts- oder Qualitaetswert benutzt werden.",
+            "Factory-Expansion ergibt Deklarationsstellen, keine gemessene Runtime-Widgetzahl.",
             "",
         ]
     )

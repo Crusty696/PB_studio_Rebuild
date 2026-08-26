@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / 182 Controls in elementgenaue Evidence-Matrix ueberfuehren`.
+`STAB-5 / B-902 About-Dokumentation im installierten Build funktionsfaehig machen`.
 
 B-900 ist nach echtem First-Run-App-Pfad `fixed`: isolierter Modal-Wizard,
 echter QThread und Connection-Refused-Fehler ergaben Modell/Gesamt 0 Prozent,
@@ -30,12 +30,19 @@ reicht nicht. Evidence:
 `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 
 DoD-Abgleich fand 190 UI-Testdateien und 142 Synthesen, aber keine stabile
-Zuordnung je 182 Controls zu Signal, Handler/Worker, Zustandsaenderung und
-konkretem Test-/Livebeleg. STAB-5 bleibt deshalb `in_progress`. Evidence:
+elementgenaue Zuordnung. Die alte Zahl 182 war nur eine Constructor-Site-Zahl
+und ist als Controlwert verworfen. Factory-Expansion liefert 222 statische
+Deklarationsstellen, keine Runtime-Widgetzahl. STAB-5 bleibt `in_progress`.
+Evidence:
 `docs/superpowers/synthesis/stab5-ui-action-evidence-2026-08-26.md`.
 
-STAB-5-Inventar ist statisch abgeschlossen: 103 UI-Dateien, 182 Controls der
-Pflichtklassen, 636 Signalverbindungen und 25 Cross-File-Kandidaten. Alle
+Read-only-Evidenzreview widerlegte automatische Testtreffer als Belege und
+fand B-901 (Update-Controls default unerreichbar) sowie B-902 (About-
+Dokumentation im installierten Build stiller No-Op). Evidence:
+`docs/superpowers/synthesis/stab5-ui-evidence-cleanup-2026-08-26.md`.
+
+STAB-5-Rohinventar ist statisch abgeschlossen: 103 UI-Dateien, 182 rohe
+Constructor-Sites, 636 Signalverbindungen und 25 Cross-File-Kandidaten. Alle
 direkten Actions/Handler sind verdrahtet. Neues High-Finding B-900: Setup-
 Wizard zeigt bei `ok=False` rote Fehlerzeile, setzt Modell- und Gesamtbalken
 aber dennoch auf 100 Prozent. Evidence:

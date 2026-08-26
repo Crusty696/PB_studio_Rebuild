@@ -4,17 +4,20 @@ This file is a repository-local continuity checkpoint for all agents.
 
 ## STAB-5 aktiv — 2026-08-26
 
-- Inventar: 103 UI-Dateien, 182 Controls, 636 Signalverbindungen; 25
-  Cross-File-Kandidaten alle verdrahtet.
+- Inventar: 103 UI-Dateien, 182 rohe Constructor-Sites, 636
+  Signalverbindungen. 182 ist als Controlwert verworfen; Factory-Expansion
+  ergibt 222 statische Deklarationsstellen, keine Runtime-Anzahl.
 - B-900 `fixed`: echter First-Run-App-Pfad mit QThread und lokal verweigerter
   Verbindung; Modell/Gesamt 0, roter Fehlertext, Finish-Fehlermeldung, Exit 0.
-- DoD-Abgleich: 190 UI-Testdateien/142 Synthesen vorhanden; keine stabile
-  Zuordnung je 182 Controls. STAB-5 bleibt `in_progress`.
-- Naechste einzige Task: 182 Controls in elementgenaue Evidence-Matrix
-  ueberfuehren; erst danach echte Restluecken minimal testen.
+- Evidenzreview: automatische Testrefs sind Kandidaten, keine Belege; 36 echte
+  Element-Belegluecken, zwei Caveats, zwei voll belegte Controls.
+- B-901: Update-Controls default unerreichbar. B-902: About-Dokumentation ist
+  im installierten Build stiller No-Op.
+- Naechste einzige Task: B-902 enger Produktfix; Minimaltest erst Endgate.
 - Evidence: `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 - Evidence: `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
 - Evidence: `docs/superpowers/synthesis/stab5-ui-action-evidence-2026-08-26.md`.
+- Evidence: `docs/superpowers/synthesis/stab5-ui-evidence-cleanup-2026-08-26.md`.
 - User bestaetigte STAB-4 trotz offen ausgewiesener B-774-Grenze.
 - Folgephasen autonom freigegeben; Statusmarker erst nach jeweiligem Nachweis.
 - Tests: minimal, direkt betroffen, spaetestmoegliches Endgate.

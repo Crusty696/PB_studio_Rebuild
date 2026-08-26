@@ -1,0 +1,10 @@
+{
+  "lesson_id": "dd5096a476c648ee8f3ca51ef2bdef1c",
+  "recorded_at": "2026-08-26T00:17:36+00:00",
+  "session_id": "dd7ff2e61af847688aee953af9adfbb7",
+  "head_at_start": "9bd99c061d2bedad400cd7bfa7a7c760eb31537e",
+  "problem": "UI-Inventar behandelte Constructor-Sites und automatische Testtreffer als Controls bzw. Belege",
+  "cause": "Factory-Definitionen wurden statt Call-Sites gezaehlt; Testmatching akzeptierte Modulnamen, Tooltips, Existenz und direkte Handleraufrufe ohne Control-Operation",
+  "rule": "UI-Evidenz muss Factory-Call-Sites expandieren und fuer Belege exakten Controlpfad plus echte Operation/Signal plus beobachtete Zustandsaenderung verlangen; Rohzaehler und Kandidaten klar entwerten",
+  "applies_to": "STAB-5, PySide6-Control-Audits, Release-Evidence-Matrizen"
+}
