@@ -16,17 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.
+`STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.
 
-Scope: RED-Test im vorhandenen Control-#7-Test: Accepted mit unveraenderter
-Placeholder-Auswahl darf kein TreeItem erzeugen. Danach Auswahlvalidierung eng
-im Dialog; nur denselben Testpfad. Anschliessend Matrix-Control #8.
+Scope: sichtbaren `Hinzufuegen`-Control vom Qt-Click durch Dialog-Accept bis
+TreeItem/Collector elementgenau belegen; vorhandenen B-905-Testpfad nutzen,
+keine breite Testsuite.
 
 ## Letzter Abschluss
 
-Control #7 gueltige Szenenauswahl zielgetestet; B-905 als direkter Finding
-erfasst. Evidence:
-`docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
+B-905 Root Cause behoben und zielgetestet; Livepfad offen. Evidence:
+`docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -38,6 +37,6 @@ erfasst. Evidence:
 
 ## Verifikation
 
-#7: gueltige Combo-ID/Label → TreeItem/Collector/Console; `1 passed in 1.30s`.
-PBWindow-/DB-/Sync-Live offen. B-905 Placeholder-Akzeptanz ist naechste enge
-Fix-Task; danach Matrixeintrag #8 Hinzufuegen.
+B-905: RED reproduziert, danach Placeholder/gueltige Auswahl/Re-Disable und
+Accepted-Guard `2 passed in 1.27s`; drei Reviews PASS. PBWindow-/DB-/Sync-Live
+offen. Naechste Task Matrixeintrag #8 Hinzufuegen.

@@ -1051,6 +1051,10 @@ class EditWorkspaceController(PBComponent):
         btn_ok.setToolTip(
             "Anker mit gewaehlter Zeit und Szene zur Liste hinzufuegen."
         )
+        btn_ok.setEnabled(bool(scene_combo.currentData()))
+        scene_combo.currentIndexChanged.connect(
+            lambda: btn_ok.setEnabled(bool(scene_combo.currentData()))
+        )
         btn_ok.clicked.connect(dialog.accept)
         btn_row.addWidget(btn_ok)
         btn_cancel = QPushButton("Abbrechen")
@@ -1064,6 +1068,11 @@ class EditWorkspaceController(PBComponent):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             time_sec = time_spin.value()
             scene_id = scene_combo.currentData() or ""
+            if not scene_id:
+                logger.warning(
+                    "_add_anchor_dialog: accepted without scene selection; ignored"
+                )
+                return
             scene_label = scene_combo.currentText()
             minutes = int(time_sec // 60)
             secs = time_sec % 60

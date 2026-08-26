@@ -1598,3 +1598,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.
+
+### STAB-5 / B-905 Add-Anchor-Placeholder — 2026-08-26
+
+- Root Cause per RED-Test belegt: Accepted mit Placeholder erzeugte ein
+  TreeItem trotz leerer Szenen-ID.
+- `Hinzufuegen` bleibt ohne Szenen-ID deaktiviert; Auswahlwechsel synchronisiert
+  Zustand; defensive Accepted-Pruefung verhindert programmgesteuerten Leerpfad.
+- Betroffene Dialogtests nach Reviewluecken-Schluss: `2 passed in 1.27s`.
+- Drei gefuehrte Read-only-Reviews PASS, keine blockierenden Findings.
+- Status `code-fix-pending-live-verification`: PBWindow-/Projekt-Livepfad offen.
+- Evidence:
+  `docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.

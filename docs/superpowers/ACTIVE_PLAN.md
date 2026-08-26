@@ -20,13 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / B-905 Add-Anchor-Placeholder darf nicht akzeptiert werden`.
+`STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.
 
-Control #7 ist fuer gueltige Auswahl elementgenau belegt: Combo-ID/Label
-erreichen TreeItem, Collector und Console; `1 passed in 1.30s`. Candidate-Refs
-waren falsch. Direkter Finding B-905: Placeholder ohne Szene bleibt akzeptierbar
-und erzeugt leeren Anchor. Evidence:
-`docs/superpowers/synthesis/stab5-control-7-add-anchor-scene-select-2026-08-26.md`.
+B-905 ist code-complete: Placeholder deaktiviert `Hinzufuegen`; Auswahlwechsel
+synchronisiert den Buttonzustand; defensive Accepted-Pruefung verwirft leere
+Szenen-ID. RED reproduziert, danach `2 passed in 1.27s`; drei Parallelreviews
+PASS. PBWindow-/Projekt-Livepfad offen, daher
+`code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "68eeebe863214bb3904c823c06761d0a",
+  "recorded_at": "2026-08-26T03:17:37+00:00",
+  "session_id": "8c768f0fa5c842d1a4473c4289f6c640",
+  "head_at_start": "cf659c0131f3928ba4d566a459269f6c36ddbfa7",
+  "problem": "Add-Anchor-Dialog akzeptierte Placeholder ohne Szenen-ID und erzeugte scheinbaren Anchor.",
+  "cause": "Hinzufuegen war immer aktiv und Accepted-Pfad validierte currentData nicht.",
+  "rule": "Auswahlpflichtige Qt-Dialogaktionen am Consumerwert deaktivieren und Accepted-Pfad defensiv gegen leeren Wert pruefen; Zustandswechsel in beide Richtungen testen.",
+  "applies_to": "Qt-Dialoge mit Placeholder-Combo und persistierenden Aktionen"
+}
