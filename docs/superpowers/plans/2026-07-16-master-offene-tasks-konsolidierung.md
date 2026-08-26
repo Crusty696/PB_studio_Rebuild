@@ -1626,3 +1626,18 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.
+
+### STAB-5 Control #9 Add-Anchor-Abbrechen — 2026-08-26
+
+- Alte Candidate-Refs waren keine Add-Anchor-Cancel-Belege.
+- Echter `Abbrechen.click()` setzt bewusst Accepted-vorbelegten Dialog ueber
+  bestehendes `clicked.connect(dialog.reject)` auf Rejected.
+- Gueltige Szene/Zeit vor Cancel verhindern Maskierung durch B-905-Leerwertguard;
+  TreeItem, Collector und Console bleiben danach leer.
+- Gezielter Test nach Review-Schaerfung: `1 passed in 1.29s`.
+- Drei Reviewlinien PASS; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: Modal-/PBWindow-Live offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.

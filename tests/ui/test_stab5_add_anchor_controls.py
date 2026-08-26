@@ -120,3 +120,48 @@ def test_placeholder_accept_does_not_create_anchor(monkeypatch) -> None:
     finally:
         window.close()
         window.deleteLater()
+
+
+def test_cancel_button_rejects_dialog_without_anchor(monkeypatch) -> None:
+    _qapp()
+    monkeypatch.setattr(
+        edit_workspace_module, "DBSession", lambda _engine: _Session()
+    )
+
+    def _cancel(dialog: QDialog) -> QDialog.DialogCode:
+        scene_combo = dialog.findChild(QComboBox)
+        time_spin = dialog.findChild(QDoubleSpinBox)
+        cancel_button = next(
+            button
+            for button in dialog.findChildren(QPushButton)
+            if button.text() == "Abbrechen"
+        )
+        assert scene_combo is not None
+        assert time_spin is not None
+        scene_combo.addItem("Kontrollclip | Szene 42 (1.0-2.0s)", "scene-42")
+        scene_combo.setCurrentIndex(1)
+        time_spin.setValue(12.5)
+        dialog.accept()
+        assert dialog.result() == QDialog.DialogCode.Accepted
+        cancel_button.click()
+        assert dialog.result() == QDialog.DialogCode.Rejected
+        return QDialog.DialogCode(dialog.result())
+
+    monkeypatch.setattr(QDialog, "exec", _cancel)
+    anchor_list = QTreeWidget()
+    console = QTextEdit()
+    window = QMainWindow()
+    window.anchor_list = anchor_list
+    window.console_text = console
+    controller = EditWorkspaceController.__new__(EditWorkspaceController)
+    controller.window = window
+
+    try:
+        controller._add_anchor_dialog()
+
+        assert anchor_list.topLevelItemCount() == 0
+        assert controller._collect_anchors_from_ui() == []
+        assert console.toPlainText() == ""
+    finally:
+        window.close()
+        window.deleteLater()

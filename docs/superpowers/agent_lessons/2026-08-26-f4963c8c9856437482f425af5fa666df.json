@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f4963c8c9856437482f425af5fa666df",
+  "recorded_at": "2026-08-26T03:29:33+00:00",
+  "session_id": "60a7f7f581b244aabf0d7d46d9bc7d4c",
+  "head_at_start": "87a73956608dcabaf8fc0332292dae21e3e20e9c",
+  "problem": "Add-Anchor-Abbrechen war nur statisch verdrahtet; erster Negativtest konnte durch leere B-905-Guard-Daten Nebenwirkungsfehler maskieren.",
+  "cause": "Default-Rejected und leere Placeholder-ID koennen Cancel-Wiring bzw. falschen Consumer unabhängig voneinander false-passen lassen.",
+  "rule": "Cancel-Controls mit Accepted-Sentinel und gueltigen konsumierbaren Nutzdaten testen; danach Rejected plus ausbleibende Nebenwirkungen assertieren.",
+  "applies_to": "Qt-Abbrechen-Dialoge, negative UI-Controltests, STAB-5"
+}

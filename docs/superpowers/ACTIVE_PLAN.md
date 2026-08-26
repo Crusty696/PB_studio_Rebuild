@@ -20,13 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.
+`STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.
 
-Control #8 ist elementgenau belegt: echter `Hinzufuegen.click()` emittiert
-Signal, setzt echten Dialogresultatwert Accepted und erreicht danach
-TreeItem/UserRole/Collector/Console; `1 passed in 1.25s`, drei Parallelreviews
-PASS. Modal-Loop und PBWindow-/Projekt-Livepfad bleiben offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
+Control #9 ist elementgenau belegt: echter `Abbrechen.click()` setzt einen
+bewusst Accepted-vorbelegten Dialog auf Rejected; trotz gueltiger Szene/Zeit
+bleiben TreeItem, Collector und Console leer. Zieltest `1 passed in 1.29s`;
+drei Reviewlinien PASS nach False-PASS-Schaerfung. Modal-/PBWindow-Live offen.
+Evidence:
+`docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

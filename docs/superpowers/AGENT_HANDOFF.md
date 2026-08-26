@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.
+`STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.
 
-Scope: sichtbaren `Abbrechen`-Control per echtem Qt-Click bis
-`dialog.reject()` und ausbleibenden Anchor-/Console-Nebenwirkungen belegen;
-vorhandenen Anchor-Testpfad nutzen, keine breite Testsuite.
+Scope: sichtbaren Top-Bar-`Kontext`-Button vom echten Qt-Click durch
+`_set_context_panel_visible` bis sichtbaren Panelzustand belegen; Candidate-Refs
+zuerst semantisch pruefen, nur betroffenen Test laufen lassen.
 
 ## Letzter Abschluss
 
-Control #8 Hinzufuegen elementgenau zielgetestet; Livepfad offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
+Control #9 Abbrechen elementgenau zielgetestet; Livepfad offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #8 Hinzufuegen elementgenau zielgetestet; Livepfad offen. Evidence:
 
 ## Verifikation
 
-#8: echter Button-Click → echtes Accepted-Resultat → TreeItem/UserRole/
-Collector/Console; `1 passed in 1.25s`, drei Reviews PASS. Modal-/PBWindow-/
-Projekt-Live offen. Naechste Task Matrixeintrag #9 Abbrechen.
+#9: echter Button-Click setzt Accepted-Sentinel auf Rejected; gueltige Nutzdaten
+erzeugen danach keine TreeItem-/Collector-/Console-Wirkung; `1 passed in 1.29s`.
+Modal-/PBWindow-Live offen. Naechste Task Matrixeintrag #10 Kontext.
