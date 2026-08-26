@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8db517011c4e4678b8befdd4903ab625",
+  "recorded_at": "2026-08-26T03:23:40+00:00",
+  "session_id": "5cc30e540cfe41ca840961d3f6852f18",
+  "head_at_start": "db01af0777ed60f039558125748a3808932b108d",
+  "problem": "Add-Anchor-Hinzufuegen war nur statisch verdrahtet und durch falsche Candidate-Refs nicht elementgenau belegt.",
+  "cause": "Bestehender Dialogtest gab Accepted direkt zurueck und umging den sichtbaren Button-Click.",
+  "rule": "Lokale Dialog-Buttons mit echtem QPushButton.click, Dialogresultat-Assertion und nachgelagertem Consumerzustand belegen; nur Modal- und Datenrand isolieren.",
+  "applies_to": "STAB-5 Dialogbuttons, Qt-Signalcontrols, Add-Anchor"
+}

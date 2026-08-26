@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.
+`STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.
 
-Scope: sichtbaren `Hinzufuegen`-Control vom Qt-Click durch Dialog-Accept bis
-TreeItem/Collector elementgenau belegen; vorhandenen B-905-Testpfad nutzen,
-keine breite Testsuite.
+Scope: sichtbaren `Abbrechen`-Control per echtem Qt-Click bis
+`dialog.reject()` und ausbleibenden Anchor-/Console-Nebenwirkungen belegen;
+vorhandenen Anchor-Testpfad nutzen, keine breite Testsuite.
 
 ## Letzter Abschluss
 
-B-905 Root Cause behoben und zielgetestet; Livepfad offen. Evidence:
-`docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
+Control #8 Hinzufuegen elementgenau zielgetestet; Livepfad offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ B-905 Root Cause behoben und zielgetestet; Livepfad offen. Evidence:
 
 ## Verifikation
 
-B-905: RED reproduziert, danach Placeholder/gueltige Auswahl/Re-Disable und
-Accepted-Guard `2 passed in 1.27s`; drei Reviews PASS. PBWindow-/DB-/Sync-Live
-offen. Naechste Task Matrixeintrag #8 Hinzufuegen.
+#8: echter Button-Click → echtes Accepted-Resultat → TreeItem/UserRole/
+Collector/Console; `1 passed in 1.25s`, drei Reviews PASS. Modal-/PBWindow-/
+Projekt-Live offen. Naechste Task Matrixeintrag #9 Abbrechen.

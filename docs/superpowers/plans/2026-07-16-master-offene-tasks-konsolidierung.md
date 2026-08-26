@@ -1612,3 +1612,17 @@ Decision: Vault
   `docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.
+
+### STAB-5 Control #8 Add-Anchor-Hinzufuegen — 2026-08-26
+
+- Alte Candidate-Refs waren keine Add-Anchor-Clickbelege.
+- Echtes produktiv gebautes `QPushButton.click()` emittiert Signal und setzt
+  Dialogresultat ueber bestehendes `clicked.connect(dialog.accept)`.
+- Accepted-Consumer erzeugt danach erwartetes TreeItem/UserRole, Collector- und
+  Console-Ergebnis; gezielter Test `1 passed in 1.25s`.
+- Drei gefuehrte Read-only-Reviews PASS; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: Modal-Loop/PBWindow/Projekt-Live offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.

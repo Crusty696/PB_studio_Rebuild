@@ -20,14 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #8 Add-Anchor-Hinzufuegen elementgenau pruefen und belegen`.
+`STAB-5 / Control #9 Add-Anchor-Abbrechen elementgenau pruefen und belegen`.
 
-B-905 ist code-complete: Placeholder deaktiviert `Hinzufuegen`; Auswahlwechsel
-synchronisiert den Buttonzustand; defensive Accepted-Pruefung verwirft leere
-Szenen-ID. RED reproduziert, danach `2 passed in 1.27s`; drei Parallelreviews
-PASS. PBWindow-/Projekt-Livepfad offen, daher
-`code-fix-pending-live-verification`. Evidence:
-`docs/superpowers/synthesis/b905-add-anchor-placeholder-validation-2026-08-26.md`.
+Control #8 ist elementgenau belegt: echter `Hinzufuegen.click()` emittiert
+Signal, setzt echten Dialogresultatwert Accepted und erreicht danach
+TreeItem/UserRole/Collector/Console; `1 passed in 1.25s`, drei Parallelreviews
+PASS. Modal-Loop und PBWindow-/Projekt-Livepfad bleiben offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-8-add-anchor-add-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

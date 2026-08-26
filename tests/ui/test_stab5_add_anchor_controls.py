@@ -65,7 +65,9 @@ def test_scene_combo_selection_reaches_anchor_item(monkeypatch) -> None:
         scene_combo.setCurrentIndex(1)
         assert add_button.isEnabled() is True
         time_spin.setValue(12.5)
-        return QDialog.DialogCode.Accepted
+        add_button.click()
+        assert dialog.result() == QDialog.DialogCode.Accepted
+        return QDialog.DialogCode(dialog.result())
 
     monkeypatch.setattr(QDialog, "exec", _accept_with_scene)
     anchor_list = QTreeWidget()
