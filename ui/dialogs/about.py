@@ -7,12 +7,20 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QMessageBox,
 )
-from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtCore import Qt, QCoreApplication, QUrl
+from PySide6.QtGui import QDesktopServices
 
 from ui.theme import BG0, BG1, BG3, BG4, ACCENT, ACCENT_BRIGHT, T2, T3, T4
 
 logger = logging.getLogger(__name__)
+
+
+def _documentation_path() -> Path:
+    """Return README location for source checkout and PyInstaller bundle."""
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return bundle_root / "README.md"
 
 
 def _build_date() -> str:
@@ -196,15 +204,25 @@ class AboutDialog(QDialog):
     @staticmethod
     def _open_docs() -> None:
         """Open the documentation README in the default viewer."""
-        import subprocess, os
-        docs_path = Path(__file__).parent.parent.parent / "README.md"
-        try:
-            if docs_path.exists():
-                if sys.platform == "win32":
-                    os.startfile(str(docs_path))
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", str(docs_path)])
-                else:
-                    subprocess.Popen(["xdg-open", str(docs_path)])
-        except (subprocess.SubprocessError, OSError) as exc:
-            logger.warning("_open_docs: failed to open README: %s", exc)
+        docs_path = _documentation_path()
+        if not docs_path.is_file():
+            logger.error("_open_docs: packaged README fehlt: %s", docs_path)
+            QMessageBox.warning(
+                None,
+                QCoreApplication.translate("AboutDialog", "Dokumentation fehlt"),
+                QCoreApplication.translate(
+                    "AboutDialog",
+                    "Die lokale PB Studio Dokumentation wurde nicht gefunden.",
+                ),
+            )
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(docs_path))):
+            logger.error("_open_docs: System konnte README nicht oeffnen: %s", docs_path)
+            QMessageBox.warning(
+                None,
+                QCoreApplication.translate("AboutDialog", "Dokumentation nicht geoeffnet"),
+                QCoreApplication.translate(
+                    "AboutDialog",
+                    "Das System konnte die lokale PB Studio Dokumentation nicht oeffnen.",
+                ),
+            )

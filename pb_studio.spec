@@ -133,6 +133,7 @@ pyside6_bins = _filter_known_unused_toc(pyside6_bins)
 # Project asset data (resources, styles, knowledge)
 # ---------------------------------------------------------------------------
 project_datas = [
+    (str(ROOT / 'README.md'), '.'),
     (str(ROOT / 'resources'),  'resources'),
     # B-SPEC-styles: 'styles'-Ordner wurde bei Repo-Bereinigung (146d0f4) entfernt;
     # Theme kommt jetzt aus ui/theme.py (get_stylesheet). Stale Referenz brach den

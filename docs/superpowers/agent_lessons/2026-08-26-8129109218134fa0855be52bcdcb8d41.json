@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8129109218134fa0855be52bcdcb8d41",
+  "recorded_at": "2026-08-26T00:27:02+00:00",
+  "session_id": "8b25ca3c7cfc48e7be172fa076567237",
+  "head_at_start": "11c5d39855c6692f54b8176e34cd1c3cb7737766",
+  "problem": "About-Dokumentation war im installierten Build stiller No-Op",
+  "cause": "README war nicht Teil der PyInstaller-Daten und der Handler meldete fehlende Datei nicht",
+  "rule": "Lokale UI-Dokumentation muss als Bundle-Datenartefakt gepackt und bei fehlender oder abgelehnter Oeffnung sichtbar gemeldet werden",
+  "applies_to": "PyInstaller-About-/Hilfe-Links"
+}

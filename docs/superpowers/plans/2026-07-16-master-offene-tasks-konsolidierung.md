@@ -1394,3 +1394,15 @@ Decision: Vault
   verschoben, damit Links nicht brechen.
 - Naechste einzige Task:
   `STAB-5 / B-902 About-Dokumentation im installierten Build funktionsfaehig machen`.
+
+### B-902 About-Dokumentation — 2026-08-26
+
+- Root Cause behoben: README wird ins PyInstaller-Bundle gepackt; About oeffnet
+  lokal via `QDesktopServices`; fehlende/abgelehnte Oeffnung ist sichtbar.
+- Syntax gruen; fokussierter Test 1 passed.
+- Status `code-fix-pending-live-verification`: Frozen-/Installer-Livetest fehlt
+  und bleibt STAB-6-Gate.
+- User autorisierte als direkte Governance-Folgetask physische Archivierung
+  aller Registry-`superseded`-Plaene samt kompletter Repo-/Vault-Linkmigration.
+- Naechste einzige Task:
+  `Governance / superseded Planfiles physisch archivieren und alle Repo-/Vault-Links neu bauen`.
