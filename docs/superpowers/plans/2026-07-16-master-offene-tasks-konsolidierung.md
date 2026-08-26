@@ -1791,3 +1791,18 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
+
+### STAB-5 Control #20 Undo-Aktion — 2026-08-27
+
+- Candidate-Refs waren semantisch fremd.
+- Echter PBWindow-Build erzeugt genau eine sichtbare/aktive Window-QAction `Undo`
+  mit Window-Parent und StandardKey.Undo.
+- MarkerCommand im echten Timeline-QUndoStack wird durch QAction-Trigger von
+  Zustand 1 auf 0 zurueckgenommen; Stack danach redo-faehig.
+- Nur ChatDock-Host/Ollama-Rand und Close-Prompt isoliert.
+- Zieltest `1 passed in 11.08s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: physischer Ctrl+Z-App-Livepfad offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-20-undo-action-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #21 Redo-Aktion elementgenau pruefen und belegen`.

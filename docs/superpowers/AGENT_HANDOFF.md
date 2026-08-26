@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #21 Redo-Aktion elementgenau pruefen und belegen`.
 
-Scope: `workspace_setup.py` -> Workspace-Edit-Menu `undo_action / Undo`;
-Konstruktion, Trigger und Routing zum Timeline-Undo-Stack elementgenau pruefen.
+Scope: `workspace_setup.py` -> Window-Action `redo_action / Redo`;
+Konstruktion, Standardshortcut, Trigger und Timeline-Redo-Stack elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #19 Letzte-Projekte-Liste leeren elementgenau zielgetestet; Popup-/Persistenz-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-2026-08-27.md`.
+Control #20 Undo-Aktion im echten PBWindow/Timeline-Undo-Stack zielgetestet; Ctrl+Z-App-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-20-undo-action-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-202
 
 ## Verifikation
 
-#19: gefuelltes Recent-Menu → Separator/Clear-Aktion → Store-Clear + Erfolgsmeldung;
-`1 passed in 12.26s`. Modales PBWindow-/Persistenz-Live offen. Naechste Task
-#20 Undo-Aktion.
+#20: echter PBWindow-Build → Window-QAction/StandardKey.Undo → echter Timeline-
+QUndoStack/MarkerCommand von 1 auf 0; `1 passed in 11.08s`. Ctrl+Z-App-Live offen.
+Naechste Task #21 Redo-Aktion.

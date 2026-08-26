@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #21 Redo-Aktion elementgenau pruefen und belegen`.
+
+Control #20 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
+sichtbare/aktive Window-QAction `Undo` mit StandardKey.Undo und Window-Parent.
+MarkerCommand im echten Timeline-QUndoStack wird durch QAction-Trigger von 1
+auf 0 zurueckgenommen; Stack danach redo-faehig. Zieltest `1 passed in 11.08s`,
+kein Produktcodeedit. Physischer Ctrl+Z-App-Livepfad bleibt offen. Status
+`target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-20-undo-action-2026-08-27.md`.
 
 Control #19 ist elementgenau belegt: gefuelltes Recent-Projekte-Menu enthaelt
 nach Projektaktion und Separator echte sichtbare/aktive QAction `Liste leeren`.

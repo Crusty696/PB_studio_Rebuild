@@ -1,0 +1,10 @@
+{
+  "lesson_id": "942418bd7f4248b4bbc0a0f2123c5454",
+  "recorded_at": "2026-08-26T22:05:30+00:00",
+  "session_id": "43fc84615f3647e38f279c8d08737c78",
+  "head_at_start": "9f7ba605fe08a4b32278fc1890460c676dfae206",
+  "problem": "Window-weite Undo-QAction war nur als Quellzeile vorhanden; Timeline-Undo-Tests umgingen den konkreten Shortcut-Ausloeser.",
+  "cause": "Ausloeser-Wiring und Undo-Stack-Verhalten wurden getrennt getestet, ohne echten PBWindow-Builderpfad zu verbinden.",
+  "rule": "Window-weite Undo/Redo-Aktionen im echten PBWindow erzeugen und mit MarkerCommand im echten QUndoStack bis zur beobachtbaren Zustandsaenderung testen.",
+  "applies_to": "STAB-5 Window-QActions, Standardshortcuts und Timeline-QUndoStack"
+}
