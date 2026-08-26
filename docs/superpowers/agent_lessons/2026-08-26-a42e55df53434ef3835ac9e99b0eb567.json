@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a42e55df53434ef3835ac9e99b0eb567",
+  "recorded_at": "2026-08-26T23:57:43+00:00",
+  "session_id": "c0c12abb580d4ff9851a592d04a0f855",
+  "head_at_start": "94910eb541ca789cff06c7a6bb81e933f916c4c8",
+  "problem": "Qt-QThread finished und deleteLater; Python-Attribut bleibt beim spaeteren Shutdown als Zombie-Wrapper",
+  "cause": "closeEvent pruefte nur Attribut/None und rief isRunning auf bereits geloeschtem C++-Objekt auf",
+  "rule": "Bei Qt-Worker-Shutdown Referenz vor Zugriff loesen und Shiboken-Gueltigkeit pruefen; geloeschte Wrapper niemals dereferenzieren",
+  "applies_to": "PySide6 QThread/QObject Lifecycle und PBWindow closeEvent"
+}

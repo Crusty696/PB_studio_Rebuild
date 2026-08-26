@@ -646,6 +646,26 @@ class PBWindow(QMainWindow):
         self._version_checker.start()
         logger.debug("Version check started (current=%s)", APP_VERSION)
 
+    def _stop_version_checker(self) -> None:
+        """Stoppt den Update-Worker, auch wenn Qt ihn bereits geloescht hat."""
+        checker = getattr(self, "_version_checker", None)
+        self._version_checker = None
+        if checker is None:
+            return
+
+        import shiboken6
+
+        # B-907: `finished -> deleteLater` kann den C++-QThread lange vor dem
+        # App-Shutdown loeschen. Der Python-Wrapper bleibt dann vorhanden,
+        # aber jeder Methodenaufruf wirft `Internal C++ object already deleted`.
+        if not shiboken6.isValid(checker):
+            logger.debug("Version check worker was already deleted")
+            return
+        if checker.isRunning():
+            checker.quit()
+            if not checker.wait(2000):
+                logger.warning("Version check thread did not stop gracefully")
+
     def _on_update_available(self, latest_version: str, download_url: str) -> None:
         """Show the update banner when a newer release is detected."""
         self._update_banner_label.setText(
@@ -1208,12 +1228,8 @@ class PBWindow(QMainWindow):
         self._active_workers.clear()
         _GLOBAL_ACTIVE_THREADS.clear()
 
-        # M-9 Fix: Stop version check thread with timeout guard
-        if hasattr(self, '_version_checker') and self._version_checker is not None:
-            if self._version_checker.isRunning():
-                self._version_checker.quit()
-                if not self._version_checker.wait(2000):  # 2 second timeout
-                    logger.warning("Version check thread did not stop gracefully")
+        # M-9/B-907: Timeout-Guard + Schutz vor bereits geloeschtem C++-Objekt.
+        self._stop_version_checker()
 
         # ResourceMonitorWidget besitzt einen QThread. Ohne stop() beendet
         # Windows den Prozess nach QApplication-Exit mit STATUS_STACK_BUFFER_OVERRUN.

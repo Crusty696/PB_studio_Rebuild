@@ -22,6 +22,11 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
 
+B-907 ist live-verifiziert abgeschlossen: normaler Worktree-App-Start,
+spontaner MainWindow-Close, kompletter Cleanup, kein RuntimeError/Traceback.
+Der direkte Shutdown-Blocker ist damit entfernt. B-893-Liveabnahme nutzt
+normalen Launcher und Userprojekt `123454321`.
+
 B-893 Root-Cause-Fix ist code-complete: Produkt-Reranker nutzt BPM-Pace und
 candidate-spezifische Motion-Quartile wie spaetere Feedback-Rekonstruktion.
 Fokustest `1 passed in 0.93s`; echter Auto-Edit-UI-Lauf fehlt. Status

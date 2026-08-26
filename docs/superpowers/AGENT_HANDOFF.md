@@ -18,10 +18,9 @@ Ausführungsauftrag verwenden.
 
 `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
 
-Codefix liegt in `services/brain/reranker.py`; Fokusvertrag in
-`tests/test_services/test_b893_weightstore_context.py` ist gruen. Kein
-autonomes Windows-App-Klicktool/kein erhaltenes STAB-3-Harness vorhanden.
-Naechster Schritt ist realer Auto-Edit-UI-Lauf; erst danach B-895.
+B-907 ist per Zombie-Wrapper-Test und echtem normalen App-Start/-Shutdown
+live-verifiziert abgeschlossen. Naechster Schritt: normaler Launcher, Projekt
+`123454321`, B-893-Auto-Edit-Liveabnahme; erst danach B-895.
 
 ## Letzter Abschluss
 

@@ -1920,3 +1920,25 @@ Decision: Vault
 - Naechste einzige Task:
   `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
 - B-895 beginnt erst danach.
+
+### PACING-BLOCKER B-907 VersionCheckWorker-Shutdown — 2026-08-27
+
+- Echter B-893-Liveversuch: `closeEvent()` crashte auf bereits geloeschtem
+  `VersionCheckWorker` (`main.py:1213`).
+- Root Cause: `finished -> deleteLater` loescht C++-Objekt; Python-Attribut
+  bleibt als ungueltiger Shiboken-Wrapper und wird ohne `isValid` dereferenziert.
+- Genau naechste Task: minimaler Lifecycle-Fix + direkter Zombie-Wrapper-Test.
+- Danach sofort B-893-Liveabnahme mit normalem Launcher und bestehendem Projekt
+  `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\projects\123454321`.
+
+### PACING-BLOCKER B-907 Abschluss — 2026-08-27
+
+- Fix: `_stop_version_checker()` loest Referenz vor Zugriff, prueft
+  `shiboken6.isValid` und stoppt nur gueltigen laufenden Worker.
+- Zieltest: `tests/test_ui/test_b907_version_checker_shutdown.py` →
+  `1 passed in 5.06s`; Syntax PASS.
+- Live: normaler Worktree-App-Start, spontaner MainWindow-Close, kompletter
+  Cleanup, beide Prozesse beendet, kein RuntimeError/Traceback.
+- Status: B-907 `fixed`.
+- Naechste einzige Task: `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad
+  fuer angeglichenen WeightStore-Context belegen`.
