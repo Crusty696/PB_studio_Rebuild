@@ -30,7 +30,7 @@ Governance-/Planhygiene-Folgebereinigung documentation-complete. Evidence:
 
 - `6de5fdc` — superseded Pläne archiviert, Links neu gebaut
 - `8cb1e55` — B-902 Code-Fix; Installer-/Frozen-Livetest bleibt STAB-6-Gate
-- `39f2a40` — verbleibende Authority-/Handoff-/Vault-Linkaltlasten bereinigt
+- `e3f191c` — verbleibende Authority-/Handoff-/Vault-Linkaltlasten bereinigt
 - Kein Push durch aktuellen Agenten.
 
 ## Verifikation
