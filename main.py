@@ -608,6 +608,7 @@ class PBWindow(QMainWindow):
         )
         self._update_banner_link.setCursor(Qt.CursorShape.PointingHandCursor)
         self._update_banner_link.setVisible(False)
+        self._update_banner_download_slot = None
         layout.addWidget(self._update_banner_link)
 
         btn_close = QPushButton("✕")
@@ -652,14 +653,15 @@ class PBWindow(QMainWindow):
         )
         if download_url:
             self._update_banner_link.setVisible(True)
-            # FIX H-1: Disconnect previous connections to prevent accumulation
-            try:
-                self._update_banner_link.clicked.disconnect()
-            except RuntimeError:
-                pass  # No connections yet
-            self._update_banner_link.clicked.connect(
-                lambda: __import__("webbrowser").open(download_url)
-            )
+            previous_slot = self._update_banner_download_slot
+            if previous_slot is not None:
+                try:
+                    self._update_banner_link.clicked.disconnect(previous_slot)
+                except (RuntimeError, TypeError):
+                    pass
+            download_slot = lambda: __import__("webbrowser").open(download_url)
+            self._update_banner_download_slot = download_slot
+            self._update_banner_link.clicked.connect(download_slot)
         self._update_banner.setVisible(True)
         logger.info("Update banner shown: v%s available", latest_version)
 

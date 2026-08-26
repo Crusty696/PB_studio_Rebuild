@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from types import MethodType
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -32,8 +33,10 @@ def test_download_control_opens_latest_release_url(monkeypatch) -> None:
 
     assert host._update_banner.isHidden()
     assert host._update_banner_link.isHidden()
-    host._on_update_available("0.5.1", "https://example.invalid/old")
-    host._on_update_available("0.5.2", "https://example.invalid/latest")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        host._on_update_available("0.5.1", "https://example.invalid/old")
+        host._on_update_available("0.5.2", "https://example.invalid/latest")
     app.processEvents()
 
     assert host._update_banner_label.text() == "Update verfügbar: PB Studio v0.5.2"
@@ -43,3 +46,8 @@ def test_download_control_opens_latest_release_url(monkeypatch) -> None:
     app.processEvents()
 
     assert opened_urls == ["https://example.invalid/latest"]
+    assert not [
+        warning
+        for warning in caught
+        if "Failed to disconnect" in str(warning.message)
+    ]

@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / B-904 Update-Banner-Disconnect-RuntimeWarning eng beheben`.
+`STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.
 
-Scope: nur eigenen Download-Click-Slot gezielt verwalten, damit Erstverbindung
-keinen pauschalen Disconnect-Warnhinweis erzeugt. Danach denselben Einzeltest;
-anschliessend Matrix-Control #5.
+Scope: vorhandenen lokalen Close-Button mit echtem Qt-Click gegen sichtbaren
+Banner pruefen; bestehenden Control-#4-Test minimal erweitern, Produktedit nur
+bei reproduziertem Defekt.
 
 ## Letzter Abschluss
 
-Control #4 Download zielgetestet; B-904 als direkter Low-Fund erfasst. Evidence:
-`docs/superpowers/synthesis/stab5-control-4-update-banner-download-2026-08-26.md`.
+B-904 Codefix warnings-frei zielgetestet und parallel reviewed. Evidence:
+`docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #4 Download zielgetestet; B-904 als direkter Low-Fund erfasst. Evidence:
 
 ## Verifikation
 
-#4: Download-Click öffnet nach zwei Update-Signalen exakt neueste URL;
-`1 passed in 4.85s`. App-/Release-Live offen. B-904 RuntimeWarning beim ersten
-Signal-Disconnect ist nächste enge Fix-Task; danach Matrixlücke #5.
+B-904: eigener Slot wird gezielt getrennt; `1 passed in 4.56s` ohne Warning,
+drei Reviews PASS. Produktcodefix vorhanden, echter App-/Release-Livepfad
+offen. Nächste Matrixlücke #5.

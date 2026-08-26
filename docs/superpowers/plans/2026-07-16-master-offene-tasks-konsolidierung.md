@@ -1540,3 +1540,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-4-update-banner-download-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / B-904 Update-Banner-Disconnect-RuntimeWarning eng beheben`.
+
+### B-904 Update-Banner Disconnect-RuntimeWarning — 2026-08-26
+
+- Root Cause: pauschaler `clicked.disconnect()` vor erster Verbindung.
+- Codefix speichert eigenen Download-Slot und trennt nur genau diesen bei
+  erneutem Update-Signal.
+- Fokussierter Zieltest: `1 passed in 4.56s`, keine Warning; drei gefuehrte
+  Read-only-Reviews PASS.
+- Status `code-fix-pending-live-verification`: echter App-/Release-/Browserpfad
+  fehlt.
+- Evidence:
+  `docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.

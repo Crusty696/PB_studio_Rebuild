@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a45a16883a5043e19c0f88b79bb59f11",
+  "recorded_at": "2026-08-26T02:51:52+00:00",
+  "session_id": "849fa440a34e4b97908242cf09351dfa",
+  "head_at_start": "10ae1f63cbeb0946f2ecb8c7d38ea4c40f95486e",
+  "problem": "Update-Banner erzeugte beim ersten Release-Signal eine PySide6 Disconnect-RuntimeWarning.",
+  "cause": "Code trennte pauschal alle clicked-Verbindungen, obwohl vor Erstaufruf keine Verbindung existierte.",
+  "rule": "Dynamisch ersetzte Qt-Callbacks als konkrete Instanzreferenz speichern und nur diese nach Existenzpruefung trennen; pauschales signal.disconnect() vermeiden.",
+  "applies_to": "Qt-Signal-Reconnects, Update-Banner, wiederholte UI-Handler"
+}

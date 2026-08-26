@@ -20,14 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / B-904 Update-Banner-Disconnect-RuntimeWarning eng beheben`.
+`STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.
 
-Control #4 Download ist elementgenau belegt: initial hidden, Update-Handler
-zeigt Banner/Link, echter Click öffnet nach zwei Signalen exakt neueste URL.
-`1 passed in 4.85s`; App-/Release-Live offen. Test reproduziert B-904 als
-separaten Low-Fund: erster pauschaler Signal-Disconnect erzeugt RuntimeWarning.
-Evidence:
-`docs/superpowers/synthesis/stab5-control-4-update-banner-download-2026-08-26.md`.
+B-904 Codefix verwaltet nur eigenen Download-Slot und vermeidet Disconnect vor
+Erstverbindung. Derselbe Qt-Zieltest ist warnungsfrei grün: `1 passed in
+4.56s`; drei Parallelreviews PASS. App-/Release-Live bleibt offen, Status
+`code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.
