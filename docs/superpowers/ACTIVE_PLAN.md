@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #22 Speichern-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.
+
+Control #22 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
+sichtbare/aktive Window-QAction `Speichern` mit StandardKey.Save und Window-
+Parent. QAction-Trigger erreicht exakt das echte ProjectManagementController-
+Objekt. Zieltest `1 passed in 9.44s`, kein Produktcodeedit. Reale
+Projektpersistenz und physischer Ctrl+S-App-Livepfad bleiben offen. Status
+`target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md`.
 
 Control #21 ist elementgenau belegt: echter PBWindow-Build erzeugt genau eine
 sichtbare/aktive Window-QAction `Redo` mit StandardKey.Redo und Window-Parent.

@@ -1821,3 +1821,18 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-21-redo-action-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #22 Speichern-Aktion elementgenau pruefen und belegen`.
+
+### STAB-5 Control #22 Speichern-Aktion — 2026-08-27
+
+- B-528-Test pruefte Shortcut-Wiring nur statisch; Handler-Test umging QAction.
+- Echter PBWindow-Build erzeugt genau eine sichtbare/aktive Window-QAction
+  `Speichern` mit Window-Parent und StandardKey.Save.
+- QAction-Trigger erreicht exakt das echte ProjectManagementController-Objekt.
+- Nur Save-Methodenkoerper, ChatDock-Host/Ollama-Rand und Close-Prompt isoliert.
+- Zieltest `1 passed in 9.44s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: reale Projektpersistenz und physischer
+  Ctrl+S-App-Livepfad offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.

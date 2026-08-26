@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #22 Speichern-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #23 A/B-Vergleich-ausfuehren-Button elementgenau pruefen und belegen`.
 
-Scope: `workspace_setup.py` -> Window-Action `save_action / Speichern`;
-Konstruktion, Standardshortcut und Trigger zum echten Save-Handler elementgenau pruefen.
+Scope: `ui/dialogs/ab_compare_dialog.py` -> `btn_run / Vergleich ausfuehren`;
+Sichtbarkeit, Click, Validierung, Erfolg und Fehlerpfad elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #21 Redo-Aktion im echten PBWindow/Timeline-Undo-Stack zielgetestet; Shortcut-App-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-21-redo-action-2026-08-27.md`.
+Control #22 Speichern-Aktion im echten PBWindow bis ProjectManagementController zielgetestet; Persistenz-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-22-save-action-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-21-redo-action-2026-08-27.md
 
 ## Verifikation
 
-#21: echter PBWindow-Build → Window-QAction/StandardKey.Redo → echter Timeline-
-QUndoStack/MarkerCommand von 0 auf 1; `1 passed in 11.05s`. Redo-Shortcut-App-Live
-offen. Naechste Task #22 Speichern-Aktion.
+#22: echter PBWindow-Build → Window-QAction/StandardKey.Save → echter
+ProjectManagementController; `1 passed in 9.44s`. Persistenz/Ctrl+S-App-Live
+offen. Naechste Task #23 A/B-Vergleich ausfuehren.

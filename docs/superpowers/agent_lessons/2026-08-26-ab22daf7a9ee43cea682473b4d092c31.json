@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ab22daf7a9ee43cea682473b4d092c31",
+  "recorded_at": "2026-08-26T22:14:47+00:00",
+  "session_id": "73c0b9ccb220422db92c01367e0c6faf",
+  "head_at_start": "8229a39f9bae514c4f52c5566cfad47e8f603605",
+  "problem": "Save-QAction war nur statisch verdrahtet getestet; separater Handler-Test umging den Window-Ausloeser.",
+  "cause": "Quelltextbeleg und Controller-Verhalten waren nicht durch echten PBWindow-Build und QAction-Trigger verbunden.",
+  "rule": "Window-weite Save-Aktion im echten PBWindow erzeugen, StandardKey.Save und eindeutige QAction pruefen und den Handlerkoerper isoliert bis zum echten Controller-Objekt triggern.",
+  "applies_to": "STAB-5 Save-Shortcuts und zustandsaendernde Window-QActions"
+}
