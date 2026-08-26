@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.
+`STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
 
-Scope: vorhandenen lokalen Close-Button mit echtem Qt-Click gegen sichtbaren
-Banner pruefen; bestehenden Control-#4-Test minimal erweitern, Produktedit nur
-bei reproduziertem Defekt.
+Scope: Matrix-Candidate-Refs gegen `ChatDock.btn_send` bis `_on_send` und
+sichtbaren/gesendeten Zustand prüfen. Vorhandenen Test wiederverwenden; nur bei
+echter Evidenzlücke kleinsten Zusatztest, Produktedit nur bei Defekt.
 
 ## Letzter Abschluss
 
-B-904 Codefix warnings-frei zielgetestet und parallel reviewed. Evidence:
-`docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
+Control #5 Banner-Close zielgetestet, kein Produktfix. Evidence:
+`docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ B-904 Codefix warnings-frei zielgetestet und parallel reviewed. Evidence:
 
 ## Verifikation
 
-B-904: eigener Slot wird gezielt getrennt; `1 passed in 4.56s` ohne Warning,
-drei Reviews PASS. Produktcodefix vorhanden, echter App-/Release-Livepfad
-offen. Nächste Matrixlücke #5.
+#5: echter `✕`-Click versteckt sichtbaren Banner; späteres Update zeigt ihn
+erneut. `1 passed in 4.19s`, drei Reviews PASS, kein Produktcodeedit. Nächster
+Matrixeintrag #6 besitzt Candidate-Refs und wird elementgenau abgeglichen.

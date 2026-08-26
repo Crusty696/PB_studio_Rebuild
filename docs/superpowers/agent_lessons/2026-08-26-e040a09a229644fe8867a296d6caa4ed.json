@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e040a09a229644fe8867a296d6caa4ed",
+  "recorded_at": "2026-08-26T02:56:15+00:00",
+  "session_id": "30278ce308734e8cad931c6040b783a6",
+  "head_at_start": "a21fb2073828ba5374e6df5c05460e8b180d7bf7",
+  "problem": "Update-Banner-Close war statisch verdrahtet, aber ohne elementgenauen Zustandsbeleg.",
+  "cause": "Matrix hatte keinen Test, der sichtbaren Banner, echten Close-Click, Hidden-State und erneutes Anzeigen gemeinsam pruefte.",
+  "rule": "Dismissible UI-Controls mit echtem Click und Zustandsfolge visible -> hidden -> bei neuem Ereignis visible belegen; Produktcode bei gruenem Pfad unveraendert lassen.",
+  "applies_to": "STAB-5 Dismiss-Controls, Banner, Toasts, Qt-Zustandsaktionen"
+}

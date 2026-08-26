@@ -20,13 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.
+`STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
 
-B-904 Codefix verwaltet nur eigenen Download-Slot und vermeidet Disconnect vor
-Erstverbindung. Derselbe Qt-Zieltest ist warnungsfrei grün: `1 passed in
-4.56s`; drei Parallelreviews PASS. App-/Release-Live bleibt offen, Status
-`code-fix-pending-live-verification`. Evidence:
-`docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
+Control #5 ist elementgenau belegt: echter Update-Handler zeigt Banner,
+`✕`-Click versteckt ihn, späteres Update zeigt ihn erneut. Neuer Zieltest
+`1 passed in 4.19s`; drei Reviews PASS, kein Produktcodeedit. App-Live offen.
+Evidence:
+`docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

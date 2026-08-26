@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from main import PBWindow
 
@@ -51,3 +51,25 @@ def test_download_control_opens_latest_release_url(monkeypatch) -> None:
         for warning in caught
         if "Failed to disconnect" in str(warning.message)
     ]
+
+
+def test_close_control_hides_visible_update_banner() -> None:
+    app = _qapp()
+    host = _banner_host()
+    close_button = next(
+        button
+        for button in host._update_banner.findChildren(QPushButton)
+        if button.text() == "✕"
+    )
+
+    host._on_update_available("0.5.1", "https://example.invalid/release")
+    app.processEvents()
+    assert not host._update_banner.isHidden()
+
+    QTest.mouseClick(close_button, Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert host._update_banner.isHidden()
+
+    host._on_update_available("0.5.2", "https://example.invalid/new-release")
+    app.processEvents()
+    assert not host._update_banner.isHidden()

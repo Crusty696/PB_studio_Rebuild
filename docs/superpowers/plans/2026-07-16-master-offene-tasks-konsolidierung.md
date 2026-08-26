@@ -1554,3 +1554,15 @@ Decision: Vault
   `docs/superpowers/synthesis/b904-update-banner-disconnect-warning-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #5 Update-Banner-Schliessen elementgenau pruefen und belegen`.
+
+### STAB-5 Control #5 Update-Banner-Schliessen — 2026-08-26
+
+- Echter Update-Handler zeigt den Banner; echter `✕`-Click versteckt ihn.
+- Spaeteres Update zeigt denselben Banner wieder.
+- Fokussierter neuer Testfall: `1 passed in 4.19s`.
+- Drei gefuehrte Read-only-Reviews PASS; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: echter App-/Release-Bannerpfad offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
