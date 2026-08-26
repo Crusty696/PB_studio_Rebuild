@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ba8d1f2c85134229b4e1b0880255d332",
+  "recorded_at": "2026-08-26T21:46:45+00:00",
+  "session_id": "b21ad0919e054cc494275301fe6b2cc3",
+  "head_at_start": "68ed0114e93eeccfa0b934d25c4311fb72ef8c0b",
+  "problem": "Fokussierter pytest-Aufruf nutzte System-Python ohne pytest und startete Test nicht.",
+  "cause": "Unqualifizierter python-Aufruf zeigte auf Miniconda-Basis statt Projektumgebung pb-studio.",
+  "rule": "PB-Studio-Tests immer mit miniconda3\\envs\\pb-studio\\python.exe oder der von agent_start.ps1 aufgeloesten Runtime starten.",
+  "applies_to": "PB Studio Test- und Verifikationsbefehle"
+}

@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #18 Letztes-Projekt-Aktion elementgenau pruefen und belegen`.
+`STAB-5 / Control #19 Letzte-Projekte-Liste leeren elementgenau pruefen und belegen`.
+
+Control #18 ist elementgenau belegt: `_show_recent_projects_menu()` erzeugt bei
+gefuelltem RecentProjectsManager echte Projektaction mit Projektnamen als Text,
+Pfad als Datenfeld, belegtem Parent/belegter Popup-Position und korrektem Trigger bis
+`_open_recent_project`. Nur blockierendes `QMenu.exec` bleibt isoliert. Zieltest
+`1 passed in 2.35s`, kein Produktcodeedit; Echt-PBWindow-Live bleibt offen.
+Status `target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-18-recent-project-action-2026-08-26.md`.
 
 Control #17 ist elementgenau belegt: `_show_recent_projects_menu()` erzeugt bei
 leerem RecentProjectsManager genau eine sichtbare, deaktivierte QAction
