@@ -1686,3 +1686,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
+
+### STAB-5 Control #13 Tasks-Anzeige — 2026-08-26
+
+- Matrix-Candidates betrafen Tooltip bzw. fremdes Statuspanel.
+- Echter WorkspaceSetupController baut sichtbare Tools-QAction `Tasks anzeigen`
+  und versteckten Tasks-Proxy; PBWindow-Callsite/Tabrouting quellguardiert.
+- QAction bleibt sichtbar/aktiv, Proxy bleibt hidden; Aktion oeffnet
+  ContextPanel/Dock und aktiviert `Tasks`.
+- Gezielter Test `1 passed in 11.74s`; Nachreview PASS; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-Vollstart offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #14 Log-Anzeige elementgenau pruefen und belegen`.

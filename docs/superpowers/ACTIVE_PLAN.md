@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
+`STAB-5 / Control #14 Log-Anzeige elementgenau pruefen und belegen`.
+
+Control #13 ist elementgenau belegt: echter WorkspaceSetupController baut
+sichtbare Tools-QAction `Tasks anzeigen` und versteckten Tasks-Proxy. QAction
+triggert Proxy, PBWindow-Tabrouting oeffnet ContextPanel/Dock und aktiviert
+`Tasks`; Proxy bleibt unsichtbar. Gezielter Test `1 passed in 11.74s`,
+Nachreview PASS, kein Produktcodeedit. Echter PBWindow-Vollstart bleibt offen;
+Status `target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.md`.
 
 Control #12 ist elementgenau belegt: echter Produktbuilder/Wiring und sichtbarer
 `Einstellungen`-Button erreichen per zwei Mausclicks echten

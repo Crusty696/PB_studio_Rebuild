@@ -1,0 +1,10 @@
+{
+  "lesson_id": "16eb933578f04473bcde314155c37790",
+  "recorded_at": "2026-08-26T20:46:08+00:00",
+  "session_id": "02f84a548612426a8f116a25ae594621",
+  "head_at_start": "9769ba5c27aebc56ce523603122aeaf2ddd0f51a",
+  "problem": "Control-13-Minimaltest startete zunaechst mit Shell-Python ohne pytest.",
+  "cause": "Der unqualifizierte python-Befehl zeigte auf miniconda3\\\\python.exe statt auf die vom Projektstart erkannte envs\\\\pb-studio-Runtime.",
+  "rule": "Projektpruefungen immer mit der von tools/agent_start.ps1 ermittelten kanonischen PB-Studio-Python-Runtime ausfuehren; Shell-python nicht als identisch annehmen.",
+  "applies_to": "PB-Studio pytest, py_compile und Verifikationsskripte unter Windows"
+}

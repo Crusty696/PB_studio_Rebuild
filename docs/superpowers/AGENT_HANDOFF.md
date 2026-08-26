@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
+`STAB-5 / Control #14 Log-Anzeige elementgenau pruefen und belegen`.
 
-Scope: versteckten internen Tasks-Button und sichtbare Tools-Menueaktion
-`Tasks anzeigen` gemeinsam bis ContextPanel/Tasks-Tab belegen oder ehrlich als
+Scope: versteckten internen Konsole-Button und sichtbare Tools-Menueaktion
+`Log anzeigen` gemeinsam bis ContextPanel/Log-Tab belegen oder ehrlich als
 hidden-proxy klassifizieren; Candidate-Refs semantisch pruefen.
 
 ## Letzter Abschluss
 
-Control #12 Einstellungen elementgenau zielgetestet; Dialog-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-26.md`.
+Control #13 Tasks-Anzeige elementgenau zielgetestet; PBWindow-Vollstart offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-13-tasks-display-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,7 @@ Evidence: `docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-2
 
 ## Verifikation
 
-#12: Produktbuilder/Wiring + zwei Mausclicks → echter Handler; pro Click eigener
-Dialog mit Parent/Signal/exec/deleteLater; `1 passed in 1.27s`. Dialog-Live
-offen. Naechste Task #13 Tasks-Anzeige.
+#13: Produktbuilder + sichtbare Tools-QAction → versteckter Tasks-Proxy →
+PBWindow-Tabrouting → sichtbares ContextPanel/Dock und aktiver Tasks-Tab;
+`1 passed in 11.74s`, Nachreview PASS. PBWindow-Vollstart offen. Naechste Task
+#14 Log-Anzeige.
