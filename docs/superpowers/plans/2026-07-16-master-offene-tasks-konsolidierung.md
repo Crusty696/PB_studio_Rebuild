@@ -1905,3 +1905,18 @@ Decision: Vault
 - Genau naechste Produkttask:
   `PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
 - STAB-5 Control #26/B-906 und #27+ warten hinter dieser Pacing-Welle.
+
+### PACING-PRIORITAET B-893 WeightStore-Context — 2026-08-27
+
+- Root Cause: gemeinsamer Reranker-Context las Motion=`medium` und
+  `recent_cuts`-Pace; Feedback schrieb gewaehlte Motion-Quartile plus BPM-Pace.
+- Codefix: BPM-Pace im Produktdefault; Motion-Quartil pro Kandidat unmittelbar
+  vor WeightStore-Scoring.
+- RED belegt Context-Key-Abweichung; `py_compile` PASS; Fokustest
+  `1 passed in 0.93s`.
+- Status `code-fix-pending-live-verification`: echter Auto-Edit-UI-Lauf fehlt.
+- Evidence:
+  `docs/superpowers/synthesis/b893-weightstore-context-alignment-2026-08-27.md`.
+- Naechste einzige Task:
+  `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
+- B-895 beginnt erst danach.

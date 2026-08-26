@@ -21,7 +21,7 @@ damit Pacing- und Brain-Score gemeinsam wirken.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -34,6 +34,7 @@ from services.brain.context_mapping import (
 )
 from services.brain.context_resolver import (
     CutContext,
+    quantize_quartile,
     quantize_tertile,
 )
 from services.brain.scorer import Scorer
@@ -141,7 +142,12 @@ class BrainV3Reranker:
         self._weights = weight_store
         self._bridge = bridge or BridgeDimensions()
         self._scorer = Scorer(self._bridge, self._weights)
-        self._mapping = mapping_config or ContextMappingConfig()
+        # B-893: Feedback rekonstruiert den gespeicherten Cut-Kontext aus
+        # `mem_decision.at_bpm`; eine spaetere recent-cuts-Historie existiert
+        # dort nicht mehr. Der Produkt-Default muss deshalb dieselbe stabile
+        # Pace-Quelle verwenden, sonst schreibt Lernen in andere Buckets als
+        # der Reranker liest. Explizit injizierte Config bleibt unveraendert.
+        self._mapping = mapping_config or ContextMappingConfig(pace_source="audio_bpm")
         if not 0.0 <= brain_weight <= 1.0:
             raise ValueError(f"brain_weight muss in [0,1] sein, war {brain_weight}")
         self._brain_weight = float(brain_weight)
@@ -178,7 +184,8 @@ class BrainV3Reranker:
         for clip_feat, soft_score, contribs in scored:
             candidate, no_signal_axes = self._adapt_clip(clip_feat, contribs)
             no_signal_axes = no_signal_axes | ctx_missing_axes
-            scored_brain = self._scorer.score(candidate, cut_context)
+            candidate_context = self._context_for_candidate(cut_context, clip_feat)
+            scored_brain = self._scorer.score(candidate, candidate_context)
             blended = (
                 self._brain_weight * scored_brain.final_score
                 + (1.0 - self._brain_weight) * float(soft_score or 0.0)
@@ -199,6 +206,20 @@ class BrainV3Reranker:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _context_for_candidate(
+        cut_context: CutContext,
+        clip_feat: Any,
+    ) -> CutContext:
+        """Setzt denselben Motion-Bucket, den Feedback spaeter rekonstruiert."""
+        raw_motion = getattr(clip_feat, "motion_score", None)
+        motion_class = (
+            quantize_quartile(float(raw_motion), 0.25, 0.5, 0.75)
+            if raw_motion is not None
+            else "medium"
+        )
+        return replace(cut_context, video_motion_class=motion_class)
+
     @staticmethod
     def _cut_no_signal_axes(cut_context: CutContext) -> frozenset[str]:
         """Achsen, die fuer diesen Cut mangels Audio-Quelle nichts aussagen.
@@ -245,8 +266,8 @@ class BrainV3Reranker:
             energy_class = quantize_tertile(float(raw_energy), p33=0.33, p66=0.66)
         # Audio-Subtrack-Position: ohne Subtrack-Info → middle
         subpos = "middle"
-        # Motion-Klasse: kommt vom Reranker erst beim Per-Candidate-Scoring;
-        # fuer den Backoff-Key aber nur grob: median Motion = "medium".
+        # B-893: Basis-Context bleibt neutral; `rerank()` ersetzt Motion vor
+        # jedem Scorer-Aufruf durch das Quartil des jeweiligen Kandidaten.
         motion_class = "medium"
         raw_features: dict[str, Any] = {
             "bpm": float(raw_bpm) if raw_bpm else 120.0,

@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-26
+updated: 2026-08-27
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -20,7 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
+`PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
+
+B-893 Root-Cause-Fix ist code-complete: Produkt-Reranker nutzt BPM-Pace und
+candidate-spezifische Motion-Quartile wie spaetere Feedback-Rekonstruktion.
+Fokustest `1 passed in 0.93s`; echter Auto-Edit-UI-Lauf fehlt. Status
+`code-fix-pending-live-verification`; B-895 beginnt erst nach ehrlicher
+B-893-Liveabnahme. Evidence:
+`docs/superpowers/synthesis/b893-weightstore-context-alignment-2026-08-27.md`.
 
 Userentscheid 2026-08-27: sichtbarer Pacing-/Auto-Edit-Bereich ist wichtigstes
 App-Element und hat ab jetzt oberste Produktprioritaet. Reihenfolge innerhalb

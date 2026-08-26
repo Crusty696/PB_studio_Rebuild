@@ -1,0 +1,10 @@
+{
+  "lesson_id": "1d86eeee1d6542048d6a8821ac975470",
+  "recorded_at": "2026-08-26T22:55:50+00:00",
+  "session_id": "eee939f78e1c481b9106582e503cf513",
+  "head_at_start": "e8ee14c1074712bc861c70f43ce1898dc5a386a9",
+  "problem": "WeightStore-Feedback schrieb candidate-spezifische Motion-/BPM-Pace-Buckets, produktiver Reranker las konstantes Motion und recent-cuts-Pace.",
+  "cause": "CutContext wurde einmal vor Kandidaten-Loop gebaut; Feedback musste Kontext spaeter aus persistierten Rohwerten rekonstruieren.",
+  "rule": "Lernschreibpfad und produktiver Lesepfad muessen Context-Keys aus denselben persistierbaren Rohwerten und identischen Quantisierungsgrenzen bilden; candidate-spezifische Felder erst im Kandidaten-Loop setzen.",
+  "applies_to": "Brain-V3 WeightStore, Feedback-Credit-Assignment, Pacing-Reranker"
+}

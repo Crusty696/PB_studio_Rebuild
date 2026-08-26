@@ -1,6 +1,6 @@
 # PB Studio — aktueller Agent-Handoff
 
-updated: 2026-08-26
+updated: 2026-08-27
 status: current
 
 ## Autorität
@@ -16,19 +16,20 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING-PRIORITAET / B-893 WeightStore Motion-/Pace-Kontext an produktiven Reranker angleichen`.
+`PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
 
-Scope nach sauberem Control-#26-Evidence-Commit: B-893 Root Cause in
-`services/feedback_service.py`, `services/brain/feedback_logger.py`,
-`services/brain/reranker.py` und `services/brain/context_mapping.py` mit
-kleinstem RED/GREEN-Vertrag. Danach B-895, B-894, B-888, B-832-Entscheid.
+Codefix liegt in `services/brain/reranker.py`; Fokusvertrag in
+`tests/test_services/test_b893_weightstore_context.py` ist gruen. Kein
+autonomes Windows-App-Klicktool/kein erhaltenes STAB-3-Harness vorhanden.
+Naechster Schritt ist realer Auto-Edit-UI-Lauf; erst danach B-895.
 
 ## Letzter Abschluss
 
-Control #26 Erfolgspfad per echtem Mausclick bis Windows-Viewer zielgetestet;
-B-906 dokumentiert stillen Missing-/Open-Fehlerpfad. User setzte danach Pacing
-als oberste Produktprioritaet; B-906 bleibt offen hinter Pacing.
-Evidence: `docs/superpowers/synthesis/stab5-control-26-crash-log-open-2026-08-27.md`.
+B-893 Root Cause behoben: Reranker und Feedback verwenden im Produktpfad
+dieselben Motion-/Pace-Context-Keys. RED reproduziert; `py_compile` PASS;
+Fokustest `1 passed in 0.93s`. Status bleibt
+`code-fix-pending-live-verification`.
+Evidence: `docs/superpowers/synthesis/b893-weightstore-context-alignment-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -40,6 +41,5 @@ Evidence: `docs/superpowers/synthesis/stab5-control-26-crash-log-open-2026-08-27
 
 ## Verifikation
 
-#26 Erfolg: echter CrashDialog/Log-Button → QTest-Mausclick → Windows-Viewer;
-`1 passed in 0.84s`. B-906 offen. Naechste Task nach Evidence-Commit B-893;
-Pacing hat explizit oberste Produktprioritaet.
+B-893: `py_compile` PASS; fokussierter produktiver Context-Key-Vergleich
+`1 passed in 0.93s`. Echter Auto-Edit-UI-Lauf fehlt; nicht `fixed`.
