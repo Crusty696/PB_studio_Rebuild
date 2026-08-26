@@ -20,7 +20,16 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.
+`STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.
+
+Controls #168/#169 sind manuell als `legacy-hidden / manual-excluded`
+klassifiziert: nicht gemountet, explizit versteckt, aktiver Videopfad nutzt
+Scroll + `fetchMore()`. Kein sichtbarer App-Bug, kein Produktcode-Fix und kein
+Testlauf. Matrix besitzt nach B-903-Nachzug 0 `unresolved`-Zeilen. Evidence:
+`docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md`.
+
+Der frühere strenge Review materialisierte 36 Lücken nicht einzeln. Nach
+Matrixreihenfolge ist #1 der erste verbleibende `no-candidate`-Eintrag.
 
 B-903 / Controls #213/#214 sind code-complete: sichtbare Schnitt-Preview-
 Buttons mit bestehender API verbunden, Statuslabel/Symbol synchronisiert.

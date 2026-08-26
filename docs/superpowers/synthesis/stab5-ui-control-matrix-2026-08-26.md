@@ -8,7 +8,7 @@ Generator: `tools/stab5_control_matrix.py`
 
 - Factory-expandierte sichtbare Deklarationsstellen: **222**.
 - Typen: QAction=10, QCheckBox=12, QComboBox=30, QPushButton=163, QShortcut=6, QToolButton=1.
-- Bindung: cross-file=49, cross-file-consumer=6, cross-file-exposed=1, local=148, local-constructor=3, local-consumer=11, unresolved=4.
+- Bindung: cross-file=49, cross-file-consumer=6, cross-file-exposed=1, legacy-hidden=2, local=150, local-constructor=3, local-consumer=11, unresolved=0.
 - Evidenzreferenz: candidate-ref=182, no-candidate=40.
 
 Factory-Aufrufe sind expandiert; ein Call in einer Schleife bleibt eine
@@ -190,8 +190,8 @@ zahlreiche Fehlzuordnungen. Kein aktueller Testlauf und kein Live-PASS.
 | 165 | QPushButton | `ui/workspaces/media_workspace.py:561` | `MediaWorkspace._build_video_page` | `self.btn_select_all_video [factory:_toolbar_btn] / Alle` | `ui/controllers/workspace_setup.py: self.window.btn_select_all_video.clicked.connect(` | cross-file | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
 | 166 | QPushButton | `ui/workspaces/media_workspace.py:565` | `MediaWorkspace._build_video_page` | `self.btn_video_list_view [factory:_toolbar_btn] / ☰` | `self.btn_video_list_view.clicked.connect(lambda: self._toggle_video_view(0))` | local | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
 | 167 | QPushButton | `ui/workspaces/media_workspace.py:571` | `MediaWorkspace._build_video_page` | `self.btn_video_grid_view [factory:_toolbar_btn] / ⊞` | `self.btn_video_grid_view.clicked.connect(lambda: self._toggle_video_view(1))` | local | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
-| 168 | QPushButton | `ui/workspaces/media_workspace.py:577` | `MediaWorkspace._build_video_page` | `self.btn_video_page_prev [factory:_toolbar_btn] / ◀` | `indirekt/QMenu/noch manuell zuzuordnen` | unresolved | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
-| 169 | QPushButton | `ui/workspaces/media_workspace.py:578` | `MediaWorkspace._build_video_page` | `self.btn_video_page_next [factory:_toolbar_btn] / ▶` | `indirekt/QMenu/noch manuell zuzuordnen` | unresolved | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
+| 168 | QPushButton | `ui/workspaces/media_workspace.py:577` | `MediaWorkspace._build_video_page` | `self.btn_video_page_prev [factory:_toolbar_btn] / ◀` | `absichtlich hidden; kein aktiver Handler` | legacy-hidden | `docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md` | manual-excluded |
+| 169 | QPushButton | `ui/workspaces/media_workspace.py:578` | `MediaWorkspace._build_video_page` | `self.btn_video_page_next [factory:_toolbar_btn] / ▶` | `absichtlich hidden; kein aktiver Handler` | legacy-hidden | `docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md` | manual-excluded |
 | 170 | QPushButton | `ui/workspaces/media_workspace.py:613` | `MediaWorkspace._build_video_page` | `self.btn_analyze_video [factory:_toolbar_btn] / Szenen-Erkennung` | `ui/controllers/workspace_setup.py: self.window.btn_analyze_video.clicked.connect(self.window.video_analysis._analyze_selected_video)` | cross-file | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
 | 171 | QPushButton | `ui/workspaces/media_workspace.py:621` | `MediaWorkspace._build_video_page` | `self.btn_video_pipeline [factory:_toolbar_btn] / Voll-Pipeline (Szenen + KI)` | `ui/controllers/workspace_setup.py: self.window.btn_video_pipeline.clicked.connect(self.window.video_analysis._start_video_pipeline)` | cross-file | `tests/ui/test_media_workspace_layout.py, tests/ui/test_workspaces_smoke.py` | candidate-ref |
 | 172 | QPushButton | `ui/workspaces/media_workspace.py:708` | `MediaWorkspace._build_video_analysis_side_panel` | `self.btn_keyframe_string [factory:_toolbar_btn] / Keyframe-String` | `ui/controllers/workspace_setup.py: self.window.btn_keyframe_string.clicked.connect(self.window.edit_workspace._show_keyframe_strings)` | cross-file | `tests/ui/test_analysis_status_panel_visibility.py, tests/ui/test_auto_edit_usage_marking_fixplan.py` | candidate-ref |
@@ -235,8 +235,8 @@ zahlreiche Fehlzuordnungen. Kein aktueller Testlauf und kein Live-PASS.
 | 210 | QPushButton | `ui/workspaces/schnitt/tab_pacing_anker.py:314` | `SchnittTabPacingAnker._build_anker_column` | `self.btn_learn_ai / Als KI-Lernregel speichern` | `ui/controllers/workspace_setup.py: self.window.btn_learn_ai.clicked.connect(self.window.edit_workspace._learn_anchor_as_ai_rule)` | cross-file | `tests/ui/test_b471_timeline_usability_recovery.py, tests/ui/test_subtab_pacing_anker_layout.py` | candidate-ref |
 | 211 | QPushButton | `ui/workspaces/schnitt/tab_rl_notes.py:44` | `SchnittTabRlNotes._build_rl_column` | `self.btn_thumbs_up / 👍 Gut` | `self.btn_thumbs_up.clicked.connect(self.feedback_positive)` | local | `tests/ui/test_subtab_rl_notes.py` | candidate-ref |
 | 212 | QPushButton | `ui/workspaces/schnitt/tab_rl_notes.py:45` | `SchnittTabRlNotes._build_rl_column` | `self.btn_thumbs_down / 👎 Schlecht` | `self.btn_thumbs_down.clicked.connect(self.feedback_negative)` | local | `tests/ui/test_subtab_rl_notes.py` | candidate-ref |
-| 213 | QPushButton | `ui/workspaces/schnitt/tab_schnitt.py:53` | `SchnittTabSchnitt._build_ui` | `self.btn_play / ▶` | `indirekt/QMenu/noch manuell zuzuordnen` | unresolved | `tests/ui/test_subtab_schnitt_layout.py, tests/ui/test_b295_cutlist_edit_affordances.py` | candidate-ref |
-| 214 | QPushButton | `ui/workspaces/schnitt/tab_schnitt.py:58` | `SchnittTabSchnitt._build_ui` | `self.btn_stop / ■` | `indirekt/QMenu/noch manuell zuzuordnen` | unresolved | `tests/ui/test_subtab_schnitt_layout.py, tests/ui/test_b295_cutlist_edit_affordances.py` | candidate-ref |
+| 213 | QPushButton | `ui/workspaces/schnitt/tab_schnitt.py:53` | `SchnittTabSchnitt._build_ui` | `self.btn_play / ▶` | `self.btn_play.clicked.connect(self.video_preview.toggle_play)` | local | `docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md` | target-test-pass-live-pending |
+| 214 | QPushButton | `ui/workspaces/schnitt/tab_schnitt.py:58` | `SchnittTabSchnitt._build_ui` | `self.btn_stop / ■` | `self.btn_stop.clicked.connect(self.video_preview.stop)` | local | `docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md` | target-test-pass-live-pending |
 | 215 | QToolButton | `ui/workspaces/schnitt/timeline_shell.py:71` | `TimelineShell._build_ui` | `self.btn_snapshots` | `self.btn_snapshots.setMenu(self._snapshot_menu)` | local-consumer | `tests/ui/test_b471_timeline_usability_recovery.py, tests/ui/test_b616_zoom_label_sync.py` | candidate-ref |
 | 216 | QPushButton | `ui/workspaces/schnitt/timeline_shell.py:106` | `TimelineShell._build_ui` | `self.btn_zoom_out [factory:_button] / -` | `self.btn_zoom_out.clicked.connect(lambda: self._zoom_by(1 / 1.15))` | local | `tests/ui/test_b471_timeline_usability_recovery.py, tests/ui/test_schnitt_timeline_shell.py` | candidate-ref |
 | 217 | QPushButton | `ui/workspaces/schnitt/timeline_shell.py:111` | `TimelineShell._build_ui` | `self.btn_zoom_fit [factory:_button] / Fit` | `self.btn_zoom_fit.clicked.connect(self._fit_to_content)` | local | `tests/ui/test_b471_timeline_usability_recovery.py, tests/ui/test_schnitt_timeline_shell.py` | candidate-ref |
@@ -248,9 +248,9 @@ zahlreiche Fehlzuordnungen. Kein aktueller Testlauf und kein Live-PASS.
 
 ## Naechster Schritt
 
-Automatisch unresolved/indirekt gebundene Controls und reine
-`synthesis-ref`/`static-only`-Zeilen manuell pruefen. Danach nur echte
-Belegluecken gezielt am spaetestmoeglichen Endgate testen.
+Keine `unresolved`-Zeile mehr. Als Nächstes verbleibende strenge
+Element-Beleglücken aus dem manuellen Evidence-Review in dessen Reihenfolge
+prüfen; Tests nur für echte Lücken am spätestmöglichen Endgate.
 
 ## Methodikkorrektur
 

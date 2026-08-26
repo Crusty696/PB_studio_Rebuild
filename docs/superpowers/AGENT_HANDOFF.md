@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.
+`STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.
 
-Scope: tatsächlicher erster unresolved-Eintrag aus vollständiger STAB-5-
-Matrix. Erst echten Handler-/Zustandspfad prüfen; nur bei belegtem Defekt
-enger Produktfix.
+Scope: erster verbleibender `no-candidate`-Eintrag nach 0 unresolved-Zeilen.
+Shortcut auslösen, echten Handler-/Dialogpfad und sichtbaren Zustand prüfen;
+nur bei belegtem Defekt enger Produktfix.
 
 ## Letzter Abschluss
 
-B-903 / Controls #213/#214 code-complete, nicht live verifiziert. Evidence:
-`docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md`.
+Controls #168/#169 manuell ausgeschlossen, kein Produktfix. Evidence:
+`docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,7 +37,7 @@ B-903 / Controls #213/#214 code-complete, nicht live verifiziert. Evidence:
 
 ## Verifikation
 
-B-903: RED→GREEN-Zieltest 1/1, Syntax/Diff und Parallelreview gruen. Echter
-Medien-/App-Livepfad fehlt; daher nicht `fixed`. Reihenfolgefehler offen
-dokumentiert: truncierte Matrixausgabe ließ #213 fälschlich als ersten Rest
-erscheinen; nächste Task ist korrekt #168.
+#168/#169: drei Read-only-Prüfer bestätigen nicht gemountete, explizit
+versteckte Legacy-Controls; aktiver Pfad Scroll + `fetchMore()`. Kein Test,
+kein sichtbarer Bug, keine `fixed`-Aussage. Matrix unresolved=0; nächste
+prüfbare Lücke ist #1.

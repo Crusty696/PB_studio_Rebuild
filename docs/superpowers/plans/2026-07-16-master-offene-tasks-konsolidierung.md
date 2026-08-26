@@ -1472,3 +1472,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.
+
+### STAB-5 Controls #168/#169 Video-Pagination — 2026-08-26
+
+- Kein sichtbarer App-Bug: Controls nicht gemountet und explizit hidden.
+- Aktiver Videopfad nutzt scrollbare Tabelle + inkrementelles `fetchMore()`.
+- Drei geführte Read-only-Prüfer bestätigen Klassifikation
+  `legacy-hidden / manual-excluded`.
+- Kein Produktcode-Fix und kein Testlauf; totes Pager-Gerüst wäre separater
+  Cleanup-/Refactor-Scope.
+- Matrix nach B-903-Nachzug: 0 unresolved-Zeilen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.

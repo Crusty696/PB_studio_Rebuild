@@ -1,0 +1,10 @@
+{
+  "lesson_id": "2bf22507fbfd4d85bd0f627bb354f6d7",
+  "recorded_at": "2026-08-26T02:13:47+00:00",
+  "session_id": "01f32079821f40bda745e2702da32e06",
+  "head_at_start": "916e6c6d7bb6cbb35ea8783114dbed8c073d5800",
+  "problem": "STAB-5 führte erzeugte Video-Pagerbuttons als unresolved Controls, obwohl Nutzer sie nicht erreichen kann.",
+  "cause": "Statischer Generator zählte Konstruktion ohne Mount-, Visibility- und aktiven View-Model-Pfad zu unterscheiden.",
+  "rule": "UI-Control-Evidence muss Konstruktion, Layout-Mount, Sichtbarkeit und aktiven State-/Model-Pfad gemeinsam prüfen; hidden unmounted Legacy-Controls als ausgeschlossen klassifizieren, nicht als sichtbaren No-Op.",
+  "applies_to": "STAB-5-Matrix, UI-Inventare, Legacy-Controls, Pagination"
+}
