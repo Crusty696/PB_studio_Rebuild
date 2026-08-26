@@ -16,16 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #15 KI-Chat-Anzeige elementgenau pruefen und belegen`.
+`STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.
 
-Scope: versteckten internen KI-Chat-Button und sichtbare Tools-Menueaktion
-`KI Chat anzeigen` gemeinsam bis ContextPanel/Chat-Tab belegen oder ehrlich als
-hidden-proxy klassifizieren; Candidate-Refs semantisch pruefen.
+Scope: sichtbaren `Tools`-Button, gebundenes QMenu und dessen Erreichbarkeit
+elementgenau pruefen; Candidate-Refs semantisch pruefen.
 
 ## Letzter Abschluss
 
-Control #14 Log-Anzeige elementgenau zielgetestet; PBWindow-Vollstart offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-14-log-display-2026-08-26.md`.
+Control #15 KI-Chat-Anzeige elementgenau zielgetestet; ChatDock-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,7 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-14-log-display-2026-08-26.md
 
 ## Verifikation
 
-#14: Produktbuilder + sichtbare Tools-QAction → versteckter Konsole-Proxy →
-PBWindow-Tabrouting → sichtbares ContextPanel/Dock und produktiver `LOG`-Tab;
-geschaerfter Test `1 passed in 4.15s`. PBWindow-Vollstart offen. Naechste Task
-#15 KI-Chat-Anzeige.
+#15: Produktbuilder + sichtbare Tools-QAction → versteckter Chat-Proxy →
+PBWindow-Tabrouting → sichtbares ContextPanel/Dock und produktiver `CHAT`-Tab;
+`1 passed in 11.10s`. ChatDock/LLM-Live offen. Naechste Task #16 Tools-Menuebutton.

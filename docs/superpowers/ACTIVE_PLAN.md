@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #15 KI-Chat-Anzeige elementgenau pruefen und belegen`.
+`STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.
+
+Control #15 ist elementgenau belegt: echter WorkspaceSetupController baut
+sichtbare Tools-QAction `KI Chat anzeigen` und versteckten KI-Chat-Proxy.
+QAction triggert Proxy; PBWindow-Routing oeffnet ContextPanel/Dock und aktiviert
+den produktiv durch PanelSetupController gemounteten `CHAT`-Tab. Zieltest
+`1 passed in 11.10s`, kein Produktcodeedit. PBWindow/ChatDock/LLM-Live bleibt
+offen; Status `target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.md`.
 
 Control #14 ist elementgenau belegt: echter WorkspaceSetupController baut
 sichtbare Tools-QAction `Log anzeigen` und versteckten Konsole-Proxy. QAction

@@ -1716,3 +1716,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-14-log-display-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #15 KI-Chat-Anzeige elementgenau pruefen und belegen`.
+
+### STAB-5 Control #15 KI-Chat-Anzeige — 2026-08-26
+
+- Matrix-Candidates betrafen Tooltip bzw. fremdes Statuspanel.
+- Echter WorkspaceSetupController baut sichtbare Tools-QAction `KI Chat anzeigen`
+  und versteckten Chat-Proxy; PBWindow-Callsite/Tabrouting quellguardiert.
+- Produktive `PanelSetupController.setup_chat_dock()`-Montage des `CHAT`-Tabs
+  zusaetzlich mutationssensitiv geschuetzt.
+- QAction bleibt sichtbar/aktiv, Proxy hidden; Aktion oeffnet ContextPanel/Dock
+  und wechselt von Tasks auf Chat.
+- Zieltest `1 passed in 11.10s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow/ChatDock/LLM-Live offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.

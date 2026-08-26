@@ -1,0 +1,10 @@
+{
+  "lesson_id": "8bb187e34adb4837a0db1ba4ba613654",
+  "recorded_at": "2026-08-26T20:56:41+00:00",
+  "session_id": "d72a540712694655b3fad3157d8b4d28",
+  "head_at_start": "c1f2e5a0501ecd26b3457b1fd9c3d6963a426a8b",
+  "problem": "KI-Chat war durch Send- und Tooltip-Tests teilweise belegt, aber die separate sichtbare Tools-Menueaktion blieb ohne eigenen Ausloeserbeleg.",
+  "cause": "Evidence wurde nach gemeinsamem ChatDock-Consumer statt nach jedem eigenstaendigen UI-Ausloeser bewertet.",
+  "rule": "Alternative Menue-, Button- und Shortcut-Ausloeser desselben Consumers jeweils separat bis Proxy, Router und produktivem Consumer belegen; bestehende Consumer-Evidence gezielt wiederverwenden.",
+  "applies_to": "STAB-5 Mehrfachausloeser, Tools-Menue, ChatDock und ContextPanel"
+}
