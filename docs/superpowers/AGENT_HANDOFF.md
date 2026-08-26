@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
+`STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.
 
-Scope: Matrix-Candidate-Refs gegen `ChatDock.btn_send` bis `_on_send` und
-sichtbaren/gesendeten Zustand prüfen. Vorhandenen Test wiederverwenden; nur bei
-echter Evidenzlücke kleinsten Zusatztest, Produktedit nur bei Defekt.
+Scope: Candidate-Refs gegen `scene_combo.currentData()` bis gespeicherten
+Anchor-/Timelinezustand prüfen. Vorhandenen Test bevorzugen; kleinsten Zusatz
+nur bei Evidence-Lücke, Produktedit nur bei reproduziertem Defekt.
 
 ## Letzter Abschluss
 
-Control #5 Banner-Close zielgetestet, kein Produktfix. Evidence:
-`docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
+Control #6 Chat-Senden zielgetestet, Candidate-Refs korrigiert, kein Produktfix.
+Evidence: `docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #5 Banner-Close zielgetestet, kein Produktfix. Evidence:
 
 ## Verifikation
 
-#5: echter `✕`-Click versteckt sichtbaren Banner; späteres Update zeigt ihn
-erneut. `1 passed in 4.19s`, drei Reviews PASS, kein Produktcodeedit. Nächster
-Matrixeintrag #6 besitzt Candidate-Refs und wird elementgenau abgeglichen.
+#6: echter Send-Click → Userzeile/Input-clear/sichtbarer Kein-Agent-Fehler;
+`1 passed in 0.69s`, drei Reviews ohne Produktfinding. Worker-/App-Live offen.
+Nächster Matrixeintrag #7 Add-Anchor-Szenenauswahl.

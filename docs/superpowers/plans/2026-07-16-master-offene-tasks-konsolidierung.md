@@ -1566,3 +1566,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
+
+### STAB-5 Control #6 Chat-Senden — 2026-08-26
+
+- Matrix-Candidate-Refs B-417/B-020 waren keine Send-Control-Belege und wurden
+  ersetzt.
+- Echter Qt-Send-Click schreibt Userzeile, leert Input und zeigt ohne Agent
+  sichtbaren Fehler; Button bleibt aktiv.
+- Erster Testlauf passierte Assertions, scheiterte aber im bekannten
+  AiStatusDot-/Qt-Teardown. Test isoliert nur StatusDot; danach
+  `1 passed in 0.69s`, Prozess Exit 0.
+- Drei gefuehrte Read-only-Reviews ohne Produktfinding; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: Worker-/LLM-/PBWindow-Live offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.

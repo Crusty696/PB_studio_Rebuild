@@ -20,13 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #6 Chat-Senden vorhandene Evidence elementgenau abgleichen`.
+`STAB-5 / Control #7 Add-Anchor-Szenenauswahl elementgenau pruefen und belegen`.
 
-Control #5 ist elementgenau belegt: echter Update-Handler zeigt Banner,
-`✕`-Click versteckt ihn, späteres Update zeigt ihn erneut. Neuer Zieltest
-`1 passed in 4.19s`; drei Reviews PASS, kein Produktcodeedit. App-Live offen.
-Evidence:
-`docs/superpowers/synthesis/stab5-control-5-update-banner-close-2026-08-26.md`.
+Control #6 ist elementgenau belegt: echter Send-Click schreibt Usertext,
+leert Input und zeigt ohne Agent sichtbaren Fehler. Falsch zugeordnete
+Candidate-Refs ersetzt; nach isoliertem AiStatusDot-Testteardown `1 passed in
+0.69s`, drei Reviews ohne Produktfinding. Worker-/App-Live offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-6-chat-send-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

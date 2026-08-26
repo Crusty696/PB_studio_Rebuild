@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6a525696f0f844c2b11b18145c2e160f",
+  "recorded_at": "2026-08-26T03:03:03+00:00",
+  "session_id": "fce635b4317d4f9f95ffdf89ad8a13a3",
+  "head_at_start": "9c32782dd37eb49a15e6f6523f100dd62314bed6",
+  "problem": "Chat-Send-Control hatte falsch zugeordnete Candidate-Tests und der erste echte Qt-Test starb nach bestandenen Assertions im StatusDot-Teardown.",
+  "cause": "B-417/B-020 testeten Worker-Stale-State bzw. GC statt Send-Click; echter AiStatusDot brachte einen bekannten Timer-/Qt-Teardown-Rand in den kleinen Controltest.",
+  "rule": "Matrix-Candidates semantisch prüfen und bei Qt-Controltests nur unabhängige Timer-Widgets isolieren; Control, Handler und sichtbarer Zustand müssen real bleiben, Prozess-Exit gehört zum Testergebnis.",
+  "applies_to": "STAB-5 Candidate-Evidence, ChatDock, Qt-Teardown, timergetriebene Statuswidgets"
+}
