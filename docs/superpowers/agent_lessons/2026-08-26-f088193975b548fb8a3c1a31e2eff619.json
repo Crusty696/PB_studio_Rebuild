@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f088193975b548fb8a3c1a31e2eff619",
+  "recorded_at": "2026-08-26T02:47:02+00:00",
+  "session_id": "e3a3a639f37340348d751ed9f738229b",
+  "head_at_start": "c1a9bc95bfe9b2c1f48aa04c31749a5ad08affec",
+  "problem": "B-901 aktivierte Updatepruefung, belegte aber Download-Control nicht elementgenau.",
+  "cause": "Vorhandene Tests endeten am Feature-Gate und API-Endpunkt; Banner-Sichtbarkeit, Signalersetzung und echter Button-Click fehlten.",
+  "rule": "Update-UI separat vom externen Release-Endpoint testen: initialen Hidden-State, Handler-gesteuerte Sichtbarkeit, wiederholte Signalverdrahtung und exakte neueste Click-URL in einem Qt-Zieltest belegen.",
+  "applies_to": "STAB-5 Update-Banner, externe Update-Dienste, Qt-Signalcontrols"
+}

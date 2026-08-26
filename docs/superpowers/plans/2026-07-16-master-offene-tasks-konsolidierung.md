@@ -1525,3 +1525,18 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-3-ctrl-b-studio-brain-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #4 Update-Banner-Download elementgenau pruefen und belegen`.
+
+### STAB-5 Control #4 Update-Banner-Download — 2026-08-26
+
+- Initial hidden; Update-Handler zeigt Banner und Download-Control.
+- Zwei Signale ersetzen Clickziel; echter Qt-Click oeffnet genau neueste URL.
+- Fokussierter Zieltest: `1 passed in 4.85s`.
+- Kein Produktcodeedit; PBWindow-/Worker-/Browser-Livepfad bleibt offen.
+- GitHub `/releases/latest` aktuell 404 mangels Release; STAB-6 muss echten
+  Releasepfad belegen.
+- Direkter Low-Fund B-904: erster pauschaler Signal-Disconnect erzeugt
+  RuntimeWarning.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-4-update-banner-download-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-904 Update-Banner-Disconnect-RuntimeWarning eng beheben`.

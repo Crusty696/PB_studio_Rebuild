@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #4 Update-Banner-Download elementgenau pruefen und belegen`.
+`STAB-5 / B-904 Update-Banner-Disconnect-RuntimeWarning eng beheben`.
 
-Scope: erster verbleibender `no-candidate`-Eintrag nach 0 unresolved-Zeilen.
-Vorhandene B-901-Evidence gegen Download-Control abgleichen; nur fehlenden
-elementgenauen Beleg ergänzen und nur bei belegtem Defekt enger Produktfix.
+Scope: nur eigenen Download-Click-Slot gezielt verwalten, damit Erstverbindung
+keinen pauschalen Disconnect-Warnhinweis erzeugt. Danach denselben Einzeltest;
+anschliessend Matrix-Control #5.
 
 ## Letzter Abschluss
 
-Control #3 Ctrl+B zielgetestet, kein Produktfix. Evidence:
-`docs/superpowers/synthesis/stab5-control-3-ctrl-b-studio-brain-2026-08-26.md`.
+Control #4 Download zielgetestet; B-904 als direkter Low-Fund erfasst. Evidence:
+`docs/superpowers/synthesis/stab5-control-4-update-banner-download-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #3 Ctrl+B zielgetestet, kein Produktfix. Evidence:
 
 ## Verifikation
 
-#3: echtes Qt-Ctrl+B-Keyevent aktiviert zweimal realen Handler; Singleton,
-show/raise/activate und einfache Signalverbindungen belegt. `1 passed in 5.73s`.
-Produktcode unverändert, PBWindow-App-Live offen. Nächste Matrixlücke #4.
+#4: Download-Click öffnet nach zwei Update-Signalen exakt neueste URL;
+`1 passed in 4.85s`. App-/Release-Live offen. B-904 RuntimeWarning beim ersten
+Signal-Disconnect ist nächste enge Fix-Task; danach Matrixlücke #5.
