@@ -20,7 +20,16 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #19 Letzte-Projekte-Liste leeren elementgenau pruefen und belegen`.
+`STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
+
+Control #19 ist elementgenau belegt: gefuelltes Recent-Projekte-Menu enthaelt
+nach Projektaktion und Separator echte sichtbare/aktive QAction `Liste leeren`.
+Trigger erreicht `_clear_recent_projects`, leert Store exakt einmal und zeigt
+Erfolgsmeldung; Parent/Popup-Position belegt. Nur blockierendes `QMenu.exec`
+bleibt isoliert. Zieltest `1 passed in 12.26s`, kein Produktcodeedit;
+Echt-PBWindow-/Persistenz-Live bleibt offen. Status
+`target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-2026-08-27.md`.
 
 Control #18 ist elementgenau belegt: `_show_recent_projects_menu()` erzeugt bei
 gefuelltem RecentProjectsManager echte Projektaction mit Projektnamen als Text,

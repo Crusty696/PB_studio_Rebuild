@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #19 Letzte-Projekte-Liste leeren elementgenau pruefen und belegen`.
+`STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
 
-Scope: `workspace_setup.py` -> Last-In-Recent-Eintrag `clear_action / Liste leeren`;
-Popup-Konstruktion, Trigger und Routing elementgenau prüfen.
+Scope: `workspace_setup.py` -> Workspace-Edit-Menu `undo_action / Undo`;
+Konstruktion, Trigger und Routing zum Timeline-Undo-Stack elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #18 Letzte-Projekt-Aktion elementgenau zielgetestet; Popup-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-18-recent-project-action-2026-08-26.md`.
+Control #19 Letzte-Projekte-Liste leeren elementgenau zielgetestet; Popup-/Persistenz-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-18-recent-project-action-202
 
 ## Verifikation
 
-#18: gefuellter Recent-Store → echte Projektaktion mit Text/Pfad/Trigger → korrekte
-Popup-Position; `1 passed in 2.35s`. Modales PBWindow-Popup offen. Naechste Task
-#19 Letzte-Projekte-Liste leeren.
+#19: gefuelltes Recent-Menu → Separator/Clear-Aktion → Store-Clear + Erfolgsmeldung;
+`1 passed in 12.26s`. Modales PBWindow-/Persistenz-Live offen. Naechste Task
+#20 Undo-Aktion.

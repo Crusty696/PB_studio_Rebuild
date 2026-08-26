@@ -1,0 +1,10 @@
+{
+  "lesson_id": "f0c3134fc0a04a9dae9bb27e23c69d61",
+  "recorded_at": "2026-08-26T21:56:59+00:00",
+  "session_id": "e9cefc7ce4bd4bff845bf5ca5a611ac1",
+  "head_at_start": "bb8b1f7451576c2ea9685f36184e8a443d24dbcd",
+  "problem": "Recent-Projekte-Clear-Aktion hatte nur fremde Candidate-Refs, obwohl Menuebau und Handler in einem modalen Pfad gekoppelt sind.",
+  "cause": "Bestehende Tests umgingen den konkreten QAction-Ausloeser und belegten weder Store-Aenderung noch sichtbare Erfolgsmeldung.",
+  "rule": "Modale QMenu-Aktionen mit echtem Builder und echtem Handler testen; nur QMenu.exec isolieren und Menueposition, Aktion, Zustandsaenderung sowie Nutzerfeedback gemeinsam assertieren.",
+  "applies_to": "STAB-5 QMenu-Aktionen mit Persistenz- oder StatusBar-Wirkung"
+}

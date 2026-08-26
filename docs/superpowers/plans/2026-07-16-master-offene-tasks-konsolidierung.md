@@ -1775,3 +1775,19 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-18-recent-project-action-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #19 Letzte-Projekte-Liste leeren elementgenau pruefen und belegen`.
+
+### STAB-5 Control #19 Letzte-Projekte-Liste leeren — 2026-08-27
+
+- Candidate-Refs waren semantisch fremd.
+- Gefuelltes Recent-Projekte-Menu enthaelt nach Projektaktion und Separator echte,
+  sichtbare/aktive QAction `Liste leeren` mit Window-Parent.
+- Popup-Position am Tools-Button belegt; Trigger erreicht echten Controller-
+  Handler, leert Store exakt einmal und zeigt Erfolgsmeldung.
+- Nur blockierendes `QMenu.exec` isoliert.
+- Zieltest `1 passed in 12.26s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-Popup und reale
+  Settings-Persistenz im Vollstart offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-19-recent-projects-clear-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #20 Undo-Aktion elementgenau pruefen und belegen`.
