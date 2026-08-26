@@ -926,7 +926,7 @@ Alle 8 Tier-Punkte abgedeckt.
 
 ## Execution Handoff
 
-**Plan complete and saved to** `docs/superpowers/plans/2026-05-09-brain-ui-tooltip-coverage.md`. Two execution options:
+**Plan complete and saved to** `docs/superpowers/archive/superseded-plans/2026-05-09-brain-ui-tooltip-coverage.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** — Ich dispatche einen Subagent pro Task, Review zwischen Tasks, schnelle Iteration.
 

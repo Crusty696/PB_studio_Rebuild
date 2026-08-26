@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`Governance / superseded Planfiles physisch archivieren und alle Repo-/Vault-Links neu bauen`.
+`STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
 
 B-900 ist nach echtem First-Run-App-Pfad `fixed`: isolierter Modal-Wizard,
 echter QThread und Connection-Refused-Fehler ergaben Modell/Gesamt 0 Prozent,

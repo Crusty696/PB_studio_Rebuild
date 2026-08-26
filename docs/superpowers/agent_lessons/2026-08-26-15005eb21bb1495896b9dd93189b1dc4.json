@@ -1,0 +1,10 @@
+{
+  "lesson_id": "15005eb21bb1495896b9dd93189b1dc4",
+  "recorded_at": "2026-08-26T00:38:22+00:00",
+  "session_id": "9a4d95b512ee41e9bb6a730e6cd5accc",
+  "head_at_start": "8cb1e55ffb90b58d0275560f8e174f0049f56ff6",
+  "problem": "Superseded Plaene lagen weiter im aktiven Planbaum und ein Registry-Link zeigte auf ein altes Windows-Benutzerprofil",
+  "cause": "Logische Superseded-Markierung wurde nie mit physischer Archivmigration und atomarer Repo-/Vault-Linkumschreibung gekoppelt",
+  "rule": "Planarchivierung als kontrollierte Migration behandeln: Registry-Status inventarisieren, exakte Quellen/Ziele validieren, Dateien verschieben, alle eingehenden Pfade ersetzen und Registry-/Altlink-Existenz am Endgate pruefen",
+  "applies_to": "Plan-Governance, Registry, Repo-/Vault-Handoffs"
+}

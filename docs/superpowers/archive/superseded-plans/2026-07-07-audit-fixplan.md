@@ -19,7 +19,7 @@
   Reihenfolge nach R3 gesplittet, Track C in Folgeplan überführt.
 - **Verbindlicher Nachfolger (User-Anweisung):**
   `PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07`
-  (`docs/superpowers/plans/2026-07-07-neubauten-vollintegration-plan.md`)
+  (`docs/superpowers/archive/superseded-plans/2026-07-07-neubauten-vollintegration-plan.md`)
   startet **direkt nach** Abschluss+Test dieses Plans. Hohe Priorität, kein
   anderer Plan dazwischen.
 

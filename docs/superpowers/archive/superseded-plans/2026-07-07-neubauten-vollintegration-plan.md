@@ -30,7 +30,7 @@ Chat-Session, in der er entstand. Lies vor Beginn:
 2. `docs/superpowers/PLAN_REGISTRY.md` + `docs/superpowers/ACTIVE_PLAN.md` —
    dieser Plan darf nur laufen, wenn `ACTIVE_PLAN.md` GENAU diesen Plan nennt.
 3. Den Audit-Bericht (Quelle oben) — mindestens Kapitel C, E, F.
-4. Den Vorgänger-Plan `docs/superpowers/plans/2026-07-07-audit-fixplan.md` —
+4. Den Vorgänger-Plan `docs/superpowers/archive/superseded-plans/2026-07-07-audit-fixplan.md` —
    dessen Fixes (v.a. A2 Classify+Waveform, B-Track) sind Voraussetzungen.
 
 ### Harte Regeln (aus AGENTS.md / CLAUDE.md, hier wiederholt)

@@ -1406,3 +1406,16 @@ Decision: Vault
   aller Registry-`superseded`-Plaene samt kompletter Repo-/Vault-Linkmigration.
 - Naechste einzige Task:
   `Governance / superseded Planfiles physisch archivieren und alle Repo-/Vault-Links neu bauen`.
+
+### Superseded-Planarchiv und Linkmigration — 2026-08-26
+
+- 12 superseded Planfiles aus `plans/` physisch nach
+  `archive/superseded-plans/` verschoben.
+- Externe Gemini-Quelle als 13. Datei byteidentisch lokal archiviert.
+- Registry und exakte Repo-/Vault-Verweise migriert; 0 Altpfadtreffer.
+- Alle 34 Registry-Zeilen besitzen existierende Repo-, Vault- und
+  Decision-Pfade.
+- Aktiver Masterplan, pausierter Auditplan und nicht-superseded Artefakte
+  blieben unangetastet.
+- Naechste einzige Task:
+  `STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.

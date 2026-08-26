@@ -11,9 +11,13 @@ This file is a repository-local continuity checkpoint for all agents.
   Verbindung; Modell/Gesamt 0, roter Fehlertext, Finish-Fehlermeldung, Exit 0.
 - Evidenzreview: automatische Testrefs sind Kandidaten, keine Belege; 36 echte
   Element-Belegluecken, zwei Caveats, zwei voll belegte Controls.
-- B-901: Update-Controls default unerreichbar. B-902: About-Dokumentation ist
-  im installierten Build stiller No-Op.
-- Naechste einzige Task: B-902 enger Produktfix; Minimaltest erst Endgate.
+- B-902: Code-Fix committed `8cb1e55`; Frozen-/Installer-Livetest bleibt
+  STAB-6-Gate.
+- Superseded-Planarchiv complete: 12 Moves plus byteidentische Gemini-Kopie;
+  Registry/Repo/Vault-Linkpruefung gruen. Evidence:
+  `docs/superpowers/synthesis/plan-archive-link-migration-2026-08-26.md`.
+- Naechste einzige Task: B-901 Update-Controls Defaultpfad/Repo-Default;
+  Minimaltest erst Endgate.
 - Evidence: `docs/superpowers/synthesis/b900-setup-wizard-progress-truth-2026-08-26.md`.
 - Evidence: `docs/superpowers/synthesis/stab5-ui-action-inventory-2026-08-26.md`.
 - Evidence: `docs/superpowers/synthesis/stab5-ui-action-evidence-2026-08-26.md`.
@@ -2014,7 +2018,7 @@ Vollständig: `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`. OTK-021 
 
 - **Date:** 2026-06-14
 - **Active plan:** `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`
-- **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
+- **Repo plan:** `docs/superpowers/archive/superseded-plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
 - **Vault mirror:** `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md`
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** CRF executable fix waves are complete per CRF Vault mirror; B-498..B-520 and B-523..B-529 are recorded fixed after live/user confirmation. `ACTIVE_PLAN.md` selects the OTK masterplan only. OTK-018 was live-verified-complete on 2026-06-14 after user broad autonomous release. OTK-019 technical rest-probe passed; user decided to defer the heavy 4h live gate for later.
@@ -2044,7 +2048,7 @@ Vollständig: `wiki/synthesis/verifikations-gesamtaudit-2026-06-18.md`. OTK-021 
 
 - **Date:** 2026-06-09
 - **Active plan:** `PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09`
-- **Repo plan:** `docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
+- **Repo plan:** `docs/superpowers/archive/superseded-plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md`
 - **Vault mirror:** `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-offene-tasks-konsolidierung-masterplan-2026-06-09.md`
 - **Decision:** `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-061-offene-tasks-konsolidierung-masterplan.md`
 - **Status:** previous registry plans with open work were marked `superseded` and transferred into OTK tasks. No app-code change. No product bug marked `fixed`.
@@ -2209,7 +2213,7 @@ fixed: contradiction check found B-316..B-320 current fixed; B-310/B-313 live-ve
 All older active/inactive plan work is consolidated in:
 
 ```text
-docs/superpowers/plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md
+docs/superpowers/archive/superseded-plans/2026-06-09-offene-tasks-konsolidierung-masterplan.md
 ```
 
 Use OTK task order only. Do not resume old registry plans directly.
