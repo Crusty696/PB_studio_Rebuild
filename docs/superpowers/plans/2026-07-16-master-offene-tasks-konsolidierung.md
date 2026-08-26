@@ -1486,3 +1486,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.
+
+### STAB-5 Control #1 F1-Shortcut — 2026-08-26
+
+- Pfad: F1 → PBWindow-QShortcut → ProjectManagement-Handler → modaler
+  ShortcutHelpDialog.
+- Ein gezielter echter Qt-Keytest belegt genau einen Dialogaufruf mit richtigem
+  Parent: `1 passed in 2.10s`.
+- Drei geführte Read-only-Prüfer fanden keinen belegten Produktdefekt.
+- Kein Produktcodeedit; PBWindow-App-Livepfad bleibt offen.
+- Matrixstatus `target-test-pass-live-pending`.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.

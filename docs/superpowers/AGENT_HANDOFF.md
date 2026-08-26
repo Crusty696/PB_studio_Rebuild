@@ -16,7 +16,7 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.
+`STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.
 
 Scope: erster verbleibender `no-candidate`-Eintrag nach 0 unresolved-Zeilen.
 Shortcut auslösen, echten Handler-/Dialogpfad und sichtbaren Zustand prüfen;
@@ -24,8 +24,8 @@ nur bei belegtem Defekt enger Produktfix.
 
 ## Letzter Abschluss
 
-Controls #168/#169 manuell ausgeschlossen, kein Produktfix. Evidence:
-`docs/superpowers/synthesis/stab5-controls-168-169-video-pagination-2026-08-26.md`.
+Control #1 F1 zielgetestet, kein Produktfix. Evidence:
+`docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,7 +37,6 @@ Controls #168/#169 manuell ausgeschlossen, kein Produktfix. Evidence:
 
 ## Verifikation
 
-#168/#169: drei Read-only-Prüfer bestätigen nicht gemountete, explizit
-versteckte Legacy-Controls; aktiver Pfad Scroll + `fetchMore()`. Kein Test,
-kein sichtbarer Bug, keine `fixed`-Aussage. Matrix unresolved=0; nächste
-prüfbare Lücke ist #1.
+#1: echter Qt-F1-Keyevent aktiviert denselben QShortcut-Konstruktor, realen
+ProjectManagement-Handler und Dialog-Mock genau einmal; `1 passed`. Produktcode
+unverändert, PBWindow-App-Livepfad offen. Nächste Matrixlücke #2.

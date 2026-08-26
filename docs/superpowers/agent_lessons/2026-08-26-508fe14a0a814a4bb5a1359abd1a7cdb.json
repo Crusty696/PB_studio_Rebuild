@@ -1,0 +1,10 @@
+{
+  "lesson_id": "508fe14a0a814a4bb5a1359abd1a7cdb",
+  "recorded_at": "2026-08-26T02:21:16+00:00",
+  "session_id": "13057f2fcfbd461b957263a3b1a87f56",
+  "head_at_start": "ce8fedcc6d8f77d89e7162540f8535fa2f20a41e",
+  "problem": "F1-Hilfe war korrekt verdrahtet, besaß aber keinen elementgenauen Beleg vom Qt-Keyevent bis zum Dialoghandler.",
+  "cause": "Vorhandene Tests und statische Matrixkandidaten prüften den tatsächlichen QShortcut-Konstruktor- und Handlerpfad nicht gemeinsam.",
+  "rule": "Globale Qt-Shortcuts mit einem engen Keyevent-Vertrag belegen: konkrete Produktverdrahtung, Shortcut-Lifetime, realer Handler, Dialogparent und genau eine sichtbare Aktion.",
+  "applies_to": "PBWindow-QShortcuts, STAB-5, Hilfe- und globale Tastaturaktionen"
+}

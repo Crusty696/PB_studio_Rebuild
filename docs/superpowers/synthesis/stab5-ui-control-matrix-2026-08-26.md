@@ -23,7 +23,7 @@ zahlreiche Fehlzuordnungen. Kein aktueller Testlauf und kein Live-PASS.
 
 | # | Typ | Source | Kontext | Control/Label | Signal/Handler | Scope | Belegkandidat | Stand |
 |---:|---|---|---|---|---|---|---|---|
-| 1 | QShortcut | `main.py:495` | `PBWindow.__init__` | `<inline@495> / _QKS(Qt.Key.Key_F1)` | `constructor callback: self.project_management._show_shortcut_help` | local-constructor | `kein elementgenauer Beleg automatisch gefunden` | no-candidate |
+| 1 | QShortcut | `main.py:495` | `PBWindow.__init__` | `<inline@495> / _QKS(Qt.Key.Key_F1)` | `constructor callback: self.project_management._show_shortcut_help` | local-constructor | `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md` | target-test-pass-live-pending |
 | 2 | QShortcut | `main.py:496` | `PBWindow.__init__` | `<inline@496> / _QKS('Ctrl+?')` | `constructor callback: self.project_management._show_shortcut_help` | local-constructor | `kein elementgenauer Beleg automatisch gefunden` | no-candidate |
 | 3 | QShortcut | `main.py:500` | `PBWindow.__init__` | `<inline@500> / _QKS('Ctrl+B')` | `constructor callback: self._open_studio_brain` | local-constructor | `kein elementgenauer Beleg automatisch gefunden` | no-candidate |
 | 4 | QPushButton | `main.py:603` | `PBWindow._build_update_banner` | `self._update_banner_link / Download` | `self._update_banner_link.clicked.connect(` | local | `kein elementgenauer Beleg automatisch gefunden` | no-candidate |

@@ -20,7 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #1 F1-Shortcut elementgenau pruefen und belegen`.
+`STAB-5 / Control #2 Ctrl+?-Shortcut elementgenau pruefen und belegen`.
+
+Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
+`1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.
+Echter PBWindow-App-Lauf bleibt offen; Matrixstatus
+`target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 
 Controls #168/#169 sind manuell als `legacy-hidden / manual-excluded`
 klassifiziert: nicht gemountet, explizit versteckt, aktiver Videopfad nutzt
