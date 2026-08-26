@@ -20,14 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #12 Einstellungen-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
 
-Control #11 ist elementgenau belegt: echter Produktbuilder/Wiring, sichtbarer
-`Brain`-Button und zwei Mausclicks erreichen echten PBWindow-Handler bis
-Singletonzugriff, show/raise/activate und idempotente Signalverdrahtung.
-`1 passed in 11.23s`, drei Parallelreviews PASS. Echtes Brain-Fenster/PBWindow-
-Live offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-08-26.md`.
+Control #12 ist elementgenau belegt: echter Produktbuilder/Wiring und sichtbarer
+`Einstellungen`-Button erreichen per zwei Mausclicks echten
+ProjectManagement-Handler. Je Click: eigener Dialog, korrekter Parent,
+Ollama-Signalconnect, exec und deleteLater; `1 passed in 1.27s`, Reviews PASS.
+Echter Dialoginhalt/QSettings/Modal-Live offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

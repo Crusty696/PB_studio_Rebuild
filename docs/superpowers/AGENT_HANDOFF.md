@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #12 Einstellungen-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
 
-Scope: lokalen Top-Bar-`Einstellungen`-Button per echtem Produktbuilder und
-Mausclick bis `_show_settings`-Dialoghandler belegen; Candidate-Refs semantisch
-pruefen, schweren Dialogrand isolieren, nur betroffenen Test laufen lassen.
+Scope: versteckten internen Tasks-Button und sichtbare Tools-Menueaktion
+`Tasks anzeigen` gemeinsam bis ContextPanel/Tasks-Tab belegen oder ehrlich als
+hidden-proxy klassifizieren; Candidate-Refs semantisch pruefen.
 
 ## Letzter Abschluss
 
-Control #11 Brain-Button elementgenau zielgetestet; Brain-/PBWindow-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-08-26.md`.
+Control #12 Einstellungen elementgenau zielgetestet; Dialog-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-
 
 ## Verifikation
 
-#11: Produktbuilder/Wiring + sichtbarer Button + zwei Mausclicks → echter
-Handler/Singletonzugriff/show/raise/activate/Signalsync; `1 passed in 11.23s`.
-Echtes Brain-Fenster-Live offen. Naechste Task #12 Einstellungen.
+#12: Produktbuilder/Wiring + zwei Mausclicks → echter Handler; pro Click eigener
+Dialog mit Parent/Signal/exec/deleteLater; `1 passed in 1.27s`. Dialog-Live
+offen. Naechste Task #13 Tasks-Anzeige.

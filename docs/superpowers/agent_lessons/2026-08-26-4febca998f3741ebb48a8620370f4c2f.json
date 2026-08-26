@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4febca998f3741ebb48a8620370f4c2f",
+  "recorded_at": "2026-08-26T03:48:57+00:00",
+  "session_id": "bce7fd5d552e4d8092c3f3839f1ef7ef",
+  "head_at_start": "6e68e1e2430c3084c4d5fa116798549c1197f7d0",
+  "problem": "Einstellungen-Button hatte nur Dialoginhalts- und fremde Candidate-Tests, keinen Top-Bar-Clickbeleg.",
+  "cause": "Schwerer Modal-/QSettings-Rand verdeckte, dass Builder-Wiring und Handler-Lifecycle isoliert testbar sind.",
+  "rule": "Dialogoeffnende Buttons mit echtem Builder und echtem Controller testen; nur Dialogklasse am lazy Import ersetzen und Konstruktion, Signal, exec sowie Cleanup assertieren.",
+  "applies_to": "Qt-Dialogbuttons, STAB-5, ProjectManagementController"
+}

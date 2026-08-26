@@ -1672,3 +1672,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #12 Einstellungen-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #12 Einstellungen-Button — 2026-08-26
+
+- Matrix-Candidates betrafen fremde Analysis-/Regenerate-Flows.
+- Echter Produktbuilder und echter ProjectManagementController; nur schwerer
+  SettingsDialog-Rand isoliert.
+- Zwei sichtbare Mausclicks erzeugen je eigenen Dialog mit korrektem Parent,
+  Ollama-Signalconnect, genau einem exec und garantiertem deleteLater.
+- Eindeutiger Button belegt; gezielter Test `1 passed in 1.27s`; Reviews PASS.
+- Kein Produktcodeedit; Status `target-test-pass-live-pending`.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-12-settings-button-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #13 Tasks-Anzeige elementgenau pruefen und belegen`.
