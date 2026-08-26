@@ -23,6 +23,13 @@ CONTROL_TYPES = {
     "QCheckBox",
     "QComboBox",
 }
+FACTORIES = {
+    ("ui/dialogs/setup_wizard.py", "_btn"): "QPushButton",
+    ("ui/dialogs/setup_wizard.py", "_model_row"): "QCheckBox",
+    ("ui/workspaces/media_workspace.py", "_toolbar_btn"): "QPushButton",
+    ("ui/workspaces/schnitt/empty_view.py", "_make_preset_button"): "QPushButton",
+    ("ui/workspaces/schnitt/timeline_shell.py", "_button"): "QPushButton",
+}
 MANUAL_BINDINGS = {
     ("ui/widgets/stem_mixer_panel.py", 91): (
         "ui/widgets/stem_workspace.py:145: track.solo_btn.toggled.connect(_on_solo_toggled)",
@@ -45,6 +52,7 @@ class Control:
     context: str
     target: str
     label: str
+    factory: str = ""
     binding: str = ""
     binding_scope: str = "unresolved"
     evidence: str = ""
@@ -110,9 +118,10 @@ def source_files() -> list[Path]:
     return [ROOT / "main.py", *sorted((ROOT / "ui").rglob("*.py"))]
 
 
-def collect_controls() -> tuple[list[Control], dict[Path, str]]:
+def collect_controls() -> tuple[list[Control], dict[Path, str], int]:
     controls: list[Control] = []
     texts: dict[Path, str] = {}
+    raw_constructor_sites = 0
     for path in source_files():
         text = path.read_text(encoding="utf-8")
         texts[path] = text
@@ -122,15 +131,29 @@ def collect_controls() -> tuple[list[Control], dict[Path, str]]:
             if not isinstance(node, ast.Call):
                 continue
             kind = call_name(node)
+            relative = path.relative_to(ROOT)
+            context = enclosing_context(node, parents)
+            if kind in CONTROL_TYPES:
+                raw_constructor_sites += 1
+                if (relative.as_posix(), context.split(".")[-1]) in FACTORIES:
+                    continue
+                factory = ""
+            else:
+                factory_kind = FACTORIES.get((relative.as_posix(), kind))
+                if factory_kind is None:
+                    continue
+                factory = kind
+                kind = factory_kind
             if kind not in CONTROL_TYPES:
                 continue
             control = Control(
                     kind=kind,
-                    path=path.relative_to(ROOT),
+                    path=relative,
                     line=node.lineno,
-                    context=enclosing_context(node, parents),
+                    context=context,
                     target=assigned_target(node, parents),
                     label=literal_label(node),
+                    factory=factory,
                 )
             statement = enclosing_statement(node, parents)
             if kind == "QShortcut" and len(node.args) >= 3:
@@ -140,7 +163,11 @@ def collect_controls() -> tuple[list[Control], dict[Path, str]]:
                 control.binding = statement
                 control.binding_scope = "local-inline"
             controls.append(control)
-    return sorted(controls, key=lambda c: (c.path.as_posix(), c.line, c.kind)), texts
+    return (
+        sorted(controls, key=lambda c: (c.path.as_posix(), c.line, c.kind)),
+        texts,
+        raw_constructor_sites,
+    )
 
 
 def target_token(target: str) -> str:
@@ -281,7 +308,7 @@ def escape(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
 
 
-def render(controls: list[Control]) -> str:
+def render(controls: list[Control], raw_constructor_sites: int) -> str:
     kinds = Counter(control.kind for control in controls)
     scopes = Counter(control.binding_scope for control in controls)
     evidence = Counter(control.evidence_level for control in controls)
@@ -294,10 +321,15 @@ def render(controls: list[Control]) -> str:
         "",
         "## Ergebnis",
         "",
-        f"- Controls: **{len(controls)}**.",
+        f"- Historische rohe Constructor-Sites: **{raw_constructor_sites}**.",
+        f"- Nach Factory-Expansion sichtbare Deklarationsstellen: **{len(controls)}**.",
         "- Typen: " + ", ".join(f"{kind}={kinds[kind]}" for kind in sorted(kinds)) + ".",
         "- Bindung: " + ", ".join(f"{scope}={scopes[scope]}" for scope in sorted(scopes)) + ".",
         "- Evidenzreferenz: " + ", ".join(f"{level}={evidence[level]}" for level in sorted(evidence)) + ".",
+        "",
+        "Factory-Aufrufe sind expandiert; ein Call in einer Schleife bleibt eine",
+        "Deklarationsstelle und kann mehrere Runtime-Widgets erzeugen. Die Zahl ist",
+        "deshalb keine gemessene Runtime-Widgetanzahl.",
         "",
         "Statische Zuordnung. `test-ref` bedeutet nur: Test referenziert Modul,",
         "Control oder Handler; kein aktueller Testlauf und kein Live-PASS.",
@@ -310,6 +342,8 @@ def render(controls: list[Control]) -> str:
     ]
     for index, control in enumerate(controls, 1):
         identity = control.target
+        if control.factory:
+            identity += f" [factory:{control.factory}]"
         if control.label:
             identity += f" / {control.label}"
         lines.append(
@@ -342,12 +376,15 @@ def render(controls: list[Control]) -> str:
 
 
 def main() -> int:
-    controls, texts = collect_controls()
+    controls, texts, raw_constructor_sites = collect_controls()
     attach_bindings(controls, texts)
     attach_evidence(controls)
-    OUTPUT.write_text(render(controls), encoding="utf-8", newline="\n")
-    print(f"controls={len(controls)} output={OUTPUT}")
-    return 0 if len(controls) == 182 else 2
+    OUTPUT.write_text(render(controls, raw_constructor_sites), encoding="utf-8", newline="\n")
+    print(
+        f"raw_constructor_sites={raw_constructor_sites} "
+        f"expanded_declarations={len(controls)} output={OUTPUT}"
+    )
+    return 0 if raw_constructor_sites == 182 else 2
 
 
 if __name__ == "__main__":
