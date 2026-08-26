@@ -1,0 +1,10 @@
+{
+  "lesson_id": "dfce03dd612f43c4a72b422c1b89c34d",
+  "recorded_at": "2026-08-26T03:43:55+00:00",
+  "session_id": "8bd3a3fad37e48f1a4c1a834c8c35787",
+  "head_at_start": "39a743d987aa21e6fb7fa340e1bf53979f320e4d",
+  "problem": "Studio-Brain-Handler war per Ctrl+B belegt, sichtbarer Top-Bar-Button aber nicht.",
+  "cause": "Control-Evidence wurde nach gemeinsamem Handler statt nach getrenntem sichtbarem Ausloeser bewertet.",
+  "rule": "Mehrere UI-Ausloeser desselben Handlers separat am echten Produktbuilder testen; Handler-/Consumer-Evidence gezielt wiederverwenden statt duplizierten Produktcode zu aendern.",
+  "applies_to": "STAB-5 Controls mit gemeinsamem Handler, Qt Buttons und Shortcuts"
+}

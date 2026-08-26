@@ -1658,3 +1658,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-10-context-panel-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #11 Studio-Brain-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #11 Studio-Brain-Button — 2026-08-26
+
+- Matrix-Candidates waren Tooltip-/fremde Paneltests, kein Brain-Button-Beleg.
+- Echter Produktbuilder erzeugt sichtbaren Button und fuehrt reales lokales
+  `clicked.connect(_open_studio_brain)` aus.
+- Zwei Mausclicks erreichen echten PBWindow-Handler; derselbe Fake-Singleton
+  wird je Click geholt, gezeigt, angehoben und aktiviert; Signale akkumulieren nicht.
+- Gezielter Test `1 passed in 11.23s`; drei Parallelreviews PASS.
+- Kein Produktcodeedit; Status `target-test-pass-live-pending`.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #12 Einstellungen-Button elementgenau pruefen und belegen`.

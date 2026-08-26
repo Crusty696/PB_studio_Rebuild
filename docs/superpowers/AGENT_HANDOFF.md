@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #11 Studio-Brain-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #12 Einstellungen-Button elementgenau pruefen und belegen`.
 
-Scope: sichtbaren Top-Bar-`Brain`-Button vom echten Qt-Click bis bestehendem
-`_open_studio_brain`-Handler/Fensterzustand belegen; Control #3 Ctrl+B-Evidence
-auf Wiederverwendung pruefen, nur betroffenen Test laufen lassen.
+Scope: lokalen Top-Bar-`Einstellungen`-Button per echtem Produktbuilder und
+Mausclick bis `_show_settings`-Dialoghandler belegen; Candidate-Refs semantisch
+pruefen, schweren Dialogrand isolieren, nur betroffenen Test laufen lassen.
 
 ## Letzter Abschluss
 
-Control #10 Kontextpanel elementgenau zielgetestet; PBWindow-Live offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-10-context-panel-2026-08-26.md`.
+Control #11 Brain-Button elementgenau zielgetestet; Brain-/PBWindow-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-11-studio-brain-button-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #10 Kontextpanel elementgenau zielgetestet; PBWindow-Live offen. Evidenc
 
 ## Verifikation
 
-#10: echter Produktbutton/Mausclick toggelt ContextPanel und Dock auf gezeigtem
-QMainWindow in beide Richtungen; Produktions-Connects geschuetzt,
-`1 passed in 4.62s`. PBWindow-Vollstart offen. Naechste Task #11 Brain.
+#11: Produktbuilder/Wiring + sichtbarer Button + zwei Mausclicks → echter
+Handler/Singletonzugriff/show/raise/activate/Signalsync; `1 passed in 11.23s`.
+Echtes Brain-Fenster-Live offen. Naechste Task #12 Einstellungen.
