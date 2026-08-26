@@ -1641,3 +1641,20 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.
+
+### STAB-5 Control #10 Kontextpanel — 2026-08-26
+
+- Matrix-Candidates prueften Tooltip bzw. fremdes AnalysisStatusPanel; vorhandener
+  Frontend-Contract nur ContextPanel direkt.
+- Echter Produktbuilder erzeugt `Kontext`-Button auf gezeigtem QMainWindow mit
+  echtem ContextPanel/QDockWidget und gebundenen PBWindow-Handlern.
+- Mausclick oeffnet Panel/Dock und setzt Checked-/Breitenzustand; zweiter Click
+  kollabiert alle Zustaende.
+- Erster Review fand manuell nachgebautes Cross-file-Wiring; exakte Guards fuer
+  beide produktiven Main-Connects ergaenzt, Nachreview PASS.
+- Gezielter Test `1 passed in 4.62s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-Vollstart offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-10-context-panel-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #11 Studio-Brain-Button elementgenau pruefen und belegen`.

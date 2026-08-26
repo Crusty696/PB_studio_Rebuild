@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b72ac7f96f58439cb7cebaed37e6bd56",
+  "recorded_at": "2026-08-26T03:38:07+00:00",
+  "session_id": "6477afc4f36149d796ab6766ba2944e1",
+  "head_at_start": "aab8d9c8be85c6554318ae2d81ff9ca35fa0ee5e",
+  "problem": "Kontextpanel-Control hatte nur Komponenten-Teiltests; erster echter Verhaltenstest baute Cross-file-Wiring selbst nach.",
+  "cause": "Produktbuilder und Handler koennen isoliert getestet werden, aber manuelles Connecten belegt die reale PBWindow-Callsite nicht.",
+  "rule": "Bei cross-file UI-Wiring realen Builder und Handler verhaltenstesten sowie Produktions-Connect per AST/Quellguard separat mutationssensitiv absichern.",
+  "applies_to": "STAB-5 Cross-file Controls, Qt Topbar, QDockWidget"
+}

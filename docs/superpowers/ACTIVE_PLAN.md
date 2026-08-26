@@ -20,14 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.
+`STAB-5 / Control #11 Studio-Brain-Button elementgenau pruefen und belegen`.
 
-Control #9 ist elementgenau belegt: echter `Abbrechen.click()` setzt einen
-bewusst Accepted-vorbelegten Dialog auf Rejected; trotz gueltiger Szene/Zeit
-bleiben TreeItem, Collector und Console leer. Zieltest `1 passed in 1.29s`;
-drei Reviewlinien PASS nach False-PASS-Schaerfung. Modal-/PBWindow-Live offen.
-Evidence:
-`docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
+Control #10 ist elementgenau belegt: echter per Produktcontroller gebauter
+`Kontext`-Button auf gezeigtem QMainWindow toggelt per Mausclick echten
+ContextPanel/Dock inklusive Checked-/Breitenzustand in beide Richtungen.
+Produktions-Connects separat geschuetzt; `1 passed in 4.62s`, Nachreview PASS.
+PBWindow-Vollstart offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-10-context-panel-2026-08-26.md`.
 
 Control #1 F1 besitzt jetzt elementgenauen Qt-Key→Handler→Dialogbeleg:
 `1 passed in 2.10s`, drei Parallelreviews ohne Produktfinding, kein Codeedit.

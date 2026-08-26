@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #10 Kontextpanel elementgenau pruefen und belegen`.
+`STAB-5 / Control #11 Studio-Brain-Button elementgenau pruefen und belegen`.
 
-Scope: sichtbaren Top-Bar-`Kontext`-Button vom echten Qt-Click durch
-`_set_context_panel_visible` bis sichtbaren Panelzustand belegen; Candidate-Refs
-zuerst semantisch pruefen, nur betroffenen Test laufen lassen.
+Scope: sichtbaren Top-Bar-`Brain`-Button vom echten Qt-Click bis bestehendem
+`_open_studio_brain`-Handler/Fensterzustand belegen; Control #3 Ctrl+B-Evidence
+auf Wiederverwendung pruefen, nur betroffenen Test laufen lassen.
 
 ## Letzter Abschluss
 
-Control #9 Abbrechen elementgenau zielgetestet; Livepfad offen. Evidence:
-`docs/superpowers/synthesis/stab5-control-9-add-anchor-cancel-2026-08-26.md`.
+Control #10 Kontextpanel elementgenau zielgetestet; PBWindow-Live offen. Evidence:
+`docs/superpowers/synthesis/stab5-control-10-context-panel-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Control #9 Abbrechen elementgenau zielgetestet; Livepfad offen. Evidence:
 
 ## Verifikation
 
-#9: echter Button-Click setzt Accepted-Sentinel auf Rejected; gueltige Nutzdaten
-erzeugen danach keine TreeItem-/Collector-/Console-Wirkung; `1 passed in 1.29s`.
-Modal-/PBWindow-Live offen. Naechste Task Matrixeintrag #10 Kontext.
+#10: echter Produktbutton/Mausclick toggelt ContextPanel und Dock auf gezeigtem
+QMainWindow in beide Richtungen; Produktions-Connects geschuetzt,
+`1 passed in 4.62s`. PBWindow-Vollstart offen. Naechste Task #11 Brain.
