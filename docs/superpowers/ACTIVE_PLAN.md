@@ -20,7 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #25 About-Schliessen-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.
+
+Control #25 ist elementgenau belegt: echter AboutDialog erzeugt genau einen
+sichtbaren/aktiven Accent-Button `Schliessen`. Echter QTest-Mausclick emittiert
+Accepted genau einmal, setzt Accepted-Resultat und versteckt Dialog. Zieltest
+`1 passed in 2.02s`, kein Produktcodeedit. PBWindow-/About-Menu-Livepfad bleibt
+offen. Status `target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md`.
 
 Control #24 ist elementgenau belegt: echter AboutDialog erzeugt genau einen
 sichtbaren/aktiven Dokumentationsbutton. Echte QTest-Mausclicks erreichen lokale

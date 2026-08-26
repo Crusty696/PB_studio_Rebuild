@@ -1865,3 +1865,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-24-about-documentation-2026-08-27.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #25 About-Schliessen-Button elementgenau pruefen und belegen`.
+
+### STAB-5 Control #25 About-Schliessen — 2026-08-27
+
+- Kein vorhandener Test belegte konkreten Close-Button-Ausloeser.
+- Echter AboutDialog erzeugt genau einen sichtbaren/aktiven Accent-Button
+  `Schliessen`.
+- Echter QTest-Mausclick emittiert Accepted genau einmal, setzt Accepted-
+  Resultat und versteckt Dialog.
+- Zieltest `1 passed in 2.02s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-/About-Menu-Livepfad offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.

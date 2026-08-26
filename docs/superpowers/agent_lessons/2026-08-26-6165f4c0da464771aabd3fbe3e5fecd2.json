@@ -1,0 +1,10 @@
+{
+  "lesson_id": "6165f4c0da464771aabd3fbe3e5fecd2",
+  "recorded_at": "2026-08-26T22:33:53+00:00",
+  "session_id": "9ee6e0e75d5a4c2abe17ac20f3164341",
+  "head_at_start": "2114954650b4ae0969b2fae6cb2ef2633184c888",
+  "problem": "About-Schliessen war nur als lokale Signalverdrahtung sichtbar, ohne elementgenauen Testbeleg.",
+  "cause": "Kein Test verband sichtbaren Button-Click mit Accepted-Signal, Dialogresultat und Sichtbarkeit.",
+  "rule": "Dialog-Close-Controls mit echtem QTest-Click bis Signal, QDialog-Resultat und geschlossenem Sichtbarkeitszustand gemeinsam pruefen.",
+  "applies_to": "STAB-5 Close-/OK-Buttons in QDialogs"
+}

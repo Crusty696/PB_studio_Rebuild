@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #25 About-Schliessen-Button elementgenau pruefen und belegen`.
+`STAB-5 / Control #26 Crashdialog-Log-Datei-oeffnen-Button elementgenau pruefen und belegen`.
 
-Scope: `ui/dialogs/about.py` -> `btn / Schliessen`;
-Sichtbarkeit, Click und Dialogresultat elementgenau pruefen.
+Scope: `ui/dialogs/crash_dialog.py` -> `btn_log / Log-Datei öffnen`;
+Sichtbarkeit, Click, Erfolgs- und Fehlerpfad elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #24 About-Dokumentation per echten Mausklicks fuer README-Oeffnung und
-Missing-Warnung zielgetestet; Frozen-/Installer-/OS-Viewer-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-24-about-documentation-2026-08-27.md`.
+Control #25 About-Schliessen per echtem Mausclick fuer Accepted-Signal,
+Dialogresultat und Unsichtbarkeit zielgetestet; PBWindow-/Menu-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-25-about-close-2026-08-27.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-24-about-documentation-2026-
 
 ## Verifikation
 
-#24: echter AboutDialog/Dokumentationsbutton → QTest-Mausclick → README-Oeffnung
-und sichtbare Missing-Warnung; `1 passed in 1.37s`. Frozen-/Installer-/OS-
-Viewer-Live offen. Naechste Task #25 About-Schliessen.
+#25: echter AboutDialog/Schliessen-Button → QTest-Mausclick → Accepted-Signal,
+Accepted-Resultat und Dialog zu; `1 passed in 2.02s`. PBWindow-/Menu-Live offen.
+Naechste Task #26 Crashdialog-Log-Datei oeffnen.
