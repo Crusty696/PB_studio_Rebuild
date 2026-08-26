@@ -1,5 +1,5 @@
 """Integration-Smoke-Tests fuer das SCHNITT-Wiring (Plan
-docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/).
+docs/superpowers/archive/completed-legacy-plans/2026-05-09-schnitt-integration-wiring-fix/).
 
 Diese Tests fangen die drei Audit-Bugs B-284 / B-285 / B-286 in Zukunft
 ab. Stilistisch im selben Source-Inspection-Pattern wie

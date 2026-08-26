@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9157ee972c804eb2b3a0d63ec9b95e5e",
+  "recorded_at": "2026-08-26T01:08:23+00:00",
+  "session_id": "ec70675e29624a30a26e9bc58504d399",
+  "head_at_start": "6de5fdc2800c082eaaf550f92b834cd402f74e33",
+  "problem": "Vault-Bugliste enthielt trotz abgeschlossenem Fix weiterhin in_progress und aktuelle Statussynthese zeigte alte Phase als aktiv.",
+  "cause": "Bugakte und Current-Synthese wurden nach spaeterem Git-/Livebeleg nicht atomar nachgezogen; historische Abschnitte blieben als aktuelle Authority beschriftet.",
+  "rule": "Bei Buglisten-Abgleich Frontmatter direkt zaehlen, jeden Statuswechsel mit Git plus Test-/Livebeleg absichern und historische Detailsektionen explizit als nicht aktuelle Authority markieren.",
+  "applies_to": "Vault-Buglisten, Current-Status-Synthesen, Plan-Handoffs, Status-Reconciliation"
+}

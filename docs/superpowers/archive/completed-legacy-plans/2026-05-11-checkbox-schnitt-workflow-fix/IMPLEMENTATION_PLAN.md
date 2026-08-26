@@ -1,5 +1,7 @@
 # Checkbox + SCHNITT + Workflow Fix — Implementation Plan
 
+> **ARCHIVED COMPLETED LEGACY PLAN — NOT AUTHORITY.** All referenced bugs B-253 and B-284..B-296 are `fixed` in Vault. Unchecked boxes below are stale historical tracking, not open tasks. Current authority: `docs/superpowers/ACTIVE_PLAN.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Audio-Multi-Select via Checkbox funktioniert, SCHNITT-Empty-State-Preset-Klick startet wirklich Pipeline, Cutliste sichtbar, MEDIA-Workflow strukturiert mit Sub-Sektionen + Onboarding-Banner.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** PySide6 (Qt 6) · SQLAlchemy + SQLite WAL · pytest mit `QT_QPA_PLATFORM=offscreen` · conda-env `pb-studio` (`C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe`).
 
-**Plan-Wurzel:** `docs/superpowers/plans/2026-05-11-checkbox-schnitt-workflow-fix/`. Regelwerk: [`README.md`](./README.md) mit R-1..R-15.
+**Plan-Wurzel:** `docs/superpowers/archive/completed-legacy-plans/2026-05-11-checkbox-schnitt-workflow-fix/`. Regelwerk: [`README.md`](./README.md) mit R-1..R-15.
 
 ---
 

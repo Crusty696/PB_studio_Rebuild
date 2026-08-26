@@ -6,14 +6,14 @@ Status: `audited-read-only`
 
 Diese Dateien waren im Working Tree als geaendert markiert:
 
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/02_DECISIONS.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/03_TECH_STACK.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/05_BRIDGE_AXES.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/07_RISKS.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/08_VERIFICATION.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/09_REVERIFICATION_2026-05-04.md`
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/phase_blueprints/phase_6_haertung.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/02_DECISIONS.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/03_TECH_STACK.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/05_BRIDGE_AXES.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/07_RISKS.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/08_VERIFICATION.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/09_REVERIFICATION_2026-05-04.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/phase_blueprints/phase_6_haertung.md`
 
 `git diff`, `git diff --ignore-cr-at-eol`, `git diff --ignore-space-at-eol`, `git diff --numstat` und `git diff --summary` zeigten keinen Inhaltsdiff. Git meldete nur LF/CRLF-Warnungen. Bewertung: kein belegbarer neuer Planinhalt in diesen Dirty-Dateien.
 

@@ -402,7 +402,7 @@ class WorkspaceSetupController(PBComponent):
         # edit_workspace-Adapter binden. Vorher: Controller existierte nur in
         # Tests, Empty-State-Klicks/Cancel/Worker-Progress/Re-Generate-Confirm
         # gingen ins Leere. Plan:
-        # docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md
+        # docs/superpowers/archive/completed-legacy-plans/2026-05-09-schnitt-integration-wiring-fix/README.md
         from ui.controllers.schnitt_controller import SchnittController
         from ui.controllers.schnitt_audio_binder import SchnittAudioBinder
         from ui.controllers.schnitt_action_binder import SchnittActionBinder

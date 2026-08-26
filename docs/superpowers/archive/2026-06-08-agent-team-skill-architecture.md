@@ -1,5 +1,7 @@
 # PB Studio Agent Team Skill Architecture Implementation Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create evidence-backed PB-Studio agent and team files for large complex work, with clear hierarchy, strict governance alignment, and reusable specialization boundaries.
@@ -11,7 +13,8 @@
 ---
 
 plan_id: PB-STUDIO-AGENT-TEAM-SKILL-ARCHITECTURE-2026-06-08
-status: approved-for-implementation
+historical_status: approved-for-implementation
+status: superseded
 mode: meta-governance-skill-build
 created: 2026-06-08
 authorized_by_user: 2026-06-08 chat
@@ -50,7 +53,7 @@ These clusters justify dedicated orchestrators and specialist teams instead of a
 
 - Modify: `docs/superpowers/PLAN_REGISTRY.md`
 - Modify: `docs/superpowers/ACTIVE_PLAN.md`
-- Create: `docs/superpowers/plans/2026-06-08-agent-team-skill-architecture.md`
+- Create: `docs/superpowers/archive/2026-06-08-agent-team-skill-architecture.md`
 - Create: `.agents/skills/pb-live-verify-orchestrator/SKILL.md`
 - Create: `.agents/skills/pb-concurrency-strike-team/SKILL.md`
 - Create: `.agents/skills/pb-release-readiness-team/SKILL.md`
@@ -153,8 +156,7 @@ Acceptance criteria:
 - Automation memory updated.
 - User report distinguishes created files vs unverified future usefulness.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 ```text
 User review of created agent/team skill files
 ```

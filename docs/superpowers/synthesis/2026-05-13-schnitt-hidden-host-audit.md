@@ -5,7 +5,7 @@ Status: code-fix-pending-live-verification
 
 ## Scope
 
-Task 7 from `docs/superpowers/plans/2026-05-13-schnitt-usability-wiring-rebuild/README.md`.
+Task 7 from `docs/superpowers/archive/2026-05-13-schnitt-usability-wiring-rebuild/README.md`.
 
 Command used:
 

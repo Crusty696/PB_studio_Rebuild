@@ -1,7 +1,10 @@
 # PB Studio Full Project File Audit
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 plan_id: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
-status: code-complete-live-pending
+historical_status: code-complete-live-pending
+status: superseded
 mode: audit-plan
 created: 2026-05-31
 authorized_by_user: 2026-05-31 chat
@@ -142,8 +145,7 @@ Stop and ask user if:
 - evidence requires destructive or mutating command
 - live verification is needed to classify a finding
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 Task 1 Inventory And Exclusion Map is static-complete in the Vault mirror.
 
 Task 2 Top-Down Audit is static-complete in the Vault mirror.

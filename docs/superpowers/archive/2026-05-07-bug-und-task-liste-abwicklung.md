@@ -88,9 +88,9 @@ Audio-V2-Reconcile ist pausiert, nicht geloescht. Keine Audio-V2-Portierung in d
 
 **Plan/Vault:**
 
-- Read: `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-- Read: `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/07_RISKS.md`
-- Read: `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/08_VERIFICATION.md`
+- Read: `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
+- Read: `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/07_RISKS.md`
+- Read: `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/08_VERIFICATION.md`
 - Read: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\bug-und-task-liste-2026-05-07.md`
 - Update after real tests: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\functional-test-<scope>-2026-05-07.md`
 - Update after bug work: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-XXX-<slug>.md`
@@ -287,7 +287,7 @@ Phase 1 Live-Smoke: App starten, 3 echte Audio + 3 echte Video importieren, V3-D
 Read Phase 1 DoD in:
 
 ```text
-docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md
+docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md
 ```
 
 Acceptance:

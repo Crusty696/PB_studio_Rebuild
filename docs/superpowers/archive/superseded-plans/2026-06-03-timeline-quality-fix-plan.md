@@ -5,7 +5,8 @@
 > keine offene Task. Konsolidiert unter `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` (D-071).
 > Nicht mehr als aktiver Plan nutzen.
 
-status: in-progress (autonomous, user authorized "mach alles autonom bis alles fertig ist")
+historical_status: in-progress (autonomous, user authorized "mach alles autonom bis alles fertig ist")
+status: superseded
 plan_id: TIMELINE-QUALITY-FIX-2026-06-03
 parent_plan: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
 created: 2026-06-03

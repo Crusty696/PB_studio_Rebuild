@@ -1,5 +1,7 @@
 # Fixplan: Schnitt / Clip-Auswahl / Thumbnails / Timeline-UI
 
+> **ARCHIVED COMPLETED PLAN — NOT AUTHORITY.** Registry status is `fixed`; later work belongs only to current Masterplan selected by `ACTIVE_PLAN.md`.
+
 - **Plan-ID:** PB-STUDIO-SCHNITT-CLIPAUSWAHL-FIXPLAN-2026-07-07
 - **Status:** `fixed` — Live-verifiziert und vom User am 2026-07-08 abgenommen („schnitt ist besser noch nicht ganz perfeckt aber gut den kann man auf fix stellen mit einem vermerk das der schnitt später noch ein update bekommt“). Spätere Verfeinerungen erfolgen im Rahmen des Folgeplans PB-STUDIO-NEUBAUTEN-VOLLINTEGRATION-2026-07-07.
 - **Umsetzungs-Stand 2026-07-08 (Commits 7f46b72…9f775e2, 27 Commits):**

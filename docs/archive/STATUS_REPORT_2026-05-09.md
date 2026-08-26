@@ -1,11 +1,11 @@
 # PB Studio Rebuild — Status-Report 2026-05-09
 
-> Quelle: Plan-Set `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/` + Plan
-> `docs/superpowers/plans/2026-05-07-bug-und-task-liste-abwicklung.md` + Vault-Bugs/Logs.
+> Quelle: Plan-Set `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/` + Plan
+> `docs/superpowers/archive/2026-05-07-bug-und-task-liste-abwicklung.md` + Vault-Bugs/Logs.
 > Branch `main` @ `3a9a716` (Merge codex/full-app-green-fix). Working tree dirty:
 > 4 mod files (`docs/plan_graph_system_implementation.md`,
 > `docs/superpowers/prd/2026-04-23-studio-brain-prd.md`, `ui/dialogs/project_dialog.py`,
-> `ui/timeline.py`), 4 untracked (`docs/superpowers/plans/2026-05-07-bug-und-task-liste-abwicklung.md`,
+> `ui/timeline.py`), 4 untracked (`docs/superpowers/archive/2026-05-07-bug-und-task-liste-abwicklung.md`,
 > `scripts/phase1_cache_test.py`, `scripts/phase1_import_test.py`, `test_import_phase1/`).
 
 Vault-Mirror: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\status-report-2026-05-09.md`
@@ -131,8 +131,8 @@ Erste Aktion: **B-265 CUDA-Preflight**. Wenn GPU nicht verfuegbar → alle GPU-p
 
 ## Quellen
 
-- `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
-- `docs/superpowers/plans/2026-05-07-bug-und-task-liste-abwicklung.md`
+- `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
+- `docs/superpowers/archive/2026-05-07-bug-und-task-liste-abwicklung.md`
 - `C:\Brain-Bug\projects\pb-studio\PROJECT.md`
 - `C:\Brain-Bug\projects\pb-studio\log.md` (Eintrag 2026-05-05)
 - `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-1**` … `B-283`
@@ -177,7 +177,7 @@ Erste Aktion: **B-265 CUDA-Preflight**. Wenn GPU nicht verfuegbar → alle GPU-p
 - Offen nur **#21 Brain-V3 Pen-Konflikt** mit Lock-Goldrand → Decision-File `D-XXX-lock-vs-confidence-pen` für Brain-V3 Phase 4+.
 
 ### BLOCKER `status: fixed`
-- Nur **User-Live-Verify** (16 Klick-Schritte aus `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`).
+- Nur **User-Live-Verify** (16 Klick-Schritte aus `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`).
 - Branch lokal, **kein Push**, **kein Merge auf main**.
 
 ### Vault-Spiegelung

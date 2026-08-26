@@ -16,7 +16,7 @@ vault_mirror: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\schnitt-redesign-fi
 
 ## Status
 
-**Plan-Code-Implementation 100 % komplett auf Branch `feat/schnitt-redesign-2026-05-09`.** User-Live-Verify (16 Klick-Schritte aus `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`) steht aus. `status: fixed` setzt nur User nach Verify.
+**Plan-Code-Implementation 100 % komplett auf Branch `feat/schnitt-redesign-2026-05-09`.** User-Live-Verify (16 Klick-Schritte aus `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`) steht aus. `status: fixed` setzt nur User nach Verify.
 
 ## Phasen-Übersicht (Plan)
 

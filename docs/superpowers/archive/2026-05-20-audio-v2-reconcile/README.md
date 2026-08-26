@@ -1,5 +1,7 @@
 # Audio V2 Reconcile Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 Plan ID: `AUDIO-ANALYSIS-V2-STRICT-SEQUENTIAL-2026-05-17`
 Status: `approved-for-planning`
 Date: 2026-05-20
@@ -186,8 +188,7 @@ Definition of Done:
 Definition of Done:
 - Kein `fixed` ohne User-Live-Bestaetigung.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 `P0 - Freeze And Snapshot`.
 
 ## Superseded / Task Transfer

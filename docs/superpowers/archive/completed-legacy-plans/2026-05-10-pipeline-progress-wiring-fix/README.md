@@ -1,5 +1,7 @@
 # Pipeline Progress + Status Wiring Fix — Implementation Plan
 
+> **ARCHIVED COMPLETED LEGACY PLAN — NOT AUTHORITY.** All referenced bugs B-253 and B-284..B-296 are `fixed` in Vault. Unchecked boxes below are stale historical tracking, not open tasks. Current authority: `docs/superpowers/ACTIVE_PLAN.md`.
+
 **Datum:** 2026-05-10
 **Branch:** `feat/schnitt-redesign-2026-05-09` (weiter — neuer Branch nach User-Wunsch möglich)
 **Vorgeschichte:** Beim Live-Verify des SCHNITT-Wiring-Plans (2026-05-09) berichtet der User, dass die Video-Pipeline nur bis 88% läuft, Progress-Bars 0% zeigen, und einzelne Analyse-Buttons nicht klar machen welche Schritte noch fehlen. Audit am 2026-05-10 hat 6 Bugs lokalisiert (B-287 bis B-292).
@@ -347,7 +349,7 @@ Bei 8/8 ✅: User vergibt `status: fixed` für B-287/B-288/B-289/B-290/B-291/B-2
 ## Plan-Anker
 
 - Bug-Files: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-287..B-292*.md`.
-- Vorgänger-Plan: `docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md`.
+- Vorgänger-Plan: `docs/superpowers/archive/completed-legacy-plans/2026-05-09-schnitt-integration-wiring-fix/README.md`.
 - Living-Plan-Update wird in `wiki/synthesis/schnitt-workspace-redesign-2026-05-09.md` referenziert + neuer Living-Plan für Pipeline-Wiring optional.
 - Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3.
 - Conda-Env: `C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe`.

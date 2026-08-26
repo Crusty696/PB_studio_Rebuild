@@ -1,5 +1,7 @@
 # Implementation plan: b687-crossfade-av-sync (B-687 Defekt 1)
 
+> **SANDBOX EVIDENCE — NOT AUTHORITY.** This file records an isolated feasibility run. It cannot authorize production work or replace `ACTIVE_PLAN.md`.
+
 Gewaehlte Variante: A - Export-seitige Overlap-Extension (Tail aus Restmaterial).
 Scope strikt: NUR services/export_service.py::_export_with_filtergraph
 (Single-Chain-Zweig). Concat/Cut-Pfad und pacing_service UNBERUEHRT.

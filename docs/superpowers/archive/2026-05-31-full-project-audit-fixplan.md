@@ -1,5 +1,7 @@
 # PB Studio Full Project Audit Fixplan Implementation Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert the full-project audit findings FPA-001..FPA-010 into a sequential, test-first fix and verification program.
@@ -11,7 +13,8 @@
 ---
 
 plan_id: PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31
-status: in_progress
+historical_status: in_progress
+status: superseded
 created: 2026-05-31
 source_audit: PB-STUDIO-FULL-PROJECT-FILE-AUDIT-2026-05-31
 source_report: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\full-project-file-audit-final-2026-05-31.md
@@ -80,7 +83,7 @@ Likely modified files by task:
 **Files:**
 - Modify: `docs/superpowers/ACTIVE_PLAN.md`
 - Modify: `docs/superpowers/PLAN_REGISTRY.md`
-- Modify: `docs/superpowers/plans/2026-05-31-full-project-audit-fixplan.md`
+- Modify: `docs/superpowers/archive/2026-05-31-full-project-audit-fixplan.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-055-full-project-audit-fixplan.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-full-project-audit-fixplan-2026-05-31.md`
 
@@ -119,7 +122,7 @@ PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31 is active and next task is Task 1 after 
 Run:
 
 ```powershell
-git add docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/plans/2026-05-31-full-project-audit-fixplan.md
+git add docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/archive/2026-05-31-full-project-audit-fixplan.md
 git commit -m "docs(PB-STUDIO-FULL-AUDIT-FIXPLAN-2026-05-31): authorize fixplan" -m "Verification: governance documentation only; no code changes; no tests run; no app live verification."
 ```
 
@@ -293,7 +296,7 @@ Targeted test passes. Default gate passes or next first failure is documented as
 Update B-441 and synthesis. Commit:
 
 ```powershell
-git add tests/integration/test_full_enrichment.py workers/structure_enrichment.py docs/superpowers/synthesis/test-gate-policy-2026-05-31.md docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/plans/2026-05-31-full-project-audit-fixplan.md
+git add tests/integration/test_full_enrichment.py workers/structure_enrichment.py docs/superpowers/synthesis/test-gate-policy-2026-05-31.md docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/archive/2026-05-31-full-project-audit-fixplan.md
 git commit -m "fix(B-441): restore structure enrichment default gate" -m "Verification: targeted enrichment test run; default gate status documented."
 ```
 
@@ -1331,8 +1334,7 @@ Stop and ask user if:
 - Worktree becomes dirty with unknown paths.
 - Live GUI verification is required for `fixed` status.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 Task 11 (B-462-A) is code-complete and tester-live-verified (row kept + deleted_at
 set live). `status: fixed` is user-only. Next: user `fixed` confirmation for B-462,
 then optional Task 12 (option C purge) on user release.

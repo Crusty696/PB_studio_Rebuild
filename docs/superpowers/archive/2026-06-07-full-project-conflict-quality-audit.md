@@ -1,5 +1,7 @@
 # PB Studio Conflict Quality Audit Implementation Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Run a new read-only whole-project audit for conflicts, bugs, gaps, false assumptions, inactive features, blockers, dead code, and stability/performance/quality improvements.
@@ -11,7 +13,8 @@
 ---
 
 plan_id: PB-STUDIO-CONFLICT-QUALITY-AUDIT-2026-06-07
-status: approved-for-planning
+historical_status: approved-for-planning
+status: superseded
 mode: audit-plan
 created: 2026-06-07
 authorized_by_user: 2026-06-07 chat
@@ -85,7 +88,7 @@ Governance files:
 
 - Modify: `docs/superpowers/ACTIVE_PLAN.md`
 - Modify: `docs/superpowers/PLAN_REGISTRY.md`
-- Create: `docs/superpowers/plans/2026-06-07-full-project-conflict-quality-audit.md`
+- Create: `docs/superpowers/archive/2026-06-07-full-project-conflict-quality-audit.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-057-full-project-conflict-quality-audit.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-full-project-conflict-quality-audit-2026-06-07.md`
 
@@ -249,8 +252,7 @@ Stop and ask user if:
 - plan registry, active plan, decision, and vault mirror contradict each other
 - multiple active plans appear
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 All audit tasks are static-complete as of 2026-06-07.
 
 Next task:

@@ -1,5 +1,7 @@
 # PB Studio FFmpeg Resolver Fix Implementation Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove documented bare FFmpeg/FFprobe calls from thumbnail and ingest paths so PB Studio uses the configured resolver consistently.
@@ -11,7 +13,8 @@
 ---
 
 plan_id: PB-STUDIO-FFMPEG-RESOLVER-FIX-2026-06-07
-status: approved-for-implementation
+historical_status: approved-for-implementation
+status: superseded
 mode: fix-plan
 created: 2026-06-07
 authorized_by_user: 2026-06-07 chat "mach das mit dem groesseren mehr wert und das die app weiter bringt"
@@ -37,7 +40,7 @@ Out of scope:
 - Modify: `docs/superpowers/ACTIVE_PLAN.md`
 - Modify: `docs/superpowers/PLAN_REGISTRY.md`
 - Modify: `docs/superpowers/AGENT_HANDOFF.md`
-- Create: `docs/superpowers/plans/2026-06-07-ffmpeg-resolver-fix.md`
+- Create: `docs/superpowers/archive/2026-06-07-ffmpeg-resolver-fix.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-058-ffmpeg-resolver-fix.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-ffmpeg-resolver-fix-2026-06-07.md`
 - Modify: `workers/video.py`
@@ -150,8 +153,7 @@ Acceptance criteria:
 - Commit message says no live GUI verification.
 - No bug file is marked `fixed`.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 ```text
 No implementation task. Code fix pending live GUI verification.
 ```

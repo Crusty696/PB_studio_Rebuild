@@ -1,5 +1,7 @@
 # Implementation plan: b686-vram-coordination (Variant C)
 
+> **SANDBOX EVIDENCE — NOT AUTHORITY.** This file records an isolated feasibility run. It cannot authorize production work or replace `ACTIVE_PLAN.md`.
+
 Ziel: Persistente Brain-V3-Embedder waehrend der ModelManager-Video-Analyse deadlock-sicher aus dem VRAM nehmen. Free am run()-Start (vor jeder GPU-Lease) + Pause/Resume-Gate im Scheduler. Phase 4 (implement) fuehrt das aus; dieses Dokument ist der geordnete Bauplan.
 
 ## Pre-checks

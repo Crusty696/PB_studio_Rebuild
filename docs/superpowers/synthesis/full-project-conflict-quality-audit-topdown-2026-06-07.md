@@ -16,7 +16,7 @@ Audit governance, entrypoints, configuration, launch scripts, CI, runtime manife
 
 ```powershell
 git status --short --branch
-rg -n "PB-STUDIO-FULL-AUDIT-FIXPLAN|PB-STUDIO-CONFLICT-QUALITY-AUDIT|Current Active Plan|Current Branch|Default-Gate|next_allowed_task|active_plan_id" docs/superpowers/AGENT_HANDOFF.md docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/plans/2026-06-07-full-project-conflict-quality-audit.md
+rg -n "PB-STUDIO-FULL-AUDIT-FIXPLAN|PB-STUDIO-CONFLICT-QUALITY-AUDIT|Current Active Plan|Current Branch|Default-Gate|next_allowed_task|active_plan_id" docs/superpowers/AGENT_HANDOFF.md docs/superpowers/ACTIVE_PLAN.md docs/superpowers/PLAN_REGISTRY.md docs/superpowers/archive/2026-06-07-full-project-conflict-quality-audit.md
 rg -n "requirements\.txt|requirements-py310-cu113|environment\.yml|poetry|torch==|torch =|cu124|cu113|Python 3\.10|Python 3\.11" setup_pb_studio.py setup_pb_studio.bat start_pb_studio.py start_pb_studio.bat pyproject.toml requirements-py310-cu113.txt requirements.txt environment.yml poetry.lock README.md STARTUP.md .github/workflows/ci.yml
 rg -n "shutil\.which\(" services workers ui agents scripts tools main.py start_pb_studio.py setup_pb_studio.py --glob "*.py"
 rg -n "subprocess\.(run|Popen)" services workers ui agents scripts tools main.py start_pb_studio.py setup_pb_studio.py --glob "*.py"

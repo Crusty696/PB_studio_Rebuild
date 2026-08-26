@@ -2,7 +2,7 @@
 
 **Datum:** 2026-04-23 (Audit)
 **Basis-Commit (Ausführung):** `a3b04da` — "Implement Studio Brain (Phase 6)"
-**Plan-Dokument:** `docs/superpowers/plans/2026-04-23-studio-brain-plan.md`
+**Plan-Dokument:** `docs/superpowers/archive/2026-04-23-studio-brain-plan.md`
 **Verdikt:** **NICHT release-ready.** Kritische Release-Gates fehlen; Pacing-Scorer implementiert eine völlig andere Formel als Spec; Release-Gate-Bug in Wilson-Fallback; Plan-Commit-Disziplin verletzt.
 
 ---

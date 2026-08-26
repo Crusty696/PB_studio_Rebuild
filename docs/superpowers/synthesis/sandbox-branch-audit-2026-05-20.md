@@ -15,7 +15,7 @@ Nicht gemacht:
 
 ## Aktueller Haupttree-Hinweis
 
-Der Haupttree `feat/video-pipeline-engine-2026-05-19` war vor diesem Audit nicht sauber. Geaendert waren Brain-V3-Plan-Dokumente unter `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/`. Diese Aenderungen wurden in diesem Audit nicht gelesen, nicht geaendert und nicht bewertet.
+Der Haupttree `feat/video-pipeline-engine-2026-05-19` war vor diesem Audit nicht sauber. Geaendert waren Brain-V3-Plan-Dokumente unter `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/`. Diese Aenderungen wurden in diesem Audit nicht gelesen, nicht geaendert und nicht bewertet.
 
 ## `sandbox/audio-analysis-v2`
 

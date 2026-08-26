@@ -1,5 +1,7 @@
 # Offene Tasks Konsolidierung Masterplan 2026-06-09
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
 > `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
 > `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
@@ -7,7 +9,8 @@
 > `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 
 plan_id: PB-STUDIO-OFFENE-TASKS-KONSOLIDIERUNG-MASTERPLAN-2026-06-09
-status: approved-for-implementation
+historical_status: approved-for-implementation
+status: superseded
 owner: pb-plan-governor
 created: 2026-06-09
 authorized_by_user: 2026-06-09 chat
@@ -26,8 +29,7 @@ Keine App-Code-Aenderung ist durch diese Konsolidierung erfolgt. Kein Produkt-Bu
 - Widerspruch bleibt sichtbar als `needs-human-decision`; keine Annahme.
 - Status `fixed` bleibt user-only.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 ```text
 OTK-021 Tier 1-2 plus Tier 3/30, 31, 32, 33, 34, 40, 50, 51, 60, 70, and 71 code/tests completed by 2026-06-15.
 Next task = OTK-021 90 Live-Verify evidence/fix-follow-up. As of 2026-07-04,

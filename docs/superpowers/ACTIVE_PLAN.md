@@ -22,6 +22,9 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 `STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
 
+Governance-/Planhygiene-Folgebereinigung ist documentation-complete. Evidence:
+`docs/superpowers/synthesis/plan-handoff-vault-authority-cleanup-2026-08-26.md`.
+
 B-900 ist nach echtem First-Run-App-Pfad `fixed`: isolierter Modal-Wizard,
 echter QThread und Connection-Refused-Fehler ergaben Modell/Gesamt 0 Prozent,
 roten Fehlertext und korrekte Finish-Meldung. STAB-5 selbst bleibt offen,

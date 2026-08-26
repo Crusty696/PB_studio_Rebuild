@@ -120,4 +120,4 @@ Wenn Phase 12 fertig + User hat Vault-Plan auf `fixed` gesetzt:
 - Repo-Spec Status `draft-approved-for-planning` → `done`.
 - `log.md` finale Eintragung.
 
-Plan-Dateien bleiben als Artefakt in `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` archiviert.
+Plan-Dateien bleiben als Artefakt in `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/` archiviert.

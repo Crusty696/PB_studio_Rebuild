@@ -1,5 +1,7 @@
 # SCHNITT Integration-Wiring Fix — Implementation Plan
 
+> **ARCHIVED COMPLETED LEGACY PLAN — NOT AUTHORITY.** All referenced bugs B-253 and B-284..B-296 are `fixed` in Vault. Unchecked boxes below are stale historical tracking, not open tasks. Current authority: `docs/superpowers/ACTIVE_PLAN.md`.
+
 **Datum:** 2026-05-09 (Nachmittag)
 **Branch:** `feat/schnitt-redesign-2026-05-09` (weiter)
 **Vorgeschichte:** Audit 2026-05-09 nach Tier 1–6 Hardening hat drei Integrations-Layer-Bugs aufgedeckt: [`B-284`](../../../../../C:/Brain-Bug/projects/pb-studio/wiki/bugs/B-284-schnitt-controller-not-instantiated.md) (P0), `B-285` (P0), `B-286` (P1). 131/131 SCHNITT-Tests grün, aber SCHNITT-Tab in Production unbrauchbar — Controller nirgendwo instanziiert, `set_active_project` nie gerufen, Re-Generate ohne Lock-Confirm.
@@ -443,7 +445,7 @@ Output ins Vault als Beleg. Abweichung → Phase-Rework, kein User-Live-Verify.
 
 ### E.2 — User-Walkthrough
 
-User-Klicks aus `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md` (16 Schritte). Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3.
+User-Klicks aus `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md` (16 Schritte). Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3.
 
 Pflicht-Beobachtungen:
 
@@ -500,7 +502,7 @@ Identisch zu `2026-05-09-schnitt-workspace-redesign/README.md` Globaler Erfolgs-
 ## Plan-Anker
 
 - Spec-Authority: `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md` (unverändert).
-- Vorgänger-Plan: `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` (Phasen 01–12 + Tier 1–6).
+- Vorgänger-Plan: `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/` (Phasen 01–12 + Tier 1–6).
 - Living-Plan: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\schnitt-workspace-redesign-2026-05-09.md` (wird mit Phase-A/B/C/D/E-Blöcken erweitert).
 - Bug-Files: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-284-...md`, `B-285-...md`, `B-286-...md`.
 - Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3 (149 MB).

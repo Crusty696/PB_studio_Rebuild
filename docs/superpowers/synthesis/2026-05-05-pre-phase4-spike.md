@@ -246,7 +246,7 @@ Audio-BPM. Aber: **User-Klaerung pflicht**, weil semantischer Slot.
 
 ## 7. Verweise
 
-- Plan: `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/phase_blueprints/phase_4_pacing_integration.md` Sektion 2.1 + 4.7
+- Plan: `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/phase_blueprints/phase_4_pacing_integration.md` Sektion 2.1 + 4.7
 - Code: `services/pacing/pipeline.py:81` (Konstruktor),
   `services/pacing/pipeline.py:145` (`select_best`),
   `services/pacing/scorer.py:32` (`AudioContext`),

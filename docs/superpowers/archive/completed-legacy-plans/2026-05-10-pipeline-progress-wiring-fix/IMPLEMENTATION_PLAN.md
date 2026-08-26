@@ -1,5 +1,7 @@
 # Pipeline Progress + Status Wiring Fix — Implementation Plan
 
+> **ARCHIVED COMPLETED LEGACY PLAN — NOT AUTHORITY.** All referenced bugs B-253 and B-284..B-296 are `fixed` in Vault. Unchecked boxes below are stale historical tracking, not open tasks. Current authority: `docs/superpowers/ACTIVE_PLAN.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Jeder Klick auf einen Analyse-Button (groß oder einzeln) führt **alle** Pipeline-Schritte bis 100% durch, bewegt die UI-Progress-Bar live mit, und der User sieht eindeutig welche Steps für ein Medium noch fehlen. Adressiert die Bugs B-287 bis B-292.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** PySide6 (Qt 6) · SQLAlchemy + SQLite WAL · pytest mit `QT_QPA_PLATFORM=offscreen` · conda-env `pb-studio` (`C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe`).
 
-**Plan-Wurzel:** `docs/superpowers/plans/2026-05-10-pipeline-progress-wiring-fix/`. Regelwerk + Phasen-Übersicht: [`README.md`](./README.md). Zwölf harte Regeln R-1 bis R-12 sind dort definiert; **dieses File führt Phasen A–F als bite-sized TDD-Tasks aus**.
+**Plan-Wurzel:** `docs/superpowers/archive/completed-legacy-plans/2026-05-10-pipeline-progress-wiring-fix/`. Regelwerk + Phasen-Übersicht: [`README.md`](./README.md). Zwölf harte Regeln R-1 bis R-12 sind dort definiert; **dieses File führt Phasen A–F als bite-sized TDD-Tasks aus**.
 
 ---
 
@@ -987,7 +989,7 @@ Expected: alle PASSED.
 
 ```python
 """Live-Boot-Smoke fuer Pipeline-Progress-Wiring (Plan
-docs/superpowers/plans/2026-05-10-pipeline-progress-wiring-fix/).
+docs/superpowers/archive/completed-legacy-plans/2026-05-10-pipeline-progress-wiring-fix/).
 
 Faehrt PBWindow im offscreen-Modus hoch, simuliert worker.progress
 und prueft dass progress_bar reagiert. Schreibt Resultat nach
@@ -1170,7 +1172,7 @@ User dokumentiert pro Punkt im Living-Plan:
 
 - Regelwerk + Phasen-Übersicht: [`README.md`](./README.md) (R-1 bis R-12).
 - Bug-Files: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-287..B-292*.md`.
-- Vorgänger-Plan: `docs/superpowers/plans/2026-05-09-schnitt-integration-wiring-fix/README.md`.
+- Vorgänger-Plan: `docs/superpowers/archive/completed-legacy-plans/2026-05-09-schnitt-integration-wiring-fix/README.md`.
 - Conda-Env: `C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe`.
 - Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3 (149 MB).
 

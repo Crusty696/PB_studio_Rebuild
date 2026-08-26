@@ -2,11 +2,14 @@
 plan_id: COMFYUI-REFERENCE-AUDIT-INTEGRATION-2026-05-22
 slug: comfyui-reference-audit
 created: 2026-05-22
-status: approved-for-implementation
+historical_status: approved-for-implementation
+status: superseded
 reference_root: C:\Users\David Lochmann\Desktop\ComfyUI-Studio-FULL-backup
 vault_mirror: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-comfyui-reference-audit-2026-05-22.md
 vault_decision: C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-050-comfyui-reference-audit-integration.md
 ---
+
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
 
 # ComfyUI Studio Reference Audit + Integration
 

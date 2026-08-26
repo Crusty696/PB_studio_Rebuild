@@ -203,4 +203,4 @@ Wenn alle 16 Schritte grün **und** User hat Vault-Plan auf `status: fixed` gese
 - Repo-Spec-Status (`docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`) `draft-approved-for-planning` → `done`.
 - `log.md` finaler Eintrag.
 
-Plan-Dateien bleiben archiviert in `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/`.
+Plan-Dateien bleiben archiviert in `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/`.

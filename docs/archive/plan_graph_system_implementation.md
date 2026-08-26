@@ -1,6 +1,8 @@
 # Implementierungsplan: Graph-basiertes Wissens- & Ähnlichkeitssystem
 
-> **Historischer Plan (vor SCHNITT-Redesign 2026-05-09).** EditWorkspace-Referenzen sind veraltet — siehe `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/` und `docs/superpowers/synthesis/2026-05-09-schnitt-workspace-redesign-final.md` für aktuellen Stand. Plan-Inhalt selbst nicht inhaltlich aktualisiert (bewahrt historische Entscheidung).
+> **ARCHIVED DESIGN — NOT AUTHORITY.** Historical design material only; cannot authorize work or replace PB Studio plan governance.
+
+> **Historischer Plan (vor SCHNITT-Redesign 2026-05-09).** EditWorkspace-Referenzen sind veraltet — siehe `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/` und `docs/superpowers/synthesis/2026-05-09-schnitt-workspace-redesign-final.md` für aktuellen Stand. Plan-Inhalt selbst nicht inhaltlich aktualisiert (bewahrt historische Entscheidung).
 
 **Version:** 1.0 — Verifiziert gegen realen Code
 **Datum:** 2026-04-14

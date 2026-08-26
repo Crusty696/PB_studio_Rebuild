@@ -1,7 +1,7 @@
 # LICENSES - PB Studio + Brain V3
 
 Stand: 2026-05-07. Plan-Quelle:
-`docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
+`docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md`
 und `phase_blueprints/phase_6_haertung.md`.
 
 Diese Datei listet die fuer PB Studio Brain V3 relevanten Modelle,

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3f8b88af4fa6441f9d3fdaec1e4dba41",
+  "recorded_at": "2026-08-26T01:42:15+00:00",
+  "session_id": "60c11ce0984f4e598fa3e5af468bad61",
+  "head_at_start": "6de5fdc2800c082eaaf550f92b834cd402f74e33",
+  "problem": "Historische Plan- und Handoff-Dateien blieben trotz superseded Status unter aktiven Pfaden oder trugen aktive Marker und Altlinks.",
+  "cause": "Logische Registry-Konsolidierung archivierte Dateien, Handoffs und eingebettete Pfade nicht vollständig physisch und semantisch.",
+  "rule": "Bei Planbereinigung Planbaum physisch auf aktiv plus explizit pausiert begrenzen, Archive global als nicht autoritativ markieren und alle Repo-/Vault-Pfadziele sowie aktive Marker maschinell prüfen.",
+  "applies_to": "PB Studio Plan-Governance, Handoffs, Vault-Mirrors und Archivmigrationen"
+}

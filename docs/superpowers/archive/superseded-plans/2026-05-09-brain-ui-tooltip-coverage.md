@@ -879,7 +879,7 @@ git commit -m "docs(brain-ui): synthesis Tooltip-Coverage 2026-05-09
 
 - [ ] **Step 9.6: Status-Eintrag in 06_PHASES.md** (Phase-5-Sektion)
 
-In `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md` Phase 5 Sektion einen Sub-Punkt ergänzen:
+In `docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md` Phase 5 Sektion einen Sub-Punkt ergänzen:
 
 ```markdown
 > **Tooltip-Coverage 2026-05-09 (autonomer Commander-Lauf):**
@@ -890,7 +890,7 @@ In `docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md` Phase 5
 ```
 
 ```bash
-git add docs/superpowers/plans/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md
+git add docs/superpowers/archive/2026-05-04-brain-v3-nvidia-plan/06_PHASES.md
 git commit -m "docs(plan): tooltip-coverage-update in 06_PHASES.md Phase 5"
 ```
 

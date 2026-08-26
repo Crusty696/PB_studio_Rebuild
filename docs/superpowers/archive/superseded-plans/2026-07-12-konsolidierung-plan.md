@@ -1,12 +1,15 @@
 # Plan: PB-STUDIO-KONSOLIDIERUNG-2026-07-12
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
 > `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
 > `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
 > nur als Historie. Aktuelle offene Arbeit:
 > `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 
-status: approved-for-implementation — OBERSTE PRIORITAET (User 2026-07-12:
+historical_status: approved-for-implementation — OBERSTE PRIORITAET (User 2026-07-12:
+status: superseded
 "als erstes erledigt werden, auch wenn es ein anderer Agent machen muss")
 decision: D-068 (Vault)
 vault_mirror: wiki/synthesis/plan-konsolidierung-2026-07-12.md

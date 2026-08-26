@@ -1,5 +1,7 @@
 # PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12 (CRF)
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **⛔ SUPERSEDED 2026-07-16 — PLAN GESCHLOSSEN.** Alle offenen Tasks wurden in
 > `PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16` konsolidiert (Decision D-071, Registry-Status
 > `superseded`). Dieser Plan wird NICHT mehr als aktiver Plan genutzt; der Task-Text bleibt
@@ -7,7 +9,8 @@
 > `docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md`.
 
 plan_id: PB-STUDIO-CONSULTING-REVIEW-FIXPLAN-2026-06-12
-status: approved-for-implementation (User-Auftrag 2026-06-12: "Erstelle Arbeitsplan ... und übergib es dem passenden Agenten um den Plan auszuführen")
+historical_status: approved-for-implementation (User-Auftrag 2026-06-12: "Erstelle Arbeitsplan ... und übergib es dem passenden Agenten um den Plan auszuführen")
+status: superseded
 source: test_reports/consulting-team-review-2026-06-12.md (Consulting-Team-Review, 7 Agenten, statisch)
 decision: C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-062-consulting-review-fixplan.md
 vault_mirror: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-consulting-review-fixplan-2026-06-12.md

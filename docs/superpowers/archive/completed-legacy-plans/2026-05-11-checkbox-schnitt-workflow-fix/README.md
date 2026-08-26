@@ -1,5 +1,7 @@
 # Checkbox + SCHNITT-Empty-State + Workflow-Fix — Implementation Plan
 
+> **ARCHIVED COMPLETED LEGACY PLAN — NOT AUTHORITY.** All referenced bugs B-253 and B-284..B-296 are `fixed` in Vault. Unchecked boxes below are stale historical tracking, not open tasks. Current authority: `docs/superpowers/ACTIVE_PLAN.md`.
+
 **Datum:** 2026-05-11
 **Branch:** `feat/schnitt-redesign-2026-05-09` (weiter)
 **Vorgeschichte:** Live-Test 2026-05-10 deckte vier neue echte Bugs auf. Phase A–E des pipeline-progress-wiring-fix-Plans war fertig, aber tiefere Probleme blieben:
@@ -19,7 +21,7 @@
 
 ## ⛔ HARTE REGELN — gelten für jede Sub-Task
 
-Übernimmt R-1 bis R-12 aus `docs/superpowers/plans/2026-05-10-pipeline-progress-wiring-fix/README.md` verbatim. Plus drei neue Regeln gegen das hier gefundene "halbverdrahtet"-Muster.
+Übernimmt R-1 bis R-12 aus `docs/superpowers/archive/completed-legacy-plans/2026-05-10-pipeline-progress-wiring-fix/README.md` verbatim. Plus drei neue Regeln gegen das hier gefundene "halbverdrahtet"-Muster.
 
 ### R-1 — "Tests grün ≠ Done"
 
@@ -315,7 +317,7 @@ User startet App, importiert Solo_Natur + Crusty Progressive Psy Set2.mp3:
 ## Plan-Anker
 
 - Bug-Files: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-293..B-296*.md`.
-- Vorgänger-Plan: `docs/superpowers/plans/2026-05-10-pipeline-progress-wiring-fix/`.
+- Vorgänger-Plan: `docs/superpowers/archive/completed-legacy-plans/2026-05-10-pipeline-progress-wiring-fix/`.
 - Test-Datensatz: Solo_Natur (103 Videos) + Crusty Progressive Psy Set2.mp3 (149 MB).
 - Conda-Env: `C:\Users\David Lochmann\miniconda3\envs\pb-studio\python.exe`.
 

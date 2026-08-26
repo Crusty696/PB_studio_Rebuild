@@ -1,8 +1,8 @@
 # PB Studio Exhaustive Line + Feature-State Audit Execution Plan
 
-> **Status:** `phase-minus-1-in-progress` — User autorisierte am 2026-08-15
-> ausschliesslich Harness-/Contracttest-Implementierung. Produktaudit, Snapshot,
-> Produktcodefix und `fixed`-Marker bleiben verboten.
+> **Status:** `paused` — Historischer Status bis 2026-08-23:
+> `phase-minus-1-in-progress`. Aktuelle Aktivierung ausschließlich über
+> `../ACTIVE_PLAN.md`; dieser Plan ist dort pausiert.
 >
 > **REQUIRED SUB-SKILL:** `pb-exhaustive-audit-ledger`
 >
@@ -18,8 +18,8 @@ aendern. Fixes brauchen spaeter eigenen autorisierten Fixplan.
 **Kanonischer Workspace:**
 `C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild`
 **Hardware-Grenze:** ausschliesslich NVIDIA GTX 1060 / `cuda:0`; sonst CPU.
-**Governance:** Phase -1 ist aktiv; Masterplan/W4 dokumentiert pausiert.
-Auditaktivierung bleibt bis Readiness-PASS und neuer Userentscheidung verboten.
+**Governance:** Auditplan seit 2026-08-23 pausiert; Masterplan aktiv.
+Reaktivierung bleibt bis Readiness-PASS und neuer Userentscheidung verboten.
 
 ---
 
@@ -813,7 +813,8 @@ festgeschrieben. Kein Tool ersetzt direkte Zeilenpruefung.
 
 Audit ist nur abgeschlossen, wenn:
 
-- [ ] User hat Plan aktiviert; genau ein Plan aktiv.
+- [x] Historisch am 2026-08-15 aktiviert; seit 2026-08-23 pausiert. Genau
+      Masterplan aktiv; Reaktivierung benötigt neue Userentscheidung.
 - [ ] Phase -1: sechs Harnesses implementiert; Positiv-/Negativtests gruen und
       zwei unabhaengige Signoffs vorhanden.
 - [ ] `audited_commit` als voller SHA eingefroren; Audit liest dessen Gitobjekte.

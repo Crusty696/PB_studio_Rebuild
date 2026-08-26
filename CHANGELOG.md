@@ -11,7 +11,7 @@ Complete rebuild of the Auto-Edit and Review areas into one unified **SCHNITT** 
 **Branch:** `feat/schnitt-redesign-2026-05-09`
 **Commit range:** `3476b33` … `bf998fc` + Tier 1-5 hardening (`a5f5194` … `bf998fc`)
 **Spec:** `docs/superpowers/specs/2026-05-09-schnitt-workspace-redesign.md`
-**Plan:** `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/`
+**Plan:** `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/`
 
 #### Added
 - **SCHNITT tab** — Master workspace replacing `AUTO-SCHNITT` + `REVIEW`. `QStackedWidget` with three states: Empty (preset Quick-Lane), Loading (worker stage progress), Editor (4 sub-tabs).
@@ -61,6 +61,6 @@ Complete rebuild of the Auto-Edit and Review areas into one unified **SCHNITT** 
 - Final regression: **1427 passed**, 1 failed (`test_b222a_pipeline_worker_has_preflight` — pre-existing, unrelated), 2 skipped.
 
 #### Status
-Plan-implementation complete on branch `feat/schnitt-redesign-2026-05-09`. **Pending:** user live-verify (16-step click-walkthrough in `docs/superpowers/plans/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`). User sets vault `status: fixed` after verify.
+Plan-implementation complete on branch `feat/schnitt-redesign-2026-05-09`. **Pending:** user live-verify (16-step click-walkthrough in `docs/superpowers/archive/2026-05-09-schnitt-workspace-redesign/12_LIVE_VERIFY_USER_GUIDE.md`). User sets vault `status: fixed` after verify.
 
 ---

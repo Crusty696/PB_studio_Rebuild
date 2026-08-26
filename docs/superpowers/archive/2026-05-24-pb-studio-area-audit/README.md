@@ -1,12 +1,15 @@
 ---
 title: PB Studio Area Audit Plan
 date: 2026-05-24
-status: active
+historical_status: active
+status: superseded
 plan_id: PB-STUDIO-AREA-AUDIT-2026-05-24
 vault_mirror: C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-pb-studio-area-audit-2026-05-24.md
 decision: C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-052-pb-studio-area-audit.md
 tags: [area-audit, qa, pb-studio, governance]
 ---
+
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
 
 # PB Studio Area Audit Plan
 

@@ -1,5 +1,7 @@
 # Implementation plan: b708-restore-db-lock (Variant A)
 
+> **SANDBOX EVIDENCE — NOT AUTHORITY.** This file records an isolated feasibility run. It cannot authorize production work or replace `ACTIVE_PLAN.md`.
+
 ## Pre-checks
 - [ ] Worktree `PB_studio_Rebuild_sandbox_b708-restore-db-lock` existiert, Branch `sandbox/b708-restore-db-lock`, sauber.
 - [ ] conda-Python: `C:/Users/David_Lochmann/miniconda3/envs/pb-studio/python.exe`.

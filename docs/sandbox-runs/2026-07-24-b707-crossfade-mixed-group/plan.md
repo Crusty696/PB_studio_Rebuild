@@ -1,5 +1,7 @@
 # Implementation plan: b707-crossfade-mixed-group
 
+> **SANDBOX EVIDENCE — NOT AUTHORITY.** This file records an isolated feasibility run. It cannot authorize production work or replace `ACTIVE_PLAN.md`.
+
 ## Pre-checks
 - [ ] Worktree C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild_sandbox_b707-crossfade-mixed-group existiert, Branch sandbox/b707-crossfade-mixed-group, clean (nur _sandbox_meta/ untracked).
 - [ ] Baseline: git show 8cb5786 + aktueller HEAD (49e987e) failen Gruppe 1 identisch (0 Frames) - schon belegt, in baseline/ festhalten.

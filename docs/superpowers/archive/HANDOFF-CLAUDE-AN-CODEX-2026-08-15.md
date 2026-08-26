@@ -1,3 +1,8 @@
+# ARCHIVED HANDOFF — NOT AUTHORITY
+
+Historischer Sitzungsstand vom 2026-08-15. Nicht ausführen. Aktueller Handoff:
+`../AGENT_HANDOFF.md`; aktuelle Aufgabe ausschließlich aus `../ACTIVE_PLAN.md`.
+
 # Übergabe: Claude Code → Codex, 2026-08-15
 
 > **Für Codex: lies dieses Dokument vollständig, bevor du irgendetwas anfasst.**

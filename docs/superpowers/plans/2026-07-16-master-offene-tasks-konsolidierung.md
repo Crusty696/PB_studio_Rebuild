@@ -1419,3 +1419,24 @@ Decision: Vault
   blieben unangetastet.
 - Naechste einzige Task:
   `STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.
+
+### Planhygiene-Folgebereinigung autorisiert — 2026-08-26
+
+- User verlangt vor B-901 alle noch vermeidbaren Plan-/Handoff-/Vault-
+  Authority-Verwechslungsquellen zu bereinigen.
+- Pausierter Auditplan bleibt erhalten; keine Produktcode-Aenderung.
+- Naechste einzige Task:
+  `Governance / verbleibende Plan-, Handoff- und Vault-Authority-Altlasten bereinigen`.
+
+### Planhygiene-Folgebereinigung abgeschlossen — 2026-08-26
+
+- Kanonischer Planordner: exakt aktiver Masterplan + pausierter Auditplan.
+- Historische Plan-/Handoff-Pfade auf existierende Archive migriert; 193
+  Archivpfad-Tokens ohne fehlendes Ziel.
+- Stale Repo-/Vault-Authority-Marker und gestapelte Handoffs entwertet;
+  Historie verlustfrei archiviert.
+- Governance-Test 3/3 gruen; keine App-/UI-/GPU-/Gesamttests.
+- Evidence:
+  `docs/superpowers/synthesis/plan-handoff-vault-authority-cleanup-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / B-901 Update-Controls im Defaultpfad erreichbar machen und Repo-Default korrigieren`.

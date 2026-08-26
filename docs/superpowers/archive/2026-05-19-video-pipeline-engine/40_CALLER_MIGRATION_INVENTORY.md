@@ -21,4 +21,7 @@ Audit-Ziel-Verzeichnisse:
 
 ## Deliverable
 
-`docs/superpowers/plans/2026-05-19-video-pipeline-engine/_artifacts/caller_inventory_video.md` mit Datei:Zeile + Aufruf-Methode + Migration-Aufwand.
+Historisch vorgesehenes Artefakt `caller_inventory_video.md` mit Datei:Zeile + Aufruf-Methode + Migration-Aufwand.
+
+> Historisches Soll-Artefakt; Datei wurde nicht erstellt bzw. nicht bewahrt.
+> Kein aktueller Link und keine Ausführungsautorität.

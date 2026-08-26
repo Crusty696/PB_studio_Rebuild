@@ -1,5 +1,7 @@
 # B-471 Timeline Usability Recovery Implementation Plan
 
+> **ARCHIVED PLAN — NOT AUTHORITY.** Historical status, checkboxes and next-task text below are inactive snapshots. Only `docs/superpowers/ACTIVE_PLAN.md` plus `docs/superpowers/PLAN_REGISTRY.md` may authorize work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the SCHNITT timeline usable in the live app: stable zoom lanes, visible audio waveform, visible video thumbnails, understandable pacing controls and tooltips.
@@ -11,7 +13,8 @@
 ---
 
 plan_id: PB-STUDIO-B471-TIMELINE-USABILITY-RECOVERY-2026-06-07
-status: code-complete-live-pending
+historical_status: code-complete-live-pending
+status: superseded
 mode: fix-plan
 created: 2026-06-07
 authorized_by_user: 2026-06-07 chat screenshot/report
@@ -38,7 +41,7 @@ Out of scope:
 
 - Modify: `docs/superpowers/ACTIVE_PLAN.md`
 - Modify: `docs/superpowers/PLAN_REGISTRY.md`
-- Create: `docs/superpowers/plans/2026-06-07-b471-timeline-usability-recovery.md`
+- Create: `docs/superpowers/archive/2026-06-07-b471-timeline-usability-recovery.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\decisions\D-059-b471-timeline-usability-recovery.md`
 - Create: `C:\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-b471-timeline-usability-recovery-2026-06-07.md`
 - Modify: `C:\Brain-Bug\projects\pb-studio\wiki\bugs\B-471-timeline-quality-cluster-gaps-thumbnails-zoom-freeze.md`
@@ -148,8 +151,7 @@ Acceptance criteria:
 - Test report exists under `test_reports/` and vault mirror.
 - No `fixed` marker unless user confirms.
 
-## Current Next Task
-
+## Historical Next Task (inactive)
 ```text
 Task 5 Verification, Vault, Commit
 ```

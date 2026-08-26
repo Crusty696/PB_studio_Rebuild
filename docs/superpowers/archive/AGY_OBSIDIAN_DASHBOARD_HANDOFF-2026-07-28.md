@@ -1,3 +1,8 @@
+# ARCHIVED HANDOFF — NOT AUTHORITY
+
+Historischer Auftrag vom 2026-07-28. Nicht ausführen. Aktueller Handoff:
+`../AGENT_HANDOFF.md`; aktuelle Aufgabe ausschließlich aus `../ACTIVE_PLAN.md`.
+
 # AGY-Handoff — PB-Studio Obsidian-Dashboard fertigbauen
 
 Stand: 2026-07-28

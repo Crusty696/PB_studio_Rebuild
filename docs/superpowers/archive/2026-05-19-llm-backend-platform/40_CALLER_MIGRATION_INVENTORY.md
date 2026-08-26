@@ -39,7 +39,11 @@ Audit-Ziel-Verzeichnisse:
 
 ## Deliverable
 
-`docs/superpowers/plans/2026-05-19-llm-backend-platform/_artifacts/caller_inventory.md` mit:
+Historisch vorgesehenes Artefakt `caller_inventory.md` mit:
+
+> Historisches Soll-Artefakt; Datei wurde nicht erstellt bzw. nicht bewahrt.
+> Kein aktueller Link und keine Ausführungsautorität.
+
 - Pro Caller: Datei:Zeile, gerufene Funktion (chat/embed/list_models), Rolle, ob streaming.
 - Migration-Schwierigkeit (low/mid/high).
 - Test-Coverage-Status.
