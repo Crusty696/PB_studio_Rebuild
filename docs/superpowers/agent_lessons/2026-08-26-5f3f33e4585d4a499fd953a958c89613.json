@@ -1,0 +1,10 @@
+{
+  "lesson_id": "5f3f33e4585d4a499fd953a958c89613",
+  "recorded_at": "2026-08-26T02:39:29+00:00",
+  "session_id": "a00da5975b924defaa94e1e82bd9b085",
+  "head_at_start": "1616e3306401771e3653932cabac03852201039a",
+  "problem": "STAB-5 Ctrl+B hatte statische Verdrahtung, aber keinen elementgenauen Runtime-Beleg.",
+  "cause": "Vorhandene Tests prueften nur interne Brain-Signalquellen, nicht den QShortcut-Keyevent bis zum Fensterzustand.",
+  "rule": "Bei UI-Shortcut-Evidence echten Qt-Keyevent an minimalem Host mit realem Handler und gefaktem schwerem Fensterpfad pruefen; Produktcode nur bei reproduziertem Fehler aendern.",
+  "applies_to": "STAB-5 UI-Control-Evidence, Qt-Shortcuts, schwere Singleton-Fenster"
+}

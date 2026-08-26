@@ -1511,3 +1511,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #3 Ctrl+B-Studio-Brain-Shortcut elementgenau pruefen und belegen`.
+
+### STAB-5 Control #3 Ctrl+B-Studio-Brain-Shortcut — 2026-08-26
+
+- Echter Qt-Ctrl+B-Keyevent aktiviert zweimal den realen
+  `PBWindow._open_studio_brain`-Handler.
+- Fake-Singleton bleibt identisch; show/raise/activate laufen je Aufruf;
+  Timeline- und Run-Signal bleiben jeweils einfach verbunden.
+- Fokussierter Zieltest: `1 passed in 5.73s`.
+- Kein Produktcodeedit; PBWindow-App-Livepfad bleibt offen.
+- Matrixstatus `target-test-pass-live-pending`.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-3-ctrl-b-studio-brain-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #4 Update-Banner-Download elementgenau pruefen und belegen`.

@@ -16,16 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #3 Ctrl+B-Studio-Brain-Shortcut elementgenau pruefen und belegen`.
+`STAB-5 / Control #4 Update-Banner-Download elementgenau pruefen und belegen`.
 
 Scope: erster verbleibender `no-candidate`-Eintrag nach 0 unresolved-Zeilen.
-Shortcut auslösen, echten Handler-/Dialogpfad und sichtbaren Zustand prüfen;
-nur bei belegtem Defekt enger Produktfix.
+Vorhandene B-901-Evidence gegen Download-Control abgleichen; nur fehlenden
+elementgenauen Beleg ergänzen und nur bei belegtem Defekt enger Produktfix.
 
 ## Letzter Abschluss
 
-Controls #1/#2 Hilfe-Shortcuts zielgetestet, kein Produktfix. Evidence:
-`docs/superpowers/synthesis/stab5-controls-1-2-shortcut-help-2026-08-26.md`.
+Control #3 Ctrl+B zielgetestet, kein Produktfix. Evidence:
+`docs/superpowers/synthesis/stab5-control-3-ctrl-b-studio-brain-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -37,6 +37,6 @@ Controls #1/#2 Hilfe-Shortcuts zielgetestet, kein Produktfix. Evidence:
 
 ## Verifikation
 
-#1/#2: echte Qt-F1-/Ctrl+Question-Keyevents aktivieren jeweiligen QShortcut,
-realen Handler und Dialog-Mock genau einmal; beide Zieltests grün. Produktcode
-unverändert, PBWindow-App-Live offen. Nächste Matrixlücke #3.
+#3: echtes Qt-Ctrl+B-Keyevent aktiviert zweimal realen Handler; Singleton,
+show/raise/activate und einfache Signalverbindungen belegt. `1 passed in 5.73s`.
+Produktcode unverändert, PBWindow-App-Live offen. Nächste Matrixlücke #4.
