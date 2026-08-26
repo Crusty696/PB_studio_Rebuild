@@ -63,6 +63,14 @@ class SchnittTabSchnitt(QWidget):
         self.time_label = QLabel("00:00 / 00:00")
         self.time_label.setStyleSheet("color: #98a2b1; font-size: 10px;")
         transport.addWidget(self.time_label)
+        self.btn_play.clicked.connect(self.video_preview.toggle_play)
+        self.btn_stop.clicked.connect(self.video_preview.stop)
+        self.video_preview.position_changed.connect(
+            self._on_preview_position_changed
+        )
+        self.video_preview.playback_state_changed.connect(
+            self._on_preview_playback_state_changed
+        )
         transport.addStretch(1)
         left_col.addLayout(transport)
         top_band.addLayout(left_col, stretch=2)
@@ -131,6 +139,25 @@ class SchnittTabSchnitt(QWidget):
         # (gleiche Undo/DB-Commands wie Lock-Icon / remove_selected_clips).
         self.cut_list_panel.cut_lock_toggle_requested.connect(self._on_cut_lock_toggle)
         self.cut_list_panel.cut_remove_requested.connect(self._on_cut_remove)
+
+    @staticmethod
+    def _format_preview_time(seconds: float) -> str:
+        total_seconds = max(0, int(seconds))
+        minutes, remaining_seconds = divmod(total_seconds, 60)
+        return f"{minutes:02d}:{remaining_seconds:02d}"
+
+    def _on_preview_position_changed(
+        self, current_seconds: float, total_seconds: float
+    ) -> None:
+        current = self._format_preview_time(current_seconds)
+        total = self._format_preview_time(total_seconds)
+        self.time_label.setText(f"{current} / {total}")
+
+    def _on_preview_playback_state_changed(self, is_playing: bool) -> None:
+        self.btn_play.setText("⏸" if is_playing else "▶")
+        self.btn_play.setToolTip(
+            "Vorschau pausieren" if is_playing else "Vorschau abspielen"
+        )
 
     def _on_cut_lock_toggle(self, entry_id: int, new_locked: bool) -> None:
         tv = self.timeline_view

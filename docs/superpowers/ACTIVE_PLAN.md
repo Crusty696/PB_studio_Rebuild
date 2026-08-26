@@ -20,7 +20,19 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
+`STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.
+
+B-903 / Controls #213/#214 sind code-complete: sichtbare Schnitt-Preview-
+Buttons mit bestehender API verbunden, Statuslabel/Symbol synchronisiert.
+RED→GREEN-Zieltest, Syntax, Diffcheck und Parallelreview sind gruen. Echter
+Medien-/App-Livepfad fehlt; Status bleibt
+`code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md`.
+
+Reihenfolgekorrektur: #168/#169 stehen in vollständiger Matrix vor #213/#214.
+#213 war wegen truncierter Ausgabe irrtümlich als erster unresolved-Rest
+gewählt worden. Nach Abschluss der bereits aktiven B-903-Task geht Arbeit
+zurück auf #168.
 
 B-901 ist code-complete: Versionspruefung im Defaultpfad aktiviert, kanonische
 GitHub-API korrigiert, Override erhalten. Zwei Zieltests, Syntax und Diffcheck

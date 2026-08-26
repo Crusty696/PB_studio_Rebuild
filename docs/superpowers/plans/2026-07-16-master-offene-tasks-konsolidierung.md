@@ -1454,3 +1454,21 @@ Decision: Vault
   `docs/superpowers/synthesis/b901-update-controls-default-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
+
+### B-903 Schnitt-Preview-Transport — 2026-08-26
+
+- Root Cause: sichtbare Play/Pause- und Stop-Buttons ohne Signalverbindung;
+  vorhandene Preview-Statussignale blieben ebenfalls ungenutzt.
+- Codefix verbindet Controls mit bestehender Preview-API und synchronisiert
+  Zeitlabel, Symbol und Tooltip.
+- RED→GREEN: ein enger Qt-Controltest, `1 passed in 1.03s`; PyCompile,
+  Diffcheck und geführtes Parallelreview grün.
+- Status `code-fix-pending-live-verification`: echter Medien-/App-Livepfad
+  fehlt.
+- Reihenfolgekorrektur: vollständige Matrix zeigt #168/#169 vor #213/#214;
+  truncierte Ausgabe führte zur falschen Auswahl von #213. Nach Abschluss der
+  bereits aktiven Task geht Reihenfolge zurück auf #168.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.

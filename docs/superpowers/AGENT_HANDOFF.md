@@ -16,15 +16,16 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #213 Schnitt-Play manuell pruefen und elementgenauen Beleg herstellen`.
+`STAB-5 / Control #168 Video-Pagination Zurueck manuell pruefen und elementgenauen Beleg herstellen`.
 
-Scope: erster geordneter unresolved-Eintrag aus STAB-5-Control-Matrix. Erst
-echten Handler-/Zustandspfad pruefen; nur bei belegtem Defekt enger Produktfix.
+Scope: tatsächlicher erster unresolved-Eintrag aus vollständiger STAB-5-
+Matrix. Erst echten Handler-/Zustandspfad prüfen; nur bei belegtem Defekt
+enger Produktfix.
 
 ## Letzter Abschluss
 
-B-901 code-complete, nicht live verifiziert. Evidence:
-`docs/superpowers/synthesis/b901-update-controls-default-2026-08-26.md`.
+B-903 / Controls #213/#214 code-complete, nicht live verifiziert. Evidence:
+`docs/superpowers/synthesis/stab5-control-213-schnitt-play-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -36,5 +37,7 @@ B-901 code-complete, nicht live verifiziert. Evidence:
 
 ## Verifikation
 
-B-901: Zieltest 2/2, Syntax und Diffcheck gruen. Echter App-Start mit neuer
-Release-Version sowie Banner-/Download-/Fehlerpfad fehlen; daher nicht `fixed`.
+B-903: RED→GREEN-Zieltest 1/1, Syntax/Diff und Parallelreview gruen. Echter
+Medien-/App-Livepfad fehlt; daher nicht `fixed`. Reihenfolgefehler offen
+dokumentiert: truncierte Matrixausgabe ließ #213 fälschlich als ersten Rest
+erscheinen; nächste Task ist korrekt #168.

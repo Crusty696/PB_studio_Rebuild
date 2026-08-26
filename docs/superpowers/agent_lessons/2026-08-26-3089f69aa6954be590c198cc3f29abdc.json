@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3089f69aa6954be590c198cc3f29abdc",
+  "recorded_at": "2026-08-26T02:07:05+00:00",
+  "session_id": "e54b2678b776460dba2e001d339cd056",
+  "head_at_start": "b0138eb1be3535acfda03b76617f3bb2a4c96a91",
+  "problem": "Schnitt-Preview zeigte Play/Pause und Stop, aber beide Controls waren wirkungslose No-Ops.",
+  "cause": "SchnittTabSchnitt erzeugte die Buttons ohne Signalverbindung; elementgenauer Control-Vertragstest fehlte.",
+  "rule": "Jedes sichtbare Transport-Control direkt an bestehende Playback-API binden und Control-Klick, sichtbaren State sowie Stop-Pfad gemeinsam in einem engen Qt-Vertragstest belegen.",
+  "applies_to": "Schnitt-Preview, Timeline-Transport, STAB-5 UI-Ehrlichkeitsmatrix"
+}
