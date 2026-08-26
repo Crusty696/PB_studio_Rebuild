@@ -1,0 +1,10 @@
+{
+  "lesson_id": "217ac943772147b48014ca3a089d8c60",
+  "recorded_at": "2026-08-26T21:02:21+00:00",
+  "session_id": "4784a7a9596b4f4983c04d7de493e7fd",
+  "head_at_start": "dc0dcaf18151d004303f07a99e0d2d6205aa55d6",
+  "problem": "Tools-Button hatte nur statische Menue-/Submenue-Nachweise, keinen Beleg fuer sichtbare Erreichbarkeit per Benutzerclick.",
+  "cause": "Vorhandene Tests inspizierten Quelltext oder griffen direkt auf das QMenu zu und umgingen den QPushButton-Ausloeser.",
+  "rule": "QPushButton-controls mit gebundenem QMenu durch echten Mausclick und beobachtbare Menu-Sichtbarkeit testen; Menuestruktur allein belegt Erreichbarkeit nicht.",
+  "applies_to": "STAB-5 Menuebuttons, QPushButton.setMenu und Qt-Popup-Erreichbarkeit"
+}

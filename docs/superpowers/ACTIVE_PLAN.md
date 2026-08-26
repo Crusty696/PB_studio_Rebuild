@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.
+`STAB-5 / Control #17 Letzte-Projekte-Leerzustand elementgenau pruefen und belegen`.
+
+Control #16 ist elementgenau belegt: echter WorkspaceSetupController baut
+sichtbaren/aktiven `Tools`-Button samt produktivem QMenu. `_btn_recent` zeigt
+auf denselben Button; erster Menuabschnitt enthaelt Tasks/Log/KI-Chat. Echter
+Mausclick oeffnet das Menu sichtbar. Zieltest `1 passed in 2.15s`, kein
+Produktcodeedit. PBWindow-/vollstaendige Menue-Liveauswahl bleibt offen; Status
+`target-test-pass-live-pending`. Evidence:
+`docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08-26.md`.
 
 Control #15 ist elementgenau belegt: echter WorkspaceSetupController baut
 sichtbare Tools-QAction `KI Chat anzeigen` und versteckten KI-Chat-Proxy.

@@ -1732,3 +1732,17 @@ Decision: Vault
   `docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.md`.
 - Naechste einzige Task:
   `STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.
+
+### STAB-5 Control #16 Tools-Menuebutton — 2026-08-26
+
+- Candidate-Refs betrafen fremdes Statuspanel/Regenerate-Verhalten.
+- Echter WorkspaceSetupController baut sichtbaren/aktiven `Tools`-Button und
+  bindet vollstaendiges QMenu; `_btn_recent` zeigt auf denselben Button.
+- Erster Menuabschnitt enthaelt Tasks-, Log- und KI-Chat-Aktion.
+- Echter Mausclick oeffnet das Menu sichtbar.
+- Zieltest `1 passed in 2.15s`; kein Produktcodeedit.
+- Status `target-test-pass-live-pending`: PBWindow-/vollstaendige Menue-Liveauswahl offen.
+- Evidence:
+  `docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08-26.md`.
+- Naechste einzige Task:
+  `STAB-5 / Control #17 Letzte-Projekte-Leerzustand elementgenau pruefen und belegen`.

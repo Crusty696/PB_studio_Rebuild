@@ -16,15 +16,15 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`STAB-5 / Control #16 Tools-Menuebutton elementgenau pruefen und belegen`.
+`STAB-5 / Control #17 Letzte-Projekte-Leerzustand elementgenau pruefen und belegen`.
 
-Scope: sichtbaren `Tools`-Button, gebundenes QMenu und dessen Erreichbarkeit
-elementgenau pruefen; Candidate-Refs semantisch pruefen.
+Scope: `_show_recent_projects_menu` ohne vorhandene Projekte; sichtbare,
+deaktivierte QAction `(Keine letzten Projekte)` elementgenau pruefen.
 
 ## Letzter Abschluss
 
-Control #15 KI-Chat-Anzeige elementgenau zielgetestet; ChatDock-Live offen.
-Evidence: `docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.md`.
+Control #16 Tools-Menuebutton elementgenau zielgetestet; PBWindow-Live offen.
+Evidence: `docs/superpowers/synthesis/stab5-control-16-tools-menu-button-2026-08-26.md`.
 
 ## Letzte relevante Commits
 
@@ -36,6 +36,6 @@ Evidence: `docs/superpowers/synthesis/stab5-control-15-chat-display-2026-08-26.m
 
 ## Verifikation
 
-#15: Produktbuilder + sichtbare Tools-QAction → versteckter Chat-Proxy →
-PBWindow-Tabrouting → sichtbares ContextPanel/Dock und produktiver `CHAT`-Tab;
-`1 passed in 11.10s`. ChatDock/LLM-Live offen. Naechste Task #16 Tools-Menuebutton.
+#16: Produktbuilder + sichtbarer/aktiver Tools-Button → echter Mausclick →
+gebundenes QMenu sichtbar; `1 passed in 2.15s`. PBWindow-Live offen. Naechste
+Task #17 Letzte-Projekte-Leerzustand.
