@@ -20,7 +20,23 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`MASTERPLAN-TRIAGE / hoechsten entscheidungsfreien Critical-/High-Bug in Pacing, Schnitt oder Timeline bestimmen; danach genau diesen einen Root-Cause-Fix umsetzen`.
+`B-832 / Produktentscheidung: Vibe bleibt klar ausgewiesener Notfall-Fallback
+oder wird aktiver Faktor im Clip-Matching`.
+
+B-832 ist ohne Userentscheidung gesperrt. Keine weitere entscheidungsfreie
+offene Pacing-/Timeline-Codefixdatei ist im Plan belegt. Breite Pacing-/
+Timeline-Abnahme bleibt gemaess Uservorgabe spaetes Endgate.
+
+B-912 ist code-complete: Benutzerprojekt `123454321` belegt 103
+Video-Segmente auf 337.137 s: 34
+unter 2 s, 9 unter 1 s, Minimum 0.395 s. Nur eines der 34 kurzen Segmente
+beruehrt eine Section-Grenze. Uservorgabe: Clip immer so lange wie moeglich
+und solange passend halten; Timeline darf nicht nervoes/hektisch wirken.
+Finaler Fix macht Beat-Stufe nach Drop/Onset zur harten Ruhe-Untergrenze;
+echte Section-Wechsel bleiben Pflichtpunkte, Source-Limit wird erneut gesetzt.
+Gezielter Vertrag `4 passed in 2.17s`. Echter Auto-Edit-/UI-Lauf fehlt;
+Status `code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b912-cut-rate-rest-floor-2026-08-27.md`.
 
 Userentscheidung 2026-08-27: breite Tests bis zum spaeten Endgate verschieben;
 jetzt echte Critical-/High-Codefixes mit grosser Produktwirkung. Pro Fix nur

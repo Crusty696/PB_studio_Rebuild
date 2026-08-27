@@ -1,0 +1,10 @@
+{
+  "lesson_id": "786e5dccdd444c34bb8bd24273d77d29",
+  "recorded_at": "2026-08-27T02:34:24+00:00",
+  "session_id": "63d5549e3c294f9f9976ab794347c3fd",
+  "head_at_start": "f28222dcd64f5f78b77ee111343410e949073444",
+  "problem": "User haelt Brain-Bereich fuer kaputt/ueberfluessig/inaktiv",
+  "cause": "Master-Gate pacing.use_studio_brain Default False + Live-Setting false; ohne Flag laeuft DecisionRecorder nie, mem_*-Tabellen und Lern-DBs bleiben leer -> alle 6 Brain-Tabs wirken tot obwohl Kern implementiert ist",
+  "rule": "Vor Urteil ueber Brain-Features immer zuerst services/pacing/bridge.py-Gate + %APPDATA%/PBStudio/settings.json + Zeilenzahl mem_pacing_run/mem_decision/state.db pruefen — leere Anzeige heisst meist Flag aus, nicht Code kaputt",
+  "applies_to": "services/brain/**, services/pacing/**, ui/studio_brain*"
+}

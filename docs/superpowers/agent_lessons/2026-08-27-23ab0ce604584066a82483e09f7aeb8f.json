@@ -1,0 +1,10 @@
+{
+  "lesson_id": "23ab0ce604584066a82483e09f7aeb8f",
+  "recorded_at": "2026-08-27T02:40:54+00:00",
+  "session_id": "63d5549e3c294f9f9976ab794347c3fd",
+  "head_at_start": "f28222dcd64f5f78b77ee111343410e949073444",
+  "problem": "Spaete Drop-Burst- und Onset-Stufen erzeugten nach Mindestdauerbereinigung erneut hektische Mini-Segmente",
+  "cause": "Nutzer-Cut-Rate wurde nur vor spaeten Pacing-Eingriffen angewendet; final blieb nur 0.2-s-Technikschutz",
+  "rule": "Nutzergewaehlte Timing-Invariante nach allen schnitterzeugenden Stufen erneut durchsetzen und danach Source-Material-Grenzen wiederherstellen",
+  "applies_to": "Pacing-, Schnitt- und Timeline-Generatoren"
+}

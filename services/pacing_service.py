@@ -77,6 +77,8 @@ from services.pacing_edit_helpers import (
     _compute_effective_step,
     _select_cut_beats_advanced,
     _enforce_minimum_durations,
+    _enforce_cut_rate_floor,
+    _enforce_max_segment_duration,
     finalize_cut_beats,
     SECTION_MOOD_QUERIES,
     _precompute_mood_embeddings,
@@ -1039,6 +1041,26 @@ def _auto_edit_phase3_inner(
     # 50ms < 70ms-Beat-Sync-Toleranz -> SCHNITT-Garantie bleibt erhalten;
     # Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben.
     cut_beats = _apply_onset_snap_cuts(_ae_eng, audio_id, cut_beats)
+
+    # B-912: Cut-Rate ist Nutzerwahl fuer Schnittruhe, nicht nur fruehe
+    # Auswahlhilfe. Spaete Drop-/Onset-Stufen duerfen keine hektischen
+    # Mini-Segmente zurueckbringen. Section-Wechsel bleiben Pflichtpunkte.
+    cut_beats = _enforce_cut_rate_floor(
+        cut_beats,
+        beats,
+        downbeats,
+        sections,
+        total_duration,
+        base_step=settings.base_cut_rate,
+    )
+    # Ruhe-Floor kann fruehere Zusatz-Cuts entfernen. Source-Limit deshalb
+    # nochmals anwenden: Clip bleibt maximal lang, aber nie laenger als
+    # vorhandenes Material.
+    cut_beats = _enforce_max_segment_duration(
+        cut_beats,
+        beats,
+        _max_clip_dur if _max_clip_dur > 1.0 else None,
+    )
 
     # B-613 (Ursache): Nach Drop-Burst (T2.5.2) und Onset-Snap (T2.5.1)
     # koennen zwei Cuts naeher als die Segment-Skip-Schwelle (0.2s)

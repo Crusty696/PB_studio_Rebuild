@@ -418,7 +418,10 @@ def _enforce_minimum_durations(
 
 
 def _mindestdauer_durchsetzen(
-    cuts: list[float], pflicht: set | frozenset, sections: list | None
+    cuts: list[float],
+    pflicht: set | frozenset,
+    sections: list | None,
+    minimum_floor: float | None = None,
 ) -> list[float]:
     """B-838: zu kurze Segmente aufloesen, ohne Section-Grenzen zu opfern.
 
@@ -451,11 +454,15 @@ def _mindestdauer_durchsetzen(
             return cuts
 
     def _minimum_bei(zeit: float) -> float:
+        minimum = HARD_MIN_DURATION
         if sections:
             sec = get_section_at_time(sections, zeit)
             if sec is not None:
-                return SECTION_MIN_DURATION.get(sec.section_type, HARD_MIN_DURATION)
-        return HARD_MIN_DURATION
+                minimum = SECTION_MIN_DURATION.get(
+                    sec.section_type, HARD_MIN_DURATION)
+        if minimum_floor is not None:
+            minimum = max(minimum, float(minimum_floor))
+        return minimum
 
     # Der Abgleich laeuft ueber eine Toleranz statt ueber Mengen-Zugehoerigkeit:
     # die Pflicht-Zeiten wurden gesnappt und gerundet, ein exakter
@@ -493,6 +500,113 @@ def _mindestdauer_durchsetzen(
         ergebnis.pop()
     ergebnis.append(ende)
     return ergebnis
+
+
+def _beat_interval_seconds(beats: list[float]) -> float | None:
+    """Robustes Beat-Intervall fuer BPM-abgeleitete Segmentdauer."""
+    beat_values = np.asarray(beats, dtype=float)
+    beat_values = np.unique(beat_values[np.isfinite(beat_values)])
+    if beat_values.size < 2:
+        return None
+    diffs = np.diff(beat_values)
+    diffs = diffs[(diffs > 0.05) & (diffs < 5.0)]
+    if not diffs.size:
+        return None
+    return float(np.median(diffs))
+
+
+def _enforce_cut_rate_floor(
+    cuts: list[float],
+    beats: list[float],
+    downbeats: list[float] | None,
+    sections: list | None,
+    total_duration: float,
+    base_step: int,
+) -> list[float]:
+    """B-912: UI-Cut-Rate bleibt finaler Ruhe-Floor.
+
+    Drop-Burst und Onset-Snap duerfen den vorher bereinigten Schnitt nicht
+    wieder hektisch machen. Echte Section-Wechsel bleiben Pflichtpunkte.
+    """
+    beat_interval = _beat_interval_seconds(beats)
+    if beat_interval is None or len(cuts) < 3:
+        return cuts
+    minimum_floor = beat_interval * max(1, int(base_step))
+
+    beats_arr = np.asarray(beats, dtype=float)
+    down_arr = np.asarray(downbeats or [], dtype=float)
+    mandatory: set[float] = set()
+    if sections:
+        interior_cuts = [
+            float(t) for t in cuts
+            if 0.05 < float(t) < total_duration - 0.05
+        ]
+        for sec in sections:
+            start = getattr(sec, "start", None)
+            if start is None and isinstance(sec, (tuple, list)):
+                start = sec[0]
+            if start is None or start <= 0.05 or start >= total_duration - 0.05:
+                continue
+            target = float(start)
+            if beats_arr.size:
+                target = float(
+                    beats_arr[int(np.argmin(np.abs(beats_arr - target)))])
+            if down_arr.size:
+                downbeat = float(
+                    down_arr[int(np.argmin(np.abs(down_arr - float(start))))])
+                if abs(downbeat - float(start)) <= 0.20:
+                    target = downbeat
+            if interior_cuts:
+                actual = min(interior_cuts, key=lambda t: abs(t - target))
+                # Onset-Snap verschiebt hoechstens 50 ms.
+                if abs(actual - target) <= 0.08:
+                    mandatory.add(round(actual, 4))
+
+    result = _mindestdauer_durchsetzen(
+        cuts, mandatory, sections, minimum_floor=minimum_floor)
+    logger.info(
+        "B-912 Ruhe-Floor: %.3fs (%d Beats), Cuts %d -> %d, "
+        "Section-Pflichtpunkte %d",
+        minimum_floor, max(1, int(base_step)), len(cuts), len(result),
+        len(mandatory),
+    )
+    return result
+
+
+def _enforce_max_segment_duration(
+    cuts: list[float],
+    beats: list[float],
+    max_segment_duration: float | None,
+) -> list[float]:
+    """Teilt nur Segmente, die kein vorhandener Source-Clip abdecken kann."""
+    if not max_segment_duration or max_segment_duration <= 1.0:
+        return cuts
+    beats_arr = np.asarray(beats, dtype=float)
+    splitted: list[float] = []
+    added_splits = 0
+    for a, b in zip(cuts, cuts[1:]):
+        splitted.append(a)
+        cur = a
+        while (b - cur) > max_segment_duration + 0.05:
+            target = cur + max_segment_duration
+            cand = (
+                beats_arr[beats_arr <= target + 0.001]
+                if beats_arr.size else np.array([])
+            )
+            cand = cand[cand > cur + 1.0] if cand.size else cand
+            nxt = float(cand[-1]) if cand.size else round(target, 4)
+            if (b - nxt) < 1.0:
+                nxt = round(cur + (b - cur) / 2.0, 4)
+            splitted.append(round(nxt, 4))
+            added_splits += 1
+            cur = nxt
+    splitted.append(cuts[-1])
+    if added_splits:
+        logger.info(
+            "Max-Segment-Laenge: %d Zusatz-Cuts (Source-Limit %.1fs)",
+            added_splits, max_segment_duration,
+        )
+    return splitted
 
 
 def finalize_cut_beats(
@@ -590,29 +704,8 @@ def finalize_cut_beats(
     #    das Segment aufs Material und repair_timeline_integrity zieht ALLE
     #    folgenden Segmente vor (real gemessen: 17.5s-Intro bei 10s-Clips
     #    -> 7.5s-Kaskade, gaps_closed=113, Beat-Sync 100%->46%).
-    if max_segment_duration and max_segment_duration > 1.0:
-        splitted: list[float] = []
-        added_splits = 0
-        for a, b in zip(result, result[1:]):
-            splitted.append(a)
-            cur = a
-            while (b - cur) > max_segment_duration + 0.05:
-                target = cur + max_segment_duration
-                # bevorzugt auf Beat vor der Grenze splitten
-                cand = beats_arr[beats_arr <= target + 0.001] if beats_arr.size else np.array([])
-                cand = cand[cand > cur + 1.0] if cand.size else cand
-                nxt = float(cand[-1]) if cand.size else round(target, 4)
-                if (b - nxt) < 1.0:  # Rest zu kurz -> mittig teilen
-                    nxt = round(cur + (b - cur) / 2.0, 4)
-                splitted.append(round(nxt, 4))
-                added_splits += 1
-                cur = nxt
-        splitted.append(result[-1])
-        if added_splits:
-            logger.info(
-                "finalize_cut_beats: %d Zusatz-Cuts (Segment > laengster "
-                "Clip %.1fs)", added_splits, max_segment_duration)
-        result = splitted
+    result = _enforce_max_segment_duration(
+        result, beats, max_segment_duration)
 
     logger.info(
         "finalize_cut_beats: %d -> %d Cuts (%d Pflicht-Cuts an "

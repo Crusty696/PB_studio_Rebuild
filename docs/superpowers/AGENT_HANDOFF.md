@@ -16,7 +16,20 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`MASTERPLAN-TRIAGE / hoechsten entscheidungsfreien Critical-/High-Bug in Pacing, Schnitt oder Timeline bestimmen; danach genau diesen einen Root-Cause-Fix umsetzen`.
+`B-832 / Produktentscheidung: Vibe bleibt klar ausgewiesener Notfall-Fallback
+oder wird aktiver Faktor im Clip-Matching`.
+
+B-832 wartet zwingend auf Userentscheidung. Keine autonome Auswahl. Breite
+Pacing-/Timeline-Abnahme bleibt gemaess Uservorgabe spaetes Endgate.
+
+B-912 code-complete: Projekt `123454321`: 103 Video-Segmente, 34 unter 2 s,
+9 unter 1 s,
+Minimum 0.395 s; 103/103 verschiedene Medien, also kein aktueller
+Wiederholungsbefund. Uservorgabe: Clips so lange wie moeglich/solange passend,
+keine nervoese Timeline. Finaler Ruhe-Floor nach Drop/Onset umgesetzt;
+Section-Pflichtpunkte und Source-Limit bleiben erhalten. Zieltest `4 passed in
+2.17s`; kein Auto-Edit-/UI-Live, daher pending-live. Evidence:
+`docs/superpowers/synthesis/b912-cut-rate-rest-floor-2026-08-27.md`.
 
 Userentscheidung 2026-08-27: keine breite Vollsuite jetzt. Echte Critical-/
 High-Fixes mit grosser Pacing-/Schnitt-/Timeline-Wirkung zuerst; pro Fix nur
