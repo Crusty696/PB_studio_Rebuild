@@ -16,7 +16,7 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING/SCHNITT-GESAMTTEST / nach B-909-Baselinefix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-910-Defaultprofilfix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
@@ -35,10 +35,19 @@ vorgesehenem Generator nach; Golden-Datei `10 passed`. Jetzt Gesamttest neu.
 
 ## Letzter Abschluss
 
+B-910 code-complete: editierbares Default-Pacingprofil ueberschreibt
+4403ccd/B-842-Code-Defaults nicht mehr mit Altwerten. Golden-Baseline zeigt nur
+beabsichtigte style/collision-Scorewirkung, keine Auswahl-ID-Aenderung.
+Config+Golden `23 passed in 1.10s`; Vollsuite/App-Live pending.
+
 B-909 code-complete: Golden-Baseline enthaelt jetzt neutralen B-842-Key
 `roter_faden: 0.0` fuer alle 10 Cuts. Diff exakt zehn Einfuegungen;
 Golden-Snapshot-Datei `10 passed in 0.96s`. Kein Produktcodeedit; Vollsuite
 pending.
+
+Dritter Gesamttest stoppte bei 8 Prozent. B-910 synchronisiert Default-YAML mit
+belegten Code-Defaults: `w_style 0.30`, `w_collision 0.20`, `w_roter_faden 1.0`.
+Golden-Auswahl-IDs blieben identisch; Config+Golden `23 passed`. Gesamttest neu.
 
 B-908 code-complete: Cleanup-Notizen nutzen native API ab Python 3.11 und
 `__notes__`-Fallback unter Python 3.10, ohne Primarfehler zu ersetzen. Exakter

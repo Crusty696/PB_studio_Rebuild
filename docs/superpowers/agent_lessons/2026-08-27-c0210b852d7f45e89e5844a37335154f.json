@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c0210b852d7f45e89e5844a37335154f",
+  "recorded_at": "2026-08-27T01:52:39+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "Default-Pacing-YAML ueberschrieb neue Code-Defaults fuer weiche Uebergaenge mit stale Werten und fehlendem roter_faden-Key",
+  "cause": "Scorer-Gewichte wurden in 4403ccd und B-842 geaendert, aber kanonisches editierbares Default-Profil nicht im selben Task synchronisiert",
+  "rule": "Jede DEFAULT_WEIGHTS-Aenderung muss im selben Commit gegen alle Default-YAML-Keys und -Werte sowie Golden-Snapshot geprueft und synchronisiert werden",
+  "applies_to": "PacingScorer DEFAULT_WEIGHTS, config/pacing_weights/default.yaml und Golden-Run"
+}

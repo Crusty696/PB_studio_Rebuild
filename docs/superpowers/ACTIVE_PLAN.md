@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING/SCHNITT-GESAMTTEST / nach B-909-Baselinefix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-910-Defaultprofilfix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+
+Dritter Gesamttestlauf stoppte bei 8 Prozent: `1 failed, 378 passed, 271
+subtests passed`. `config/pacing_weights/default.yaml` fehlt
+`w_roter_faden`, obwohl B-842/`fd3782e` `DEFAULT_WEIGHTS` und Produktterm
+absichtlich mit Faktor `1.0` registrierte. Tiefenabgleich fand zusaetzlich zwei
+stale Aprilwerte, welche `4403ccd`-Code-Defaults ueberschrieben:
+`w_style 0.15→0.30`, `w_collision 0.10→0.20`. Default-YAML und Golden-Baseline
+sind jetzt synchron; Config+Golden `23 passed`. Vollsuite neu.
 
 Zweiter Gesamttestlauf stoppte gemaess Erste-Fehler-Regel bei 5 Prozent:
 `1 failed, 294 passed, 271 subtests passed`. Alle 10 Golden-Cuts unterscheiden
