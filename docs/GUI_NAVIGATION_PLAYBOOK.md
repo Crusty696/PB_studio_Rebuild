@@ -625,6 +625,60 @@ Jeder Flow-Eintrag hat:
   TASKS-Panel-"Abbrechen"-Button stoppt nur EINEN TaskEngine-Task, NICHT die separate
   ConvertService-Queue (Proxy-Generierung laeuft nach Abbrechen-Klick unbeirrt weiter) --
   fuer schnelle Tests eher auf bereits vorhandene, durchanalysierte Testprojekte (z. B.
+
+### 2.28 Studio-Brain-Fenster oeffnen + Tab-Navigation — NEU 2026-08-27 (Brain-Cleanup-Nachtest)
+- **Ziel:** `StudioBrainWindow` oeffnen und ueber die 6 Tabs navigieren; Verify des
+  Steer-Tab-Cleanups (Gewichtsprofil/Pins entfernt, Boosts/Excludes/Audio-Track uebrig).
+- **Oeffnen:** Top-Bar-Button `name="Brain"` (`control_type=Button`, kein auto_id,
+  bei 3240x2160 center ca. x=2260, y=86, direkt links von `Einstellungen`/`Tools`).
+  Robuster per `click-element --window-title "PB_studio" --name-re "^Brain$"
+  --control-type Button` statt Ctrl+B (Tastenkombination in dieser Session nicht
+  getestet). Log-Beleg: `ui.studio_brain_window: StudioBrainWindow: konstruiere Tabs ...`
+  gefolgt von `[0/6]` bis `[5/6]` je Tab, dann `__main__: Studio Brain window opened`.
+- **Fenstertitel:** `"Studio Brain"` (eigenstaendiges Top-Level-Fenster, NICHT Kind-Dialog
+  von `PB_studio` — braucht eigenes `--window-title "Studio Brain"` fuer
+  `screenshot`/`find-element`/`click-element`, sonst treffen Klicks das Hauptfenster).
+- **6 Tabs (TabItem, kein auto_id):** `Struktur`, `Gedächtnis`, `Audit`, `Steer`,
+  `Pacing-Explorer`, `Graph-Cockpit`. `Graph-Cockpit` ist laut Log ein "Lazy-Stub" —
+  echtes Widget wird erst beim ersten Klick konstruiert (B-222 F4), in dieser Session
+  nicht angeklickt.
+- **Tab-Klicks loggen NICHT** (kein neuer Log-Eintrag bei Tab-Wechsel) — Verifikation
+  ausschliesslich per Screenshot + `list-elements`/`find-element`.
+- **Steer-Tab (Cleanup-Verify 2026-08-27, PASS):** `_TrackSelector`-Gruppe mit Label
+  `Audio-Track:` + einer namenlosen `QComboBox` (Name-Property leer, sichtbarer Text im
+  Screenshot pruefen). Darunter `_OverridesLists`-Gruppe mit zwei Spalten: links
+  `QLabel "Boosts"` + `QListWidget` + Button `"− Entfernen"`, rechts `QLabel "Excludes"`
+  + `QListWidget` + eigener `"− Entfernen"`-Button. Unten `_RunBar` mit Button
+  `"Mit diesen Einstellungen starten"`. `list-elements --window-title "Studio Brain"`
+  (nur der jeweils aktive Tab wird im UIA-Baum mitgeliefert, andere Tabs sind nicht im
+  Tree) zeigt 0 Treffer fuer `Gewichtsprofil`/`Pins`/`Profil bearbeiten` — Cleanup
+  bestaetigt entfernt.
+- **Gedächtnis-Tab:** Kachel-Reihe mit `mem_pacing_run`-Historie (Datum/Uhrzeit + Track
+  + Schnitt-Anzahl je Kachel), darunter Filter-Leiste (`Typ:`-Combo, `Min. Sicherheit:`-
+  SpinBox, Button `Anwenden`) + Pattern-Tabelle (Spalten Type/Fingerprint/Accept/Reject/
+  Confidence/Updated) mit Platzhaltertext "Wähle ein Muster aus, um die zugehörigen
+  Entscheidungen zu sehen." bei leerer Selektion. Button `"Gelerntes zurücksetzen…"`
+  unten. Renderte bei 8 vorhandenen Runs ohne Crash.
+- **Audit-Tab:** Lauf-Combo oben (`"#8  2026-08-27 03:21:33... (49 cuts)"`) + Button
+  `"Story Map öffnen..."`, 2 Checkboxen `"Nur abgelehnte"`/`"Nur Fallback"`, Cut-Tabelle
+  (Spalten #/Time/Section/Scene/Role/Score/Verdict) + rechtes Detail-Panel
+  (Term-Beiträge/Alternativen Top 3/Budget-Stand). War beim ersten Brain-Oeffnen bereits
+  der aktive Default-Tab (Tab-Reihenfolge im Log ist Struktur/Gedächtnis/Audit/Steer/
+  Pacing-Explorer/Graph-Cockpit, aber die zuletzt aktive Tab-Auswahl scheint ueber
+  Sessions persistiert zu werden).
+- **Schliessen:** Button `"Schließen"` (`control_type=Button`, kein auto_id) sowohl im
+  `Studio Brain`- als auch im `PB_studio`-Fenster identisch benannt — IMMER
+  `--window-title` mitgeben, sonst nicht deterministisch welches Fenster trifft.
+  Studio-Brain-Schliessen loggt nichts Spezifisches; App-Hauptfenster-Schliessen loggt
+  gewohnten `closeEvent`/Cleanup-Block.
+- **Fremdes Fenster im Hintergrund beobachtet:** Waehrend dieser Session lief parallel
+  ein Fenster mit Titel `"◑ Analyze and audit the Brain section functionality"`
+  (gruener Konsolentext, rechts im Bild sichtbar in den Screenshots) — sehr wahrscheinlich
+  das eigene Orchestrator-/Parent-Agent-Chatfenster auf demselben Desktop, KEIN zweiter
+  unabhaengiger PB-Studio-Testlauf (kein zweites `PB_studio v0.5.0`-Fenster in
+  `list-windows`). Hat in dieser Session keine Klicks/Kontamination verursacht (immer
+  `--window-title`-Scoping genutzt, siehe 2.24), aber bei kuenftigen Tests im Auge
+  behalten, falls Klicks unerklaert ins Leere gehen.
   `LV-A`/`LV-B` aus einer frueheren Session) zurueckgreifen statt neu zu importieren.
 
 ## 3. Änderungslog
