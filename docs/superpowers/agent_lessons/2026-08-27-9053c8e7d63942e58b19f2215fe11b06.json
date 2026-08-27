@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9053c8e7d63942e58b19f2215fe11b06",
+  "recorded_at": "2026-08-27T01:03:38+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "Audit-Git-Lock ersetzte unter Projekt-Python 3.10 Primarfehler durch AttributeError beim Anhaengen von Cleanup-Kontext",
+  "cause": "Direkte Nutzung von BaseException.add_note aus Python 3.11 ohne Runtime-Kompatibilitaet",
+  "rule": "Exception-Zusatzkontext muss gegen deklarierte Projekt-Runtime getestet werden; native add_note nur feature-detecten und auf __notes__ fallbacken, ohne Primarfehler zu maskieren",
+  "applies_to": "Audit- und Cleanup-Pfade mit BaseException-Kontext"
+}

@@ -16,16 +16,24 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING/SCHNITT-GESAMTTEST / B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-908-Fix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
 B-888 ist code-complete; B-832 bleibt mangels Vibe-Produktentscheid offen.
-Jetzt gebuendelter Pacing-/Schnitt-/Timeline-Test. Keine Fixed-Claims
+Gesamttest stoppte am ersten Fehler: `1 failed, 162 passed, 260 subtests passed`.
+B-908 war direkter Testblocker (`BaseException.add_note` unter Python 3.10.21).
+Kompatibilitaetsfix code-complete; `git_lock`-Gruppe `2 passed`. Jetzt
+Gesamttest neu. Keine Fixed-Claims
 ohne spaetere Liveabnahme. Direkt anschliessend folgen offene Schnitt-/Timeline-
 Generierungsbugs vor Control-, Release- oder Nebenbereichen.
 
 ## Letzter Abschluss
+
+B-908 code-complete: Cleanup-Notizen nutzen native API ab Python 3.11 und
+`__notes__`-Fallback unter Python 3.10, ohne Primarfehler zu ersetzen. Exakter
+RED-Test sowie gesamte `git_lock`-Gruppe gruen (`2 passed, 63 deselected`).
+Voller Gesamtlauf pending.
 
 B-888 Root Cause code-complete: alle belegten Score-Ties nutzen kanonische
 persistente IDs; VectorDB-Suche ist bei gleicher Similarity stabil. Syntax PASS;

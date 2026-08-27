@@ -128,6 +128,28 @@ def _is_reparse_point(path: Path) -> bool:
     return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
+def _add_exception_note(error: BaseException, message: str) -> None:
+    """Attach cleanup context without replacing the primary exception."""
+    try:
+        add_note = getattr(error, "add_note", None)
+        if callable(add_note):
+            add_note(message)
+            return
+        notes = getattr(error, "__notes__", None)
+        if notes is None:
+            notes = []
+            setattr(error, "__notes__", notes)
+        if isinstance(notes, list):
+            notes.append(message)
+            return
+    except BaseException:
+        pass
+    try:
+        setattr(error, "_pb_audit_cleanup_error", message)
+    except BaseException:
+        pass
+
+
 class _PinnedGit:
     """One externally pinned Git executable held stable for a trust operation."""
 
@@ -269,7 +291,9 @@ class _PinnedGit:
             return self
         except BaseException as primary:
             for cleanup_error in self._close_handles():
-                primary.add_note(f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}")
+                _add_exception_note(
+                    primary, f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}"
+                )
             raise
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
@@ -281,12 +305,16 @@ class _PinnedGit:
         secondary.extend(self._close_handles())
         if exc is not None:
             for cleanup_error in secondary:
-                exc.add_note(f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}")
+                _add_exception_note(
+                    exc, f"Git-Lock-Cleanup fehlgeschlagen: {cleanup_error}"
+                )
             return False
         if secondary:
             primary = secondary[0]
             for cleanup_error in secondary[1:]:
-                primary.add_note(f"Weiterer Git-Lock-Cleanupfehler: {cleanup_error}")
+                _add_exception_note(
+                    primary, f"Weiterer Git-Lock-Cleanupfehler: {cleanup_error}"
+                )
             raise primary
         return False
 

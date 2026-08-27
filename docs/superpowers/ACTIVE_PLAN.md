@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING/SCHNITT-GESAMTTEST / B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-908-Fix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+
+Erster Gesamttestlauf wurde gemaess Erste-Fehler-Regel bei 2 Prozent gestoppt:
+`1 failed, 162 passed, 260 subtests passed`. Direkter Blocker B-908:
+`tools/audit_runtime_evidence.py` nutzte Python-3.11-`BaseException.add_note`,
+aktive Projekt-Runtime ist Python 3.10.21. B-908-Kompatibilitaetsfix ist
+code-complete; exakter RED-Test und gesamte `git_lock`-Gruppe sind gruen
+(`2 passed`). Voller Lauf wird jetzt neu gestartet. Produktprioritaet bleibt
+Pacing-/Schnitt-/Timeline-Generierung.
 
 B-907 ist live-verifiziert abgeschlossen: normaler Worktree-App-Start,
 spontaner MainWindow-Close, kompletter Cleanup, kein RuntimeError/Traceback.
