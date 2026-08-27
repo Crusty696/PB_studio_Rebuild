@@ -1980,3 +1980,17 @@ Decision: Vault
 - Status `code-fix-pending-live-verification`; App-/Auto-Edit-Live spaeter.
 - Naechste einzige Task: `PACING-FIXWELLE / B-888 kanonischen
   Kandidaten-Tie-Break herstellen`.
+
+### PACING-FIXWELLE B-888 Codefix — 2026-08-27
+
+- Root Cause: gleiche Scores erbten DB-/Vector-/Input-Reihenfolge.
+- Fix: kanonische persistente ID als Tie-Key in Pipeline, Brain, Legacy-
+  Fitness und available IDs; VectorDB `ORDER BY id` + stable Similarity-Sort.
+- Scoreformeln, RNG und Sampling unveraendert.
+- Syntax PASS; Pipeline-/Vector-Permutation `2 passed`.
+- Status `code-fix-pending-live-verification`.
+- B-832 bleibt produktentscheidungs-blockiert (Vibe nur Fallback oder aktiver
+  Scoring-Faktor); keine eigenmaechtige Wahl.
+- Keine weitere entscheidungsfreie offene Pacing-/Timeline-Codefixdatei.
+- Naechste einzige Task: gebuendelter Pacing-/Schnitt-/Timeline-Gesamttest mit
+  bestehendem Projekt `123454321`.

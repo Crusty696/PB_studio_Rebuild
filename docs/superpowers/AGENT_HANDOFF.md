@@ -16,15 +16,21 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING-FIXWELLE / B-888 kanonischen Kandidaten-Tie-Break herstellen`.
+`PACING/SCHNITT-GESAMTTEST / B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
-B-888, danach B-832 gemaess Masterplan. Keine Fixed-Claims
+B-888 ist code-complete; B-832 bleibt mangels Vibe-Produktentscheid offen.
+Jetzt gebuendelter Pacing-/Schnitt-/Timeline-Test. Keine Fixed-Claims
 ohne spaetere Liveabnahme. Direkt anschliessend folgen offene Schnitt-/Timeline-
 Generierungsbugs vor Control-, Release- oder Nebenbereichen.
 
 ## Letzter Abschluss
+
+B-888 Root Cause code-complete: alle belegten Score-Ties nutzen kanonische
+persistente IDs; VectorDB-Suche ist bei gleicher Similarity stabil. Syntax PASS;
+Permutationstest 2 PASS. Kein App-/Timeline-Live, daher pending-live.
+Evidence: `docs/superpowers/synthesis/b888-canonical-tiebreak-2026-08-27.md`.
 
 B-894 Root Cause code-complete: `no_signal_axes` bleibt im Rationale erhalten,
 Parser entfernt diese Achsen, explizites All-No-Signal schreibt 0 Buckets.

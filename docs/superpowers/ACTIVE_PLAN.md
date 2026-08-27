@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING-FIXWELLE / B-888 kanonischen Kandidaten-Tie-Break herstellen`.
+`PACING/SCHNITT-GESAMTTEST / B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
 
 B-907 ist live-verifiziert abgeschlossen: normaler Worktree-App-Start,
 spontaner MainWindow-Close, kompletter Cleanup, kein RuntimeError/Traceback.
@@ -43,6 +43,12 @@ unvermeidbare Syntax-/Zielpruefung; Gesamt-/Liveabnahme nach Fixwelle. Evidence:
 B-894 ist code-complete: Pipeline persistiert No-Signal-Achsen; gemeinsamer
 Parser filtert sie; All-No-Signal schreibt 0 Buckets statt Uniform-Credit.
 Direkte Verifikation 5 PASS; Live gesammelt spaeter. Jetzt B-888.
+
+B-888 ist code-complete: kanonische Clip-/Video-/Scene-ID entscheidet gleiche
+Scores; VectorDB liest ID-sortiert und sortiert Similarity stable. Direkter
+Permutationstest 2 PASS. B-832 bleibt offen, weil Vibe-Scoring eine explizite
+Produktentscheidung braucht. Keine weitere entscheidungsfreie offene Pacing-/
+Timeline-Codefixdatei gefunden. Jetzt userangeordneter gebuendelter Testlauf.
 
 Userentscheid 2026-08-27: sichtbarer Pacing-/Auto-Edit-Bereich ist wichtigstes
 App-Element und hat ab jetzt oberste Produktprioritaet. Reihenfolge innerhalb

@@ -620,9 +620,13 @@ class PacingPipeline:
                                 )
                     # Re-Order der scored-Liste nach Reranker-final_score
                     scored.sort(
-                        key=lambda t: -brain_v3_final_score_by_clip[t[0].clip_id]
+                        key=lambda t: (
+                            0,
+                            -brain_v3_final_score_by_clip[t[0].clip_id],
+                            int(t[0].clip_id),
+                        )
                         if t[0].clip_id in brain_v3_final_score_by_clip
-                        else float("inf"),
+                        else (1, 0.0, int(t[0].clip_id)),
                     )
                     # Update r.contribs mit Brain-V3-Sub-Scores
                     stage_result_by_clip = {
@@ -636,15 +640,15 @@ class PacingPipeline:
                                 float(reranked_candidate.final_score)
                             )
                 else:
-                    scored.sort(key=lambda t: t[1], reverse=True)
+                    scored.sort(key=lambda t: (-t[1], int(t[0].clip_id)))
             except Exception as exc:  # broad: Brain-V3 darf NIE Pacing crashen
                 logger.warning(
                     "Brain-V3-Rerank fehlgeschlagen, Fallback auf Pacing-Score: %s",
                     exc,
                 )
-                scored.sort(key=lambda t: t[1], reverse=True)
+                scored.sort(key=lambda t: (-t[1], int(t[0].clip_id)))
         else:
-            scored.sort(key=lambda t: t[1], reverse=True)
+            scored.sort(key=lambda t: (-t[1], int(t[0].clip_id)))
         best_clip, best_score, best_contribs = scored[0]
         legacy_soft_score = float(best_score)
         chosen_score = float(

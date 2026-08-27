@@ -1,0 +1,10 @@
+{
+  "lesson_id": "c3afa0d5d54f46b1b44290e38e9538e7",
+  "recorded_at": "2026-08-27T00:33:24+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "Gleiche Kandidaten- und Vector-Scores erbten wechselnde DB-/Input-Reihenfolge",
+  "cause": "Sortierschluessel enthielten nur Score; VectorDB lud ohne ORDER BY und nutzte instabiles argpartition an der Top-K-Grenze",
+  "rule": "Jede Auswahl braucht nach fachlichem Score einen persistenten kanonischen ID-Tie-Key; Vector-Caches kanonisch laden und stabile Sortierung verwenden",
+  "applies_to": "Pacing-Pipeline, Brain-Reranker, Legacy-Clipwahl und VectorDB-Suche"
+}

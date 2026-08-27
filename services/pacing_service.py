@@ -1312,7 +1312,8 @@ def _auto_edit_phase3_inner(
     # 6. Segmente erzeugen
     segments: list[TimelineSegment] = []
     cut_points: list[CutPoint] = []
-    available_ids = [vid for vid in video_clip_ids if vid in video_info]
+    # B-888: Externe DB-/Caller-Reihenfolge darf keinen Tie-Break bestimmen.
+    available_ids = sorted(vid for vid in video_clip_ids if vid in video_info)
     if not available_ids:
         return [], []
 

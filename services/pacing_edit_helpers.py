@@ -1506,7 +1506,9 @@ def _match_video_for_segment(
             scored.append((score, clip_idx, vid, meta))
 
         if scored:
-            scored.sort(key=lambda t: t[0], reverse=True)
+            # B-888: gleicher Fitness-Score -> kanonische Video-/Scene-ID,
+            # unabhaengig von VectorDB-/Input-Reihenfolge.
+            scored.sort(key=lambda t: (-t[0], t[2], t[1]))
             if rng is not None and len(scored) > 1:
                 # Top-K-Sampling: aus den besten K score-gewichtet ziehen
                 # (Quadrat schaerft die Gewichtung Richtung Spitzenreiter).

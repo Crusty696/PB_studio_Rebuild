@@ -293,10 +293,11 @@ class VectorDBService:
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         similarities = (embeddings / norms) @ query_norm
         
-        # Top-K Indices
+        # B-888: Cache wird kanonisch nach Composite-ID geladen. Stable-Sort
+        # behaelt diese Reihenfolge bei identischer Similarity; argpartition
+        # war an der Top-K-Grenze bei Ties nicht deterministisch.
         k = min(top_k, len(similarities))
-        top_sub_indices = np.argpartition(-similarities, k - 1)[:k]
-        top_sub_indices = top_sub_indices[np.argsort(-similarities[top_sub_indices])]
+        top_sub_indices = np.argsort(-similarities, kind="stable")[:k]
 
         results = []
         for idx in top_sub_indices:
@@ -311,7 +312,8 @@ class VectorDBService:
     def _load_full_data(self) -> tuple[np.ndarray, list[dict]]:
         """Lädt alle Daten aus der DB (interner Helper für Cache)."""
         sql = ("SELECT id, video_path, scene_index, scene_start, scene_end, "
-               "motion_score, description, embedding FROM clip_embeddings")
+               "motion_score, description, embedding FROM clip_embeddings "
+               "ORDER BY id ASC")
         with closing(self._connect()) as conn, conn:
             rows = conn.execute(sql).fetchall()
 

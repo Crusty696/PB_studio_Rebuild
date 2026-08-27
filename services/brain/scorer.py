@@ -63,5 +63,6 @@ class Scorer:
     ) -> list[ScoredCandidate]:
         """Bewertet alle Kandidaten + sortiert absteigend nach final_score."""
         scored = [self.score(c, cut_context) for c in candidates]
-        scored.sort(key=lambda s: s.final_score, reverse=True)
+        # B-888: ClipCandidate.clip_id ist persistenter kanonischer Tie-Key.
+        scored.sort(key=lambda s: (-s.final_score, str(s.candidate.clip_id)))
         return scored

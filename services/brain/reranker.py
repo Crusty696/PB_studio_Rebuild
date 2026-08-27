@@ -200,7 +200,9 @@ class BrainV3Reranker:
                 brain_v3_scores=dict(scored_brain.brain_v3_scores),
                 no_signal_axes=no_signal_axes,
             ))
-        results.sort(key=lambda r: r.final_score, reverse=True)
+        # B-888: gleiche Scores duerfen nicht von DB-/Input-Reihenfolge
+        # abhaengen. Kleinere persistente Clip-ID gewinnt den Tie-Break.
+        results.sort(key=lambda r: (-r.final_score, r.clip_id))
         return results
 
     # ------------------------------------------------------------------
