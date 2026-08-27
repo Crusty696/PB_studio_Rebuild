@@ -173,7 +173,8 @@ def test_get_posterior_mean_after_clicks_uses_level_0(store: WeightStore):
     # Lookup ohne spezifischere Daten → Level 0 ist konfident, Backoff bis L0
     # Aber: Level 1-5 haben 0 Samples → Backoff zu Level 0
     pm = store.get_posterior_mean("kick_weight", keys)
-    expected = (20.0 + 1.0) / (20.0 + 0.0 + 2.0)
+    # B-895: Posterior wirkt als Multiplikator auf der Cold-Start-Skala.
+    expected = COLD_START_DEFAULTS["kick_weight"] * 2.0 * (21.0 / 22.0)
     assert abs(pm - expected) < 1e-9
 
 
@@ -188,7 +189,7 @@ def test_backoff_finds_specific_when_confident(store: WeightStore):
         store.update("kick_weight", 1, keys[1], 2.0, 0)
     pm = store.get_posterior_mean("kick_weight", keys)
     # Spezifischster konfidenter Bucket = Level 1: α=30, β=0
-    expected = (30.0 + 1.0) / (30.0 + 0.0 + 2.0)
+    expected = COLD_START_DEFAULTS["kick_weight"] * 2.0 * (31.0 / 32.0)
     assert abs(pm - expected) < 1e-9
 
 
@@ -203,9 +204,12 @@ def test_backoff_falls_back_when_specific_not_confident(store: WeightStore):
     for _ in range(5):
         store.update("kick_weight", 1, keys[1], 1.0, 0)
     pm = store.get_posterior_mean("kick_weight", keys)
-    # Backoff: Level 5..2 leer, Level 1 hat n=5 (< 10) → skip,
-    # Level 0 hat n=100 (≥ 10) → return
-    expected = (100.0 + 1.0) / (100.0 + 0.0 + 2.0)
+    # B-895: Level 0 ist voller Anker; Level 1 mit n=5 blendet sein Ziel zu
+    # 50 % ein, statt bei n=9 ignoriert und bei n=10 hart umgeschaltet zu werden.
+    cold = COLD_START_DEFAULTS["kick_weight"]
+    global_weight = cold * 2.0 * (101.0 / 102.0)
+    specific_target = cold * 2.0 * (6.0 / 7.0)
+    expected = global_weight + 0.5 * (specific_target - global_weight)
     assert abs(pm - expected) < 1e-9
 
 

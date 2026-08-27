@@ -1,0 +1,10 @@
+{
+  "lesson_id": "e79a030d31804725a73381160456c896",
+  "recorded_at": "2026-08-27T00:20:14+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "WeightStore wechselte bei exakt zehn Samples von heterogenen Cold-Start-Werten direkt auf Beta-Posterior 0..1",
+  "cause": "Posterior wurde als Ersatzgewicht statt als Lernfaktor auf derselben Achsenskala verwendet; Confidence war harter Boolean",
+  "rule": "Gelernte relative Praeferenzen auf bestehender Achsenskala anwenden und unsichere hierarchische Buckets stetig nach Sample-Konfidenz mit allgemeinem Fallback blenden",
+  "applies_to": "Brain V3 WeightStore, hierarchischer Backoff und Pacing-Scorer"
+}

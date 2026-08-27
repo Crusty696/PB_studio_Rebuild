@@ -3,9 +3,9 @@
 Beta-Bernoulli mit Hierarchical Backoff über 5 Levels.
 Posterior-Mean = (α+1)/(α+β+2) (Laplace-Smoothing).
 
-Lookup-Strategie: spezifischster Bucket der ≥10 Samples hat,
-sonst zurück fallen auf allgemeineren Level. Wenn keiner konfident ist,
-Cold-Start-Default aus services.brain.cold_start.
+Lookup-Strategie: allgemeiner Cold-Start-Default wird von Level 0 bis zum
+spezifischsten vorhandenen Bucket stetig mit Lerndaten geblendet. Zehn Samples
+bedeuten volle Bucket-Konfidenz, aber keinen harten Skalenwechsel.
 
 Single-Connection-Halter (sqlite3 ist threadlocal — diese Klasse
 ist NICHT thread-safe, sondern soll von einem Worker-Thread genutzt werden).
@@ -104,23 +104,34 @@ class WeightStore:
                 konstruiert von services.brain.context_resolver.context_keys().
 
         Returns:
-            Posterior-Mean des spezifischsten konfidenten Buckets,
-            sonst Cold-Start-Default.
+            Effektives Achsengewicht. Der Beta-Posterior wirkt als
+            Multiplikator um den Cold-Start-Wert; unsichere spezifische
+            Buckets werden stetig mit dem allgemeineren Level geblendet.
         """
         if axis not in COLD_START_DEFAULTS:
             raise ValueError(f"Unbekannte Achse: {axis!r}")
         if len(context_keys_by_level) < 1:
             return COLD_START_DEFAULTS[axis]
 
-        # Spezifischster Level zuerst, dann zurück fallen
-        for level in range(len(context_keys_by_level) - 1, -1, -1):
+        # B-895: Der alte harte Schalter gab bis n=9 den Cold-Start-Wert auf
+        # TriggerSettings-Skala (teils >1) und ab n=10 direkt den Posterior
+        # auf 0..1-Skala zurueck. Das konnte Rangfolgen sprunghaft kippen.
+        #
+        # Der Posterior ist jetzt ein relativer Multiplikator: 0.5 = 1x
+        # Cold-Start, 1.0 = 2x, 0.0 = 0x. Von allgemein nach spezifisch wird
+        # jeder vorhandene Bucket gemaess seiner Sample-Konfidenz eingeblendet.
+        # Bei n=10 erreicht der Blend 100 %, ohne Skalenumschaltung.
+        cold_weight = COLD_START_DEFAULTS[axis]
+        effective_weight = cold_weight
+        for level in range(len(context_keys_by_level)):
             key = context_keys_by_level[level]
             ab = self.get_alpha_beta(axis, level, key)
-            if ab is None:
+            if ab is None or ab.n_samples <= _ZERO_DELTA_EPS:
                 continue
-            if ab.n_samples >= MIN_CONFIDENT_SAMPLES:
-                return ab.posterior_mean
-        return COLD_START_DEFAULTS[axis]
+            learned_target = cold_weight * (2.0 * ab.posterior_mean)
+            confidence = min(1.0, ab.n_samples / MIN_CONFIDENT_SAMPLES)
+            effective_weight += confidence * (learned_target - effective_weight)
+        return effective_weight
 
     def get_variance_for_smart_sampling(
         self,

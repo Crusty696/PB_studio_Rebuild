@@ -20,19 +20,25 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
+`PACING-FIXWELLE / B-894 No-Signal-Achsen aus WeightStore-Credit ausschliessen`.
 
 B-907 ist live-verifiziert abgeschlossen: normaler Worktree-App-Start,
 spontaner MainWindow-Close, kompletter Cleanup, kein RuntimeError/Traceback.
-Der direkte Shutdown-Blocker ist damit entfernt. B-893-Liveabnahme nutzt
-normalen Launcher und Userprojekt `123454321`.
+Der direkte Shutdown-Blocker ist damit entfernt. Userentscheid 2026-08-27:
+weitere Pacing-Codefixes zuerst, danach gebuendelter Gesamt-/Live-Test. B-893
+bleibt deshalb ehrlich `code-fix-pending-live-verification`; Liveabnahme wird
+nicht als erledigt ausgegeben. Pacing sowie direkt zugehoerige Schnitt-/
+Timeline-Generierung haben vor allen anderen Produktbereichen Prioritaet.
 
 B-893 Root-Cause-Fix ist code-complete: Produkt-Reranker nutzt BPM-Pace und
 candidate-spezifische Motion-Quartile wie spaetere Feedback-Rekonstruktion.
 Fokustest `1 passed in 0.93s`; echter Auto-Edit-UI-Lauf fehlt. Status
-`code-fix-pending-live-verification`; B-895 beginnt erst nach ehrlicher
-B-893-Liveabnahme. Evidence:
+`code-fix-pending-live-verification`. B-895 ist code-complete: Posterior bleibt
+auf Cold-Start-Skala und wird stetig ueber allgemeine/spezifische Level
+geblendet; direkte Regression `6 passed`. Jetzt B-894. Pro Fix nur
+unvermeidbare Syntax-/Zielpruefung; Gesamt-/Liveabnahme nach Fixwelle. Evidence:
 `docs/superpowers/synthesis/b893-weightstore-context-alignment-2026-08-27.md`.
+`docs/superpowers/synthesis/b895-weightstore-transition-2026-08-27.md`.
 
 Userentscheid 2026-08-27: sichtbarer Pacing-/Auto-Edit-Bereich ist wichtigstes
 App-Element und hat ab jetzt oberste Produktprioritaet. Reihenfolge innerhalb

@@ -16,13 +16,20 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad fuer angeglichenen WeightStore-Context belegen`.
+`PACING-FIXWELLE / B-894 No-Signal-Achsen aus WeightStore-Credit ausschliessen`.
 
-B-907 ist per Zombie-Wrapper-Test und echtem normalen App-Start/-Shutdown
-live-verifiziert abgeschlossen. Naechster Schritt: normaler Launcher, Projekt
-`123454321`, B-893-Auto-Edit-Liveabnahme; erst danach B-895.
+B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
+Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
+B-894, danach B-888/B-832 gemaess Masterplan. Keine Fixed-Claims
+ohne spaetere Liveabnahme. Direkt anschliessend folgen offene Schnitt-/Timeline-
+Generierungsbugs vor Control-, Release- oder Nebenbereichen.
 
 ## Letzter Abschluss
+
+B-895 Root Cause code-complete: harter Skalenwechsel bei n=10 durch stetigen
+hierarchischen Blend ersetzt. Syntax PASS; direkte Regression `6 passed`.
+Kein App-/Auto-Edit-Live, daher `code-fix-pending-live-verification`.
+Evidence: `docs/superpowers/synthesis/b895-weightstore-transition-2026-08-27.md`.
 
 B-893 Root Cause behoben: Reranker und Feedback verwenden im Produktpfad
 dieselben Motion-/Pace-Context-Keys. RED reproduziert; `py_compile` PASS;

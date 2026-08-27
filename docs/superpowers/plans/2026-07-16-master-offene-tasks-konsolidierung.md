@@ -1942,3 +1942,29 @@ Decision: Vault
 - Status: B-907 `fixed`.
 - Naechste einzige Task: `PACING-PRIORITAET / B-893 echten Auto-Edit-Livepfad
   fuer angeglichenen WeightStore-Context belegen`.
+
+### PACING-FIXWELLE vor Gesamt-/Livetest — Userentscheid 2026-08-27
+
+- User ordnet zuerst alle moeglichen Codefixes, danach einen gebuendelten
+  Testlauf an.
+- B-893 bleibt `code-fix-pending-live-verification`; keine falsche Fixed-Aussage.
+- Fixreihenfolge bleibt strikt sequenziell: B-895, B-894, B-888, danach B-832
+  nur soweit ohne offene Produktentscheidung moeglich.
+- Pro Codefix bleiben unvermeidbare Syntax-/direkte Zielpruefungen bestehen;
+  breite Suite und echter Projekt-/App-Livelauf folgen gesammelt am Wellenende.
+- Naechste einzige Task: `PACING-FIXWELLE / B-895
+  WeightStore-Schwellenveraenderung mit echtem Root-Cause-Fix behandeln`.
+- Bereichsprioritaet: Pacing und direkt zugehoerige Schnitt-/Timeline-
+  Generierung vor Control-, Release- und sonstigen Nebenbereichen.
+
+### PACING-FIXWELLE B-895 Codefix — 2026-08-27
+
+- Root Cause: n<10 gab heterogene Cold-Start-Skala zurueck; n>=10 ersetzte sie
+  abrupt durch Posterior 0..1.
+- Fix: Posterior als 0x..2x-Multiplikator um achsenspezifischen Default;
+  Level 0→spezifisch stetig mit `min(n/10,1)` geblendet.
+- DB/Schema/Schreibpfad unveraendert.
+- Syntax PASS; direkter Schwellen-/Posterior-/Backoff-Lauf `6 passed`.
+- Status `code-fix-pending-live-verification`; Gesamt-/Auto-Edit-Live spaeter.
+- Naechste einzige Task: `PACING-FIXWELLE / B-894 No-Signal-Achsen aus
+  WeightStore-Credit ausschliessen`.
