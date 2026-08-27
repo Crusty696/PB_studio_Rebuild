@@ -16,15 +16,20 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING-FIXWELLE / B-894 No-Signal-Achsen aus WeightStore-Credit ausschliessen`.
+`PACING-FIXWELLE / B-888 kanonischen Kandidaten-Tie-Break herstellen`.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
-B-894, danach B-888/B-832 gemaess Masterplan. Keine Fixed-Claims
+B-888, danach B-832 gemaess Masterplan. Keine Fixed-Claims
 ohne spaetere Liveabnahme. Direkt anschliessend folgen offene Schnitt-/Timeline-
 Generierungsbugs vor Control-, Release- oder Nebenbereichen.
 
 ## Letzter Abschluss
+
+B-894 Root Cause code-complete: `no_signal_axes` bleibt im Rationale erhalten,
+Parser entfernt diese Achsen, explizites All-No-Signal schreibt 0 Buckets.
+Direkte Verifikation 5 PASS; kein App-Live, daher pending-live.
+Evidence: `docs/superpowers/synthesis/b894-no-signal-credit-2026-08-27.md`.
 
 B-895 Root Cause code-complete: harter Skalenwechsel bei n=10 durch stetigen
 hierarchischen Blend ersetzt. Syntax PASS; direkte Regression `6 passed`.

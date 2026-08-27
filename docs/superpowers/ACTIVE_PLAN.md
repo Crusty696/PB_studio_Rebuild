@@ -20,7 +20,7 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING-FIXWELLE / B-894 No-Signal-Achsen aus WeightStore-Credit ausschliessen`.
+`PACING-FIXWELLE / B-888 kanonischen Kandidaten-Tie-Break herstellen`.
 
 B-907 ist live-verifiziert abgeschlossen: normaler Worktree-App-Start,
 spontaner MainWindow-Close, kompletter Cleanup, kein RuntimeError/Traceback.
@@ -39,6 +39,10 @@ geblendet; direkte Regression `6 passed`. Jetzt B-894. Pro Fix nur
 unvermeidbare Syntax-/Zielpruefung; Gesamt-/Liveabnahme nach Fixwelle. Evidence:
 `docs/superpowers/synthesis/b893-weightstore-context-alignment-2026-08-27.md`.
 `docs/superpowers/synthesis/b895-weightstore-transition-2026-08-27.md`.
+
+B-894 ist code-complete: Pipeline persistiert No-Signal-Achsen; gemeinsamer
+Parser filtert sie; All-No-Signal schreibt 0 Buckets statt Uniform-Credit.
+Direkte Verifikation 5 PASS; Live gesammelt spaeter. Jetzt B-888.
 
 Userentscheid 2026-08-27: sichtbarer Pacing-/Auto-Edit-Bereich ist wichtigstes
 App-Element und hat ab jetzt oberste Produktprioritaet. Reihenfolge innerhalb

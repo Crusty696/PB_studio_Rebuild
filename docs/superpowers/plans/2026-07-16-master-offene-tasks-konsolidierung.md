@@ -1968,3 +1968,15 @@ Decision: Vault
 - Status `code-fix-pending-live-verification`; Gesamt-/Auto-Edit-Live spaeter.
 - Naechste einzige Task: `PACING-FIXWELLE / B-894 No-Signal-Achsen aus
   WeightStore-Credit ausschliessen`.
+
+### PACING-FIXWELLE B-894 Codefix — 2026-08-27
+
+- Root Cause: Reranker kannte No-Signal-Achsen; Rationale/Feedback verlor sie
+  und leeres Signal kollabierte in Uniform-Credit.
+- Fix: No-Signal-Liste im Rationale; gemeinsamer Parserfilter; `{}` bleibt
+  autoritatives All-No-Signal und schreibt 0 Buckets; `None` bleibt Legacy.
+- Kein DB-/Schemawechsel.
+- Syntax PASS; direkter/Legacy-Lauf insgesamt 5 PASS.
+- Status `code-fix-pending-live-verification`; App-/Auto-Edit-Live spaeter.
+- Naechste einzige Task: `PACING-FIXWELLE / B-888 kanonischen
+  Kandidaten-Tie-Break herstellen`.

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4d22fe2f020848c684c797d58e4ae7c4",
+  "recorded_at": "2026-08-27T00:26:53+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "Reranker kannte No-Signal-Achsen, aber Pipeline-Rationale und Feedback-Credit verloren diese Information",
+  "cause": "Nur brain_v3_scores wurde persistiert; leere gefilterte Contributions wurden zusaetzlich zu None und damit Uniform-Credit kollabiert",
+  "rule": "Signalgueltigkeits-Metadaten zusammen mit Scores bis zum Lernschreibpfad erhalten; None als fehlende Legacy-Daten von explizit leerem autoritativem Signal unterscheiden",
+  "applies_to": "Pacing-Rationale, Brain-V3 Feedback-Credit und Timeline-Lernsync"
+}

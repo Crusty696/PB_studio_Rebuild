@@ -590,6 +590,7 @@ class PacingPipeline:
         # Stages 1-3 unangetastet, Stage-4-Sortierung uebernimmt Brain-V3
         # wenn use_brain_v3=True und Reranker injiziert wurde.
         brain_v3_scores_by_clip: dict[int, dict[str, float]] = {}
+        brain_v3_no_signal_axes_by_clip: dict[int, list[str]] = {}
         brain_v3_final_score_by_clip: dict[int, float] = {}
         if self._use_brain_v3 and self._brain_v3_reranker is not None and scored:
             try:
@@ -600,6 +601,9 @@ class PacingPipeline:
                     score_by_id = {r.clip_id: r for r in reranked}
                     brain_v3_scores_by_clip = {
                         r.clip_id: r.brain_v3_scores for r in reranked
+                    }
+                    brain_v3_no_signal_axes_by_clip = {
+                        r.clip_id: sorted(r.no_signal_axes) for r in reranked
                     }
                     brain_v3_final_score_by_clip = {
                         r.clip_id: float(r.final_score) for r in reranked
@@ -673,6 +677,11 @@ class PacingPipeline:
             "adjacency_pool_widened": adjacency_pool_widened,
             "forced_negative": forced_negative,
             "brain_v3_scores": brain_v3_scores_by_clip.get(best_clip.clip_id, {}),
+            # B-894: Feedback darf nur Achsen creditieren, deren Scorer-Wert
+            # auf echtem Signal fuer genau diesen Kandidaten basiert.
+            "brain_v3_no_signal_axes": brain_v3_no_signal_axes_by_clip.get(
+                best_clip.clip_id, []
+            ),
             "brain_v3_final_score": brain_v3_final_score_by_clip.get(best_clip.clip_id),
             "legacy_soft_score": legacy_soft_score,
             "used_brain_v3": bool(self._use_brain_v3 and self._brain_v3_reranker is not None),

@@ -349,7 +349,9 @@ class FeedbackService:
             diag = feedback_logger.submit_feedback(
                 rating=rating,
                 context=ctx,
-                axis_contributions=axis_contributions or None,
+                # B-894: {} bedeutet autoritativ "keine Signalachse" und
+                # darf nicht zu None/Legacy-Uniform kollabieren.
+                axis_contributions=axis_contributions,
             )
             logger.info(
                 "T1.4: Verdict %s -> WeightStore (%d Buckets, mode=%s, "

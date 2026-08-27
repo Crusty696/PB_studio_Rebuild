@@ -118,13 +118,27 @@ def axis_contributions_from_rationale(
         return {}
 
     raw_scores = rationale.get("brain_v3_scores")
+    raw_no_signal = rationale.get("brain_v3_no_signal_axes")
+    no_signal_axes = (
+        {str(axis) for axis in raw_no_signal if str(axis) in BRIDGE_AXES}
+        if isinstance(raw_no_signal, (list, tuple, set, frozenset))
+        else set()
+    )
     if isinstance(raw_scores, Mapping) and raw_scores:
         direct = {
             str(axis): float(value)
             for axis, value in raw_scores.items()
-            if str(axis) in BRIDGE_AXES and _is_finite_number(value)
+            if (
+                str(axis) in BRIDGE_AXES
+                and str(axis) not in no_signal_axes
+                and _is_finite_number(value)
+            )
         }
-        if direct:
+        if direct or no_signal_axes:
+            # B-894: Sind nach explizitem No-Signal-Filter keine Achsen uebrig,
+            # bedeutet das "kein Credit" und darf nicht auf Pacing-Terme
+            # zurueckfallen. Legacy-Payloads ohne Ausschlussliste behalten bei
+            # ausschliesslich ungueltigen Scores ihren bisherigen Fallback.
             return direct
 
     contribs = rationale.get("contribs")
@@ -196,8 +210,9 @@ class FeedbackLogger:
             context_keys_by_level: Liste mit 6 Strings (Level 0..5),
                                    konstruiert via context_resolver.context_keys()
             axis_contributions: Beitrag pro Bridge-Achse an DIESER Entscheidung.
-                None/leer -> Legacy-Uniform-Pfad (alle Achsen gleich, das
-                Ranking kann sich dadurch nicht aendern).
+                None -> Legacy-Uniform-Pfad. Ein explizites leeres Mapping
+                bedeutet: Entscheidung hatte keine belegte Signalachse und
+                schreibt deshalb keinen WeightStore-Credit (B-894).
 
         Returns:
             Diagnostik-Dict mit alpha_delta, beta_delta, n_buckets_updated,
@@ -216,23 +231,21 @@ class FeedbackLogger:
 
         alpha_delta, beta_delta = RATING_MAP[rating]
         credits = credit_weights(axis_contributions)
-        if credits:
+        if axis_contributions is not None:
             credit_mode = "weighted"
+            if axis_contributions and not credits:
+                logger.warning(
+                    "FeedbackLogger: axis_contributions ohne verwertbaren "
+                    "Beitrag (%d Eintraege) — kein WeightStore-Write.",
+                    len(axis_contributions),
+                )
         else:
             credit_mode = "uniform"
             credits = {axis: 1.0 for axis in BRIDGE_AXES}
-            if axis_contributions:
-                logger.warning(
-                    "FeedbackLogger: axis_contributions ohne verwertbaren "
-                    "Beitrag (%d Eintraege) — Uniform-Fallback, dieser Klick "
-                    "kann das Ranking nicht veraendern.",
-                    len(axis_contributions),
-                )
-            else:
-                logger.info(
-                    "FeedbackLogger: kein Credit-Signal fuer rating=%s — "
-                    "Uniform-Fallback (Ranking bleibt unveraendert).", rating,
-                )
+            logger.info(
+                "FeedbackLogger: kein Credit-Signal fuer rating=%s — "
+                "Uniform-Fallback (Ranking bleibt unveraendert).", rating,
+            )
 
         updates: list[tuple[str, int, str, float, float]] = []
         for axis, credit in credits.items():
