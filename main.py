@@ -749,15 +749,14 @@ class PBWindow(QMainWindow):
         - ``audio_track_id`` → verpflichtend
         - ``video_ids`` werden hier aus der DB nachgezogen (alle
           non-deleted VideoClips im aktiven Project)
+        - ``boosts``/``excludes`` laufen nicht ueber den Snapshot,
+          sondern ueber die prozessweite ``SteerOverrideQueue`` — deren
+          Consumer sitzt in ``services/pacing_service.py`` (T1.3) und
+          greift nur bei aktivierter Studio-Brain-Pipeline.
 
-        Snapshot-Felder die heute IGNORIERT werden (Folge-Story):
-        - ``weights_profile``, ``pins``, ``boosts``, ``excludes``.
-          Der OverrideQueue-Inhalt fliesst aktuell nicht in die
-          ``auto_edit_phase3``-Pipeline. ``SteerTab`` zeigt sie an,
-          aber das Pacing kennt sie nicht. Vor F-1-v2 muss
-          ``services/pacing_service.py`` so erweitert werden, dass
-          die Queue-Items als Vorzugsfilter / Boost-Multiplikator
-          eingehen.
+        Brain-Bereinigung 2026-08-27: ``weights_profile`` und ``pins``
+        wurden aus dem SteerTab entfernt — sie wurden hier nie
+        ausgewertet (Placebo).
         """
         try:
             audio_id = snapshot.get("audio_track_id")
@@ -813,10 +812,8 @@ class PBWindow(QMainWindow):
             )
             logger.info(
                 "B-198 F-1: Brain-Run dispatched via EditWorkspaceController → audio=%s, %d clips, "
-                "weights_profile=%s, queue_items=%d/%d/%d (pins/boosts/excludes)",
+                "queue_items=%d/%d (boosts/excludes)",
                 audio_id, len(video_ids),
-                snapshot.get("weights_profile") or "<default>",
-                len(snapshot.get("pins") or []),
                 len(snapshot.get("boosts") or []),
                 len(snapshot.get("excludes") or []),
             )

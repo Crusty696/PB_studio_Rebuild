@@ -76,7 +76,6 @@ class GraphCockpitTab(QWidget):
     """Tab-Widget für den interaktiven Graph (D-023)."""
 
     nodeSelected = Signal(str)  # node_id
-    statsRefreshed = Signal(dict)
 
     def __init__(
         self,
@@ -235,7 +234,6 @@ class GraphCockpitTab(QWidget):
                 n=stats["n_nodes"], e=stats["n_edges"]
             )
         )
-        self.statsRefreshed.emit(stats)
         # setHtml debounced
         self._refresh_debounce.start()
 

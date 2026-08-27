@@ -170,23 +170,8 @@ class GraphView(QGraphicsView):
         self._rebuild_scene(nodes, edges, positions)
         return True
 
-    def set_active_scene(self, scene_id: int) -> None:
-        """Pan the view to the node with this ``scene_id`` (if any) and
-        highlight it. Other nodes are de-highlighted."""
-        target = self._node_items.get(int(scene_id))
-        for item in self._node_items.values():
-            item.set_highlighted(item is target)
-        if target is not None:
-            self.centerOn(target)
-
-    def clear(self) -> None:
-        """Drop all items from the scene and forget the positions reference.
-        Does NOT clear the layout cache — the same graph can be re-rendered
-        cheaply afterwards."""
-        self._scene.clear()
-        self._node_items.clear()
-        self._edge_items.clear()
-        self._positions = None
+    # Brain-Bereinigung 2026-08-27: ``set_active_scene`` und ``clear``
+    # entfernt — beide hatten seit T11.x keinen einzigen Aufrufer.
 
     # ── test-introspection helpers ────────────────────────────────────────────
     def current_positions(self) -> Optional[dict[int, tuple[float, float]]]:

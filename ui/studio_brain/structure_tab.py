@@ -229,22 +229,9 @@ class _ClipCard(QFrame):
             return
         super().mousePressEvent(event)
 
-    def _build_context_menu(self, parent: Optional[QWidget] = None) -> QMenu:
-        """Return a fresh QMenu carrying "Boost" / "Exclude" QActions.
-
-        Kept on the card rather than the tab so tests can exercise the
-        menu contract without standing up a full StructureTab. The outer
-        tab calls this and then wires each action's ``triggered`` signal
-        before exec'ing the menu.
-        """
-        menu = QMenu(parent or self)
-        boost = QAction("Boost im nächsten Lauf", menu)
-        boost.setData(("boost", self._scene_id))
-        menu.addAction(boost)
-        exclude = QAction("Exclude im nächsten Lauf", menu)
-        exclude.setData(("exclude", self._scene_id))
-        menu.addAction(exclude)
-        return menu
+    # Brain-Bereinigung 2026-08-27: ``_build_context_menu`` entfernt —
+    # tote Doppel-Implementierung; produktiv baut ``StructureTab.
+    # _build_override_menu`` das Boost/Exclude-Menue.
 
 
 # ── Filter bar ────────────────────────────────────────────────────────────────

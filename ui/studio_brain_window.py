@@ -29,8 +29,9 @@ switch is a future UX polish).
 
 T11.3 scope: fourth tab (index 3, "Steer") now hosts SteerTab, sharing the
 same BrainService + the process-wide ``SteerOverrideQueue``. The Steer tab
-is a *producer* of state (runRequested, trackChanged, profileChanged) — no
-cross-tab signal receivers are wired in this release.
+is a *producer* of state (runRequested, trackChanged) — no cross-tab
+signal receivers are wired in this release. (profileChanged wurde mit dem
+Placebo-Profil-Picker in der Brain-Bereinigung 2026-08-27 entfernt.)
 """
 
 from __future__ import annotations
@@ -305,9 +306,9 @@ class StudioBrainWindow(QMainWindow):
         )
         self._tabs.setTabToolTip(
             3,
-            "Steuert den naechsten Pacing-Run. Hier whlst du Audio-Track "
-            "und Gewichtsprofil, setzt Pins/Boosts/Excludes und startest "
-            "einen neuen Schnitt-Lauf.",
+            "Steuert den naechsten Pacing-Run. Hier waehlst du den "
+            "Audio-Track, setzt Boosts/Excludes und startest einen neuen "
+            "Schnitt-Lauf.",
         )
         self._tabs.setTabToolTip(
             4,
