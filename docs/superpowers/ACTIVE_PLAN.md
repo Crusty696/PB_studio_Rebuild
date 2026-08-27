@@ -20,7 +20,22 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING/SCHNITT-GESAMTTEST / nach B-910-Defaultprofilfix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`MASTERPLAN-TRIAGE / hoechsten entscheidungsfreien Critical-/High-Bug in Pacing, Schnitt oder Timeline bestimmen; danach genau diesen einen Root-Cause-Fix umsetzen`.
+
+Userentscheidung 2026-08-27: breite Tests bis zum spaeten Endgate verschieben;
+jetzt echte Critical-/High-Codefixes mit grosser Produktwirkung. Pro Fix nur
+kleinster zwingender Zieltest. B-832 bleibt ohne Produktentscheidung gesperrt.
+
+B-911 ist code-complete: kanonische Vertragsmenge enthaelt jetzt alle 16
+Scorer-Contributions einschliesslich `roter_faden`; fokussierter Summen-/Key-
+Vertrag `1 passed in 0.97s`. Keine Gewichts- oder Auswahlentscheidung
+geaendert. Vollsuite/App-Live pending.
+
+Vierter Gesamttestlauf stoppte bei 8 Prozent: `1 failed, 385 passed, 271
+subtests passed`. `PacingScorer.score()` berechnet, summiert und liefert seit
+B-842 `roter_faden`; `CANONICAL_TERM_KEYS` im selben Modul blieb auf dem
+vorherigen Stand. Direkter Fix betrifft nur Vertragskonstante und veraltete
+Termzahl-Kommentare, keine Gewichte oder Auswahlentscheidung.
 
 Dritter Gesamttestlauf stoppte bei 8 Prozent: `1 failed, 378 passed, 271
 subtests passed`. `config/pacing_weights/default.yaml` fehlt

@@ -451,7 +451,7 @@ def staleness_penalty(
 # ── Main PacingScorer class ─────────────────────────────────────────────────
 
 
-# The 14 canonical term keys (without w_ prefix). Frozen set for validation.
+# The 16 canonical term keys (without w_ prefix). Frozen set for validation.
 # NEUBAU-VOLLINTEGRATION T2.5.4: "stem_class" gehoert seit dem
 # Stem-Klasse<->Shot-Klasse-Bonus zu den score()-Contribs.
 # "pacing": AV-Pacing-Term (av_pacing_data -> pacing_fit).
@@ -472,6 +472,7 @@ CANONICAL_TERM_KEYS: frozenset[str] = frozenset(
         "stem_class",
         "collision",
         "freshness",
+        "roter_faden",
     }
 )
 
@@ -602,7 +603,7 @@ class PacingScorer:
         predecessor: ClipFeatures | None = None,
         recent_clip_ids: Sequence[int] | None = None,
     ) -> tuple[float, dict[str, float]]:
-        """Compute the 13-term weighted sum for a single candidate clip.
+        """Compute the 16-term weighted sum for a single candidate clip.
 
         Returns:
             (total, contribs) where `contribs[term_key]` is the signed contribution

@@ -1,0 +1,10 @@
+{
+  "lesson_id": "209fd0f9f32b4bc28232a768bb088d4b",
+  "recorded_at": "2026-08-27T02:14:04+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "PacingScorer lieferte roter_faden, aber CANONICAL_TERM_KEYS wies den Key zurueck",
+  "cause": "B-842 ergaenzte Berechnung und Output, ohne die kanonische Vertragsmenge im selben Modul nachzuziehen",
+  "rule": "Bei jeder neuen Scorer-Contribution Berechnung, Gesamtsumme, Output-Key, kanonische Key-Menge, editierbares Defaultprofil und Golden-Vertrag gemeinsam abgleichen",
+  "applies_to": "services/pacing/scorer.py; config/pacing_weights; pacing contract tests"
+}

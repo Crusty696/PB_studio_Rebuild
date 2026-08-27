@@ -16,7 +16,21 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING/SCHNITT-GESAMTTEST / nach B-910-Defaultprofilfix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`MASTERPLAN-TRIAGE / hoechsten entscheidungsfreien Critical-/High-Bug in Pacing, Schnitt oder Timeline bestimmen; danach genau diesen einen Root-Cause-Fix umsetzen`.
+
+Userentscheidung 2026-08-27: keine breite Vollsuite jetzt. Echte Critical-/
+High-Fixes mit grosser Pacing-/Schnitt-/Timeline-Wirkung zuerst; pro Fix nur
+kleinster zwingender Zieltest. B-832 bleibt entscheidungsblockiert.
+
+B-911 code-complete: `CANONICAL_TERM_KEYS` deckt jetzt alle 16 von `score()`
+gelieferten Contributions ab. Exakter vorheriger Failure ist gruen (`1 passed
+in 0.97s`). Keine Gewichtungs-/Auswahllogik geaendert; Vollsuite/App-Live
+pending.
+
+Vierter Gesamttest stoppte bei 8 Prozent: `1 failed, 385 passed, 271 subtests
+passed`. `score()` liefert 16 Contributions inklusive `roter_faden`, waehrend
+`CANONICAL_TERM_KEYS` nur die vorherigen 15 enthaelt. Root Cause ist
+unvollstaendiger B-842-Vertragsnachzug, kein neuer Gewichtungsentscheid.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
