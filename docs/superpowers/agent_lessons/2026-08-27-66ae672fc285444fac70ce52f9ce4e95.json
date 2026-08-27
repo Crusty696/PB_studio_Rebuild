@@ -1,0 +1,10 @@
+{
+  "lesson_id": "66ae672fc285444fac70ce52f9ce4e95",
+  "recorded_at": "2026-08-27T03:13:38+00:00",
+  "session_id": "63d5549e3c294f9f9976ab794347c3fd",
+  "head_at_start": "f28222dcd64f5f78b77ee111343410e949073444",
+  "problem": "Brain-Bereinigung: Zustandsbewertung fand 7 rote Brain-Tests",
+  "cause": "Failures existierten schon auf Basis-Commit 55565d1 (b738-Gateway-Rejection greift nicht, brain_core-Test erwartet Vor-B-895-Posterior-Skala) — nicht durch Cleanup verursacht, per Basis-Worktree-Gegenlauf bewiesen",
+  "rule": "Nach Refactor/Cleanup Failures IMMER gegen Basis-Commit in separatem Worktree laufen lassen bevor man eigene Aenderungen verdaechtigt oder fixt; fremde Failures als eigene Bugs (B-913/B-914) dokumentieren, nicht mitfixen",
+  "applies_to": "tests/**, services/brain/**"
+}
