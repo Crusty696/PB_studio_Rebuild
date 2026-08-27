@@ -1028,6 +1028,7 @@ class CrossModalMatcher:
         video_id: int | None = None,
         usage_count: int = 0,
         ai_mood: str | None = None,
+        vibe_similarity: float | None = None,
     ) -> float:
         """Cross-Modal Fitness-Score mit section-spezifischer Gewichtung.
 
@@ -1044,7 +1045,11 @@ class CrossModalMatcher:
         energy_match = float(np.exp(-5.0 * motion_diff ** 2))
 
         # 2. Mood-Match: Blende Section-Mood mit Audio-Mood
-        section_mood = fitness_matrix.get((clip_idx, section_type), 0.5)
+        section_mood = (
+            vibe_similarity
+            if vibe_similarity is not None
+            else fitness_matrix.get((clip_idx, section_type), 0.5)
+        )
         audio_mood_score = 0.5
         if self._audio_mood_embedding is not None and clip_embeddings.shape[0] > clip_idx:
             clip_emb = clip_embeddings[clip_idx]
@@ -1219,6 +1224,7 @@ def _compute_clip_fitness(
     video_id: int | None = None,
     usage_count: int = 0,
     ai_mood: str | None = None,
+    vibe_similarity: float | None = None,
 ) -> float:
     """Multi-dimensionales Fitness-Scoring fuer einen Clip-Kandidaten.
 
@@ -1229,7 +1235,11 @@ def _compute_clip_fitness(
     energy_match = float(np.exp(-5.0 * (motion_score - energy_value) ** 2))
 
     # 2. Mood-Match: Pre-computed SigLIP similarity + Caption-Mood-Blend
-    mood_match = fitness_matrix.get((clip_idx, section_type), 0.5)
+    mood_match = (
+        vibe_similarity
+        if vibe_similarity is not None
+        else fitness_matrix.get((clip_idx, section_type), 0.5)
+    )
     caption_mood = _caption_mood_score(section_type, ai_mood)
     if caption_mood is not None:
         mood_match = mood_match * 0.7 + caption_mood * 0.3
@@ -1416,6 +1426,7 @@ def _match_video_for_segment(
     track_position: float | None = None,
     motiv_gruppe: int | None = None,
     motiv_gedaechtnis: "object | None" = None,
+    vibe_embedding: np.ndarray | None = None,
 ) -> tuple[int, float, int | None]:
     """Waehlt den besten Video-Clip fuer ein Segment.
 
@@ -1458,6 +1469,26 @@ def _match_video_for_segment(
 
     # Phase 3 + AUD-82: Multi-dimensionales Fitness-Scoring
     if fitness_matrix and clip_metadata and clip_embeddings is not None and clip_embeddings.shape[0] > 0:
+        vibe_similarities: np.ndarray | None = None
+        if vibe and vibe.strip() and vibe_embedding is not None:
+            vibe_vector = np.asarray(vibe_embedding, dtype=np.float32).reshape(-1)
+            if clip_embeddings.ndim == 2 and clip_embeddings.shape[1] == vibe_vector.size:
+                vibe_norm = float(np.linalg.norm(vibe_vector))
+                clip_norms = np.linalg.norm(clip_embeddings, axis=1)
+                valid = clip_norms > 1e-8
+                if vibe_norm > 1e-8 and np.any(valid):
+                    vibe_similarities = np.zeros(
+                        clip_embeddings.shape[0], dtype=np.float32)
+                    vibe_similarities[valid] = (
+                        clip_embeddings[valid] @ vibe_vector
+                    ) / (clip_norms[valid] * vibe_norm)
+            else:
+                logger.warning(
+                    "B-832: Vibe-Embedding-Dimension %d passt nicht zu "
+                    "Clip-Embeddings %s; Vibe-Faktor deaktiviert",
+                    vibe_vector.size, clip_embeddings.shape,
+                )
+
         # Mapping: video_path → video_id
         path_to_vid: dict[str, int] = {}
         for vid, info in video_info.items():
@@ -1519,6 +1550,12 @@ def _match_video_for_segment(
             motion = meta.get("motion_score", 0.5)
             _ai_mood = meta.get("ai_mood")
             _usage = usage_counts.get(vid, 0) if usage_counts else 0
+            vibe_similarity = (
+                float(vibe_similarities[clip_idx])
+                if vibe_similarities is not None
+                and clip_idx < vibe_similarities.shape[0]
+                else None
+            )
 
             # AUD-82 + AUD-101: Cross-Modal Scoring mit Beat-Sync
             if cross_modal_matcher is not None:
@@ -1540,6 +1577,7 @@ def _match_video_for_segment(
                     video_id=vid,
                     usage_count=_usage,
                     ai_mood=_ai_mood,
+                    vibe_similarity=vibe_similarity,
                 )
             else:
                 score = _compute_clip_fitness(
@@ -1556,6 +1594,7 @@ def _match_video_for_segment(
                     video_id=vid,
                     usage_count=_usage,
                     ai_mood=_ai_mood,
+                    vibe_similarity=vibe_similarity,
                 )
 
             # Roter Faden (User-Anweisung 2026-08-15): Spannungsbogen ueber die

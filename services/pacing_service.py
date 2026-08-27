@@ -717,6 +717,17 @@ def _enforce_min_cut_distance(cut_beats):
     return cut_beats
 
 
+def _apply_vibe_to_audio_context(ctx, vibe_embedding):
+    """B-832: expliziten Vibe in bestehende Studio-Brain-Mood-Achse setzen."""
+    if vibe_embedding is None:
+        return ctx
+    from dataclasses import replace
+    return replace(
+        ctx,
+        at_audio_mood_vec=np.asarray(vibe_embedding, dtype=np.float32),
+    )
+
+
 def _auto_edit_phase3_inner(
     _ae_eng,
     audio_id: int,
@@ -1157,6 +1168,18 @@ def _auto_edit_phase3_inner(
                         "Caption-Mood-Anreicherung uebersprungen: %s", _mood_exc)
         except (ImportError, ValueError, RuntimeError) as e:
             logger.warning("Fitness-Matrix uebersprungen: %s", e)
+
+    # B-832: expliziter Nutzer-Vibe wird einmal pro Run eingebettet und im
+    # regulären Kandidaten-Scoring als semantischer Mood-Faktor verwendet.
+    # Keine Inferenz pro Segment; bei fehlendem SigLIP bleibt bestehender
+    # Degradations-/Fallback-Pfad erhalten.
+    vibe_embedding = None
+    if settings.vibe and settings.vibe.strip() and clip_embeddings_matrix.shape[0] > 0:
+        try:
+            from services.video_analysis_service import text_to_embedding
+            vibe_embedding = text_to_embedding(settings.vibe.strip())
+        except (ImportError, RuntimeError, ValueError, OSError) as e:
+            logger.warning("B-832: Vibe-Embedding uebersprungen: %s", e)
 
     # NEUBAU-VOLLINTEGRATION T2.5.5 (FR-S2-1): Shot-Klassen einmal pro Run
     # aus den Kandidaten-Embeddings klassifizieren + Lookup fuer den
@@ -1666,6 +1689,8 @@ def _auto_edit_phase3_inner(
                         # im Scorer neutral — er braucht die relative Position.
                         track_duration_sec=total_duration,
                     )
+                    _sb_ctx = _apply_vibe_to_audio_context(
+                        _sb_ctx, vibe_embedding)
                     # Cycle 14 Option A: Build ClipFeatures pro Clip mit der
                     # Scene die zum aktuellen clip_offsets[vid] passt — nicht
                     # mehr unkonditional _scenes[0]. Damit reflektieren die
@@ -1822,6 +1847,7 @@ def _auto_edit_phase3_inner(
                         seg_start, sections, _motiv_zuordnung
                     ),
                     motiv_gedaechtnis=_motiv_gedaechtnis,
+                    vibe_embedding=vibe_embedding,
                 )
             prev_clip_idx = _clip_idx
             # Roter Faden: die gewaehlte Bildwelt fuer diese Section-Art

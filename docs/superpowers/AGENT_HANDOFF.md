@@ -16,11 +16,17 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`B-832 / Produktentscheidung: Vibe bleibt klar ausgewiesener Notfall-Fallback
-oder wird aktiver Faktor im Clip-Matching`.
+`MASTERPLAN-SYNC / neu dokumentierte B-913 und B-914 gegen Repo-Masterplan
+abgleichen, autoritativ eintragen und genau eine naechste Task bestimmen`.
 
-B-832 wartet zwingend auf Userentscheidung. Keine autonome Auswahl. Breite
-Pacing-/Timeline-Abnahme bleibt gemaess Uservorgabe spaetes Endgate.
+B-832 code-complete: aktiver Vibe-Faktor wirkt in Legacy, Cross-Modal und
+Studio-Brain ueber bestehende Mood-Achse. Zielvertrag `4 passed in 1.01s`,
+`py_compile` PASS; kein Auto-Edit-/UI-Live, daher pending-live. Evidence:
+`docs/superpowers/synthesis/b832-vibe-active-factor-2026-08-27.md`.
+
+B-913/B-914 existieren neu im Vault, fehlen noch in Repo-/Living-Plan. Vor
+weiterem Produktcode zuerst synchronisieren/priorisieren. Breite Pacing-/
+Timeline-Abnahme bleibt spaetes Endgate.
 
 B-912 code-complete: Projekt `123454321`: 103 Video-Segmente, 34 unter 2 s,
 9 unter 1 s,

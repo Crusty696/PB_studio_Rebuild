@@ -20,12 +20,20 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`B-832 / Produktentscheidung: Vibe bleibt klar ausgewiesener Notfall-Fallback
-oder wird aktiver Faktor im Clip-Matching`.
+`MASTERPLAN-SYNC / neu dokumentierte B-913 und B-914 gegen Repo-Masterplan
+abgleichen, autoritativ eintragen und genau eine naechste Task bestimmen`.
 
-B-832 ist ohne Userentscheidung gesperrt. Keine weitere entscheidungsfreie
-offene Pacing-/Timeline-Codefixdatei ist im Plan belegt. Breite Pacing-/
-Timeline-Abnahme bleibt gemaess Uservorgabe spaetes Endgate.
+B-832 ist code-complete: Userentscheidung D-095 setzt Vibe als aktiven
+Matching-Faktor. Einmaliges SigLIP-Embedding wirkt in Legacy-/Cross-Modal-
+Mood-Achse und Studio-Brain-`at_audio_mood_vec`; keine neue Gewichts-/Config-
+Achse. Zielvertrag `4 passed in 1.01s`, `py_compile` PASS. Echter Auto-Edit-/
+UI-Lauf fehlt; Status `code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b832-vibe-active-factor-2026-08-27.md`.
+
+B-913/B-914 wurden durch parallelen Brain-Cleanup dokumentiert, stehen aber
+noch nicht im Repo-Masterplan/Living-Plan. Vor Produktcodearbeit muessen beide
+zuerst synchronisiert und priorisiert werden. Breite Pacing-/Timeline-Abnahme
+bleibt gemaess Uservorgabe spaetes Endgate.
 
 B-912 ist code-complete: Benutzerprojekt `123454321` belegt 103
 Video-Segmente auf 337.137 s: 34

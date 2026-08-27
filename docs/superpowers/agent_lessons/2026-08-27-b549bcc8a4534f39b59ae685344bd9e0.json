@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b549bcc8a4534f39b59ae685344bd9e0",
+  "recorded_at": "2026-08-27T03:57:04+00:00",
+  "session_id": "5e2e665d135a4b008cc02285035defc3",
+  "head_at_start": "a6cb96bb3dfa49a264ca5157cee19b3649d332b2",
+  "problem": "Vibe-Text wurde korrekt bis zum Matcher transportiert, blieb aber hinter fruehem Fitness-Return und Studio-Brain-Bypass wirkungslos",
+  "cause": "Explizite Nutzersemantik war nur als spaeter Fallback verdrahtet und nicht an gemeinsame semantische Mood-Achsen beider Auswahlpfade angebunden",
+  "rule": "Explizite Nutzersignale vor allen alternativen Selector-Returns einmal vorbereiten und in jede gemeinsame Scoring-Achse einspeisen; keine teure Inferenz pro Kandidat oder Segment",
+  "applies_to": "Pacing Legacy-, Cross-Modal- und Studio-Brain-Clip-Matching"
+}
