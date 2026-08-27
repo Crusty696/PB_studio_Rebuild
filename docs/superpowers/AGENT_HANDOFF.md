@@ -16,17 +16,18 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`MASTERPLAN-SYNC / neu dokumentierte B-913 und B-914 gegen Repo-Masterplan
-abgleichen, autoritativ eintragen und genau eine naechste Task bestimmen`.
+`B-913 / Brain-Gateway-Write-Rejection Root Cause analysieren und gezielt
+fixen`.
 
 B-832 code-complete: aktiver Vibe-Faktor wirkt in Legacy, Cross-Modal und
 Studio-Brain ueber bestehende Mood-Achse. Zielvertrag `4 passed in 1.01s`,
 `py_compile` PASS; kein Auto-Edit-/UI-Live, daher pending-live. Evidence:
 `docs/superpowers/synthesis/b832-vibe-active-factor-2026-08-27.md`.
 
-B-913/B-914 existieren neu im Vault, fehlen noch in Repo-/Living-Plan. Vor
-weiterem Produktcode zuerst synchronisieren/priorisieren. Breite Pacing-/
-Timeline-Abnahme bleibt spaetes Endgate.
+B-913/B-914 sind in Registry, Repo-/Living-Plan synchronisiert. Reihenfolge:
+B-913 high vor B-914 medium. B-913 Root Cause ist noch unbekannt; Hypothesen
+aus Bugdatei nicht als Fakt behandeln. Breite Pacing-/Timeline-Abnahme bleibt
+spaetes Endgate.
 
 B-912 code-complete: Projekt `123454321`: 103 Video-Segmente, 34 unter 2 s,
 9 unter 1 s,

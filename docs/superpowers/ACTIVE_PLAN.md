@@ -20,8 +20,8 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`MASTERPLAN-SYNC / neu dokumentierte B-913 und B-914 gegen Repo-Masterplan
-abgleichen, autoritativ eintragen und genau eine naechste Task bestimmen`.
+`B-913 / Brain-Gateway-Write-Rejection Root Cause analysieren und gezielt
+fixen`.
 
 B-832 ist code-complete: Userentscheidung D-095 setzt Vibe als aktiven
 Matching-Faktor. Einmaliges SigLIP-Embedding wirkt in Legacy-/Cross-Modal-
@@ -30,10 +30,10 @@ Achse. Zielvertrag `4 passed in 1.01s`, `py_compile` PASS. Echter Auto-Edit-/
 UI-Lauf fehlt; Status `code-fix-pending-live-verification`. Evidence:
 `docs/superpowers/synthesis/b832-vibe-active-factor-2026-08-27.md`.
 
-B-913/B-914 wurden durch parallelen Brain-Cleanup dokumentiert, stehen aber
-noch nicht im Repo-Masterplan/Living-Plan. Vor Produktcodearbeit muessen beide
-zuerst synchronisiert und priorisiert werden. Breite Pacing-/Timeline-Abnahme
-bleibt gemaess Uservorgabe spaetes Endgate.
+B-913/B-914 sind jetzt im Repo-Masterplan/Living-Plan synchronisiert. B-913
+ist high und schützt Learn-Write vor fehlendem User-Intent; deshalb vor B-914
+medium. B-914 bleibt offen, bis B-913 abgeschlossen ist. Breite Pacing-/
+Timeline-Abnahme bleibt gemaess Uservorgabe spaetes Endgate.
 
 B-912 ist code-complete: Benutzerprojekt `123454321` belegt 103
 Video-Segmente auf 337.137 s: 34

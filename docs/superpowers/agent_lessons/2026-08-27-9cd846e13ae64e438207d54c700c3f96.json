@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9cd846e13ae64e438207d54c700c3f96",
+  "recorded_at": "2026-08-27T04:08:19+00:00",
+  "session_id": "026d59908d0540baa1927e87646cdabf",
+  "head_at_start": "c01e852ab3d71ff1f6d5c56c27fc8668810fa764",
+  "problem": "Neue Vault-Bugs B-913/B-914 waren nicht in Registry-Next-Task oder Repo-Masterplan enthalten",
+  "cause": "Paralleler Cleanup dokumentierte Findings nach letztem Masterplan-Stand; Authority-Dateien wurden nicht im selben Subtask synchronisiert",
+  "rule": "Jedes neue priorisierte Finding vor Produktcode gleichzeitig in Registry, Repo-Plan, Active Plan, Handoff und Vault-Living-Plan synchronisieren; danach genau eine Task festlegen",
+  "applies_to": "PB-Studio Plan-Governance und parallele Bug-Audits"
+}
