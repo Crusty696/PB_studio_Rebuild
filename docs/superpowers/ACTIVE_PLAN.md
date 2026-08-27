@@ -20,7 +20,16 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`PACING/SCHNITT-GESAMTTEST / nach B-908-Fix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-909-Baselinefix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+
+Zweiter Gesamttestlauf stoppte gemaess Erste-Fehler-Regel bei 5 Prozent:
+`1 failed, 294 passed, 271 subtests passed`. Alle 10 Golden-Cuts unterscheiden
+sich ausschliesslich durch `contribs.roter_faden: 0.0`. Git belegt: Baseline
+zuletzt `c9786d3` (2026-07-15), produktiver B-842-Term kam spaeter mit
+`fd3782e` (2026-08-15). Vorgesehener Generator aktualisierte nur Baseline:
+exakt zehn `roter_faden: 0.0`-Zeilen, sonst kein Drift. Golden-Datei
+`10 passed`; voller Gesamttest wird jetzt neu gestartet. Produktcode blieb
+unveraendert.
 
 Erster Gesamttestlauf wurde gemaess Erste-Fehler-Regel bei 2 Prozent gestoppt:
 `1 failed, 162 passed, 260 subtests passed`. Direkter Blocker B-908:

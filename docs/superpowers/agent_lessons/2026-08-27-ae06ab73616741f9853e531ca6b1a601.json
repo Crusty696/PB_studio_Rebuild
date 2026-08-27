@@ -1,0 +1,10 @@
+{
+  "lesson_id": "ae06ab73616741f9853e531ca6b1a601",
+  "recorded_at": "2026-08-27T01:26:40+00:00",
+  "session_id": "f7cfe54141df47e6ab1be2a366cbbbf8",
+  "head_at_start": "e1ffda10f6e3c53e946cde15c3687e47ef7084ba",
+  "problem": "Golden-Pacing-Gate driftete nach absichtlichem roter_faden-Scorerterm in allen Cuts",
+  "cause": "B-842 fuehrte persistierten Contribution-Key nach letztem Golden-Baseline-Commit ein, ohne vorgesehenen Baseline-Generator auszufuehren",
+  "rule": "Jede absichtliche Aenderung an Scorer-Contributions muss im selben Task Golden-Diff pruefen und bei belegtem Intent die erwartete Baseline per geschuetztem Generator aktualisieren",
+  "applies_to": "PacingScorer-Contributions und Golden-Run-Snapshot"
+}

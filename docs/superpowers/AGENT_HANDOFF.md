@@ -16,7 +16,7 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`PACING/SCHNITT-GESAMTTEST / nach B-908-Fix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
+`PACING/SCHNITT-GESAMTTEST / nach B-909-Baselinefix neu starten; B-893, B-895, B-894, B-888 und Timeline-Generierung gemeinsam verifizieren`.
 
 B-907 ist live-verifiziert abgeschlossen. User ordnete danach weitere
 Codefixes vor gebuendeltem Testlauf an. B-893/B-895 bleiben pending-live; jetzt
@@ -28,7 +28,17 @@ Gesamttest neu. Keine Fixed-Claims
 ohne spaetere Liveabnahme. Direkt anschliessend folgen offene Schnitt-/Timeline-
 Generierungsbugs vor Control-, Release- oder Nebenbereichen.
 
+Zweiter Lauf stoppte bei 5 Prozent: Golden-Baseline fehlt ausschliesslich
+`roter_faden: 0.0` in 10 Cuts. Produktterm ist durch B-842/`fd3782e` absichtlich;
+Baseline stammt noch aus `c9786d3`. B-909 zog nur erwartete JSON per
+vorgesehenem Generator nach; Golden-Datei `10 passed`. Jetzt Gesamttest neu.
+
 ## Letzter Abschluss
+
+B-909 code-complete: Golden-Baseline enthaelt jetzt neutralen B-842-Key
+`roter_faden: 0.0` fuer alle 10 Cuts. Diff exakt zehn Einfuegungen;
+Golden-Snapshot-Datei `10 passed in 0.96s`. Kein Produktcodeedit; Vollsuite
+pending.
 
 B-908 code-complete: Cleanup-Notizen nutzen native API ab Python 3.11 und
 `__notes__`-Fallback unter Python 3.10, ohne Primarfehler zu ersetzen. Exakter
