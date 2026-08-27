@@ -218,19 +218,20 @@ def test_inspector_exclude_button_pushes_to_queue(tmp_path: Path) -> None:
 # ── Structure tab: grid-card context menu ─────────────────────────────────────
 
 
-def test_structure_tab_grid_card_context_menu_actions_exist() -> None:
+def test_structure_tab_grid_card_context_menu_actions_exist(
+    tmp_path: Path,
+) -> None:
+    # Brain-Bereinigung 2026-08-27: prueft jetzt den produktiven
+    # Menue-Builder StructureTab._build_override_menu statt der
+    # entfernten toten Doppel-Implementierung _ClipCard._build_context_menu.
     _ensure_qapp()
-    row = {
-        "scene_id": 7,
-        "role": "hero",
-        "role_confidence": 0.9,
-        "mood_refined": "euphoric",
-        "usage_count": 0,
-        "style_bucket_id": 1,
-    }
-    card = _ClipCard(row)
+    engine, Session = _build_struct_db(tmp_path)
 
-    menu = card._build_context_menu()
+    svc = BrainService(session_factory=Session)
+    queue = SteerOverrideQueue()
+    tab = StructureTab(brain_service=svc, override_queue=queue)
+
+    menu = tab._build_override_menu(7, source="structure")
     actions = menu.actions()
     assert len(actions) == 2
     texts = [a.text() for a in actions]

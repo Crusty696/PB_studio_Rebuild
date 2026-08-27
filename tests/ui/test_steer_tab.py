@@ -1,5 +1,8 @@
-"""T11.3 headless tests: SteerTab (track selector + profile picker + overrides
-lists + Run button) and the BrainService reads backing it.
+"""T11.3 headless tests: SteerTab (track selector + overrides lists + Run
+button) and the BrainService reads backing it.
+
+Brain-Bereinigung 2026-08-27: Profil-Picker- und Pins-Tests entfernt —
+die zugehoerigen Placebo-UI-Teile existieren nicht mehr.
 
 Follows the offscreen-Qt + on-disk-SQLite pattern from the other
 tests/ui/test_*_tab.py files; ``_build_struct_db`` from
@@ -22,9 +25,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from sqlalchemy import text
 
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QInputDialog
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 
 from services.brain import BrainService
 from services.steer_override_queue import SteerOverrideQueue
@@ -143,32 +145,6 @@ def test_list_audio_tracks_sorted_newest_first(tmp_path: Path) -> None:
     ]
 
 
-def test_list_weights_profiles_scans_yaml_dir(tmp_path: Path) -> None:
-    _engine, Session = _build_struct_db(tmp_path)
-    svc = BrainService(session_factory=Session)
-    profiles = svc.list_weights_profiles()
-    names = {p["name"] for p in profiles}
-    # The real config/pacing_weights/ dir must contain these four.
-    assert {"default", "psytrance", "house", "dj_mix_auto"}.issubset(names)
-    # Every entry must carry an absolute YAML path.
-    for p in profiles:
-        assert p["path"].endswith(".yaml")
-        assert Path(p["path"]).is_file()
-
-
-def test_list_weights_profiles_missing_dir_returns_empty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _engine, Session = _build_struct_db(tmp_path)
-    # Point the module-level pacing-weights dir at a guaranteed-missing path.
-    ghost = tmp_path / "nonexistent_pacing_weights"
-    monkeypatch.setattr(
-        "services.brain.legacy_sqlite._PACING_WEIGHTS_DIR", ghost
-    )
-    svc = BrainService(session_factory=Session)
-    assert svc.list_weights_profiles() == []
-
-
 # ── SteerTab widget tests ─────────────────────────────────────────────────────
 
 
@@ -215,36 +191,6 @@ def test_steer_tab_track_combo_populated_from_brain_service(
     assert tab._track_selector.item_count() == 2
 
 
-def test_steer_tab_profile_combo_populated_with_default(
-    tmp_path: Path,
-) -> None:
-    tab, _svc, _q, _engine = _build_tab(tmp_path, seed_tracks=1)
-    # Every profile name is an itemText; assert "default" is one of them.
-    names = [
-        tab._profile_picker._combo.itemText(i)
-        for i in range(tab._profile_picker._combo.count())
-    ]
-    assert "default" in names
-
-
-def test_steer_tab_edit_profile_opens_openurl(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tab, _svc, _q, _engine = _build_tab(tmp_path, seed_tracks=1)
-    captured: list[QUrl] = []
-
-    def _spy(url: QUrl) -> bool:
-        captured.append(url)
-        return True
-
-    monkeypatch.setattr(QDesktopServices, "openUrl", _spy)
-    tab._profile_picker._edit_btn.click()
-    assert len(captured) == 1
-    url = captured[0]
-    assert url.isLocalFile()
-    assert url.toLocalFile().endswith(".yaml")
-
-
 def test_steer_tab_boosts_list_reflects_queue(tmp_path: Path) -> None:
     queue = SteerOverrideQueue()
     queue.add(11, "boost", source="structure")
@@ -285,22 +231,8 @@ def test_steer_tab_remove_button_drops_entry_from_queue(
     assert 5 not in remaining_ids
 
 
-def test_steer_tab_pin_add_button_adds_scene_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tab, _svc, _q, _engine = _build_tab(tmp_path, seed_tracks=1)
-    monkeypatch.setattr(
-        "PySide6.QtWidgets.QInputDialog.getInt",
-        lambda *a, **k: (42, True),
-    )
-    tab._overrides._pin_add_btn.click()
-    assert tab._overrides.pin_count() == 1
-    # Scene #42 should be listed in the snapshot pins payload.
-    assert 42 in tab._overrides.pin_scene_ids()
-
-
 def test_steer_tab_current_snapshot_contains_all_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     queue = SteerOverrideQueue()
     queue.add(100, "boost", source="structure")
@@ -308,32 +240,16 @@ def test_steer_tab_current_snapshot_contains_all_fields(
     tab, _svc, _q, _engine = _build_tab(
         tmp_path, seed_tracks=2, queue=queue
     )
-    # Point at track #1 + profile "default" (first alphabetical entry that
-    # includes "default"); then add a pin.
     tab._track_selector._combo.setCurrentIndex(0)
-    # Find and select "default" in the profile combo.
-    for i in range(tab._profile_picker._combo.count()):
-        if tab._profile_picker._combo.itemText(i) == "default":
-            tab._profile_picker._combo.setCurrentIndex(i)
-            break
-    monkeypatch.setattr(
-        "PySide6.QtWidgets.QInputDialog.getInt",
-        lambda *a, **k: (7, True),
-    )
-    tab._overrides._pin_add_btn.click()
 
     snap = tab.current_snapshot()
     assert set(snap.keys()) == {
         "audio_track_id",
-        "weights_profile",
-        "pins",
         "boosts",
         "excludes",
         "created_at",
     }
     assert snap["audio_track_id"] is not None
-    assert snap["weights_profile"] == "default"
-    assert snap["pins"] == [7]
     assert snap["boosts"] == [100]
     assert snap["excludes"] == [200]
     # ISO timestamp — parse-round-trip to validate.
@@ -357,7 +273,7 @@ def test_steer_tab_run_button_emits_runRequested_with_snapshot(
     assert len(received) == 1
     got = received[0]
     # All scalar / list fields match exactly.
-    for key in ("audio_track_id", "weights_profile", "pins", "boosts", "excludes"):
+    for key in ("audio_track_id", "boosts", "excludes"):
         assert got[key] == expected[key]
     # created_at must be within a second of expected — timers fire
     # sub-microsecond apart in the same test thread.

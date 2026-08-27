@@ -32,8 +32,9 @@ T11.2 extension: list_runs_for_audit_selector, list_decisions_for_run,
 get_decision_detail, list_structure_segments_for_run — backing the Audit
 tab's run dropdown + cut table + details column + segment-strip.
 
-T11.3 extension: list_audio_tracks, list_weights_profiles — backing the
-Steer tab's audio-track selector and weights-profile dropdown.
+T11.3 extension: list_audio_tracks — backing the Steer tab's audio-track
+selector. (list_weights_profiles entfernt in der Brain-Bereinigung
+2026-08-27 — der Gewichtsprofil-Picker war Placebo und ist raus.)
 
 P12 extension: story_map_data, list_runs_with_story_map_data — backing the
 Story-Map dialog (waveform + section strip + tension curve + mood strip +
@@ -62,16 +63,6 @@ logger = logging.getLogger(__name__)
 _MOOD_ANCHORS_YAML: Path = (
     Path(__file__).resolve().parents[2] / "config" / "mood_anchors_v1.yaml"
 )
-
-# Directory containing the per-genre pacing-weights profile YAMLs. The Steer
-# tab's profile dropdown (T11.3) enumerates ``*.yaml`` files from here and the
-# "Edit profile" button opens the selected file in the OS default editor.
-# Module-level so tests can monkeypatch this path to exercise the missing-dir
-# failure mode without materialising a real directory.
-_PACING_WEIGHTS_DIR: Path = (
-    Path(__file__).resolve().parents[2] / "config" / "pacing_weights"
-)
-
 
 # B-200 F-6: Helper to reconstruct the on-disk keyframe path for a given
 # Scene row. The keyframe file name is created in
@@ -241,16 +232,12 @@ class BrainService:
         self._list_decisions_for_run_cached = functools.lru_cache(maxsize=32)(
             self._list_decisions_for_run_uncached
         )
-        # T11.3: Steer tab read-views. ``list_audio_tracks`` hits the DB;
-        # ``list_weights_profiles`` scans the filesystem. Both cache at
-        # maxsize=1 — the scans are cheap, but registering caches in
-        # ``_cached_attrs`` means ``invalidate()`` can clear them when the
-        # user hits "Refresh" (new track uploaded, profile edited on disk).
+        # T11.3: Steer tab read-view. ``list_audio_tracks`` hits the DB;
+        # cache at maxsize=1 — the scan is cheap, but registering the cache
+        # in ``_cached_attrs`` means ``invalidate()`` can clear it when the
+        # user hits "Refresh" (new track uploaded).
         self.list_audio_tracks = functools.lru_cache(maxsize=1)(
             self._list_audio_tracks_uncached
-        )
-        self.list_weights_profiles = functools.lru_cache(maxsize=1)(
-            self._list_weights_profiles_uncached
         )
         # P12: Story-Map dialog reads. story_map_data is keyed on run_id;
         # list_runs_with_story_map_data is parameter-free.
@@ -280,7 +267,6 @@ class BrainService:
             "list_structure_segments_for_run",
             "_list_decisions_for_run_cached",
             "list_audio_tracks",
-            "list_weights_profiles",
             "story_map_data",
             "list_runs_with_story_map_data",
         )
@@ -1580,47 +1566,6 @@ class BrainService:
             return out
         finally:
             self._close_session(session, ownership)
-
-    def _list_weights_profiles_uncached(self) -> list[dict[str, Any]]:
-        """Return ``[{"name", "path"}, ...]`` for every ``*.yaml`` under
-        ``config/pacing_weights/``, sorted by name ASC.
-
-        The list is read from the module-level ``_PACING_WEIGHTS_DIR`` so
-        tests can monkeypatch the path to a nonexistent location and exercise
-        the missing-dir fallback. A missing directory or filesystem error is
-        logged at WARNING and the method returns ``[]`` — the Steer tab treats
-        an empty list as "no profiles to pick" and keeps the dropdown
-        disabled.
-        """
-        profiles_dir = _PACING_WEIGHTS_DIR
-        try:
-            if not profiles_dir.exists() or not profiles_dir.is_dir():
-                logger.warning(
-                    "pacing_weights dir missing at %s — returning empty "
-                    "profile list",
-                    profiles_dir,
-                )
-                return []
-            entries: list[dict[str, Any]] = []
-            for yaml_path in profiles_dir.glob("*.yaml"):
-                if not yaml_path.is_file():
-                    continue
-                entries.append(
-                    {
-                        "name": yaml_path.stem,
-                        "path": str(yaml_path.resolve()),
-                    }
-                )
-            entries.sort(key=lambda e: e["name"])
-            return entries
-        except OSError as exc:  # pragma: no cover — defensive
-            logger.warning(
-                "Failed to enumerate pacing_weights dir %s: %s",
-                profiles_dir,
-                exc,
-            )
-            return []
-
 
     # ── P12: Story-Map dialog reads ────────────────────────────────────────
     def _story_map_data_uncached(self, run_id: int) -> Optional[dict[str, Any]]:

@@ -2,30 +2,29 @@
 
 Design §3 (Structure / Memory / Agent) + Feasibility §7 condition 7:
 the Steer tab is the hand-steering surface for the pacing agent. Users
-pick an audio track + a weights profile, edit the profile YAML in an
-external editor (deliberately NOT via in-app sliders — see Feasibility
-§7-7), and curate per-clip overrides (pins / boosts / excludes) before
-firing a run-scoped override.
+pick an audio track and curate per-clip overrides (boosts / excludes)
+before firing a run-scoped override.
 
-T11.3 scope (this file):
+Brain-Bereinigung 2026-08-27 (User-Entscheidung, Scope "Nur Totes +
+Inaktives"): Der Gewichtsprofil-Picker (``_ProfilePicker``) und die
+Pins-Spalte wurden entfernt. Beide waren Placebo — der Run-Dispatch in
+``main._on_brain_run_requested`` hat ``weights_profile`` und ``pins``
+nie ausgewertet (dort selbst so dokumentiert), und es gab keinerlei
+Backend-Consumer. Boosts/Excludes bleiben: ihr Consumer existiert in
+``services/pacing_service.py`` (T1.3/USE-004) hinter dem
+Studio-Brain-Flag.
+
+Structure (this file):
   - _TrackSelector      QComboBox of ``audio_tracks`` rows.
                          Emits ``trackChanged(track_id)``.
-  - _ProfilePicker      QComboBox of ``config/pacing_weights/*.yaml`` +
-                         "Edit profile" QPushButton that shells out via
-                         ``QDesktopServices.openUrl`` to the OS editor.
-                         Emits ``profileChanged(name, path)``.
-  - _OverridesLists     Three QListWidgets side-by-side: Pins / Boosts /
-                         Excludes. Pins are a new in-memory concept (clip-
-                         level anchors, numeric scene_id entry via
-                         ``QInputDialog.getInt``); Boosts + Excludes mirror
-                         the process-wide ``SteerOverrideQueue`` (from
-                         T10.2e) and can only be removed from this tab
-                         (adds come from the Structure tab's right-click
-                         menu). DB persistence for pins is a P11+ concern.
+  - _OverridesLists     Two QListWidgets side-by-side: Boosts /
+                         Excludes. They mirror the process-wide
+                         ``SteerOverrideQueue`` (from T10.2e) and can only
+                         be removed from this tab (adds come from the
+                         Structure tab's right-click menu).
   - _RunBar             "Run with these settings" button + transient status
                          label. Clicking fires ``runRequested(snapshot_dict)``
-                         (signal-only — the pacing-agent integration lives
-                         downstream) and shows a toast cleared after 5s.
+                         and shows a toast cleared after 5s.
   - SteerTab            Glue widget: owns the BrainService + queue, rebuilds
                          the list views on ``pendingChanged``, exposes
                          ``current_snapshot()`` for introspection by tests
@@ -34,17 +33,6 @@ T11.3 scope (this file):
 Public signals:
   - ``runRequested(dict)``       — carries the full steer_snapshot.
   - ``trackChanged(int)``        — fires on audio-track combobox change.
-  - ``profileChanged(str, str)`` — (name, absolute-path) on profile change.
-
-Scope boundaries (T11.3):
-  - Pacing-agent wiring is NOT implemented here. ``runRequested`` is the
-    producer end; the consumer (pacing agent) ships later. See the plan's
-    T11.3 acceptance criteria: "State archived into
-    mem_pacing_run.steer_snapshot after run" is the pacing-agent layer's
-    responsibility.
-  - Pin persistence is in-memory only. ``current_snapshot()`` includes
-    every pin the user added during the session; a DB-backed store for
-    pins arrives with P11+.
 """
 
 from __future__ import annotations
@@ -55,13 +43,11 @@ from typing import Any, Callable, Optional, TypeVar
 
 T = TypeVar("T")
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -84,7 +70,6 @@ logger = logging.getLogger(__name__)
 # ── Layout / style constants ──────────────────────────────────────────────────
 
 _STATUS_TOAST_MS = 5000
-_DEFAULT_PROFILE_NAME = "default"
 
 _SELECTOR_STYLE = (
     "QComboBox,QPushButton{background:#1a2030;color:#e5e7eb;"
@@ -110,13 +95,7 @@ _STATUS_OK_STYLE = (
     "border-radius:4px;"
 )
 
-_STATUS_ERR_STYLE = (
-    "color:#f5a97b;font-size:10px;padding:4px 8px;"
-    "background:#2a1c0e;border:1px solid rgba(245,167,123,0.35);"
-    "border-radius:4px;"
-)
-
-_RUN_BUTTON_TOAST = "Run in Warteschlange — wartet auf den Agenten."
+_RUN_BUTTON_TOAST = "Auto-Edit-Task gestartet — Fortschritt im Tasks-Panel."
 
 
 # ── Formatting helpers ───────────────────────────────────────────────────────
@@ -227,130 +206,21 @@ class _TrackSelector(QWidget):
             self.trackChanged.emit(tid)
 
 
-# ── _ProfilePicker ───────────────────────────────────────────────────────────
-
-
-class _ProfilePicker(QWidget):
-    """Strip: profile QComboBox + Edit-profile QPushButton.
-
-    The "Edit profile" button opens the currently-selected YAML via
-    ``QDesktopServices.openUrl`` — the OS decides which editor handles
-    ``.yaml`` files. Per the plan brief (Feasibility §7-7) this is a
-    deliberate choice: weights are tuned with a text editor, not in-app
-    sliders.
-    """
-
-    profileChanged = Signal(str, str)  # (name, absolute_path)
-    editRequested = Signal()
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(_SELECTOR_STYLE)
-
-        hl = QHBoxLayout(self)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(6)
-
-        hl.addWidget(QLabel("Gewichtsprofil:"))
-        self._combo = QComboBox(self)
-        self._combo.setMinimumWidth(200)
-        self._combo.setToolTip(
-            "Gewichte der 13 Pacing-Terme. default = neutral, "
-            "psytrance/house = Genre-spezifisch, dj_mix_auto = automatisch "
-            "Mid-Run wechseln bei DJ-Mixen."
-        )
-        self._combo.currentIndexChanged.connect(self._emit_current)
-        hl.addWidget(self._combo, stretch=1)
-
-        self._edit_btn = QPushButton("Profil bearbeiten")
-        self._edit_btn.setToolTip(
-            "Oeffnet die YAML-Datei des gewaehlten Profils im "
-            "System-Editor. Aenderungen werden beim naechsten Run gelesen. "
-            "(Kein In-App-Slider per Design — YAML verhindert Versehen.)"
-        )
-        self._edit_btn.clicked.connect(self.editRequested)
-        self._edit_btn.setEnabled(False)
-        hl.addWidget(self._edit_btn)
-        hl.addStretch()
-
-        self._profiles: list[dict[str, Any]] = []
-
-    def set_profiles(self, profiles: list[dict[str, Any]]) -> None:
-        self._profiles = [dict(p) for p in profiles]
-        previous_name = self.current_profile_name()
-
-        self._combo.blockSignals(True)
-        try:
-            self._combo.clear()
-            if not self._profiles:
-                self._combo.addItem("(keine Profile)", userData=None)
-                self._combo.setEnabled(False)
-                self._edit_btn.setEnabled(False)
-            else:
-                self._combo.setEnabled(True)
-                self._edit_btn.setEnabled(True)
-                for profile in self._profiles:
-                    self._combo.addItem(
-                        str(profile["name"]), userData=str(profile["path"])
-                    )
-                # Restore previous selection if present; otherwise default to
-                # "default" if it's in the list, else index 0.
-                idx = -1
-                if previous_name is not None:
-                    for i in range(self._combo.count()):
-                        if self._combo.itemText(i) == previous_name:
-                            idx = i
-                            break
-                if idx < 0:
-                    for i in range(self._combo.count()):
-                        if self._combo.itemText(i) == _DEFAULT_PROFILE_NAME:
-                            idx = i
-                            break
-                if idx < 0:
-                    idx = 0
-                self._combo.setCurrentIndex(idx)
-        finally:
-            self._combo.blockSignals(False)
-
-        self._emit_current()
-
-    def current_profile_name(self) -> Optional[str]:
-        if not self._profiles:
-            return None
-        name = self._combo.currentText()
-        return name if name else None
-
-    def current_profile_path(self) -> Optional[str]:
-        data = self._combo.currentData()
-        return str(data) if data else None
-
-    def item_count(self) -> int:
-        return len(self._profiles)
-
-    def _emit_current(self, *_args: Any) -> None:
-        name = self.current_profile_name()
-        path = self.current_profile_path()
-        if name and path:
-            self.profileChanged.emit(name, path)
-
-
 # ── _OverridesLists ──────────────────────────────────────────────────────────
 
 
 class _OverridesLists(QFrame):
-    """Three-column strip: Pins / Boosts / Excludes.
+    """Two-column strip: Boosts / Excludes.
 
-    - Pins: in-memory list of scene_ids. ``+ add`` prompts via
-      ``QInputDialog.getInt`` for a numeric scene_id (the "add by drag from
-      timeline" UX is a P12+ concern).
-    - Boosts / Excludes: read-only projection of ``SteerOverrideQueue``.
-      The parent SteerTab calls ``set_queue_items()`` whenever the queue
-      emits ``pendingChanged``. The user can only *remove* entries from
-      here; adds come from the Structure tab's right-click menu.
+    Read-only projection of ``SteerOverrideQueue``. The parent SteerTab
+    calls ``set_queue_items()`` whenever the queue emits
+    ``pendingChanged``. The user can only *remove* entries from here;
+    adds come from the Structure tab's right-click menu.
+
+    Brain-Bereinigung 2026-08-27: Pins-Spalte entfernt — Pins waren rein
+    in-memory und wurden vom Run-Dispatch nie ausgewertet.
     """
 
-    pinAddRequested = Signal()
-    pinRemoveRequested = Signal(int)   # scene_id
     boostRemoveRequested = Signal(int)  # scene_id
     excludeRemoveRequested = Signal(int)  # scene_id
 
@@ -361,44 +231,6 @@ class _OverridesLists(QFrame):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
-
-        # Pins column.
-        pins_col = QWidget(self)
-        pins_layout = QVBoxLayout(pins_col)
-        pins_layout.setContentsMargins(0, 0, 0, 0)
-        pins_layout.setSpacing(2)
-        pins_header = QLabel("Pins")
-        pins_header.setStyleSheet(_HEADER_LABEL_STYLE)
-        _pins_tooltip = (
-            "Feste Clip-Anker: diese Szenen MUESSEN im Run vorkommen. "
-            "Der Agent hat keine Wahl."
-        )
-        pins_header.setToolTip(_pins_tooltip)
-        pins_layout.addWidget(pins_header)
-        self._pins_list = QListWidget(pins_col)
-        self._pins_list.setStyleSheet(_LIST_STYLE)
-        self._pins_list.setToolTip(_pins_tooltip)
-        pins_layout.addWidget(self._pins_list, stretch=1)
-        pins_btn_row = QHBoxLayout()
-        pins_btn_row.setContentsMargins(0, 0, 0, 0)
-        pins_btn_row.setSpacing(4)
-        self._pin_add_btn = QPushButton("+ Pin hinzufügen")
-        self._pin_add_btn.setStyleSheet(_SELECTOR_STYLE)
-        self._pin_add_btn.setToolTip(
-            "Szenen-ID eingeben und zur Pins-Liste hinzufuegen."
-        )
-        self._pin_add_btn.clicked.connect(self.pinAddRequested)
-        pins_btn_row.addWidget(self._pin_add_btn)
-        self._pin_remove_btn = QPushButton("− Entfernen")
-        self._pin_remove_btn.setStyleSheet(_SELECTOR_STYLE)
-        self._pin_remove_btn.setToolTip(
-            "Ausgewaehlten Pin aus der Liste nehmen."
-        )
-        self._pin_remove_btn.clicked.connect(self._on_pin_remove_clicked)
-        pins_btn_row.addWidget(self._pin_remove_btn)
-        pins_btn_row.addStretch()
-        pins_layout.addLayout(pins_btn_row)
-        outer.addWidget(pins_col, stretch=1)
 
         # Boosts column.
         boosts_col = QWidget(self)
@@ -462,42 +294,6 @@ class _OverridesLists(QFrame):
         excludes_layout.addLayout(excludes_btn_row)
         outer.addWidget(excludes_col, stretch=1)
 
-        # In-memory model for pins (sorted, deduplicated).
-        self._pin_scene_ids: list[int] = []
-
-    # ── Pins ───────────────────────────────────────────────────────────────
-    def add_pin(self, scene_id: int) -> bool:
-        """Add a pin in-memory. Returns True on insert, False on duplicate."""
-        try:
-            sid = int(scene_id)
-        except (TypeError, ValueError):
-            return False
-        if sid in self._pin_scene_ids:
-            return False
-        self._pin_scene_ids.append(sid)
-        self._rebuild_pins_list()
-        return True
-
-    def remove_pin(self, scene_id: int) -> bool:
-        try:
-            sid = int(scene_id)
-        except (TypeError, ValueError):
-            return False
-        if sid not in self._pin_scene_ids:
-            return False
-        self._pin_scene_ids.remove(sid)
-        self._rebuild_pins_list()
-        return True
-
-    def pin_scene_ids(self) -> list[int]:
-        return list(self._pin_scene_ids)
-
-    def _rebuild_pins_list(self) -> None:
-        self._pins_list.clear()
-        for sid in self._pin_scene_ids:
-            item = QListWidgetItem(f"Szene #{sid}", self._pins_list)
-            item.setData(Qt.ItemDataRole.UserRole, int(sid))
-
     def _selected_scene_id(self, list_widget: QListWidget) -> Optional[int]:
         item = list_widget.currentItem()
         if item is None:
@@ -507,11 +303,6 @@ class _OverridesLists(QFrame):
             return int(data) if data is not None else None
         except (TypeError, ValueError):
             return None
-
-    def _on_pin_remove_clicked(self) -> None:
-        sid = self._selected_scene_id(self._pins_list)
-        if sid is not None:
-            self.pinRemoveRequested.emit(int(sid))
 
     def _on_boost_remove_clicked(self) -> None:
         sid = self._selected_scene_id(self._boosts_list)
@@ -545,9 +336,6 @@ class _OverridesLists(QFrame):
     def exclude_count(self) -> int:
         return self._excludes_list.count()
 
-    def pin_count(self) -> int:
-        return self._pins_list.count()
-
     def select_first_boost(self) -> None:
         if self._boosts_list.count() > 0:
             self._boosts_list.setCurrentRow(0)
@@ -555,10 +343,6 @@ class _OverridesLists(QFrame):
     def select_first_exclude(self) -> None:
         if self._excludes_list.count() > 0:
             self._excludes_list.setCurrentRow(0)
-
-    def select_first_pin(self) -> None:
-        if self._pins_list.count() > 0:
-            self._pins_list.setCurrentRow(0)
 
 
 # ── _RunBar ──────────────────────────────────────────────────────────────────
@@ -586,8 +370,9 @@ class _RunBar(QWidget):
         self._run_btn = QPushButton("Mit diesen Einstellungen starten")
         self._run_btn.setToolTip(
             "Sendet das Signal 'runRequested' mit dem aktuellen "
-            "Steer-Snapshot (Track + Profil + Pins + Boosts + Excludes). "
-            "Der Pacing-Agent wird dann mit diesen Run-Overrides starten."
+            "Steer-Snapshot (Track + Boosts + Excludes) und startet einen "
+            "Auto-Edit-Task. Boosts/Excludes wirken nur bei aktivierter "
+            "Studio-Brain-Pipeline (Schnitt > Pacing & Anker)."
         )
         self._run_btn.clicked.connect(self.runClicked)
         self._run_btn.setEnabled(False)
@@ -602,11 +387,6 @@ class _RunBar(QWidget):
     def set_status_ok(self, msg: str) -> None:
         self._status.setText(msg)
         self._status.setStyleSheet(_STATUS_OK_STYLE)
-        self._status.setVisible(True)
-
-    def set_status_error(self, msg: str) -> None:
-        self._status.setText(msg)
-        self._status.setStyleSheet(_STATUS_ERR_STYLE)
         self._status.setVisible(True)
 
     def clear_status(self) -> None:
@@ -636,7 +416,6 @@ class SteerTab(QWidget):
 
     runRequested = Signal(dict)
     trackChanged = Signal(int)
-    profileChanged = Signal(str, str)
 
     def __init__(
         self,
@@ -658,14 +437,7 @@ class SteerTab(QWidget):
         self._track_selector.trackChanged.connect(self._on_track_changed)
         outer.addWidget(self._track_selector)
 
-        self._profile_picker = _ProfilePicker(self)
-        self._profile_picker.profileChanged.connect(self._on_profile_changed)
-        self._profile_picker.editRequested.connect(self._on_edit_profile)
-        outer.addWidget(self._profile_picker)
-
         self._overrides = _OverridesLists(self)
-        self._overrides.pinAddRequested.connect(self._on_pin_add)
-        self._overrides.pinRemoveRequested.connect(self._on_pin_remove)
         self._overrides.boostRemoveRequested.connect(self._on_boost_remove)
         self._overrides.excludeRemoveRequested.connect(self._on_exclude_remove)
         outer.addWidget(self._overrides, stretch=1)
@@ -689,23 +461,13 @@ class SteerTab(QWidget):
 
     # ── Public API ─────────────────────────────────────────────────────────
     def refresh(self) -> None:
-        """Invalidate the BrainService cache and reload lists + queue.
-
-        Note: the pin list is session-scoped and NOT cleared by refresh —
-        pins persist until the user explicitly removes them or restarts the
-        app (in-memory by design, per T11.3 scope).
-        """
+        """Invalidate the BrainService cache and reload lists + queue."""
         self._svc.invalidate()
 
         tracks: list[dict[str, Any]] = self._safe_call(
             self._svc.list_audio_tracks, default=[]
         )
         self._track_selector.set_tracks(tracks)
-
-        profiles: list[dict[str, Any]] = self._safe_call(
-            self._svc.list_weights_profiles, default=[]
-        )
-        self._profile_picker.set_profiles(profiles)
 
         self._refresh_queue_projection()
         self._update_run_enabled()
@@ -716,7 +478,6 @@ class SteerTab(QWidget):
         adapter is the only reader today.
         """
         track_id = self._track_selector.current_track_id()
-        profile_name = self._profile_picker.current_profile_name() or ""
 
         boosts: list[int] = []
         excludes: list[int] = []
@@ -728,8 +489,6 @@ class SteerTab(QWidget):
 
         return {
             "audio_track_id": int(track_id) if track_id is not None else None,
-            "weights_profile": profile_name,
-            "pins": list(self._overrides.pin_scene_ids()),
             "boosts": boosts,
             "excludes": excludes,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -743,51 +502,6 @@ class SteerTab(QWidget):
             return
         self.trackChanged.emit(tid)
         self._update_run_enabled()
-
-    def _on_profile_changed(self, name: str, path: str) -> None:
-        self.profileChanged.emit(str(name), str(path))
-
-    def _on_edit_profile(self) -> None:
-        path = self._profile_picker.current_profile_path()
-        if not path:
-            self._run_bar.set_status_error("Kein Profil ausgewählt.")
-            self._status_timer.start()
-            return
-        url = QUrl.fromLocalFile(str(path))
-        try:
-            QDesktopServices.openUrl(url)
-        except Exception as exc:  # noqa: BLE001 — defensive on the OS hand-off
-            logger.warning("SteerTab: openUrl failed for %s: %s", path, exc)
-            self._run_bar.set_status_error(
-                f"Editor konnte nicht geöffnet werden: {exc}"
-            )
-            self._status_timer.start()
-
-    def _on_pin_add(self) -> None:
-        """Prompt the user for a scene_id via ``QInputDialog.getInt``.
-
-        The "add-by-drag from timeline" UX is a P12+ concern; for T11.3 we
-        expose the simplest path that still lets the user curate pins by
-        hand.
-        """
-        # B-254: PySide6 QInputDialog.getInt akzeptiert KEINE keyword-args
-        # 'min'/'max' (war PyQt5-Pattern). Korrekte PySide6-Signatur:
-        #   getInt(parent, title, label, value=0, minValue=..., maxValue=..., step=1, flags=...)
-        # Positional uebergeben ist robust gegen Versionsunterschiede.
-        scene_id, ok = QInputDialog.getInt(
-            self,
-            "Pin hinzufügen",
-            "Szenen-ID:",
-            1,           # value
-            0,           # minValue
-            10_000_000,  # maxValue
-        )
-        if not ok:
-            return
-        self._overrides.add_pin(int(scene_id))
-
-    def _on_pin_remove(self, scene_id: int) -> None:
-        self._overrides.remove_pin(int(scene_id))
 
     def _on_boost_remove(self, scene_id: int) -> None:
         self._override_queue.remove(int(scene_id))

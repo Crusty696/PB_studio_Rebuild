@@ -46,7 +46,6 @@ class PacingDecisionExplorer(QWidget):
     """Tab-Widget für Pacing-Decision-Replay + Verdict-Editing."""
 
     decisionSelected = Signal(int)  # decision_id
-    verdictChanged = Signal(int, str)  # decision_id, verdict
 
     def __init__(
         self,
@@ -224,7 +223,6 @@ class PacingDecisionExplorer(QWidget):
         except Exception as e:
             logger.warning("Verdict-Update failed: %s", e)
             return
-        self.verdictChanged.emit(self._current_decision_id, verdict)
         self._refresh_detail()
         # Tabelle neu laden um Verdict-Spalte zu aktualisieren
         idx = self.run_combo.currentIndex()
