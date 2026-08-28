@@ -8,7 +8,7 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-27
+updated: 2026-08-28
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
@@ -20,8 +20,16 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`B-913 / Brain-Gateway-Write-Rejection Root Cause analysieren und gezielt
-fixen`.
+`B-914 / stale Posterior-Test gegen B-895-Blende nachziehen`.
+
+B-913 ist code-complete: Root Cause verifiziert — `50ce61d fix(B-897)` routete
+`brain_learn_note` immer durch `normalize_brain_learn_params()` (hart
+`mode="chat"`), Vision-Mode-Allowlist wurde umgangen. Fix: Normalisierung nur
+bei `mode == "chat"`; Vision lehnt Learn wieder sichtbar ab. Zweite Ursache
+war Test-Staleness (5 `__new__`-Konstruktionen ohne `_ollama_model`).
+Vorher `6 failed, 29 passed`, nachher `35 passed in 1.63s`. Kein
+ChatDock-/Vision-Livepfad; Status `code-fix-pending-live-verification`.
+Evidence: `docs/superpowers/synthesis/b913-gateway-vision-learn-fix-2026-08-28.md`.
 
 B-832 ist code-complete: Userentscheidung D-095 setzt Vibe als aktiven
 Matching-Faktor. Einmaliges SigLIP-Embedding wirkt in Legacy-/Cross-Modal-

@@ -197,6 +197,7 @@ def test_actual_orchestrator_nontool_fallback_executes_safe_gateway(
     orch = OrchestratorAgent.__new__(OrchestratorAgent)
     orch.name = "orchestrator"
     orch._model_manager = None
+    orch._ollama_model = None
 
     captured: dict[str, object] = {}
 
@@ -314,6 +315,7 @@ def test_tool_chat_call_contains_context_and_all_brain_tools(monkeypatch):
 
     orch = OrchestratorAgent.__new__(OrchestratorAgent)
     orch.name = "orchestrator"
+    orch._ollama_model = None
     monkeypatch.setattr(
         knowledge_loader, "build_brain_context", lambda **_kw: _RECALL_CONTEXT
     )
@@ -361,6 +363,7 @@ def test_tool_chat_rejects_hallucinated_learn_without_user_intent(monkeypatch):
 
     orch = OrchestratorAgent.__new__(OrchestratorAgent)
     orch.name = "orchestrator"
+    orch._ollama_model = None
     fake_svc = MagicMock(is_ready=True)
     fake_svc.get_default_model.return_value = "tool-model"
     fake_client = MagicMock()

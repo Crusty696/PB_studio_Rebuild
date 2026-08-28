@@ -391,9 +391,11 @@ def execute_gateway_response(
     if action == "brain_learn_note" and not allow_learn:
         return _reject("brain_learn_note braucht ausdruecklichen Merk-/Speicherauftrag")
     try:
-        if action == "brain_learn_note":
+        if action == "brain_learn_note" and mode == "chat":
             params = normalize_brain_learn_params(payload.get("params", {}))
         else:
+            # B-913: Nicht-Chat-Modi (Vision) muessen die Mode-Allowlist
+            # durchlaufen; brain_learn_note ist dort nicht erlaubt.
             params = _validate_params(action, payload.get("params", {}), mode)
     except ValueError as exc:
         return _reject(str(exc))
