@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9b5739c937014c128b2c1eeb08592ec4",
+  "recorded_at": "2026-08-28T21:27:19+00:00",
+  "session_id": "cf01454d48d74940900f0cdd0ec58c86",
+  "head_at_start": "09189050573b376f6740e40653e1007353de401a",
+  "problem": "Offscreen QCheckBox tests with QTest.mouseClick failed because unrendered checkboxes do not receive coordinate clicks reliably",
+  "cause": "QTest.mouseClick relies on visual layout geometry which is uncalculated for unshown QCheckBox instances offscreen",
+  "rule": "Use chk.click() or chk.setChecked() for programmatic offscreen QCheckBox interaction testing in PySide6 QtTests",
+  "applies_to": "tests/ui/*"
+}
