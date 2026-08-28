@@ -941,3 +941,60 @@ Export-Render, Vision-Caption, SigLIP-Embedding, Scene-Detection.
 - **Screenshots:** `tests/qa_artifacts/06_cockpit_after_import_20260812_072525.png`
   (Analyse offen), `07_cockpit_empty_project_20260812_072619.png` (Fehlt/Fehlt),
   `11_lv2a_final_20260812_073930.png` (Bereit/Fehlt).
+
+## 2.30 KRITISCH: Fremdagent teilte sich die einzige App-Instanz waehrend A/B-Brain-Test — NEU 2026-08-27
+
+- **Ziel des Tests war:** A/B-Vergleich Studio-Brain-Pipeline AN vs. AUS (Auto-Edit,
+  Projekt `123454321`, `PB_PACING_SEED=42`). Vor `list-windows` bereits sichtbar:
+  ein Fremdfenster `"◐/◑ Analyze and audit the Brain section functionality"` lief
+  parallel (vermutlich ein zweiter, eigenstaendig arbeitender Agent/Session auf
+  demselben Desktop).
+- **Befund (bestaetigt via Log, nicht nur Vermutung):** Waehrend mein Auto-Edit
+  (Phase 3, Studio-Brain aktiv) lief, tauchten in **genau demselben** App-Fenster
+  (PID 3788, einzige laufende `PB_studio`-Instanz laut `tasklist`) Log-Zeilen auf,
+  die ich nicht ausgeloest habe: `SettingsDialog: Ollama-Einstellungen gespeichert
+  — ... model=qwen2.5:3b` (Modell-Wechsel von `ALIENTELLIGENCE/avengineer:latest`
+  auf `qwen2.5:3b` **mitten im laufenden Ollama-EDL-Call**), danach
+  `StudioBrainWindow` geoeffnet + alle 6 Tabs konstruiert, danach `GraphCockpitTab`
+  per Klick lazy-geladen — und schliesslich, ohne mein Zutun,
+  `closeEvent: eingetreten (dirty=True, spontaneous=True)` gefolgt von
+  `Dirty-Prompt beantwortet mit 16384` — der Fremdakteur hat die App **komplett
+  geschlossen**, mein Testprozess war danach tot (`tasklist` zeigt kein
+  `python.exe` mehr).
+- **Nebenwirkung, nicht rueckgaengig gemacht (User-Entscheidung noetig):**
+  `%APPDATA%\PBStudio\settings.json` → `ollama.model` steht jetzt dauerhaft auf
+  `"qwen2.5:3b"` statt dem vorherigen `"ALIENTELLIGENCE/avengineer:latest"`.
+  NICHT von mir zurueckgesetzt (Hartregel "nur explizit angewiesene Aenderungen").
+- **Konsequenz fuer den Ollama-EDL-Call:** `Ollama direct EDL reasoning failed:
+  Ollama-Timeout nach 300.0s (chat)` — der LLM-EDL-Pfad ist in diesem Testlauf
+  NICHT durchgelaufen, Pipeline fiel auf den Roter-Faden-Fallback zurueck. Ob der
+  Timeout durch den Fremd-Modellwechsel verursacht wurde oder ein unabhaengiger,
+  ohnehin bestehender Timeout ist, laesst sich aus dem Log allein NICHT beweisen
+  (Zeitfenster ueberlappt nur teilweise) — ehrlich als unklar berichten, nicht als
+  Bug zuschreiben.
+- **Regel-Verstoss gegen Testauftrag:** Der Auftrag verlangte explizit "Kein
+  anderer Agent läuft. Falls doch eine laufende App-Instanz da ist: STOPP +
+  melden." — genau dieser Fall trat waehrend des Tests ein (nicht vorher
+  erkennbar, da beim App-Start noch kein zweites `PB_studio`-Fenster sichtbar
+  war, sondern nur ein fremdes Chat-/Orchestrator-Fenster, das erst im Verlauf
+  aktiv in dieselbe Single-Instance-App klickte).
+- **Lehre fuer kuenftige Tests:** Ein sichtbares Fremdfenster mit
+  Analyse-/Test-bezogenem Titel (wie in 2.21 als vermeintlich harmlos
+  eingestuft) ist **kein verlässlicher Hinweis auf Harmlosigkeit** — es kann
+  jederzeit anfangen, in dieselbe Singleton-App-Instanz zu klicken. Vor jedem
+  mehrstufigen A/B-Test (Start → warten → Vergleich) den `pb_studio.log`
+  aktiv auf fremde Marker pruefen (`SettingsDialog`, `StudioBrainWindow`,
+  `closeEvent ... spontaneous=True` ohne eigenen Kill-Befehl) — nicht erst am
+  Ende, sondern laufend waehrend der Wartezeit.
+- **Was trotzdem als Beleg zaehlt:** Lauf A (Brain AN) selbst lief bis
+  `Timeline: 80 Video-Segmente geschrieben` sauber durch, BEVOR die
+  Fremdeinwirkung app-kritisch wurde (Settings-Save kam ~30s nach Start des
+  Ollama-Calls, App-Close kam >1 Minute NACH Timeline-Fertigstellung). Die
+  80-Segmente-Timeline + `mem_pacing_run.id=9` sind real und in der DB
+  persistiert, aber der Testlauf als Ganzes ist NICHT als sauberes,
+  isoliertes A/B-Ergebnis zu werten. Lauf B wurde deshalb NICHT gestartet.
+  Artefakte: `tests/qa_artifacts/lauf_a_full_log_20260827.txt`,
+  `tests/qa_artifacts/lauf_a_timeline_dump_20260827.json`,
+  `tests/qa_artifacts/a01_boot_20260827_055202.png`,
+  `tests/qa_artifacts/a02_autoedit_click_20260827_055236.png`,
+  `tests/qa_artifacts/a03_CONTAMINATION_check_20260827_055533.png`.
