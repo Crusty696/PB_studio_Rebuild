@@ -1,0 +1,10 @@
+{
+  "lesson_id": "96085268e8dc44c1af2c3503bdbd1b48",
+  "recorded_at": "2026-08-28T21:25:49+00:00",
+  "session_id": "5615d74224174d789237f677d0e53917",
+  "head_at_start": "a26cda04786d74ec02cf5570971d3644cf656c3d",
+  "problem": "monkeypatch.setattr auf PySide6 SignalInstance.emit schlaegt mit AttributeError fehl",
+  "cause": "PySide6 SignalInstance Attribute sind schreibgeschuetzte C++ Bindings",
+  "rule": "In PySide6 UI Tests immer Signal.connect(callback) nutzen um Signal-Aktivierung zu erfassen",
+  "applies_to": "tests/ui/*"
+}
