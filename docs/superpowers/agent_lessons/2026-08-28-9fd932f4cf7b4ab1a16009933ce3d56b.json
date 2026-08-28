@@ -1,0 +1,10 @@
+{
+  "lesson_id": "9fd932f4cf7b4ab1a16009933ce3d56b",
+  "recorded_at": "2026-08-28T21:31:51+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Workspace-UI Controls erfordern Controller-Instanziierung zur Signalverifizierung",
+  "cause": "Signale werden in ui/controllers/workspace_setup.py erst bei App-Init verdrahtet",
+  "rule": "In PySide6 Offscreen Tests Mock-Window oder Controller-Proxy einrichten um Slot-Aufrufe isoliert zu testen",
+  "applies_to": "tests/ui/test_stab5_workspaces_controls.py"
+}
