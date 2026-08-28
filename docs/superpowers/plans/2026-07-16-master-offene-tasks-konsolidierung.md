@@ -1994,3 +1994,22 @@ Decision: Vault
 - Keine weitere entscheidungsfreie offene Pacing-/Timeline-Codefixdatei.
 - Naechste einzige Task: gebuendelter Pacing-/Schnitt-/Timeline-Gesamttest mit
   bestehendem Projekt `123454321`.
+
+### BRAIN-GATEWAY-NACHTRAG B-913/B-914 — 2026-08-27
+
+- B-913 (`high`, `open`): sechs bestehende Gateway-Tests belegen, dass
+  halluziniertes `brain_learn_note` im Vision-/Orchestratorpfad nicht mehr
+  als `brain_gateway_rejected` endet. Sicherheits-/Datenintegritaetswirkung:
+  Learn-Write ohne expliziten User-Intent kann durchlaufen. Root Cause noch
+  nicht analysiert; kein Cleanup-Regressionsfund (auf Basis `55565d1`
+  identisch rot).
+- B-914 (`medium`, `open`): ein Brain-Core-Integrationstest erwartet
+  mutmasslich Vor-B-895-Posterior-Skala. Root Cause/Testvertrag noch
+  unverifiziert; erst nach B-913 bearbeiten.
+- Reihenfolge: B-913 Root-Cause-Fix + kleinster Gateway-Zieltest; danach
+  B-914 Vertrag gegen B-895-Code/Decision/Git belegen und nur belegte Seite
+  korrigieren.
+- Breite Brain-/Pacing-Suite und App-Live bleiben gemaess Userentscheid
+  spaetes Endgate.
+- Naechste einzige Task: `B-913 / Brain-Gateway-Write-Rejection Root Cause
+  analysieren und gezielt fixen`.
