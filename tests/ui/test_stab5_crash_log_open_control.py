@@ -133,3 +133,36 @@ def test_crash_log_button_open_failure_shows_visible_warning(
         dialog.close()
         dialog.deleteLater()
         app.processEvents()
+
+
+def test_crash_dialog_close_button_accepts_and_hides(monkeypatch) -> None:
+    """STAB-5 Control #27: Schliessen-Button ist einzig, sichtbar, aktiv und
+    schliesst den Dialog ueber accept()."""
+    app = _qapp()
+    from ui.dialogs import crash_dialog
+    from PySide6.QtWidgets import QDialog
+
+    dialog = crash_dialog.CrashDialog(RuntimeError, RuntimeError("boom"), None)
+    try:
+        dialog.show()
+        app.processEvents()
+        close_buttons = [
+            b for b in dialog.findChildren(QPushButton)
+            if b.text() == "Schliessen"
+        ]
+        assert len(close_buttons) == 1
+        button = close_buttons[0]
+        assert button.isVisibleTo(dialog) is True
+        assert button.isEnabled() is True
+
+        accepted: list[bool] = []
+        dialog.accepted.connect(lambda: accepted.append(True))
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        app.processEvents()
+
+        assert accepted == [True]
+        assert dialog.result() == QDialog.DialogCode.Accepted
+        assert dialog.isVisible() is False
+    finally:
+        dialog.deleteLater()
+        app.processEvents()
