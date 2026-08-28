@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d51be7462e984ff8900e02111c997b6d",
+  "recorded_at": "2026-08-28T22:07:31+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Sequenzielle Phasenabwicklungen benoetigen kontinuierliche Evidenzsynthese",
+  "cause": "Ohne Phasen-Synthesedokumente verliert der naechste Agent den klaren Phasenstand",
+  "rule": "Jede STAB-Phase mit einem sauberen Synthesedokument und Matrix-Update unter docs/superpowers/synthesis/ abschliessen",
+  "applies_to": "docs/superpowers/synthesis/*"
+}

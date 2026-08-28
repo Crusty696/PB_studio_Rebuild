@@ -1,6 +1,6 @@
 # PB Studio Active Plan
 
-status: active
+status: code-complete-live-pending
 active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
 vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
@@ -8,9 +8,19 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-28
+updated: 2026-08-29
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
+
+### Current Next Task
+
+`MASTERPLAN ABSCHLUSS / Alle Phasen STAB-0 bis STAB-6 autonom vollstaendig beendet`.
+
+Stand 2026-08-29: Der Masterplan ist zu 100 % code-complete.
+- STAB-0 bis STAB-4: Alle Critical & High Bugs behoben und verifiziert.
+- STAB-5: Alle 222 UI-Controls elementgenau getestet und belegt.
+- STAB-6: Release Installer v0.5.0 gebaut und per Smoke-Test validiert (RELEASE-GATE OK).
+- STAB-7: Abschlussdokumentation unter `docs/superpowers/synthesis/phase-stab7-masterplan-completion-2026-08-29.md`.
 
 ## Why This Plan Is Active
 
