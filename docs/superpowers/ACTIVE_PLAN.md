@@ -20,8 +20,17 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / Control #27 Crashdialog-Schliessen elementgenau pruefen und belegen;
-Folgecontrols gruppenweise (gleiche Quelldatei) mit gebuendeltem Zieltest`.
+`STAB-5 / Controls gruppenweise elementgenau belegen (laufende Welle);
+verbleibend: #82-#124 (Studio-Brain + Widget-Block), #141-#190 (Workspaces),
+#191-#222 (Schnitt/Workflow)`.
+
+Stand 2026-08-28: Controls #27-#81, #125-#140 sind elementgenau belegt
+(`target-test-pass-live-pending`), je Gruppe eigener Zieltest + Commit:
+#27-#31 (`b1d3c7d`), #32-#40 (`767899c`), #41-#47 (`2f1c85e`), #48-#56
+(`1eb7d80`), #57-#63 (`a0b3cdd`), #64-#70 (`d147a07`), #71-#78 (`78924b0`),
+#79-#81+#125 (`6fe1a0f`), #126-#140 (`8985343`). Neue code-verifizierte
+Findings (dokumentiert, NICHT gefixt): B-916 (medium), B-917, B-918, B-919,
+B-920 (low). B-906 gefixt (`9b48b29`).
 
 B-906 ist code-complete: `_open_log` ist Instanzmethode; fehlende Logdatei
 zeigt sichtbare Warnung mit beiden geprueften Pfaden; `OSError` beim Oeffnen
