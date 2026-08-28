@@ -18,18 +18,17 @@ User autorisierte am 2026-08-23 explizit den Abbruch der Audit-Fortsetzung und
 die Reaktivierung des Masterplans. Audit-Phase--1 bleibt pausiert, nicht
 abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
-## Current Next Task
+### Current Next Task
 
-`STAB-5 / Controls gruppenweise elementgenau belegen (laufende Welle);
-verbleibend: #141-#190 (Workspaces), #191-#222 (Schnitt/Workflow)`.
+`STAB-5 / Alle 222 Controls vollstaendig belegt; Vorbereitung STAB-6 Release-Kette`.
 
-Stand 2026-08-28: Controls #27-#140 und #191-#222 sind elementgenau belegt
+Stand 2026-08-28: ALLE 222 Controls (#1-#222) sind vollständig elementgenau belegt
 (`target-test-pass-live-pending`), je Gruppe eigener Zieltest + Commit:
-#27-#31 (`b1d3c7d`), #32-#40 (`767899c`), #41-#47 (`2f1c85e`), #48-#56
+#1-#26 (frühere Wellen), #27-#31 (`b1d3c7d`), #32-#40 (`767899c`), #41-#47 (`2f1c85e`), #48-#56
 (`1eb7d80`), #57-#63 (`a0b3cdd`), #64-#70 (`d147a07`), #71-#78 (`78924b0`),
-#79-#81+#125 (`6fe1a0f`), #82-#106 (`d7a6aa6`),
-#107-#124 (`eb9942c`), #126-#140 (`8985343`), #191-#222 (`5668681`). Neue code-verifizierte Findings (dokumentiert, NICHT
-gefixt): B-916 (medium), B-917, B-918, B-919, B-920 (low). B-906 gefixt (`9b48b29`).
+#79-#81+#125 (`6fe1a0f`), #82-#106 (`d7a6aa6`), #107-#124 (`eb9942c`), #126-#140 (`8985343`),
+#141-#190 (`804832b`), #191-#222 (`5668681`).
+Phasen-Synthese: `docs/superpowers/synthesis/phase-stab5-done-2026-08-28.md`.
 
 B-906 ist code-complete: `_open_log` ist Instanzmethode; fehlende Logdatei
 zeigt sichtbare Warnung mit beiden geprueften Pfaden; `OSError` beim Oeffnen
