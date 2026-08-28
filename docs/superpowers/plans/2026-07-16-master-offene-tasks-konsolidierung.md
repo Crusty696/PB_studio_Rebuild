@@ -2013,3 +2013,23 @@ Decision: Vault
   spaetes Endgate.
 - Naechste einzige Task: `B-913 / Brain-Gateway-Write-Rejection Root Cause
   analysieren und gezielt fixen`.
+
+### BRAIN-GATEWAY-NACHTRAG B-913/B-914 Abschluss — 2026-08-28
+
+- B-913 code-complete (`a3007f7`): Root Cause verifiziert — `50ce61d`
+  (B-897) routete `brain_learn_note` immer durch
+  `normalize_brain_learn_params()` (hart `mode="chat"`) und umging die
+  Vision-Mode-Allowlist. Fix: Normalisierung nur bei `mode == "chat"`;
+  Vision lehnt Learn wieder sichtbar ab. Zusaetzlich 5 stale
+  Test-Konstruktionen (`__new__` ohne `_ollama_model`) korrigiert.
+  Vorher `6 failed, 29 passed`, nachher `35 passed in 1.63s`.
+  Status `code-fix-pending-live-verification` (ChatDock-/Vision-Live offen).
+- B-914 agent-fixed-await-user: reiner Test-Staleness-Fund. Ist-Wert
+  2.325 = Cold-Start 1.2 x 2 x 31/32 — Produkt entspricht exakt dem
+  B-895-Vertrag; nur Integrationstest erwartete Vor-B-895-Skala.
+  Test nachgezogen; brain_core + b895-Transition `44 passed in 3.92s`.
+  Kein Produktcodeedit.
+- Naechste einzige Task: `STAB-5 / B-906 Crashdialog-Log-Oeffnen darf bei
+  Fehler nicht still bleiben` (Wiederaufnahme der Control-Queue hinter der
+  abgeschlossenen Pacing-Welle). Gebuendelter Pacing-/Schnitt-/Timeline-
+  Gesamttest bleibt spaetes Endgate.

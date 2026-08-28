@@ -20,7 +20,13 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`B-914 / stale Posterior-Test gegen B-895-Blende nachziehen`.
+`STAB-5 / B-906 Crashdialog-Log-Oeffnen darf bei Fehler nicht still bleiben`.
+
+B-914 ist agent-fixed-await-user: reiner Test-Staleness-Fund. Ist-Wert 2.325 =
+Cold-Start 1.2 x 2 x 31/32 — Produkt entspricht exakt dem B-895-Vertrag; nur
+der Integrationstest erwartete die Vor-B-895-Skala. Test nachgezogen;
+brain_core + b895-Transition `44 passed in 3.92s`. Kein Produktcodeedit.
+Evidence: `docs/superpowers/synthesis/b914-posterior-test-alignment-2026-08-28.md`.
 
 B-913 ist code-complete: Root Cause verifiziert — `50ce61d fix(B-897)` routete
 `brain_learn_note` immer durch `normalize_brain_learn_params()` (hart

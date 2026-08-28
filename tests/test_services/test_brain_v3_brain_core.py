@@ -483,28 +483,29 @@ def test_brain_store_reset_keeps_embedding_cache_by_default(isolated_appdata):
 # Integration: Klick → Posterior konvergiert
 # ---------------------------------------------------------------------------
 def test_integration_clicks_change_posterior(store: WeightStore):
-    """Klick-Loop ändert Posterior. NB: Cold-Start-Defaults und gelernte
-    Posterior-Mean liegen in unterschiedlichen Skalen — Cold-Start =
-    TriggerSettings (kann 0–2 sein), Posterior = (0, 1). Der Test
-    vergleicht daher KEINE Cold-Start-vs-Posterior, sondern nur
-    Posterior-Verschiebung durch Klick-Vorzeichen.
+    """Klick-Loop ändert das effektive Gewicht. Seit B-895 liefert
+    get_posterior_mean einen Multiplikator um den Cold-Start-Wert:
+    posterior 0.5 = 1x Cold-Start, 1.0 = 2x, 0.0 = 0x — keine
+    Skalenumschaltung mehr zwischen Cold-Start und gelerntem Posterior.
     """
     fl = FeedbackLogger(store)
     ctx = CutContext(audio_section_type="drop", audio_mood="dark")
     keys = context_keys(ctx)
+    cold = COLD_START_DEFAULTS["kick_weight"]
 
     # 15 perfect-Klicks → Level 5 wird konfident (15 × α=2.0 = 30 α)
     for _ in range(15):
         fl.log_feedback("perfect", keys)
     pm_after_positive = store.get_posterior_mean("kick_weight", keys)
-    expected_positive = (30.0 + 1.0) / (30.0 + 0.0 + 2.0)
+    # α=30, β=0 → posterior = 31/32; effektiv = cold × 2 × 31/32
+    expected_positive = cold * 2.0 * ((30.0 + 1.0) / (30.0 + 0.0 + 2.0))
     assert abs(pm_after_positive - expected_positive) < 1e-9
-    # Posterior nach positiven Klicks > Laplace-Anker (0.5)
-    assert pm_after_positive > 0.5
+    # Positive Klicks heben das Gewicht über den Cold-Start-Wert
+    assert pm_after_positive > cold
 
-    # Mit no_match-Klicks senkt sich Posterior wieder
+    # Mit no_match-Klicks senkt sich das Gewicht zurück Richtung Cold-Start
     for _ in range(15):
         fl.log_feedback("no_match", keys)
     pm_after_neutral = store.get_posterior_mean("kick_weight", keys)
-    # Jetzt α=30, β=30 → posterior = 31/62 = 0.5
-    assert abs(pm_after_neutral - 0.5) < 0.05
+    # Jetzt α=30, β=30 → posterior = 31/62 ≈ 0.5 → effektiv ≈ 1x Cold-Start
+    assert abs(pm_after_neutral - cold) < 0.05 * cold
