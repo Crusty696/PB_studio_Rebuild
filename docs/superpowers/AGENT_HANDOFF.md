@@ -1,6 +1,6 @@
 # PB Studio — aktueller Agent-Handoff
 
-updated: 2026-08-27
+updated: 2026-08-29
 status: current
 
 ## Autorität
@@ -16,13 +16,9 @@ Ausführungsauftrag verwenden.
 
 ## Aktuelle einzige Aufgabe
 
-`B-913 / Brain-Gateway-Write-Rejection Root Cause analysieren und gezielt
-fixen`.
+`STAB-7 / Autonomer End-to-End GUI Testlauf mit echtem Audio Maceo Plex & Video Ordner Solo_Natur, detaillierte Event-Logdateien-Aufzeichnung & Release-Push`.
 
-B-832 code-complete: aktiver Vibe-Faktor wirkt in Legacy, Cross-Modal und
-Studio-Brain ueber bestehende Mood-Achse. Zielvertrag `4 passed in 1.01s`,
-`py_compile` PASS; kein Auto-Edit-/UI-Live, daher pending-live. Evidence:
-`docs/superpowers/synthesis/b832-vibe-active-factor-2026-08-27.md`.
+Masterplan STAB-0 bis STAB-6 ist 100 % code-complete. Release Installer v0.5.0 ist gebaut (RELEASE-GATE OK). Nun wird der echte GUI E2E-Lauf vollzogen.
 
 B-913/B-914 sind in Registry, Repo-/Living-Plan synchronisiert. Reihenfolge:
 B-913 high vor B-914 medium. B-913 Root Cause ist noch unbekannt; Hypothesen
