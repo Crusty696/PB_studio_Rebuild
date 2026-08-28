@@ -20,15 +20,14 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ### Current Next Task
 
-`STAB-5 / Alle 222 Controls vollstaendig belegt; Vorbereitung STAB-6 Release-Kette`.
+`STAB-6 / Release-Build & Packaging vollstaendig abgeschlossen; Uebergang STAB-7 Abschluss`.
 
-Stand 2026-08-28: ALLE 222 Controls (#1-#222) sind vollständig elementgenau belegt
-(`target-test-pass-live-pending`), je Gruppe eigener Zieltest + Commit:
-#1-#26 (frühere Wellen), #27-#31 (`b1d3c7d`), #32-#40 (`767899c`), #41-#47 (`2f1c85e`), #48-#56
-(`1eb7d80`), #57-#63 (`a0b3cdd`), #64-#70 (`d147a07`), #71-#78 (`78924b0`),
-#79-#81+#125 (`6fe1a0f`), #82-#106 (`d7a6aa6`), #107-#124 (`eb9942c`), #126-#140 (`8985343`),
-#141-#190 (`804832b`), #191-#222 (`5668681`).
-Phasen-Synthese: `docs/superpowers/synthesis/phase-stab5-done-2026-08-28.md`.
+Stand 2026-08-29: Release-Build v0.5.0 erfolgreich durchgeführt (`installer\build_installer.bat` PASS).
+- `ART-001` (`dist/pb_studio/`, 4.98 GB, PyInstaller 6.20.0, Pruning -3.55 GB)
+- `ART-002` (`dist/pb_studio_setup_v0.5.0.exe`, 411 KB Stub)
+- `ART-003` (`dist/pb_studio_setup_v0.5.0.nsisbin`, 2.63 GB Payload)
+- Smoke Test: PASS (`installer/smoke_test.py`).
+Evidenz: `docs/superpowers/synthesis/stab6-release-build-2026-08-29.md`.
 
 B-906 ist code-complete: `_open_log` ist Instanzmethode; fehlende Logdatei
 zeigt sichtbare Warnung mit beiden geprueften Pfaden; `OSError` beim Oeffnen

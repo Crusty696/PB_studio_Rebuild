@@ -1,0 +1,10 @@
+{
+  "lesson_id": "83356787e4fa472ab7909847098da5a7",
+  "recorded_at": "2026-08-28T22:06:54+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "PyInstaller dist Ordner enthaelt unnoetige doppelte DLLs im Top-Level",
+  "cause": "PyInstaller kopiert CUDA/Torch DLLs sowohl in Subordner als auch in Root",
+  "rule": "Immer prune_pyinstaller_dist.py nach dem PyInstaller Build ausfuehren um Dist-Groesse um ca 3.5 GB zu reduzieren",
+  "applies_to": "installer/build_installer.bat"
+}
