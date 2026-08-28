@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import Type
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QTextEdit, QFrame,
 )
 from PySide6.QtCore import Qt, QCoreApplication
@@ -155,16 +155,33 @@ class CrashDialog(QDialog):
             all_lines = [QCoreApplication.translate("CrashDialog", "... ({omitted} Zeilen ausgeblendet) ...").format(omitted=omitted)] + all_lines[-max_lines:]
         return "\n".join(all_lines)
 
-    @staticmethod
-    def _open_log() -> None:
+    def _open_log(self) -> None:
         log = _LOG_PATH
         if not log.exists():
             # Try logs/ relative to CWD
             log = Path("logs") / "pb_studio.log"
-        if log.exists():
+        if not log.exists():
+            # B-906: Button darf nicht still enden — User braucht die Pfade.
+            QMessageBox.warning(
+                self,
+                self.tr("Log-Datei nicht gefunden"),
+                self.tr(
+                    "Keine Log-Datei gefunden. Geprüfte Pfade:\n{0}\n{1}"
+                ).format(str(_LOG_PATH), str(Path("logs") / "pb_studio.log")),
+            )
+            return
+        try:
             if sys.platform == "win32":
                 os.startfile(str(log))
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(log)])
             else:
                 subprocess.Popen(["xdg-open", str(log)])
+        except OSError as exc:
+            # B-906: Oeffnungsfehler sichtbar melden statt ungefangen
+            # in den bereits laufenden Crash-Kontext zu eskalieren.
+            QMessageBox.warning(
+                self,
+                self.tr("Log-Datei konnte nicht geöffnet werden"),
+                self.tr("{0}\n\nFehler: {1}").format(str(log), exc),
+            )

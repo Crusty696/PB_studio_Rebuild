@@ -20,7 +20,15 @@ abgeschlossen oder ersetzt. B-860 ist lokal als `d365257` committed.
 
 ## Current Next Task
 
-`STAB-5 / B-906 Crashdialog-Log-Oeffnen darf bei Fehler nicht still bleiben`.
+`STAB-5 / Control #27 Crashdialog-Schliessen elementgenau pruefen und belegen;
+Folgecontrols gruppenweise (gleiche Quelldatei) mit gebuendeltem Zieltest`.
+
+B-906 ist code-complete: `_open_log` ist Instanzmethode; fehlende Logdatei
+zeigt sichtbare Warnung mit beiden geprueften Pfaden; `OSError` beim Oeffnen
+wird gefangen und sichtbar gemeldet. RED→GREEN (2 neue Tests), Datei gesamt
+`3 passed in 0.80s`, Erfolgspfad-Regression #26 weiter gruen. App-Livepfad
+offen; Status `code-fix-pending-live-verification`. Evidence:
+`docs/superpowers/synthesis/b906-crash-log-open-visible-errors-2026-08-28.md`.
 
 B-914 ist agent-fixed-await-user: reiner Test-Staleness-Fund. Ist-Wert 2.325 =
 Cold-Start 1.2 x 2 x 31/32 — Produkt entspricht exakt dem B-895-Vertrag; nur

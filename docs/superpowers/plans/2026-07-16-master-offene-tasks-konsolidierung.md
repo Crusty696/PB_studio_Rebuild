@@ -2033,3 +2033,17 @@ Decision: Vault
   Fehler nicht still bleiben` (Wiederaufnahme der Control-Queue hinter der
   abgeschlossenen Pacing-Welle). Gebuendelter Pacing-/Schnitt-/Timeline-
   Gesamttest bleibt spaetes Endgate.
+
+### STAB-5 B-906 Crashdialog-Log-Oeffnen Codefix — 2026-08-28
+
+- Root Cause: `_open_log` als staticmethod ohne Fehlerpfade; fehlende Datei
+  endete still, `os.startfile`/`Popen`-Fehler blieben ungefangen.
+- Fix: Instanzmethode; fehlende Datei -> sichtbare Warnung mit beiden
+  geprueften Pfaden; `OSError` -> sichtbare Warnung mit Grund. Erfolgspfad
+  unveraendert.
+- RED->GREEN: 2 neue Tests; `tests/ui/test_stab5_crash_log_open_control.py`
+  gesamt `3 passed in 0.80s`; py_compile PASS.
+- Status `code-fix-pending-live-verification`; App-Live spaetes Endgate.
+- Naechste einzige Task: `STAB-5 / Control #27 Crashdialog-Schliessen
+  elementgenau pruefen und belegen`; Folgecontrols gruppenweise (gleiche
+  Quelldatei) mit gebuendeltem Zieltest gemaess Uservorgabe Testminimierung.
