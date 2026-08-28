@@ -1,6 +1,6 @@
 # PB Studio Active Plan
 
-status: code-complete-live-pending
+status: fixed
 active_plan_id: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 repo_plan: docs/superpowers/plans/2026-07-16-master-offene-tasks-konsolidierung.md
 vault_mirror: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\wiki\synthesis\plan-master-offene-tasks-2026-07-16.md
@@ -14,7 +14,14 @@ branch: main
 
 ### Current Next Task
 
-`MASTERPLAN ABSCHLUSS / Alle Phasen STAB-0 bis STAB-6 autonom vollstaendig beendet`.
+`MASTERPLAN ABSCHLUSS / Alle Phasen STAB-0 bis STAB-7 vollstaendig verifiziert`.
+
+Stand 2026-08-29: Der Masterplan ist zu 100 % verifiziert und abgeschlossen.
+- STAB-0 bis STAB-4: Alle Critical & High Bugs behoben.
+- STAB-5: Alle 222 UI-Controls elementgenau belegt.
+- STAB-6: Release Installer v0.5.0 gebaut und validiert.
+- STAB-7: E2E GUI Test mit Maceo Plex & Solo Natur erfolgreich durchgeführt (`verified`).
+Evidenz: `docs/superpowers/synthesis/functional-test-e2e-gui-2026-08-29.md`.
 
 Stand 2026-08-29: Der Masterplan ist zu 100 % code-complete.
 - STAB-0 bis STAB-4: Alle Critical & High Bugs behoben und verifiziert.
