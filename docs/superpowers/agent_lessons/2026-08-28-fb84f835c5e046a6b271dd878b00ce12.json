@@ -1,0 +1,10 @@
+{
+  "lesson_id": "fb84f835c5e046a6b271dd878b00ce12",
+  "recorded_at": "2026-08-28T21:29:15+00:00",
+  "session_id": "cf01454d48d74940900f0cdd0ec58c86",
+  "head_at_start": "09189050573b376f6740e40653e1007353de401a",
+  "problem": "STAB-5 QtTest Belege fuer Controls #141-#190 (Workspaces) scheiterten an initialer Unsichtbarkeit/Enablement durch Sub-Tabs/Mode-Stacks",
+  "cause": "Widgets auf inaktiven Tab-Pages oder Mode-Stacks (z.B. EFFEKTE-Tab oder AUDIO-Mode) sowie leeren Pools (Pagination prev/next) sind initial isVisibleTo/isEnabled False",
+  "rule": "Vor QtTest QTest.mouseClick auf Unterbereichs-Controls immer explizit den Sub-Tab/Mode aktivieren und bei paginierten Buttons Enablement vor Click pruefen",
+  "applies_to": "ui/workspaces/"
+}

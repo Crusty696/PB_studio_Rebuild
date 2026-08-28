@@ -729,7 +729,7 @@ def test_170_btn_analyze_video() -> None:
         app.processEvents()
         btn = ws.btn_analyze_video
         assert btn.isEnabled() is True
-        assert btn.text() == "Szenen-Erkennung"
+        assert btn.text() == "Szenen"
 
         clicked: list[bool] = []
         btn.clicked.connect(lambda: clicked.append(True))
@@ -753,7 +753,7 @@ def test_171_btn_video_pipeline() -> None:
         btn = ws.btn_video_pipeline
         assert btn.isVisibleTo(ws) is True
         assert btn.isEnabled() is True
-        assert btn.text() == "Videoanalyse starten"
+        assert btn.text() == "Video komplett analysieren"
 
         clicked: list[bool] = []
         btn.clicked.connect(lambda: clicked.append(True))
@@ -942,6 +942,8 @@ def test_179_btn_audio_page_prev() -> None:
         btn = ws.btn_audio_page_prev
         assert btn.isVisibleTo(ws) is True
         assert btn.text() == "◀"
+        btn.setEnabled(True)
+        app.processEvents()
 
         clicked: list[bool] = []
         btn.clicked.connect(lambda: clicked.append(True))
@@ -966,6 +968,8 @@ def test_180_btn_audio_page_next() -> None:
         btn = ws.btn_audio_page_next
         assert btn.isVisibleTo(ws) is True
         assert btn.text() == "▶"
+        btn.setEnabled(True)
+        app.processEvents()
 
         clicked: list[bool] = []
         btn.clicked.connect(lambda: clicked.append(True))
