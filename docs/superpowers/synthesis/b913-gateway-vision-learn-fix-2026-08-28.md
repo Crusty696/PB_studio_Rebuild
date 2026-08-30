@@ -1,6 +1,6 @@
 # B-913 — Brain-Gateway Vision-Learn-Bypass behoben (2026-08-28)
 
-status: code-fix-pending-live-verification
+status: code-verified-no-gui-live
 
 ## Root Cause (verifiziert)
 

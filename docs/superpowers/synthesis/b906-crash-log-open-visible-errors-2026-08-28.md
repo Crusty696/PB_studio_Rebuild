@@ -1,6 +1,6 @@
 # B-906 — Crashdialog-Log-Öffnen meldet Fehler sichtbar (2026-08-28)
 
-status: code-fix-pending-live-verification
+status: agent-live-verified-await-user-marker
 
 ## Root Cause
 

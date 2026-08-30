@@ -8,16 +8,44 @@ decision: C:\Users\David_Lochmann\Documents\Vaults\Brain-Bug\projects\pb-studio\
 paused_plan_id: PB-STUDIO-EXHAUSTIVE-LINE-FEATURE-AUDIT-2026-08-15
 paused_plan_next_task: Readiness-Re-Gate nach B-860; externe Trust-Authority bleibt unprovisioned
 paused_plan_resume_commit: d365257
-updated: 2026-08-29
+updated: 2026-08-30
 worktree: C:\Users\David_Lochmann\Documents\PB_studio_Rebuild\PB_studio_Rebuild
 branch: main
 
 ### Current Next Task
 
-`MASTERPLAN ABSCHLUSS / Alle Phasen STAB-0 bis STAB-7 vollstaendig verifiziert`.
+`LIVE-VERIFY / Restliche offene Live-Belege mit dem User klaeren`.
 
-Stand 2026-08-30 (Governance-Korrektur): Der Masterplan ist agentseitig
-code-complete; `fixed`/`verified` bleiben User-Recht und sind NICHT gesetzt.
+Stand 2026-08-30, Live-Verifikationsrunde in der laufenden App
+(`tests/gui_harness.py`, echte UIA-Klicks, Projekt `123454321`, Audio
+`Maceo Plex - Sub-Alot`):
+
+- **B-912 agent-live-verified-await-user-marker.** Echter Auto-Edit-Lauf.
+  Log belegt den Fix im Produktivpfad: `B-912 Ruhe-Floor: 1.840s (4 Beats),
+  Cuts 105 -> 81, Section-Pflichtpunkte 26`. Ergebnis in der Projekt-DB:
+  80 Segmente, kuerzestes 2.213 s, kein Segment unter 2 s (Ausgangslage waren
+  103 Segmente mit 34 unter 2 s und Minimum 0.395 s). Evidence:
+  `docs/superpowers/synthesis/b912-live-verify-autoedit-2026-08-30.md`.
+- **B-906 agent-live-verified-await-user-marker.** Echter CrashDialog in
+  eigenem Prozess, echter Klick auf `Log-Datei oeffnen` bei fehlender Datei:
+  sichtbares Fenster `Log-Datei nicht gefunden` mit beiden geprueften Pfaden.
+  Kuenstlich ist allein die Abwesenheit der Logdatei. Evidence:
+  `docs/superpowers/synthesis/b906-live-verify-crash-log-warning-2026-08-30.md`.
+- **B-913 code-verified-no-gui-live.** Echter Aufruf von
+  `execute_gateway_response()` ohne Mocks lehnt Vision-Learn sichtbar ab, und
+  eine DB-weite Suche nach dem Probetext findet 0 Treffer. Ein GUI-Livepfad
+  ist nicht erzeugbar, weil er eine bestimmte Modellantwort voraussetzt.
+  Evidence: `docs/superpowers/synthesis/b913-live-verify-gateway-2026-08-30.md`.
+- **B-832 bleibt code-fix-pending-live-verification.** Nicht verifizierbar:
+  `text_to_embedding()` loggt bei Erfolg nichts, und die Clip-Auswahl wird von
+  einem Zufalls-Seed dominiert (Vibe-Lauf 6/80 gleiche Clips, Referenzlauf ohne
+  Vibe 5/80 — der Effekt liegt im Rauschen). Entscheidbar erst mit einer
+  Info-Logzeile im Vibe-Zweig oder einem Lauf mit fixiertem Seed; beides
+  braucht Userfreigabe.
+
+Phasenstand nach der Governance-Korrektur vom 2026-08-30: Der Masterplan ist
+agentseitig code-complete; `fixed`/`verified` bleiben User-Recht und sind
+NICHT gesetzt.
 - STAB-0 bis STAB-4: Bugs agentseitig behoben; Usermarker teils offen.
 - STAB-5: Alle 222 UI-Controls elementgenau belegt (Matrix 219x
   target-test-pass-live-pending, Rest Sonderstatus). Claude hat am 2026-08-30
