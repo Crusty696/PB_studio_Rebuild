@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d0d4bbca03254a97b53c9cff25fb2347",
+  "recorded_at": "2026-08-30T18:18:05+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Eine Live-Verifikation lieferte weder Beweis noch Gegenbeweis",
+  "cause": "Der zu pruefende Pfad (B-832 Vibe) schrieb bei Erfolg keine Logzeile und sein Ergebnis wurde von einem Zufalls-Seed in der Clip-Auswahl ueberdeckt",
+  "rule": "Vor einer Live-Verifikation pruefen ob der Zielpfad ueberhaupt ein beobachtbares Signal erzeugt; wenn nicht, das ehrlich als nicht verifizierbar melden und die noetige Instrumentierung vom User freigeben lassen statt ein Ergebnis zu behaupten",
+  "applies_to": "Live-Verifikationen allgemein"
+}

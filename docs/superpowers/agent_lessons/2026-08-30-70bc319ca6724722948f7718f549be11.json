@@ -1,0 +1,10 @@
+{
+  "lesson_id": "70bc319ca6724722948f7718f549be11",
+  "recorded_at": "2026-08-30T18:18:05+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Ein Auto-Edit-Klick per gui_harness blieb wirkungslos und das folgende Yes bestaetigte die falsche Aktion",
+  "cause": "Im SCHNITT-Header teilen sich Timeline generieren und Auto-Edit dieselbe auto_id schnitt_editor.btn_accent; click-element --auto-id traf den Nachbarbutton, dessen modaler Dialog den naechsten Klick schluckte",
+  "rule": "Im SCHNITT-Header ausschliesslich click-element --name verwenden und nach jedem Klick, der einen Dialog oeffnen kann, list-windows pruefen bevor der naechste Klick abgesetzt wird",
+  "applies_to": "GUI-Livetests mit tests/gui_harness.py"
+}
