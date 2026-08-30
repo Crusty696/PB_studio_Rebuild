@@ -1,0 +1,10 @@
+{
+  "lesson_id": "41ab6764675d43e49e446af5a60c9945",
+  "recorded_at": "2026-08-30T23:27:07+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Ein zentraler Fix zur QSettings-Isolation war wirkungslos, sah aber nach einer Loesung aus",
+  "cause": "QSettings.setDefaultFormat(IniFormat) wird von PySide6 bei QSettings(org, app) ignoriert; die Instanz bleibt NativeFormat und schreibt weiter in die Registry",
+  "rule": "Jede Isolations- oder Schutzmassnahme mit einem echten Vorher-Nachher-Beweis pruefen (Zielzustand herstellen, Lauf ausfuehren, Zustand erneut messen) statt sie fuer wirksam zu halten, weil die Tests gruen bleiben",
+  "applies_to": "Test-Isolation, Fixtures, Schutzmassnahmen"
+}
