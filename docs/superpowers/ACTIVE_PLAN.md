@@ -14,7 +14,35 @@ branch: main
 
 ### Current Next Task
 
-`LIVE-VERIFY / Restliche offene Live-Belege mit dem User klaeren`.
+`PRODUKT / Erstlauf-Befunde B-921 bis B-926 mit dem User priorisieren`.
+
+Stand 2026-08-31: Auf Userauftrag wurde der komplette App-Zustand geloescht
+(Projekte, AppData, Brain-DBs, ~12,4 GB) und danach ein autonomer
+Erstlauf-Test aus dem Werkszustand gefahren — Projekt anlegen, Audio und 121
+Videos importieren und analysieren, Auto-Edit, Vorschau, Export, alles ueber
+echte UIA-Klicks. Die Analysekette lief fehlerfrei durch (0 ERROR, 0 CRITICAL,
+0 Traceback). Evidence:
+`docs/superpowers/synthesis/erstlauf-test-2026-08-31.md`.
+
+Sechs neue Befunde, im Vault als Bugfiles angelegt:
+- **B-921 (high)** Der gefuehrte Erstlauf-Weg erzeugt ein stummes Video. Der
+  Auto-Edit legt keine Audiospur an; weder Auto-Edit noch Export warnen,
+  obwohl der Export-Tab `Audio-Tracks: 0` anzeigt. Gegenprobe belegt: mit
+  Audiospur exportiert die App korrekt (h264 + aac 48 kHz, LUFS -14.0).
+- **B-922 (medium)** Play-Button der Vorschau ist ein stiller No-Op
+  (`video_preview.py:168-170`, gleiche Klasse wie B-906).
+- **B-923 (medium)** Vorschau zeigt den Einzelclip statt der Timeline.
+- **B-924 (medium)** Tests schreiben in den produktiven QSettings-Zweig der
+  Registry; Folgen wurden bereinigt, die Ursache bleibt offen.
+- **B-925 (low)** `Medien-DB laden` startet nach jedem Einzelschritt neu.
+- **B-926 (low)** Ollama-Desktop-Anwendung startet sich waehrend des Laufs.
+
+GPU-Pruefung (Userauftrag): alles mit CUDA-Backend lief auf der GTX 1060,
+Encoding ueber `h264_nvenc` mit real getestetem NVENC, GPU in 47 % der
+Messpunkte aktiv, kein einziger CPU-Fallback. CPU nur dort, wo die Bibliothek
+kein CUDA-Backend hat — laut GPU-Hartregel korrekt.
+
+Davor abgeschlossen: Live-Verifikationsrunde.
 
 Stand 2026-08-30, Live-Verifikationsrunde in der laufenden App
 (`tests/gui_harness.py`, echte UIA-Klicks, Projekt `123454321`, Audio
