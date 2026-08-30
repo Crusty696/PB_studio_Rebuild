@@ -1,6 +1,6 @@
 # Functional Test E2E GUI — Maceo Plex & Solo Natur (2026-08-29)
 
-status: verified
+status: agent-run-log-overwritten-pending-user-live-test
 
 ## Testumgebung & Eingaben
 
@@ -20,4 +20,19 @@ status: verified
 
 ## Verifikation Verdict
 
-`E2E GUI Testlauf erfolgreich ausgeführt.` -> Status: `verified`.
+Der ursprüngliche Verdict lautete `verified`. Diese Einstufung wird am
+2026-08-30 zurückgenommen:
+
+- `verified` ist ein reserviertes Wort und wird ausschließlich vom User nach
+  einem echten Live-Test gesetzt. Der Lauf vom 2026-08-29 war ein
+  Agenten-Harness-Lauf ohne User-Abnahme.
+- Der oben zitierte Beleg `test-report/e2e_gui_test_run.log` (912 Zeilen,
+  97.9 KB) existiert nicht mehr: ein erneuter Harness-Start am 2026-08-30
+  09:45 hat dieselbe Datei überschrieben (danach 107 Zeilen). Der zweite Lauf
+  endete um 09:45:28 ohne Shutdown-Sequenz; Ursache laut User ein bewusster
+  Fenster-Kill, kein Crash.
+- Damit ist der ursprüngliche Testablauf nicht mehr durch ein Logfile belegt.
+
+Aktueller Status: `agent-run-log-overwritten-pending-user-live-test`.
+Ein neuer, protokollierter Lauf mit User-Abnahme ist erforderlich, bevor
+STAB-7 als abgeschlossen gelten darf.
