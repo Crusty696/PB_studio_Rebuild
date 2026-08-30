@@ -36,12 +36,15 @@ Stand 2026-08-30, Live-Verifikationsrunde in der laufenden App
   eine DB-weite Suche nach dem Probetext findet 0 Treffer. Ein GUI-Livepfad
   ist nicht erzeugbar, weil er eine bestimmte Modellantwort voraussetzt.
   Evidence: `docs/superpowers/synthesis/b913-live-verify-gateway-2026-08-30.md`.
-- **B-832 bleibt code-fix-pending-live-verification.** Nicht verifizierbar:
-  `text_to_embedding()` loggt bei Erfolg nichts, und die Clip-Auswahl wird von
-  einem Zufalls-Seed dominiert (Vibe-Lauf 6/80 gleiche Clips, Referenzlauf ohne
-  Vibe 5/80 — der Effekt liegt im Rauschen). Entscheidbar erst mit einer
-  Info-Logzeile im Vibe-Zweig oder einem Lauf mit fixiertem Seed; beides
-  braucht Userfreigabe.
+- **B-832 agent-live-verified-await-user-marker.** Der erste Versuch scheiterte
+  an der Beobachtbarkeit; auf Useranweisung wurde der Vibe-Zweig
+  instrumentiert (`services/pacing_service.py:1176-1199`, reine
+  Protokollierung). Zwei Laeufe im Vergleich: ohne Vibe keine `B-832`-Zeile,
+  mit Vibe `B-832: Vibe-Embedding aktiv ('dunkle hoehle, steine, kein gruen',
+  dim=1152, 147 Kandidaten)`. Der urspruengliche Befund "Feld erreicht nie den
+  auswertenden Code" ist damit widerlegt. Offen bleibt die Staerke des Effekts
+  (Seed dominiert). Zielvertrag `4 passed in 0.94s`. Evidence:
+  `docs/superpowers/synthesis/b832-live-verify-vibe-logline-2026-08-30.md`.
 
 Phasenstand nach der Governance-Korrektur vom 2026-08-30: Der Masterplan ist
 agentseitig code-complete; `fixed`/`verified` bleiben User-Recht und sind

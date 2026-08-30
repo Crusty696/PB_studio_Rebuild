@@ -1178,8 +1178,28 @@ def _auto_edit_phase3_inner(
         try:
             from services.video_analysis_service import text_to_embedding
             vibe_embedding = text_to_embedding(settings.vibe.strip())
+            # B-832 Livebeleg: text_to_embedding() loggt bei Erfolg nichts, und
+            # die Clip-Auswahl wird vom Diversitaets-Seed dominiert. Ohne diese
+            # Zeile ist im Betrieb nicht feststellbar, ob der Vibe-Text
+            # ueberhaupt als Faktor angekommen ist.
+            if vibe_embedding is not None:
+                logger.info(
+                    "B-832: Vibe-Embedding aktiv (%r, dim=%d, %d Kandidaten)",
+                    settings.vibe.strip(), int(np.asarray(vibe_embedding).size),
+                    int(clip_embeddings_matrix.shape[0]),
+                )
+            else:
+                logger.warning(
+                    "B-832: Vibe-Embedding nicht verfuegbar (%r) — Vibe wirkt nicht",
+                    settings.vibe.strip(),
+                )
         except (ImportError, RuntimeError, ValueError, OSError) as e:
             logger.warning("B-832: Vibe-Embedding uebersprungen: %s", e)
+    elif settings.vibe and settings.vibe.strip():
+        logger.warning(
+            "B-832: Vibe-Text %r gesetzt, aber keine Clip-Embeddings vorhanden "
+            "— Vibe wirkt nicht", settings.vibe.strip(),
+        )
 
     # NEUBAU-VOLLINTEGRATION T2.5.5 (FR-S2-1): Shot-Klassen einmal pro Run
     # aus den Kandidaten-Embeddings klassifizieren + Lookup fuer den

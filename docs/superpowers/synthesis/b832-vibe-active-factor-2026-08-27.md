@@ -1,6 +1,6 @@
 # B-832 — Vibe als aktiver Matching-Faktor
 
-status: code-fix-pending-live-verification
+status: agent-live-verified-await-user-marker
 date: 2026-08-27
 plan: PB-STUDIO-MASTER-OFFENE-TASKS-2026-07-16
 decision: D-095
