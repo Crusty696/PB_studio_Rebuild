@@ -106,6 +106,74 @@ def pytest_collection_modifyitems(config, items):
 
 
 # ---------------------------------------------------------------------------
+# B-924 — QSettings der Testsession vom echten Nutzerprofil trennen
+# ---------------------------------------------------------------------------
+# Qt legt QSettings unter Windows in der Registry ab. Mehrere Tests bauen
+# QSettings direkt mit den Produktivnamen ("PBStudio"/"PBStudio" bzw.
+# "PB Studio"/"Rebuild") und schrieben damit in HKCU\Software\PBStudio — also
+# in die echte Konfiguration des Nutzers.
+#
+# Gefunden am 2026-08-31 im Erstlauf-Test: Nach dem vollstaendigen Loeschen
+# aller App-Daten stand dort weiterhin setup_complete=true (der SetupWizard
+# blieb deshalb aus), ein Onboarding-Marker sowie ein Ollama-Backend
+# "http://legacy:8080" mit Modell "legacy-model" — beides woertlich aus
+# tests/test_settings_migration.py. Das hatte reale Wirkung: der Testlauf
+# protokollierte 122 Meldungen "B-770: gewaehltes Modell legacy-model nicht
+# verfuegbar, nutze gemma3:4b".
+#
+# Eine Umlenkung per ``QSettings.setDefaultFormat(IniFormat)`` reicht hier
+# NICHT: Der Migrationscode in ``services/settings_store.py`` liest die
+# Altwerte bewusst ueber ``QSettings(org, app)`` im NativeFormat, und PySide6
+# baut solche Instanzen weiterhin nativ (nachgemessen: ``qs.format()`` bleibt
+# ``NativeFormat``, ``fileName()`` zeigt auf den Registry-Pfad). Die Tests
+# muessen also dorthin schreiben, wo der Produktcode liest.
+#
+# Deshalb wird hier nicht umgelenkt, sondern zurueckgesetzt: Der Zustand der
+# produktiven Zweige wird vor der Session gesichert und danach exakt
+# wiederhergestellt. Was ein Test schreibt, ueberlebt die Session nicht.
+#
+# Ein echter Fix der Ursache braeuchte eine Produktcode-Aenderung (Format und
+# Organisation im Migrationspfad injizierbar machen) — das ist eine
+# Userentscheidung und hier bewusst nicht vorweggenommen.
+
+_QSETTINGS_USER_HIVES = (
+    r"HKCU\Software\PBStudio",
+    r"HKCU\Software\PB Studio",
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _restore_user_qsettings_after_session():
+    """Stellt die QSettings-Zweige des Nutzers nach der Testsession wieder her."""
+    if sys.platform != "win32":
+        yield
+        return
+
+    import subprocess
+
+    backup_dir = Path(tempfile.mkdtemp(prefix="pb_qsettings_backup_"))
+    saved: dict[str, Path | None] = {}
+    for hive in _QSETTINGS_USER_HIVES:
+        target = backup_dir / (hive.replace("\\", "_").replace(" ", "_") + ".reg")
+        result = subprocess.run(
+            ["reg", "export", hive, str(target), "/y"],
+            capture_output=True, check=False,
+        )
+        saved[hive] = target if result.returncode == 0 and target.exists() else None
+
+    try:
+        yield
+    finally:
+        for hive, backup in saved.items():
+            subprocess.run(["reg", "delete", hive, "/f"],
+                           capture_output=True, check=False)
+            if backup is not None:
+                subprocess.run(["reg", "import", str(backup)],
+                               capture_output=True, check=False)
+        shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # B-727 — Schutz der realen Projekt-Datenbank (autouse, session-scoped)
 # ---------------------------------------------------------------------------
 # Die Default-Suite hat am 2026-07-26 nachweislich in die reale
