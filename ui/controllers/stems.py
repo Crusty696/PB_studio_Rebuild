@@ -279,11 +279,11 @@ class StemsController(PBComponent):
                 return
             title = track.title
 
-        import re
-        ducked_dir = Path(__file__).parent.parent.parent / "storage" / "ducked"
-        ducked_dir.mkdir(parents=True, exist_ok=True)
-        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title or "track")
-        output_path = str(ducked_dir / f"{safe_title}_ducked.wav")
+        # B-946: Ablageort kommt aus services/ducked_paths — dieselbe Stelle wie
+        # fuer die Chat-Aktion, und projektbezogen statt im Repo-Ordner.
+        from services.ducked_paths import ducked_ausgabe
+
+        output_path = ducked_ausgabe(title)
         task = task_manager.create_task(f"Ducking: {title}", "Auto-Ducking")
         self.window.btn_auto_duck.setEnabled(False)
         self.window.btn_auto_duck.setText("Ducking laeuft...")

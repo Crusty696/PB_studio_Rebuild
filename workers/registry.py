@@ -182,16 +182,14 @@ def _map_auto_ducking(kw: dict) -> dict:
     except Exception:  # noqa: BLE001 — Mapper darf den Qt-Slot nicht sprengen
         logging.exception("auto_ducking-Mapper: DB-Zugriff fehlgeschlagen")
 
-    ducked_dir = Path(__file__).resolve().parent.parent / "storage" / "ducked"
-    try:
-        ducked_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        logging.exception("auto_ducking-Mapper: Ducked-Ordner nicht anlegbar")
-    safe_title = re.sub(r'[<>:"/\|?*]', "_", title)
+    # B-946: Ablageort kommt aus services/ducked_paths — dieselbe Stelle wie
+    # fuer den Knopf in der Oberflaeche, und projektbezogen statt im Repo.
+    from services.ducked_paths import ducked_ausgabe
+
     return {
         "music_path": music_path,
         "voice_path": voice_path,
-        "output_path": str(ducked_dir / f"{safe_title}_ducked.wav"),
+        "output_path": ducked_ausgabe(title),
     }
 
 
