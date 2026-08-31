@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4fb6d775691d4ddea93c7de47e93bd3d",
+  "recorded_at": "2026-08-31T10:58:19+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Bugfixes wurden im Vault als verifiziert gefuehrt, obwohl nur Unit-Tests oder Backend-Durchstiche vorlagen",
+  "cause": "Ich habe 'verifiziert' nach eigenem Gefuehl vergeben statt nach der Verifikationstabelle des pb-live-verify-chief; 14 von 20 Bug-Files trugen einen Status, den erst ein realer App-Workflow rechtfertigt",
+  "rule": "Vor jedem Statuswechsel im Vault die Verifikationstabelle anwenden: Code geschrieben = unverified, Unit-Test gruen = end-to-end pending, erst realer App-Workflow mit UI- oder Log-Beleg = verified. Backend-Durchstich mit echter DB zaehlt NICHT als live",
+  "applies_to": "Statusvergabe fuer Bugfixes im Vault"
+}
