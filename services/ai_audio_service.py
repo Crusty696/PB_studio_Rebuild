@@ -1216,6 +1216,45 @@ class AutoDucker:
         return str(out.resolve())
 
 
+
+def _sekundenkurve_aus_baendern(band_low, band_mid, band_high, *, duration: float):
+    """B-931: Energie-Huellkurve mit einem Wert je Sekunde.
+
+    Die drei Baender liegen frameweise vor und sind bereits global auf [0..1]
+    normalisiert. Gemittelt wird ueber gleich grosse Zeitfenster, sodass die
+    Laenge der Kurve der Dauer in Sekunden entspricht — dasselbe Raster, das
+    der alte Pfad mit ``hop_length = SR`` erzeugte.
+
+    Gibt ``None`` zurueck, wenn keine verwertbaren Daten vorliegen; die
+    Aufrufer schreiben dann nichts und die bisherige Anzeige "nicht berechnet"
+    bleibt ehrlich.
+    """
+    if band_low is None or band_mid is None or band_high is None:
+        return None
+    try:
+        gesamt = (
+            np.asarray(band_low, dtype=np.float32)
+            + np.asarray(band_mid, dtype=np.float32)
+            + np.asarray(band_high, dtype=np.float32)
+        ) / 3.0
+    except (TypeError, ValueError):
+        return None
+
+    if gesamt.size == 0 or duration <= 0:
+        return None
+
+    sekunden = max(1, int(round(duration)))
+    if gesamt.size <= sekunden:
+        return [round(float(v), 4) for v in gesamt]
+
+    grenzen = np.linspace(0, gesamt.size, sekunden + 1, dtype=int)
+    werte = [
+        float(gesamt[start:ende].mean()) if ende > start else 0.0
+        for start, ende in zip(grenzen[:-1], grenzen[1:])
+    ]
+    return [round(v, 4) for v in werte]
+
+
 class FrequencyAnalyzer:
     """Rekordbox-Style Frequenzband-Analyse: Zerlegt Audio in Low/Mid/High Bänder.
 
@@ -1389,12 +1428,37 @@ class FrequencyAnalyzer:
         # Auf 4 Dezimalstellen runden für kompakte JSON-Speicherung
         # B-501: "bpm" und "beat_positions" entfernt — BPM/Beatgrid liefert
         # ausschliesslich BeatAnalysisService; Aufrufer nutzen .get()-Defaults.
+        # B-931: Energiekurve mitliefern (ein Wert je Sekunde).
+        #
+        # Bis 2026-08-31 schrieb sie ausschliesslich der alte AnalysisWorker
+        # (services/audio_service.py:183) als RMS ueber das rohe Signal. Seit
+        # ``audio.v2_default`` der Standard ist, laeuft dieser Pfad nicht mehr
+        # und ``audio_tracks.energy_curve`` blieb NULL — obwohl Stems-
+        # Workspace, Audio-Kachel und Story-Map sie erwarten und die Analyse
+        # sich als "fertig" meldet.
+        #
+        # Abgeleitet wird sie aus den bereits berechneten Baendern statt aus
+        # dem Rohsignal. Grund: bei Dateien ueber BLOCK_SEC laeuft
+        # ``_analyze_chunked`` und gibt das Signal blockweise wieder frei —
+        # ein ``y`` gibt es dort nicht, und ein zweiter Ladedurchgang waere
+        # bei langen Tracks teuer. Die Baender liegen in beiden Pfaden vor.
+        #
+        # Die Kurve ist damit eine normalisierte Huellkurve statt roher
+        # RMS-Werte. Fuer alle Leser ist das gleichwertig: der Energie-Plot
+        # skaliert selbst auf min/max (stems_workspace.py:59-72), die
+        # Mini-Wellenform ebenso.
+        energy_curve = _sekundenkurve_aus_baendern(
+            band_low_store, band_mid_store, band_high_store,
+            duration=duration,
+        )
+
         result = {
             "band_low": [round(float(v), 4) for v in band_low_store],
             "band_mid": [round(float(v), 4) for v in band_mid_store],
             "band_high": [round(float(v), 4) for v in band_high_store],
             "num_samples": store_samples,
             "duration": round(duration, 3),
+            "energy_curve": energy_curve,
         }
 
         if progress_cb:
@@ -1435,6 +1499,10 @@ class FrequencyAnalyzer:
                     if track.bpm is not None:
                         result["bpm"] = float(track.bpm)
                     track.duration = result["duration"]
+
+                    # B-931: Energiekurve mitschreiben — siehe analyze().
+                    if result.get("energy_curve"):
+                        track.energy_curve = result["energy_curve"]
 
                     # DB-07 Fix: Expliziter Query-Check gegen Duplikate
                     existing_wd = track.waveform_data or session.query(WaveformData).filter_by(
