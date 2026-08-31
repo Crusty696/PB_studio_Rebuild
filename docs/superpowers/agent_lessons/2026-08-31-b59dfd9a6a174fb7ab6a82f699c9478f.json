@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b59dfd9a6a174fb7ab6a82f699c9478f",
+  "recorded_at": "2026-08-31T10:32:22+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Ein Vault-Eintrag verlor mehrere Woerter, weil er ueber ein unquoted Shell-Heredoc geschrieben wurde",
+  "cause": "Fuer die Uhrzeit als Variable war das Heredoc ohne Quoting noetig; die Backticks um unlink, finally und .py hat die Shell daraufhin als Kommandosubstitution ausgefuehrt und die Woerter durch leere Ausgaben ersetzt",
+  "rule": "Texte mit Backticks, Dollarzeichen oder Klammern nie ueber ein unquoted Heredoc schreiben — Datei per Python schreiben oder Variablen vorher in den Text einsetzen und quoted Heredoc verwenden",
+  "applies_to": "Schreiben von Dokumentation aus der Shell"
+}
