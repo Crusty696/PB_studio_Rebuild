@@ -1631,16 +1631,49 @@ class MediaWorkspace(QWidget):
 
         task_manager = TaskManagerProxy()
 
-        # For video, most steps are part of the full pipeline
-        # Trigger the full pipeline worker
-        task_name = f"Video Pipeline: {title}"
-        task = task_manager.create_task(task_name, "Full Video Analysis Pipeline")
+        # B-935: Bis 2026-08-31 wurde ``step_key`` hier nie gelesen — jeder der
+        # neun Schritt-Knoepfe startete den kompletten Durchlauf. Ein
+        # "Wiederholen" auf einem einzelnen fehlgeschlagenen Schritt rechnete
+        # damit auch Szenen, Motion, Keyframes und Embeddings neu (im
+        # Erstlauf-Test rund 4,7 s je Clip).
+        #
+        # Die Pipeline kann keine einzelnen Schritte fahren, aber sie kennt
+        # Resume: ``force_full=False`` ueberspringt Schritte, die bereits
+        # ``done`` sind und ein echtes Artefakt haben (B-775). Fuer einen
+        # offenen oder fehlerhaften Schritt ist das genau das Gewuenschte.
+        #
+        # Ausnahme ist das bewusste Neurechnen eines bereits fertigen
+        # Schritts: dort wuerde Resume ihn ueberspringen und der Klick bliebe
+        # wirkungslos — deshalb laeuft dieser Fall weiter komplett.
+        schritt_status = ""
+        try:
+            from services import analysis_status_service
+            zustand = analysis_status_service.get_status("video", video_id)
+            eintrag = zustand.get(step_key) if zustand else None
+            schritt_status = getattr(eintrag, "status", "") or ""
+        except Exception as exc:  # noqa: BLE001 — Statusabfrage darf nie blockieren
+            import logging
+            logging.getLogger(__name__).debug(
+                "B-935: Status fuer %s nicht ermittelbar: %s", step_key, exc,
+            )
+
+        nur_offene_schritte = schritt_status != "done"
+
+        if nur_offene_schritte:
+            task_name = f"Video-Analyse (offene Schritte): {title}"
+            task_beschreibung = f"Setzt fort ab '{step_key}'"
+        else:
+            task_name = f"Video Pipeline: {title}"
+            task_beschreibung = "Full Video Analysis Pipeline"
+        task = task_manager.create_task(task_name, task_beschreibung)
 
         # AUDIT-FIXPLAN B6 (PIPE-013): 2-Tupel-Batch statt positionalem
         # video_id — nur so laedt run() den file_path aus der DB (Proxy-First).
         # Der alte Aufruf erzeugte (id, "", "") und lief nur ueber den
         # FileNotFoundError/TOCTOU-Fallback aufs Original.
-        worker = workers.VideoAnalysisPipelineWorker(batch=[(video_id, title)])
+        worker = workers.VideoAnalysisPipelineWorker(
+            batch=[(video_id, title)], force_full=not nur_offene_schritte,
+        )
         worker.task_id = task.task_id
         worker.progress.connect(
             lambda pct, msg: pb_window._console_append(f"[Video] {msg}"),
@@ -1663,7 +1696,18 @@ class MediaWorkspace(QWidget):
         )
 
         pb_window.worker_dispatcher._start_worker_thread(worker)
-        pb_window.console_text.append(f"[Video] Starting full pipeline for '{title}'...")
+        # B-935: ehrlich benennen, was laeuft — die Pipeline kann keinen
+        # einzelnen Schritt isoliert rechnen.
+        if nur_offene_schritte:
+            pb_window.console_text.append(
+                f"[Video] Setze Analyse fort ab '{step_key}' fuer '{title}' — "
+                f"fertige Schritte werden uebersprungen."
+            )
+        else:
+            pb_window.console_text.append(
+                f"[Video] '{step_key}' ist bereits fertig — rechne die komplette "
+                f"Pipeline fuer '{title}' neu."
+            )
 
     # ── Audio Detail Cards ─────────────────────────────────────
     def _update_audio_detail_cards(self, audio_track):

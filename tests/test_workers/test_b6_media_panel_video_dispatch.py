@@ -32,5 +32,9 @@ def test_media_workspace_dispatch_uses_two_tuple_batch():
     import ui.workspaces.media_workspace as mw
 
     src = inspect.getsource(mw.MediaWorkspace._dispatch_video_analysis)
-    assert "VideoAnalysisPipelineWorker(batch=[(video_id, title)])" in src
-    assert "VideoAnalysisPipelineWorker(video_id)" not in src
+    # B-935: Der Aufruf ist seit dem Resume-Fix mehrzeilig (force_full kam
+    # dazu). Geprueft wird deshalb die Absicht — 2-Tupel-Batch statt
+    # positionalem int — unabhaengig von Zeilenumbruechen.
+    kompakt = " ".join(src.split())
+    assert "VideoAnalysisPipelineWorker( batch=[(video_id, title)]" in kompakt         or "VideoAnalysisPipelineWorker(batch=[(video_id, title)]" in kompakt
+    assert "VideoAnalysisPipelineWorker(video_id)" not in kompakt
