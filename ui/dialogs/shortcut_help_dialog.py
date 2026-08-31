@@ -71,6 +71,41 @@ STATUS_PANEL_SHORTCUTS: list[tuple[str, str]] = [
     ("Analyse-Status aktualisieren", "F5 / Ctrl+R"),
 ]
 
+# Feedback nach einem Auto-Edit (ui/timeline.py:3693-3762).
+# Diese Tasten waren verdrahtet, aber in der gesamten Oberflaeche nirgends
+# genannt — der einzige sichtbare Bewertungs-Knopf sitzt im Tab "RL & Notes"
+# und laeuft ins Leere (B-927). Hier stehen die Tasten, die wirklich in die
+# Lernkette schreiben (FeedbackService -> mem_user_feedback_event ->
+# PatternAggregator -> mem_learned_pattern -> PacingScorer).
+#
+# Vorbedingungen laut Code, deshalb der Hinweis unter den Tabellen:
+#   * ``_active_pacing_run_id`` gesetzt — das passiert in
+#     ui/controllers/edit_workspace.py:805 nach jedem Auto-Edit
+#   * genau EIN Clip in der Timeline markiert
+#   * Timeline hat den Fokus
+BRAIN_FEEDBACK_SHORTCUTS: list[tuple[str, str]] = [
+    ("Clip passt perfekt",    "1"),
+    ("Clip passt",            "2"),
+    ("Clip passt nicht ganz", "3"),
+    ("Clip passt gar nicht",  "4"),
+]
+
+# A/R/S: ui/timeline.py:3738-3746 (verdict_map, ohne Shift).
+# Ratings: ui/timeline.py:3752-3761. Die 1-4 erreichen diese Stelle nur mit
+# Ctrl (sonst faengt sie die Clip-Bewertung oben ab), die 5 auch ohne.
+CUT_FEEDBACK_SHORTCUTS: list[tuple[str, str]] = [
+    ("Schnitt annehmen",      "A"),
+    ("Schnitt verwerfen",     "R"),
+    ("Schnitt überspringen",  "S"),
+    ("Schnitt bewerten 1–5",  "Ctrl+1 … Ctrl+5"),
+]
+
+FEEDBACK_HINT = (
+    "Gilt nach einem Auto-Edit, wenn genau ein Clip in der Timeline "
+    "markiert ist. Jede Bewertung wird unten in der Konsole bestätigt "
+    "und fließt in die Schnitt-Lernkette ein."
+)
+
 
 def _section_header(title: str) -> QLabel:
     lbl = QLabel(title.upper())
@@ -98,6 +133,15 @@ def _key_badge(text: str) -> QLabel:
 def _action_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(f"color: {T2}; background: transparent; font-size: 12px;")
+    return lbl
+
+
+def _hint_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet(
+        f"color: {T4}; background: transparent; font-size: 11px; padding-top: 2px;"
+    )
     return lbl
 
 
@@ -184,6 +228,19 @@ class ShortcutHelpDialog(QDialog):
         cols.addLayout(self._build_status_panel_section(), stretch=1)
 
         layout.addLayout(cols)
+
+        # ── Zweite Reihe: Feedback nach Auto-Edit ──
+        # Eigene Reihe statt vierter Spalte, sonst wird bei 560 px Dialog-
+        # Breite jede Spalte unlesbar schmal.
+        cols2 = QHBoxLayout()
+        cols2.setSpacing(20)
+        cols2.setAlignment(Qt.AlignmentFlag.AlignTop)
+        cols2.addLayout(self._build_brain_feedback_section(), stretch=1)
+        cols2.addLayout(self._build_cut_feedback_section(), stretch=1)
+        cols2.addStretch(1)
+        layout.addLayout(cols2)
+        layout.addWidget(_hint_label(FEEDBACK_HINT))
+
         layout.addStretch()
 
         # ── Footer ──
@@ -239,6 +296,22 @@ class ShortcutHelpDialog(QDialog):
         col.setAlignment(Qt.AlignmentFlag.AlignTop)
         col.addWidget(_section_header("Timeline / Edit"))
         col.addLayout(_build_shortcut_grid(rows, self))
+        return col
+
+    def _build_brain_feedback_section(self) -> QVBoxLayout:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.setAlignment(Qt.AlignmentFlag.AlignTop)
+        col.addWidget(_section_header("Clip bewerten"))
+        col.addLayout(_build_shortcut_grid(BRAIN_FEEDBACK_SHORTCUTS, self))
+        return col
+
+    def _build_cut_feedback_section(self) -> QVBoxLayout:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.setAlignment(Qt.AlignmentFlag.AlignTop)
+        col.addWidget(_section_header("Schnitt beurteilen"))
+        col.addLayout(_build_shortcut_grid(CUT_FEEDBACK_SHORTCUTS, self))
         return col
 
     def _build_status_panel_section(self) -> QVBoxLayout:
