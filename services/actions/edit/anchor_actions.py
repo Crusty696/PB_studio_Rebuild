@@ -64,20 +64,41 @@ def add_anchor(time_seconds: float, scene_id: str | None = None) -> dict:
 
             closest_entry = min(video_entries, key=_distance)
 
+            # B-930: ClipAnchor kennt weder ``anchor_time`` noch ``scene_id`` —
+            # die Spalten heissen ``time_offset``, ``label``, ``color``
+            # (database/models.py). Die alte Fassung warf deshalb bei JEDEM
+            # Aufruf einen TypeError, den der except-Block unten in eine
+            # Fehlermeldung verwandelte; ``clip_anchors`` blieb dauerhaft leer.
+            #
+            # ``time_offset`` ist relativ zum Clip-Start, nicht absolut:
+            # ui/timeline.py:1009 rechnet ``x_px = time_offset * PIXELS_PER_SECOND``
+            # und prueft gegen die Clipbreite. Die uebergebene Zeit ist eine
+            # Timeline-Zeit, also muss der Clip-Start abgezogen werden.
+            entry_start = (
+                float(closest_entry.start_time)
+                if closest_entry.start_time is not None else 0.0
+            )
             anchor = ClipAnchor(
                 timeline_entry_id=closest_entry.id,
-                anchor_time=time_seconds,
-                scene_id=scene_id or "",
+                time_offset=max(0.0, time_seconds - entry_start),
+                label=scene_id or None,
             )
             session.add(anchor)
             session.commit()
+            # B-930: ``_TrackedSession`` erbt SQLAlchemys Default
+            # ``expire_on_commit=True``. Nach dem commit ist ``closest_entry``
+            # abgelaufen, und der Zugriff unten liegt ausserhalb des
+            # with-Blocks — die Session ist dann zu. Ohne diese Zeile endet
+            # ein erfolgreich geschriebener Anker in einem
+            # DetachedInstanceError und damit in einer Fehlermeldung.
+            entry_id = closest_entry.id
 
         return {
             "status": "ok",
             "action": "add_anchor",
             "anchor_time": time_seconds,
             "scene_id": scene_id or "",
-            "timeline_entry_id": closest_entry.id,
+            "timeline_entry_id": entry_id,
             "message": f"Sync-Anker bei {time_seconds:.2f}s hinzugefügt"
                        + (f" (Szene: {scene_id})" if scene_id else "") + ".",
         }
