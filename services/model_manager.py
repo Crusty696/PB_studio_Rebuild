@@ -952,6 +952,22 @@ class ModelManager:
             finally:
                 self._resume_ollama_if_paused()
 
+    def _touch_last_used(self, model_id: str) -> None:
+        """Traegt die Nutzung eines Modells in die Registry ein (best-effort).
+
+        AUD-11 hatte das nur in ``ensure_loaded``/``load_ollama`` gemacht. Die
+        Video-Analyse ruft ``load_siglip()`` aber direkt, weshalb
+        ``model_registry.last_used_at`` fuer SigLIP dauerhaft NULL blieb: die
+        Spalte "Zuletzt benutzt" zeigte immer "Nie" und
+        ``get_cleanup_candidates`` schlug jedes Modell zum Loeschen vor.
+        """
+        try:
+            from services.model_lifecycle_service import get_model_lifecycle_service
+            get_model_lifecycle_service().touch_last_used(model_id)
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.warning(
+                "Updating last_used_at in model registry for '%s': %s", model_id, e)
+
     def load_siglip(self, model_id: str = SIGLIP_DEFAULT_MODEL) -> tuple:
         """Lädt SigLIP Vision+Text Encoder für 1152-dim Embeddings.
 
@@ -964,6 +980,7 @@ class ModelManager:
             self._ensure_cuda_or_fallback(f"SigLIP '{model_id}' laden")
 
             if self._current_model_id == model_id and self._model_type == "siglip":
+                self._touch_last_used(model_id)
                 return self._model, self._extras.get("processor")
 
             # Ollama pausieren, bevor GPU belegt wird
@@ -1037,6 +1054,7 @@ class ModelManager:
                 self._model_type = "siglip"
                 logger.info("ModelManager: SigLIP '%s' geladen.", model_id)
 
+                self._touch_last_used(model_id)
                 return self._model, self._extras["processor"]
 
             except Exception:
