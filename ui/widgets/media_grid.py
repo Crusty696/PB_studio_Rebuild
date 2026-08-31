@@ -924,6 +924,12 @@ class MediaPoolGrid(QWidget):
                 file_path=data.get("file_path", ""),
                 bpm=data.get("bpm"),
                 key=data.get("key"),
+                # B-938: mood/genre wurden hier nie durchgereicht, obwohl der
+                # Konstruktor sie kennt, die Analyse sie fuellt und Filter und
+                # Sortierung sie lesen. Die Mood-Anzeige der Karte (:568) war
+                # damit unerreichbar.
+                mood=data.get("mood"),
+                genre=data.get("genre"),
                 energy_data=energy,
             )
         card.clicked.connect(self._on_card_clicked)
