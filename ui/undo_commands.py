@@ -581,11 +581,16 @@ class ApplyAutoEditCommand(QUndoCommand):
         timeline: InteractiveTimeline,
         project_id: int,
         new_segments: list[dict],
+        audio_id: int | None = None,
     ):
         super().__init__(f"Auto-Edit ({len(new_segments)} Segmente)")
         self._timeline = timeline
         self._project_id = project_id
         self._new_segments = new_segments
+        # B-921: Tonspur des Laufs. redo() legt sie mit auf die Timeline,
+        # undo() nimmt sie nur zurueck, wenn vorher keine da war.
+        self._audio_id = audio_id
+        self._audio_track_was_present: bool | None = None
         self._old_entries: list[dict] | None = None
 
     def redo(self):
@@ -619,6 +624,14 @@ class ApplyAutoEditCommand(QUndoCommand):
                     # RemoveClipCommand (dort bereits gefixt).
                     "locked": e.locked,
                 })
+            # B-921: festhalten, ob schon eine Tonspur lag — nur eine vom
+            # Auto-Edit neu angelegte darf undo() wieder entfernen.
+            self._audio_track_was_present = (
+                session.query(TimelineEntry)
+                .filter_by(project_id=self._project_id, track="audio")
+                .first()
+                is not None
+            )
             return backup
 
         old_entries_backup = _run_timeline_write(
@@ -628,7 +641,9 @@ class ApplyAutoEditCommand(QUndoCommand):
 
         from services.timeline_service import apply_auto_edit_segments
         apply_started_at = time.perf_counter()
-        apply_auto_edit_segments(self._new_segments, self._project_id)
+        apply_auto_edit_segments(
+            self._new_segments, self._project_id, audio_id=self._audio_id
+        )
         logger.info(
             "B-598 ApplyAutoEditCommand.redo apply_auto_edit_segments project_id=%s segments=%d duration_ms=%.1f",
             self._project_id,
@@ -655,6 +670,13 @@ class ApplyAutoEditCommand(QUndoCommand):
             ).delete()
             for snap in self._old_entries:
                 session.add(TimelineEntry(**snap))
+            # B-921: Tonspur nur zuruecknehmen, wenn dieser Lauf sie angelegt
+            # hat. Eine schon vorher vorhandene Spur bleibt unangetastet.
+            if self._audio_id is not None and self._audio_track_was_present is False:
+                session.query(TimelineEntry).filter_by(
+                    project_id=self._project_id, track="audio",
+                    media_id=self._audio_id,
+                ).delete()
 
         _run_timeline_write(_operation, "ApplyAutoEditCommand.undo")
         self._timeline.load_from_db(self._project_id)

@@ -222,7 +222,8 @@ def plan_video_timeline_add(
 
 
 def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None,
-                             max_retries: int = 5) -> int:
+                             max_retries: int = 5,
+                             audio_id: int | None = None) -> int:
     """Ersetzt alle Video-Timeline-Eintraege durch neue Auto-Edit Segmente.
 
     Atomar: DELETE + INSERT in einer einzigen Transaktion.
@@ -230,7 +231,12 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     Pool-Connections anderer Worker zu umgehen.
 
     M-12 Fix: Thread-safe with lock to prevent data races on concurrent calls.
-    Returns: Anzahl der eingefuegten Eintraege.
+
+    B-921: Ist ``audio_id`` gesetzt und liegt noch keine Tonspur auf der
+    Timeline, wird sie mit angelegt. Der Auto-Edit schneidet auf diese Musik —
+    ohne sie exportiert das Projekt ein stummes Video.
+
+    Returns: Anzahl der eingefuegten Eintraege (Video plus ggf. Tonspur).
     """
     import time as _time
     from sqlalchemy.exc import OperationalError
@@ -246,7 +252,7 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
     for attempt in range(max_retries):
         with _timeline_write_lock:
             try:
-                inserted = _do_apply_segments(segments, project_id)
+                inserted = _do_apply_segments(segments, project_id, audio_id)
                 repair_timeline_integrity(project_id)
                 # NEUBAU-VOLLINTEGRATION T2.3 (USE-009): automatischer
                 # Snapshot nach jedem Auto-Edit-Apply — Timeline ist damit
@@ -283,7 +289,64 @@ def apply_auto_edit_segments(segments: list[dict], project_id: int | None = None
         f"apply_auto_edit_segments: {max_retries} Versuche erschoepft (DB locked)")
 
 
-def _do_apply_segments(segments: list[dict], project_id: int) -> int:
+def _ensure_audio_track_entry(session, project_id: int, audio_id: int) -> bool:
+    """Legt die Tonspur des Auto-Edits auf die Timeline, falls sie fehlt.
+
+    B-921. Gibt ``True`` zurueck, wenn ein Eintrag angelegt wurde.
+
+    Bewusst zurueckhaltend: Liegt bereits irgendeine Audiospur auf der
+    Timeline, bleibt sie unberuehrt — eine vom Nutzer gesetzte Spur (auch eine
+    andere) darf ein Auto-Edit nicht ersetzen. Fehlt die Laenge des Tracks,
+    wird sie ueber denselben Helfer nachgemessen, den auch der manuelle Weg
+    nutzt (B-806).
+    """
+    from database import AudioTrack
+
+    existing = (
+        session.query(TimelineEntry)
+        .filter_by(project_id=project_id, track="audio")
+        .first()
+    )
+    if existing is not None:
+        return False
+
+    track = session.get(AudioTrack, audio_id)
+    if track is None:
+        logger.warning(
+            "B-921: AudioTrack %s nicht gefunden — Timeline bleibt ohne Tonspur.",
+            audio_id,
+        )
+        return False
+
+    duration = float(track.duration) if track.duration else 0.0
+    if duration <= 0.0:
+        duration = float(
+            _measure_and_store_audio_duration(session, audio_id, track.file_path) or 0.0
+        )
+    if duration <= 0.0:
+        logger.warning(
+            "B-921: Laenge von AudioTrack %s unbekannt — Timeline bleibt ohne "
+            "Tonspur.", audio_id,
+        )
+        return False
+
+    session.add(TimelineEntry(
+        project_id=project_id,
+        track="audio",
+        media_id=audio_id,
+        start_time=0.0,
+        end_time=round(duration, 4),
+        lane=0,
+    ))
+    logger.info(
+        "B-921: Tonspur des Auto-Edits auf die Timeline gelegt "
+        "(audio_id=%s, %.3fs).", audio_id, duration,
+    )
+    return True
+
+
+def _do_apply_segments(segments: list[dict], project_id: int,
+                       audio_id: int | None = None) -> int:
     """B-079: nutzt jetzt den kanonischen ``nullpool_session()`` Helper
     statt einer eigenen Engine-Konstruktion. Vorher fehlte hier
     ``PRAGMA foreign_keys=ON`` und der ``busy_timeout`` war auf 10s
@@ -429,6 +492,19 @@ def _do_apply_segments(segments: list[dict], project_id: int) -> int:
                 )
                 session.add(entry)
                 inserted += 1
+
+        # B-921: Der Auto-Edit schneidet Video auf Musik — dann gehoert diese
+        # Musik auch auf die Timeline. Bis 2026-08-31 legte er ausschliesslich
+        # Video-Segmente an; die Tonspur kam nur ueber den separaten Button
+        # "Zur Timeline hinzufuegen" im MATERIAL-Tab dorthin. Wer dem
+        # gefuehrten Ablauf folgte, exportierte deshalb ein stummes Video,
+        # ohne dass irgendwo gewarnt wurde.
+        if audio_id is not None:
+            audio_added = _ensure_audio_track_entry(session, project_id, audio_id)
+            if audio_added:
+                inserted += 1
+            session.commit()
+
         # SCHNITT-Redesign 2026-05-09 (Phase 06 / Task 6.2): expliziter
         # commit damit der Lock-aware-Path auch in Test-Sessions
         # (in-memory + plain Session) persistiert. ``nullpool_session``

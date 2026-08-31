@@ -31,7 +31,7 @@ def _stub_apply_deps(monkeypatch):
 def test_backoff_is_short_and_outside_lock(monkeypatch):
     calls = {"n": 0}
 
-    def _fake_apply(segments, project_id):
+    def _fake_apply(segments, project_id, audio_id=None):
         calls["n"] += 1
         if calls["n"] < 3:
             raise _locked_error()
@@ -61,7 +61,7 @@ def test_backoff_is_short_and_outside_lock(monkeypatch):
 
 
 def test_persistent_lock_raises_after_retries(monkeypatch):
-    def _always_locked(segments, project_id):
+    def _always_locked(segments, project_id, audio_id=None):
         raise _locked_error()
 
     monkeypatch.setattr(ts, "_do_apply_segments", _always_locked)
@@ -74,7 +74,7 @@ def test_persistent_lock_raises_after_retries(monkeypatch):
 def test_non_lock_operationalerror_not_retried(monkeypatch):
     calls = {"n": 0}
 
-    def _other_error(segments, project_id):
+    def _other_error(segments, project_id, audio_id=None):
         calls["n"] += 1
         raise OperationalError("X", {}, Exception("no such table: foo"))
 

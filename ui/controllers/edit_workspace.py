@@ -713,10 +713,16 @@ class EditWorkspaceController(PBComponent):
 
         from ui.undo_commands import ApplyAutoEditCommand
         project_id = get_active_project_id()
+        # B-921: Der Auto-Edit schneidet auf genau diesen Track — er gehoert
+        # mit auf die Timeline, sonst exportiert das Projekt ein stummes Video.
+        _audio_id = audio_id_override
+        if _audio_id is None:
+            _audio_id = self.window.audio_combo.currentData()
         cmd = ApplyAutoEditCommand(
             timeline=self.window.timeline_view,
             project_id=project_id,
             new_segments=segments,
+            audio_id=int(_audio_id) if _audio_id is not None else None,
         )
         self.window.timeline_view.undo_stack.push(cmd)
 
