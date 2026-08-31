@@ -971,14 +971,23 @@ class WorkspaceSetupController(PBComponent):
                 else "Video-Pipeline braucht mindestens einen importierten Clip."
             )
 
+        # B-932 (Userentscheidung 2026-08-31): Beide Knoepfe gehoeren zum
+        # CONVERT-Workspace, der nie in den workspace_stack eingehaengt wird
+        # (siehe weiter unten, dort stehen nur Dashboard, Material, Schnitt,
+        # Deliver). Der ffmpeg-Batch laeuft zwar, aber Fortschrittsbalken,
+        # Abschluss- und Fehlermeldung landen in Widgets ohne sichtbares
+        # Elternlayout — der Nutzer sieht nichts davon. Bis der Workspace
+        # eingehaengt oder der Weg ersetzt ist, bleiben sie deshalb
+        # ausgegraut, mit dem Grund im Tooltip statt einer stillen Attrappe.
         for attr in ("btn_standardize_all", "btn_apply_effects"):
             btn = getattr(self.window, attr, None)
             if btn is not None:
-                btn.setEnabled(video_ready)
+                btn.setEnabled(False)
                 btn.setToolTip(
-                    "Videoquellen standardisieren oder Clip-Effekte anwenden."
-                    if video_ready
-                    else "Convert ist erst mit importiertem Video sinnvoll."
+                    "Vorerst deaktiviert: Der CONVERT-Bereich ist derzeit nicht "
+                    "in die Oberflaeche eingebunden. Die Konvertierung wuerde "
+                    "zwar laufen, aber ohne sichtbaren Fortschritt und ohne "
+                    "Fehlermeldung (B-932)."
                 )
 
         export_btn = getattr(self.window, "btn_export", None)
