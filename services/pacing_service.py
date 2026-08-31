@@ -1143,6 +1143,33 @@ def _auto_edit_phase3_inner(
         except (TypeError, ValueError):
             logger.warning(
                 "B-941: max_clip_duration %r unbrauchbar, ignoriert", _preset_max)
+
+    # B-942: Die Obergrenze oben ist die Dauer des LAENGSTEN Clips. Zugewiesen
+    # wird aber irgendein Clip — ist der kuerzer als das Segment, kappt
+    # ``source_end = min(source_start + seg_duration, vid_duration)`` die
+    # Quelle, waehrend der Timeline-Slot seine volle Laenge behaelt. Es
+    # entsteht eine Luecke, die die Reparatur in apply hinterher schliesst.
+    #
+    # Solange die Segmente kurz waren (im Schnitt 4.3 s bei Clips ab 7.8 s),
+    # fiel das nie auf. Mit einer Preset-Untergrenze werden sie laenger und
+    # das Problem wird sichtbar: erster Ambient-Lauf 2026-08-31 09:40 ->
+    # 38 geschlossene Luecken und 6 Ueberlappungen, vorher immer 0.
+    #
+    # Sobald ein Preset die Laengen steuert, wird die Obergrenze deshalb auf
+    # den KUERZESTEN verfuegbaren Clip gesenkt. Damit passt jedes Segment in
+    # jeden Clip, egal welcher gewaehlt wird. Ohne Preset bleibt alles wie
+    # bisher — die alte Grenze ist unangetastet.
+    if getattr(settings, "min_clip_duration", None) is not None:
+        _kuerzester = min(
+            (video_info[v].get("duration", 0.0) for v in video_info), default=0.0)
+        if _kuerzester > 0 and (_max_clip_dur <= 0 or _kuerzester < _max_clip_dur):
+            logger.info(
+                "B-942: Segment-Obergrenze auf den kuerzesten Clip gesenkt "
+                "(%.2fs statt %.2fs) — verhindert gekappte Quellen und "
+                "geschlossene Luecken.",
+                _kuerzester, _max_clip_dur,
+            )
+            _max_clip_dur = _kuerzester
     cut_beats = finalize_cut_beats(
         cut_beats, beats, downbeats, sections, total_duration,
         max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
@@ -1196,6 +1223,22 @@ def _auto_edit_phase3_inner(
     # damit die SCHNITT-Garantie "Ende == Audio-Dauer" erhalten bleibt.
     cut_beats = _enforce_min_cut_distance(
         cut_beats, getattr(settings, "min_clip_duration", None))
+
+    # B-942: Die Mindestdistanz entfernt Cuts — dabei wachsen die Segmente
+    # dazwischen wieder ueber die Obergrenze. Beim ersten Ambient-Durchstich
+    # blieben so zwei Segmente mit 10.91 s und 10.50 s stehen, obwohl kein
+    # Clip laenger als 10.00 s ist; ihre Quelle wurde gekappt und die
+    # Reparatur schloss die Luecke.
+    #
+    # Die Obergrenze wird deshalb nach dem Ausduennen erneut angewandt. Das
+    # Teilen kann die Mindestlaenge nicht unterlaufen: liegt der Rest unter
+    # einer Sekunde, teilt die Funktion mittig statt am Limit.
+    if getattr(settings, "min_clip_duration", None) is not None:
+        cut_beats = _enforce_max_segment_duration(
+            cut_beats,
+            beats,
+            _max_clip_dur if _max_clip_dur > 1.0 else None,
+        )
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:

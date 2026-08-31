@@ -162,3 +162,42 @@ def test_ambient_und_cinematic_unterscheiden_sich_jetzt(test_engine):
         cuts, lade_preset_felder("Cinematic")["min_clip_duration"])
 
     assert ambient != cinematic
+
+
+# ── B-942: Nachwirkung der Untergrenze auf die Obergrenze ─────────────────
+
+def test_b942_ausduennen_darf_die_obergrenze_nicht_sprengen():
+    """Regression aus dem ersten Live-Lauf von B-941.
+
+    `_enforce_min_cut_distance` entfernt Cuts — die Segmente dazwischen
+    wachsen dabei ueber die Obergrenze. Im Ambient-Lauf am 2026-08-31 blieben
+    so zwei Segmente mit 10.91 s und 10.50 s stehen, obwohl kein Clip laenger
+    als 10.00 s ist. Ihre Quelle wurde gekappt, und die Timeline-Reparatur
+    schloss 38 Luecken und erzeugte 6 Ueberlappungen.
+    """
+    from services.pacing_edit_helpers import _enforce_max_segment_duration
+
+    # Vier dicht liegende Cuts am Anfang: die Mindestlaenge 4 s wirft drei
+    # davon weg und laesst ein 9-Sekunden-Segment zurueck.
+    cuts = [0.0, 1.0, 2.0, 3.0, 9.0, 16.0]
+    beats = [float(i) * 0.5 for i in range(40)]
+
+    ausgeduennt = _enforce_min_cut_distance(cuts, 4.0)
+    laengen_vorher = [b - a for a, b in zip(ausgeduennt, ausgeduennt[1:])]
+    assert max(laengen_vorher) > 7.0, "Aufbau trifft den Fall nicht mehr"
+
+    danach = _enforce_max_segment_duration(ausgeduennt, beats, 7.0)
+    laengen = [b - a for a, b in zip(danach, danach[1:])]
+
+    assert max(laengen) <= 7.05
+
+
+def test_b942_teilen_unterlaeuft_die_mindestlaenge_nicht():
+    """Beim Teilen darf kein Schnipsel unter der Mindestlaenge entstehen."""
+    from services.pacing_edit_helpers import _enforce_max_segment_duration
+
+    beats = [float(i) * 0.5 for i in range(40)]
+    geteilt = _enforce_max_segment_duration([0.0, 8.5], beats, 7.79)
+    laengen = [b - a for a, b in zip(geteilt, geteilt[1:])]
+
+    assert min(laengen) >= 1.0, f"zu kurzer Rest: {laengen}"
