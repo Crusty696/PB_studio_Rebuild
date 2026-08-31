@@ -208,3 +208,45 @@ def test_werkzeug_beansprucht_kein_urteil_ueber_richtigkeit():
 
     assert "nicht, **ob es das" in modul.__doc__
     assert "B-939" in modul.__doc__
+
+
+# ── Verfeinerungen aus der Bewertung der ersten Ergebnisse ────────────────
+
+def test_property_gilt_nicht_als_tote_methode():
+    """Eine @property wird als ".name" gelesen, nie als ".name(".
+
+    Im ersten Lauf meldete der Pruefer 14 tote Methoden, davon waren 6
+    Properties (solo_btn, waveform, zoom_slider, ...) — reines Rauschen.
+    """
+    werte = pruefer_methoden()
+
+    for verdaechtig in ("StemTrackWidget.solo_btn", "StemTrackWidget.waveform",
+                        "TransportBar.zoom_slider", "TransportBar.zoom_label"):
+        assert not any(verdaechtig in d for d in werte["details"]), verdaechtig
+
+
+def test_nur_von_tests_benutzte_methoden_stehen_getrennt():
+    """Eine Methode, die nur ein Test ruft, ist eine Pruefschnittstelle.
+
+    Das ist etwas anderes als toter Code und gehoert nicht in dieselbe Liste.
+    """
+    werte = pruefer_methoden()
+
+    assert "nur_von_tests_benutzt" in werte
+    assert werte["nur_von_tests_benutzt"] == len(werte["details_nur_tests"])
+    # rendered_row_count existiert ausschliesslich fuer Tests.
+    assert any("rendered_row_count" in d for d in werte["details_nur_tests"])
+    assert not any("rendered_row_count" in d for d in werte["details"])
+
+
+def test_geschriebene_spalte_ohne_leser_steht_getrennt():
+    """AgentFeedback.ai_response wird bei jedem Feedback gefuellt und nie gelesen.
+
+    Das ist Datensammlung ohne Auswertung — ein anderer Befund als eine Spalte,
+    die niemand anfasst.
+    """
+    werte = pruefer_spalten()
+
+    assert werte["geschrieben_aber_nie_gelesen"] == len(werte["details_nur_geschrieben"])
+    assert any("ai_response" in d for d in werte["details_nur_geschrieben"])
+    assert not any("ai_response" in d for d in werte["details"])

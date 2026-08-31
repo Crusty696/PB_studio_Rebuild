@@ -72,6 +72,17 @@ def _py_dateien(*unterordner: str) -> list[Path]:
     return sorted(treffer)
 
 
+def _testquelltext() -> str:
+    """Alles unter tests/ — als eigener Topf, nicht mit dem Produktivcode."""
+    wurzel = REPO_ROOT / "tests"
+    if not wurzel.is_dir():
+        return ""
+    return "\n".join(
+        p.read_text(encoding="utf-8", errors="ignore")
+        for p in sorted(wurzel.rglob("*.py"))
+    )
+
+
 def _quelltext_gesamt(*unterordner: str) -> str:
     return "\n".join(
         p.read_text(encoding="utf-8", errors="ignore") for p in _py_dateien(*unterordner)
@@ -288,17 +299,33 @@ def pruefer_spalten() -> dict:
     verbrauch = verbrauch.replace(text, "")  # models.py selbst ausklammern
 
     ohne_leser: list[str] = []
+    nur_geschrieben: list[str] = []
+
     for tabelle, spalte in spalten:
-        if spalte in ("id",):
+        if spalte == "id":
             continue
-        if re.search(rf"[.\"']{re.escape(spalte)}\b", verbrauch):
+        gefunden = re.escape(spalte)
+        # Gelesen: als Attribut oder Schluesselname (obj.spalte, "spalte")
+        wird_gelesen = re.search(r"[.\"']" + gefunden + r"\b", verbrauch)
+        # Geschrieben: als Schluesselwort-Argument beim Anlegen (spalte=...)
+        # Das ist der Fall AgentFeedback.ai_response — Daten werden gesammelt
+        # und nie ausgewertet. Ohne diese Trennung sieht das aus wie eine
+        # unbenutzte Spalte, obwohl bei jedem Feedback hineingeschrieben wird.
+        wird_geschrieben = re.search(r"\b" + gefunden + r"\s*=", verbrauch)
+
+        if wird_gelesen:
             continue
-        ohne_leser.append(f"{tabelle}.{spalte}")
+        if wird_geschrieben:
+            nur_geschrieben.append(f"{tabelle}.{spalte}")
+        else:
+            ohne_leser.append(f"{tabelle}.{spalte}")
 
     return {
         "spalten_gesamt": len(spalten),
         "ohne_leser": len(ohne_leser),
+        "geschrieben_aber_nie_gelesen": len(nur_geschrieben),
         "details": sorted(ohne_leser),
+        "details_nur_geschrieben": sorted(nur_geschrieben),
     }
 
 
@@ -354,8 +381,14 @@ def pruefer_methoden() -> dict:
     """
     dateien = _py_dateien("ui/widgets")
     gesamtquelle = _quelltext_gesamt("services", "ui", "workers", "agents", "main.py")
+    # Tests getrennt halten: eine Methode, die nur ein Test ruft, ist keine
+    # tote Methode, sondern eine Pruefschnittstelle. Ohne die Trennung
+    # standen vier solche Faelle faelschlich in derselben Liste wie echter
+    # toter Code.
+    testquelle = _testquelltext()
 
     ohne_aufrufer: list[str] = []
+    nur_tests: list[str] = []
     gesamt = 0
 
     for pfad in dateien:
@@ -373,17 +406,38 @@ def pruefer_methoden() -> dict:
                 if name.startswith("_") or name in _NIE_TOT:
                     continue
                 gesamt += 1
-                # Aufrufe der Form ".name(" ausserhalb der Definition selbst
-                treffer = len(re.findall(rf"\.{re.escape(name)}\s*\(", gesamtquelle))
-                # Verbindungen der Form ".connect(x.name)"
-                treffer += len(re.findall(rf"connect\([^)]*\.{re.escape(name)}\b", gesamtquelle))
+
+                # Eine @property wird als ".name" gelesen, nie als ".name(".
+                # Ohne diese Unterscheidung meldet der Pruefer jede Property
+                # als tot — im ersten Lauf waren 7 der 14 Treffer genau das.
+                dekoratoren = {
+                    d.id if isinstance(d, ast.Name) else getattr(d, "attr", "")
+                    for d in element.decorator_list
+                }
+                ist_property = bool(
+                    dekoratoren & {"property", "cached_property", "setter"})
+
+                if ist_property:
+                    muster = r"\." + re.escape(name) + r"\b(?!\s*\()"
+                else:
+                    muster = r"\." + re.escape(name) + r"\s*\("
+                treffer = len(re.findall(muster, gesamtquelle))
+                treffer += len(re.findall(
+                    r"connect\([^)]*\." + re.escape(name) + r"\b",
+                    gesamtquelle))
                 if treffer == 0:
-                    ohne_aufrufer.append(f"{pfad.relative_to(REPO_ROOT)}::{knoten.name}.{name}")
+                    eintrag = f"{pfad.relative_to(REPO_ROOT)}::{knoten.name}.{name}"
+                    if re.search(muster, testquelle):
+                        nur_tests.append(eintrag)
+                    else:
+                        ohne_aufrufer.append(eintrag)
 
     return {
         "methoden_geprueft": gesamt,
         "ohne_aufrufer": len(ohne_aufrufer),
+        "nur_von_tests_benutzt": len(nur_tests),
         "details": sorted(ohne_aufrufer),
+        "details_nur_tests": sorted(nur_tests),
     }
 
 
