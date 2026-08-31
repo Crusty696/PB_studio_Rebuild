@@ -50,7 +50,10 @@ def test_touch_last_used_ruft_die_registry():
 
     class _FakeService:
         def touch_last_used(self, model_id):
+            # B-954: der echte Dienst meldet zurueck, ob geschrieben wurde —
+            # die Drosselung merkt sich nur Erfolge.
             aufrufe.append(model_id)
+            return True
 
     import services.model_lifecycle_service as mls
     alt = mls.get_model_lifecycle_service
@@ -109,7 +112,10 @@ def test_wiederholte_cache_hits_schreiben_nur_einmal(monkeypatch):
 
     class _FakeService:
         def touch_last_used(self, model_id):
+            # B-954: der echte Dienst meldet zurueck, ob geschrieben wurde —
+            # die Drosselung merkt sich nur Erfolge.
             aufrufe.append(model_id)
+            return True
 
     import services.model_lifecycle_service as mls
     monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
@@ -129,7 +135,10 @@ def test_verschiedene_modelle_werden_getrennt_gezaehlt(monkeypatch):
 
     class _FakeService:
         def touch_last_used(self, model_id):
+            # B-954: der echte Dienst meldet zurueck, ob geschrieben wurde —
+            # die Drosselung merkt sich nur Erfolge.
             aufrufe.append(model_id)
+            return True
 
     import services.model_lifecycle_service as mls
     monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
@@ -148,7 +157,10 @@ def test_abgelaufene_drosselung_schreibt_wieder(monkeypatch):
 
     class _FakeService:
         def touch_last_used(self, model_id):
+            # B-954: der echte Dienst meldet zurueck, ob geschrieben wurde —
+            # die Drosselung merkt sich nur Erfolge.
             aufrufe.append(model_id)
+            return True
 
     import services.model_lifecycle_service as mls
     monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
