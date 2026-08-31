@@ -54,6 +54,22 @@ class _ProductionInfoWorker(BaseWorker):
 class ExportController(PBComponent):
     """Export / Deliver methods for PBWindow."""
 
+    def _set_deliver_status(self, text: str) -> None:
+        """Schreibt in die Statusleiste des DELIVER-Bereichs.
+
+        B-937: ``StatusStrip.set_status`` hatte keinen einzigen Aufrufer. Der
+        Streifen zeigte deshalb dauerhaft "Export bereit, sobald eine Timeline
+        vorhanden ist." — auch waehrend eines laufenden Exports, nach Erfolg
+        und nach Fehlschlag. Das faellt umso schwerer ins Gewicht, weil
+        ``export_log`` im PROTOKOLL-Tab haengt, der derzeit gar nicht sichtbar
+        ist (B-933): die Statusleiste ist die einzige Rueckmeldung, die den
+        Nutzer erreicht.
+        """
+        ws = getattr(self.window, "_deliver_ws", None)
+        strip = getattr(ws, "deliver_status", None)
+        if strip is not None:
+            strip.set_status(text)
+
     def _refresh_production_info(self):
         """Startet den async Refresh der Produktions-Infos (nicht-blockierend).
 
@@ -150,6 +166,7 @@ class ExportController(PBComponent):
         summary = get_timeline_summary(get_active_project_id())
         if summary["total_entries"] == 0:
             self.window.export_log.append("[Fehler] Keine Clips auf der Timeline!")
+            self._set_deliver_status("Export nicht moeglich: keine Clips auf der Timeline.")
             return
 
         preset_key = self._apply_export_preset()
@@ -169,6 +186,9 @@ class ExportController(PBComponent):
         self.window.export_log.append(
             f"[Export] Starte Export: {output_name} ({resolution} @ {fps}fps, "
             f"Preset: {preset_key})"
+        )
+        self._set_deliver_status(
+            f"Export laeuft: {output_name} ({resolution} @ {fps}fps, Preset: {preset_key})"
         )
 
         # B-580: Warnungen dieses Laufs sammeln (pro Export zuruecksetzen).
@@ -194,6 +214,7 @@ class ExportController(PBComponent):
         self.window.export_progress.setRange(0, 100)
         self.window.export_progress.setValue(pct)
         self.window.export_log.append(f"[Export] {message} ({pct}%)")
+        self._set_deliver_status(f"Export {pct}%: {message}")
 
     def _on_export_warning(self, message: str):
         """B-580: Export laeuft weiter, der User erfaehrt es aber.
@@ -217,6 +238,7 @@ class ExportController(PBComponent):
                 return
             if task_id:
                 task_manager.finish_task(task_id, "error", "Leerer Export-Pfad")
+            self._set_deliver_status("Export fehlgeschlagen: leerer Ausgabepfad.")
             return
         self.window.export_log.append(f"[Export] FERTIG: {output_path}")
         self.window.console_text.append(f"[Export] Video exportiert: {output_path}")
@@ -226,6 +248,10 @@ class ExportController(PBComponent):
             self.window.status_bar.showMessage(
                 f"Export fertig MIT WARNUNGEN: {output_path}"
             )
+            self._set_deliver_status(
+                f"Export fertig, aber unvollstaendig ({len(self._export_warnings)} "
+                f"Warnung(en)): {output_path}"
+            )
             QMessageBox.warning(
                 self.window,
                 "Export mit Materialverlust abgeschlossen",
@@ -234,6 +260,7 @@ class ExportController(PBComponent):
             )
         else:
             self.window.status_bar.showMessage(f"Export fertig: {output_path}")
+            self._set_deliver_status(f"Export fertig: {output_path}")
         if task_id:
             task_manager.finish_task(task_id, "finished", output_path)
 
@@ -242,6 +269,7 @@ class ExportController(PBComponent):
         self.window.btn_export.setText("Video exportieren")
         self.window.export_progress.setVisible(False)
         self.window.export_log.append(f"[FEHLER] Export fehlgeschlagen: {error_msg}")
+        self._set_deliver_status(f"Export fehlgeschlagen: {error_msg}")
         self.window.console_text.append(f"[Fehler] Export: {error_msg}")
         if task_id:
             task_manager.finish_task(task_id, "error", error_msg)
@@ -251,6 +279,7 @@ class ExportController(PBComponent):
         summary = get_timeline_summary(get_active_project_id())
         if summary["total_entries"] == 0:
             self.window.export_log.append("[Preview] Keine Clips auf der Timeline!")
+            self._set_deliver_status("Vorschau nicht moeglich: keine Clips auf der Timeline.")
             return
 
         resolution = self.window.resolution_combo.currentText()
@@ -263,6 +292,9 @@ class ExportController(PBComponent):
         self.window.export_progress.setRange(0, 0)
         self.window.export_log.append(
             f"[Preview] Starte Quick-Preview (10s) — {resolution} @ {fps}fps"
+        )
+        self._set_deliver_status(
+            f"Vorschau wird gerendert (10s) — {resolution} @ {fps}fps"
         )
 
         worker = PreviewExportWorker(
@@ -279,6 +311,7 @@ class ExportController(PBComponent):
     def _on_preview_progress(self, pct: int, message: str):
         self.window.export_progress.setRange(0, 100)
         self.window.export_progress.setValue(pct)
+        self._set_deliver_status(f"Vorschau {pct}%: {message}")
 
     def _on_preview_finished(self, preview_path: str):
         self.window.btn_preview.setEnabled(True)
@@ -287,10 +320,12 @@ class ExportController(PBComponent):
 
         if not preview_path:
             self.window.export_log.append("[Preview] Vorschau fehlgeschlagen (leerer Pfad)")
+            self._set_deliver_status("Vorschau fehlgeschlagen: leerer Ausgabepfad.")
             return
 
         self.window.export_log.append(f"[Preview] Vorschau fertig: {preview_path}")
         self.window.console_text.append(f"[Preview] Vorschau gerendert: {preview_path}")
+        self._set_deliver_status(f"Vorschau fertig: {preview_path}")
 
         from pathlib import Path
         if Path(preview_path).exists():
@@ -307,12 +342,14 @@ class ExportController(PBComponent):
                 self.window.export_log.append("[Preview] Video-Player geladen — druecke Play")
         else:
             self.window.export_log.append("[Preview] Vorschau-Datei nicht gefunden")
+            self._set_deliver_status("Vorschau fertig gemeldet, Datei aber nicht gefunden.")
 
     def _on_preview_error(self, error_msg: str):
         self.window.btn_preview.setEnabled(True)
         self.window.btn_preview.setText("Quick-Preview (10s)")
         self.window.export_progress.setVisible(False)
         self.window.export_log.append(f"[FEHLER] Vorschau fehlgeschlagen: {error_msg}")
+        self._set_deliver_status(f"Vorschau fehlgeschlagen: {error_msg}")
         self.window.console_text.append(f"[Fehler] Preview: {error_msg}")
 
     def _play_preview(self):
