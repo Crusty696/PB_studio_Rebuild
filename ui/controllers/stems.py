@@ -2,7 +2,6 @@
 
 import logging
 from types import SimpleNamespace
-from pathlib import Path
 from PySide6.QtCore import Qt
 from database import engine, AudioTrack, Beatgrid
 from sqlalchemy import select

@@ -162,9 +162,6 @@ from .import_export import BatchConvertWorker
 
 def _map_auto_ducking(kw: dict) -> dict:
     """audio_track_id -> (music_path, voice_path, output_path)."""
-    import re
-    from pathlib import Path
-
     from database import nullpool_session, AudioTrack
     from services.stem_router import resolve_stem_path
 
