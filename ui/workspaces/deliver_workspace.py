@@ -9,7 +9,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from ui.widgets.workflow_components import SectionTabs, StatusStrip, make_expert_container
+from ui.widgets.video_preview import VideoPreviewWidget
+from ui.widgets.workflow_components import SectionTabs, StatusStrip
 
 
 class DeliverWorkspace(QWidget):
@@ -30,16 +31,25 @@ class DeliverWorkspace(QWidget):
         )
         self._tabs.addTab(self._build_export_tab(), "EXPORT")
         self._tabs.setTabToolTip(0, "Exportdatei, Aufloesung, FPS und Render-Preset einstellen.")
+        # B-933 (Userentscheidung 2026-08-31): Beide Tabs hingen bis hierher in
+        # ``make_expert_container`` — einem Rahmen, der per setVisible(False)
+        # UND WA_DontShowOnScreen dauerhaft unsichtbar ist und den nirgends im
+        # Code jemand sichtbar schaltet. "Quick-Preview rendern" erzeugte damit
+        # eine Datei, deren Abspielflaeche der Nutzer nicht erreichen konnte,
+        # und das Protokoll mit allen Export-Meldungen war ebenfalls weg.
+        #
+        # Der Docstring dieses Moduls beschreibt seit jeher drei Sub-Tabs; der
+        # Verlust war ein Versehen, keine Absicht. Der Render-Pfad selbst ist in
+        # Ordnung: eine Vorschau vom 2026-08-31 traegt die Schnitte bei 2.299 s
+        # und 6.873 s, exakt die Timeline-Grenzen.
+        self._tabs.addTab(self._build_preview_tab(), "VORSCHAU")
+        self._tabs.setTabToolTip(1, "Gerenderte Quick-Preview ansehen und abspielen.")
+        self._tabs.addTab(self._build_protokoll_tab(), "PROTOKOLL")
+        self._tabs.setTabToolTip(2, "Meldungen von Export und Vorschau im Verlauf.")
         layout.addWidget(self._tabs)
 
         self.deliver_status = StatusStrip("Export bereit, sobald eine Timeline vorhanden ist.")
         layout.addWidget(self.deliver_status)
-
-        self.expert_tools = make_expert_container(self)
-        self.expert_tools_tabs = SectionTabs(self.expert_tools)
-        self.expert_tools_tabs.addTab(self._build_preview_tab(), "VORSCHAU")
-        self.expert_tools_tabs.addTab(self._build_protokoll_tab(), "PROTOKOLL")
-        self.expert_tools.layout().addWidget(self.expert_tools_tabs)
 
         # Tab-Order
         self.setTabOrder(self.export_name_input, self.resolution_combo)
@@ -187,7 +197,16 @@ class DeliverWorkspace(QWidget):
         # Preview-Video Bereich
         wrap = QHBoxLayout()
         wrap.addStretch()
-        self.preview_video_label = QLabel("Keine Vorschau")
+        # B-922: Hier stand ein blosses QLabel. Die gerenderte Vorschau wurde
+        # in ``window.video_preview`` geladen — den Player im SCHNITT-Tab. Wer
+        # im DELIVER-Bereich auf "Play" drueckte, startete die Wiedergabe also
+        # in einem anderen Workspace und sah hier weiterhin nur den Text
+        # "Vorschau geladen" und 0:00 / 0:00.
+        #
+        # VideoPreviewWidget ist selbst ein QLabel, Text und Stylesheet
+        # funktionieren also unveraendert weiter.
+        self.preview_video_label = VideoPreviewWidget()
+        self.preview_video_label.setText("Keine Vorschau")
         self.preview_video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_video_label.setFixedSize(960, 540)
         self.preview_video_label.setStyleSheet(

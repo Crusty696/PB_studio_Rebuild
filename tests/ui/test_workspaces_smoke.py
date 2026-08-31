@@ -81,8 +81,13 @@ def test_deliver_workspace_constructs_and_exposes_export_widgets(qapp):
     w = DeliverWorkspace()
     try:
         assert isinstance(w, QWidget)
-        assert w._tabs.count() == 1, "DeliverWorkspace darf im Hauptflow nur Export zeigen"
-        assert w._tabs.tabText(0) == "EXPORT"
+        # B-933 (Userentscheidung 2026-08-31): Der UI-Rebuild vom 30.04. hatte
+        # VORSCHAU und PROTOKOLL bewusst aus dem Hauptflow genommen — und damit
+        # auch jeden Weg zur gerenderten Quick-Preview. Der User hat entschieden,
+        # beide wieder einzuhaengen.
+        assert [w._tabs.tabText(i) for i in range(w._tabs.count())] == [
+            "EXPORT", "VORSCHAU", "PROTOKOLL",
+        ]
         for attr in (
             "export_name_input",
             "resolution_combo",
@@ -96,7 +101,10 @@ def test_deliver_workspace_constructs_and_exposes_export_widgets(qapp):
         ):
             assert hasattr(w, attr), f"DeliverWorkspace.{attr} fehlt"
         assert hasattr(w, "export_log")
-        assert not w.export_log.isVisible(), "Rohes Export-Protokoll gehoert ins Kontextpanel/Expert-UI"
+        # B-933: Das Protokoll liegt jetzt im PROTOKOLL-Tab statt im
+        # versteckten Expert-Container. Sichtbar ist es erst, wenn der Tab
+        # ausgewaehlt und das Fenster gezeigt wird — hier also weiterhin nicht.
+        assert w.export_log.parentWidget() is not None
     finally:
         w.deleteLater()
 

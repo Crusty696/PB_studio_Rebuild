@@ -330,16 +330,22 @@ class ExportController(PBComponent):
         from pathlib import Path
         if Path(preview_path).exists():
             self.window._preview_path = preview_path
-            self.window._deliver_ws.preview_video_label.setText("Vorschau geladen")
-            self.window._deliver_ws.preview_video_label.setStyleSheet(
+            _ws = self.window._deliver_ws
+            _ws.preview_video_label.setStyleSheet(
                 "background-color: #1a1a2e; color: #22c55e; "
                 "border: 1px solid #22c55e; border-radius: 4px;"
             )
-            self.window._deliver_ws.btn_preview_play.setEnabled(True)
-            self.window._deliver_ws.btn_preview_stop.setEnabled(True)
+            _ws.btn_preview_play.setEnabled(True)
+            _ws.btn_preview_stop.setEnabled(True)
+            # B-922: Die Vorschau wird jetzt in die Flaeche des DELIVER-Tabs
+            # geladen, nicht mehr nur in den Player des SCHNITT-Tabs. Vorher
+            # startete "Play" die Wiedergabe in einem anderen Workspace,
+            # waehrend hier "Vorschau geladen" und 0:00 / 0:00 stehen blieben.
+            _ws.preview_video_label.load_video(preview_path, 10.0)
+            self._verbinde_deliver_preview_signale()
             if hasattr(self.window, 'video_preview'):
                 self.window.video_preview.load_video(preview_path, 10.0)
-                self.window.export_log.append("[Preview] Video-Player geladen — druecke Play")
+            self.window.export_log.append("[Preview] Video-Player geladen — druecke Play")
         else:
             self.window.export_log.append("[Preview] Vorschau-Datei nicht gefunden")
             self._set_deliver_status("Vorschau fertig gemeldet, Datei aber nicht gefunden.")
@@ -352,15 +358,60 @@ class ExportController(PBComponent):
         self._set_deliver_status(f"Vorschau fehlgeschlagen: {error_msg}")
         self.window.console_text.append(f"[Fehler] Preview: {error_msg}")
 
+    def _deliver_preview_widget(self):
+        """Die Abspielflaeche im DELIVER-Tab (seit B-922 ein echter Player)."""
+        ws = getattr(self.window, "_deliver_ws", None)
+        widget = getattr(ws, "preview_video_label", None)
+        return widget if hasattr(widget, "play_from") else None
+
+    def _verbinde_deliver_preview_signale(self):
+        """Haengt die Zeitanzeige des DELIVER-Tabs an den dortigen Player.
+
+        Einmalig — ``_on_preview_finished`` laeuft nach jedem Rendern.
+        """
+        if getattr(self, "_deliver_preview_verbunden", False):
+            return
+        widget = self._deliver_preview_widget()
+        if widget is None:
+            return
+
+        def _fmt(sekunden: float) -> str:
+            sekunden = max(0.0, float(sekunden))
+            return f"{int(sekunden // 60)}:{int(sekunden % 60):02d}"
+
+        def _zeige(aktuell: float, gesamt: float) -> None:
+            label = getattr(self.window._deliver_ws, "preview_time_label", None)
+            if label is not None:
+                label.setText(f"{_fmt(aktuell)} / {_fmt(gesamt)}")
+
+        widget.position_changed.connect(_zeige, Qt.ConnectionType.QueuedConnection)
+        self._deliver_preview_verbunden = True
+
     def _play_preview(self):
-        """Spielt die gerenderte Vorschau ab."""
-        if hasattr(self.window, '_preview_path') and hasattr(self.window, 'video_preview'):
-            from pathlib import Path
-            if Path(self.window._preview_path).exists():
-                self.window.video_preview.load_video(self.window._preview_path, 10.0)
+        """Spielt die gerenderte Vorschau im DELIVER-Tab ab."""
+        from pathlib import Path
+
+        pfad = getattr(self.window, "_preview_path", "")
+        if not pfad or not Path(pfad).exists():
+            self._set_deliver_status("Keine gerenderte Vorschau vorhanden.")
+            return
+
+        widget = self._deliver_preview_widget()
+        if widget is None:
+            # Faellt auf den SCHNITT-Player zurueck, statt gar nichts zu tun.
+            if hasattr(self.window, "video_preview"):
+                self.window.video_preview.load_video(pfad, 10.0)
                 self.window.video_preview.play_from(0.0)
+            return
+
+        self._verbinde_deliver_preview_signale()
+        widget.load_video(pfad, 10.0)
+        widget.play_from(0.0)
 
     def _stop_preview(self):
         """Stoppt die Vorschau-Wiedergabe."""
+        widget = self._deliver_preview_widget()
+        if widget is not None:
+            widget.stop()
         if hasattr(self.window, 'video_preview'):
             self.window.video_preview.stop()
