@@ -859,8 +859,13 @@ class MediaWorkspace(QWidget):
         alay.setSpacing(4)
         row1 = QHBoxLayout()
         row1.setSpacing(4)
+        # B-950 (Userentscheidung 2026-08-31): Dieser Container stand auf
+        # setVisible(False) und wurde nirgends im Repo je sichtbar geschaltet.
+        # Neun verdrahtete Knoepfe hingen darin — darunter Auto-Ducking, das
+        # damit ueber die Oberflaeche gar nicht ausloesbar war (seit B-940 nur
+        # per Chat). Aufgefallen beim Versuch, B-946 live zu pruefen: der Knopf
+        # war im UIA-Baum nicht auffindbar, weil es ihn auf dem Schirm nicht gab.
         audio_expert_actions = QWidget(analyse)
-        audio_expert_actions.setVisible(False)
         audio_expert_layout = QHBoxLayout(audio_expert_actions)
         audio_expert_layout.setContentsMargins(0, 0, 0, 0)
         audio_expert_layout.setSpacing(4)
@@ -877,10 +882,8 @@ class MediaWorkspace(QWidget):
             self.btn_lufs_analyze, self.btn_mood_classify, self.btn_spectral_analyze,
             self.btn_structure_detect, self.btn_stem_separate,
         ):
-            b.setVisible(False)
             audio_expert_layout.addWidget(b)
         self.btn_auto_duck = _toolbar_btn("Auto-Ducking", "Musik bei Sprache absenken")
-        self.btn_auto_duck.setVisible(False)
         audio_expert_layout.addWidget(self.btn_auto_duck)
         self.btn_analyze_all = _toolbar_btn(
             "Audioanalyse starten", "Alle noetigen Audio-Analysen nacheinander",
