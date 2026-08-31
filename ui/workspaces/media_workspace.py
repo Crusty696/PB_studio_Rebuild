@@ -1145,6 +1145,20 @@ class MediaWorkspace(QWidget):
                 "Drop-, Vocal- und Energie-Entscheidungen. Voraussetzung? GPU/VRAM bereit. Ergebnis? Stem-Daten "
                 "fuer Analyse und Mix.",
             ),
+            # B-955: btn_auto_duck fehlte in dieser Liste. Diese Schleife haengt
+            # die Knoepfe per addWidget in das sichtbare Raster um — ein Qt-Widget
+            # hat nur einen Parent, die acht anderen verlassen dabei den
+            # audio_expert_actions-Container. Auto-Ducking blieb als einziges
+            # darin zurueck und war ueber die Oberflaeche nicht erreichbar.
+            # B-950 hatte den Container sichtbar gemacht; live blieb er
+            # trotzdem leer, weil dort nur noch dieser eine Knopf lag.
+            (
+                self.btn_auto_duck,
+                "Auto-Ducking",
+                "Was macht es? Senkt die Musik ab, wo Stimme liegt. Wann nutzen? Bei Tracks mit Vocals "
+                "oder Ansagen. Voraussetzung? Stems getrennt (Vocals + Other). Ergebnis? Eine gemischte "
+                "Datei im Projektordner unter storage/ducked.",
+            ),
         )
         for idx, (button, text, tip) in enumerate(audio_steps):
             self._configure_analysis_button(button, text, tip)
