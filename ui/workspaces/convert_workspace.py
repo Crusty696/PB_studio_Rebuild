@@ -45,14 +45,17 @@ class ConvertWorkspace(QWidget):
         self.convert_log = QTextEdit()
         self.convert_log.setReadOnly(True)
         self.convert_log.setFixedHeight(110)
-        self.convert_log.setVisible(False)
+        # B-932: Das Protokoll lag im expert_tools-Container, der per
+        # WA_DontShowOnScreen dauerhaft unsichtbar ist. Seit CONVERT ein
+        # eigener Schritt in der Workflow-Leiste ist, gehoert es dorthin.
+        self.convert_log.setVisible(True)
         self.convert_log.setStyleSheet(
             f"background-color: {BG0}; border: 1px solid rgba(255,255,255,15); "
             f"color: {T1}; font-family: 'Consolas'; font-size: 10px;"
         )
         self.convert_log.setToolTip("Protokoll der Video-Konvertierungen")
         self.convert_log.append("[Convert] Bereit. Waehle Ziel-Format und klicke 'Alle Videos standardisieren'.")
-        self.expert_tools.layout().addWidget(self.convert_log)
+        self._batch_layout.addWidget(self.convert_log)
 
         # Tab-Order
         self.setTabOrder(self.convert_resolution, self.convert_fps)
@@ -68,6 +71,9 @@ class ConvertWorkspace(QWidget):
     def _build_batch_tab(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
+        # B-932: Merken, damit das Protokoll unten in diesen Tab kann statt in
+        # den unsichtbaren expert_tools-Container.
+        self._batch_layout = v
         v.setContentsMargins(8, 6, 8, 6)
         v.setSpacing(8)
 
@@ -127,6 +133,22 @@ class ConvertWorkspace(QWidget):
             "Die Originaldateien bleiben unveraendert."
         )
         action_row.addWidget(self.btn_standardize_all)
+
+        # B-932: ``attach_preflight_button`` verschiebt btn_standardize_all per
+        # setParent in den MATERIAL-Bereich — im CONVERT-Bereich blieb dadurch
+        # kein Startknopf zurueck (live gesehen 2026-08-31: leerer Bereich).
+        # Dieser zweite Knopf bleibt hier und loest dieselbe Aktion aus.
+        self.btn_standardize_here = QPushButton("Alle Videos standardisieren…")
+        self.btn_standardize_here.setObjectName("btn_accent")
+        self.btn_standardize_here.setFixedHeight(28)
+        self.btn_standardize_here.setMaximumWidth(260)
+        self.btn_standardize_here.setAccessibleName(
+            "Alle Videos standardisieren (Convert-Bereich)")
+        self.btn_standardize_here.setToolTip(
+            "Alle Videos im Pool auf das oben gewaehlte Ziel-Format bringen. "
+            "Die Originaldateien bleiben unveraendert."
+        )
+        action_row.addWidget(self.btn_standardize_here)
 
         self.convert_progress = QProgressBar()
         self.convert_progress.setVisible(False)

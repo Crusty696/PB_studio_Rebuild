@@ -1810,7 +1810,7 @@ class EditWorkspaceController(PBComponent):
             elif n_dup:
                 _label_extra = f"{n_dup} Clips waren bereits in der Timeline."
             self._refresh_timeline_usage_marking(extra=_label_extra)
-            self.window.nav_bar.set_workspace(1)
+            self.window.nav_bar.set_workspace(1)  # MATERIAL, von B-932 unberuehrt
 
         GlobalTaskManager.instance().start_task(
             name="Clips zur Timeline", worker=worker, on_finish=_on_done

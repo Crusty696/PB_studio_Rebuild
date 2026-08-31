@@ -52,6 +52,11 @@ class StandardizeVideosDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(8)
 
+        # B-929: Der Dialog brachte bis 2026-08-31 eigene Defaults mit und
+        # verwarf, was im CONVERT-Bereich eingestellt war. Wer dort 1080p/25
+        # gewaehlt hatte, konvertierte nach einem schnellen Bestaetigen mit
+        # anderen Werten — ohne Hinweis. ``vorgabe`` uebernimmt die Auswahl
+        # des Bereichs, soweit die Eintraege dort bekannt sind.
         self.convert_resolution = QComboBox()
         self.convert_resolution.addItems(_RESOLUTIONS)
         self.convert_resolution.setToolTip(
@@ -84,6 +89,19 @@ class StandardizeVideosDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def vorgabe_uebernehmen(self, aufloesung: str, fps: str, format_text: str) -> None:
+        """Setzt die Auswahl aus dem CONVERT-Bereich, soweit bekannt (B-929)."""
+        for combo, wert in (
+            (self.convert_resolution, aufloesung),
+            (self.convert_fps, fps),
+            (self.convert_format, format_text),
+        ):
+            if not wert:
+                continue
+            idx = combo.findText(wert)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
 
     def selected(self) -> tuple[str, str, str]:
         """(resolution_text, fps_text, format_text) der aktuellen Auswahl."""

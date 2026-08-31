@@ -240,6 +240,15 @@ class ConvertController(PBComponent):
         from PySide6.QtWidgets import QDialog
         from ui.dialogs.standardize_dialog import StandardizeVideosDialog
         dlg = StandardizeVideosDialog(self.window)
+        # B-929: Was im CONVERT-Bereich eingestellt ist, wird jetzt uebernommen
+        # statt stumm verworfen.
+        ws = getattr(self.window, "_convert_ws", None)
+        if ws is not None:
+            dlg.vorgabe_uebernehmen(
+                ws.convert_resolution.currentText(),
+                ws.convert_fps.currentText(),
+                ws.convert_format.currentText(),
+            )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         res_text, fps_text, fmt_text = dlg.selected()

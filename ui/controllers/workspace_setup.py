@@ -70,6 +70,29 @@ def _build_schnitt_project_snapshot(db_engine) -> _SchnittProjectSnapshot:
     )
 
 
+def _migrate_workflow_stage_index_convert(settings) -> None:
+    """B-932: CONVERT als Index 2 eingefuegt, SCHNITT und EXPORT ruecken nach.
+
+    Ohne diese Migration landet ein Nutzer, der zuletzt im SCHNITT war, nach
+    dem Update im CONVERT-Bereich — der gespeicherte Index 2 zeigt jetzt
+    woanders hin.
+
+    Mapping: 0->0, 1->1, 2 (SCHNITT) -> 3, 3 (EXPORT) -> 4.
+    Idempotent ueber ``window/workflowStageMigratedConvert``.
+    """
+    if settings.value("window/workflowStageMigratedConvert", False, type=bool):
+        return
+    raw = settings.value("window/workflowStageIndex")
+    if raw is not None:
+        try:
+            alt = int(raw)
+        except (TypeError, ValueError):
+            alt = 0
+        settings.setValue(
+            "window/workflowStageIndex", {0: 0, 1: 1, 2: 3, 3: 4}.get(alt, 0))
+    settings.setValue("window/workflowStageMigratedConvert", True)
+
+
 def _migrate_workflow_stage_index(settings) -> None:
     """SCHNITT-Redesign 2026-05-09: alte 5-Tab-Indizes auf 4-Tab-Layout mappen.
 
@@ -81,6 +104,7 @@ def _migrate_workflow_stage_index(settings) -> None:
         4 EXPORT              -> 3 EXPORT
     Idempotent via ``window/workflowStageMigratedV2`` flag.
     """
+    _migrate_workflow_stage_index_convert(settings)
     if settings.value("window/workflowStageMigratedV2", False, type=bool):
         return
     raw = settings.value("window/workflowStageIndex")
@@ -94,6 +118,9 @@ def _migrate_workflow_stage_index(settings) -> None:
     mapping = {0: 0, 1: 1, 2: 2, 3: 2, 4: 3}
     settings.setValue("window/workflowStageIndex", mapping.get(old, 0))
     settings.setValue("window/workflowStageMigratedV2", True)
+
+from ui.widgets.nav_bar import WorkspaceNavBar
+
 
 class WorkspaceSetupController(PBComponent):
     """Controller fuer MainWindow: Workspace-Erstellung und Top-Bar-Aufbau."""
@@ -567,6 +594,11 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_apply_effects = self.window._convert_ws.btn_apply_effects
 
         self.window.btn_standardize_all.clicked.connect(self.window.convert._standardize_all_videos)
+        # B-932: Der zweite Knopf im CONVERT-Bereich (der erste wandert per
+        # attach_preflight_button nach MATERIAL) loest dieselbe Aktion aus.
+        _hier = getattr(self.window._convert_ws, "btn_standardize_here", None)
+        if _hier is not None:
+            _hier.clicked.connect(self.window.convert._standardize_all_videos)
         self.window.effects_clip_combo.currentIndexChanged.connect(self.window.convert._on_effects_clip_changed)
         self.window.btn_apply_effects.clicked.connect(self.window.convert._apply_effects)
 
@@ -635,10 +667,13 @@ class WorkspaceSetupController(PBComponent):
             lambda *_args: self._unregister_cockpit_listener()
         )
 
+        # B-932: Die Reihenfolge muss WorkspaceNavBar.WORKSPACE_NAMES entsprechen —
+        # der Rail-Index geht direkt in setCurrentIndex.
         self.window.workspace_stack.addWidget(self.window._project_dashboard)        # 0
         self.window.workspace_stack.addWidget(self.window._material_analysis_ws)     # 1
-        self.window.workspace_stack.addWidget(self.window._schnitt_ws)               # 2
-        self.window.workspace_stack.addWidget(self.window._deliver_ws)               # 3
+        self.window.workspace_stack.addWidget(self.window._convert_ws)               # 2
+        self.window.workspace_stack.addWidget(self.window._schnitt_ws)               # 3
+        self.window.workspace_stack.addWidget(self.window._deliver_ws)               # 4
 
     def _on_video_pool_selection_for_panel(self, curr, prev):
         """B-292/Phase-C-fix: route selection to AnalysisStatusPanel.
@@ -821,10 +856,10 @@ class WorkspaceSetupController(PBComponent):
             # ``_push_active_project_to_schnitt()``. Der zweite Aufruf startete
             # einen zweiten Snapshot-Worker (B-715), dessen Ergebnis der
             # Sequence-Guard ohnehin verwarf — reine Doppelarbeit.
-            self.window.nav_bar.set_workspace(2)
+            self.window.nav_bar.set_workspace(WorkspaceNavBar.IDX_SCHNITT)
             return
         if action_key == "open_export":
-            self.window.nav_bar.set_workspace(3)
+            self.window.nav_bar.set_workspace(WorkspaceNavBar.IDX_EXPORT)
             return
         self.logger.warning("Unbekannte Cockpit-Aktion: %s", action_key)
 
@@ -966,23 +1001,29 @@ class WorkspaceSetupController(PBComponent):
                 else "Video-Pipeline braucht mindestens einen importierten Clip."
             )
 
-        # B-932 (Userentscheidung 2026-08-31): Beide Knoepfe gehoeren zum
-        # CONVERT-Workspace, der nie in den workspace_stack eingehaengt wird
-        # (siehe weiter unten, dort stehen nur Dashboard, Material, Schnitt,
-        # Deliver). Der ffmpeg-Batch laeuft zwar, aber Fortschrittsbalken,
-        # Abschluss- und Fehlermeldung landen in Widgets ohne sichtbares
-        # Elternlayout — der Nutzer sieht nichts davon. Bis der Workspace
-        # eingehaengt oder der Weg ersetzt ist, bleiben sie deshalb
-        # ausgegraut, mit dem Grund im Tooltip statt einer stillen Attrappe.
+        # B-932 (Userentscheidung 2026-08-31, zweiter Schritt): Die Knoepfe
+        # waren ausgegraut, weil der CONVERT-Workspace nie im workspace_stack
+        # hing — Fortschritt und Fehlermeldung landeten in Widgets ohne
+        # sichtbares Elternlayout. Seit CONVERT ein eigener Schritt in der
+        # Workflow-Leiste ist, ist der Grund entfallen; sie folgen wieder dem
+        # normalen Gate (Video im Pool vorhanden).
+        _ws_convert = getattr(self.window, "_convert_ws", None)
+        _hier = getattr(_ws_convert, "btn_standardize_here", None)
+        if _hier is not None:
+            _hier.setEnabled(video_ready)
+            _hier.setToolTip(
+                "Alle Videos im Pool auf das oben gewaehlte Ziel-Format bringen."
+                if video_ready else "Erst Videos importieren."
+            )
         for attr in ("btn_standardize_all", "btn_apply_effects"):
             btn = getattr(self.window, attr, None)
             if btn is not None:
-                btn.setEnabled(False)
+                btn.setEnabled(video_ready)
                 btn.setToolTip(
-                    "Vorerst deaktiviert: Der CONVERT-Bereich ist derzeit nicht "
-                    "in die Oberflaeche eingebunden. Die Konvertierung wuerde "
-                    "zwar laufen, aber ohne sichtbaren Fortschritt und ohne "
-                    "Fehlermeldung (B-932)."
+                    "Videos auf ein einheitliches Format bringen. Fortschritt "
+                    "und Protokoll stehen im CONVERT-Bereich."
+                    if video_ready
+                    else "Erst Videos importieren."
                 )
 
         export_btn = getattr(self.window, "btn_export", None)

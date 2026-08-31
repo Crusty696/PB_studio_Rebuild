@@ -77,9 +77,11 @@ def test_127_nav_bar_button_switches_workspace() -> None:
         QTest.mouseClick(button, Qt.MouseButton.LeftButton)
         app.processEvents()
 
-        assert emitted == [2]
+        # B-932: CONVERT sitzt jetzt auf Index 2, SCHNITT rueckte auf 3.
+        assert emitted == [WorkspaceNavBar.IDX_SCHNITT]
         assert [b.isChecked() for b in bar._buttons] == [
-            False, False, True, False,
+            i == WorkspaceNavBar.IDX_SCHNITT
+            for i in range(len(WorkspaceNavBar.WORKSPACE_NAMES))
         ]
     finally:
         bar.deleteLater()

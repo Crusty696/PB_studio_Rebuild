@@ -8,7 +8,7 @@ def _qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_main_window_has_four_stack_widgets_and_schnitt(monkeypatch):
+def test_main_window_stack_matches_workflow_rail(monkeypatch):
     _qapp()
     from ui.controllers.panel_setup import PanelSetupController
 
@@ -19,7 +19,12 @@ def test_main_window_has_four_stack_widgets_and_schnitt(monkeypatch):
     from main import PBWindow
     win = PBWindow()
     try:
-        assert win.workspace_stack.count() == 4
+        # B-932 (Userentscheidung 2026-08-31): CONVERT ist ein eigener Schritt
+        # geworden — der Stack folgt der Workflow-Leiste, nicht mehr einer
+        # festen Vier.
+        from ui.widgets.nav_bar import WorkspaceNavBar
+
+        assert win.workspace_stack.count() == len(WorkspaceNavBar.WORKSPACE_NAMES)
         assert hasattr(win, "_schnitt_ws")
         assert win._schnitt_ws is not None
     finally:

@@ -37,12 +37,29 @@ class WorkspaceNavBar(QWidget):
     """Workflow rail: shows the order PB Studio work actually follows."""
     workspace_changed = Signal(int)
 
+    # B-932 (Userentscheidung 2026-08-31): CONVERT als eigener Schritt zwischen
+    # Material und Schnitt. Der Workspace existierte seit jeher, wurde aber nie
+    # in den Stack eingehaengt — die Batch-Konvertierung lief ohne sichtbaren
+    # Fortschritt und ohne Fehlermeldung, weshalb die Knoepfe zwischenzeitlich
+    # ausgegraut waren.
     WORKSPACE_NAMES = [
         "PROJEKT",
         "MATERIAL & ANALYSE",
+        "CONVERT",
         "SCHNITT",
         "EXPORT",
     ]
+
+    # B-932: Benannte Indizes statt Zahlen an den Aufrufstellen. Beim Einbau
+    # von CONVERT verschoben sich SCHNITT (2 -> 3) und EXPORT (3 -> 4); mit
+    # blossen Zahlen waere jede uebersehene Stelle stumm im falschen Bereich
+    # gelandet. Die Reihenfolge muss zum workspace_stack passen
+    # (ui/controllers/workspace_setup.py).
+    IDX_PROJEKT = 0
+    IDX_MATERIAL = 1
+    IDX_CONVERT = 2
+    IDX_SCHNITT = 3
+    IDX_EXPORT = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,18 +79,21 @@ class WorkspaceNavBar(QWidget):
         tooltips = [
             "Projekt: Status, letzte Projekte und nächster Schritt",
             "Material & Analyse: Medien auswählen und analysieren",
+            "Convert: Videos auf ein einheitliches Format bringen (optional)",
             "Schnitt: Auto-Edit, Pacing, Anker, Audio-Mixer und Notes — alles in einem Workspace",
             "Export: Preview und finales Video rendern",
         ]
         accessible_names = [
             "Projekt Workflow",
             "Material und Analyse Workflow",
+            "Convert Workflow",
             "Schnitt Workflow",
             "Export Workflow",
         ]
         status_tips = [
             "Projektstatus und Startpunkt",
             "Medienpool und Analyse",
+            "Videos vereinheitlichen, mit Fortschritt und Protokoll",
             "Schnitt: Auto-Edit + Review in einem Tab",
             "Finales Video exportieren",
         ]
