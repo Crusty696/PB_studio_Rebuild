@@ -614,10 +614,23 @@ def auto_ducking(audio_track_id: int) -> dict:
     }
 )
 def apply_style_preset(preset_name: str) -> dict:
+    """Wendet ein Style-Preset auf die Pacing-Bedienelemente an.
+
+    B-934: Vorher las die Aktion das Preset nur aus der Datenbank und meldete
+    "angewendet", ohne irgendetwas zu setzen. Der naechste Auto-Edit lief
+    weiter mit den alten Werten. Jetzt geht sie denselben Weg wie die
+    Oberflaeche: ``EditWorkspaceController._apply_style_preset`` traegt
+    Cut-Rate, Reaktivitaet und Breakdown in die Widgets ein, aus denen
+    ``_start_auto_edit`` seine ``AdvancedPacingSettings`` baut.
+    """
     from database import nullpool_session
 
     try:
         from database import StylePreset
+    except ImportError:
+        return {"error": "StylePreset-Tabelle nicht in der Datenbank verfügbar."}
+
+    try:
         with nullpool_session() as session:
             preset = session.query(StylePreset).filter_by(name=preset_name).first()
             if not preset:
@@ -628,18 +641,64 @@ def apply_style_preset(preset_name: str) -> dict:
                     "error": f"Style-Preset '{preset_name}' nicht gefunden.",
                     "available_presets": available,
                 }
+    except Exception as e:
+        _logger.exception("Fehler in apply_style_preset-Aktion")
+        return {"error": f"Fehler beim Anwenden des Presets: {e}"}
+
+    def _apply() -> dict:
+        mw = _get_main_window()
+        controller = getattr(mw, "edit_workspace", None) if mw else None
+        pacing_tab = None
+        schnitt_ws = getattr(mw, "_schnitt_ws", None) if mw else None
+        editor_view = getattr(schnitt_ws, "editor_view", None)
+        if editor_view is not None:
+            pacing_tab = getattr(editor_view, "tab_pacing_anker", None)
+        if controller is None or pacing_tab is None:
             return {
-                "status": "ok",
+                "status": "error",
                 "action": "apply_style_preset",
                 "preset_name": preset_name,
-                "cut_rate": preset.cut_rate,
-                "energy_reactivity": preset.energy_reactivity,
-                "breakdown_behavior": preset.breakdown_behavior,
-                "message": f"Style-Preset '{preset_name}' angewendet: Cut-Rate={preset.cut_rate}, "
-                           f"Reaktivität={preset.energy_reactivity}%, Breakdown={preset.breakdown_behavior}.",
+                "error": "Pacing-Bedienelemente sind nicht verfügbar.",
+                "message": (
+                    f"Style-Preset '{preset_name}' konnte nicht angewendet werden: "
+                    "der Schnitt-Bereich ist nicht geladen."
+                ),
             }
-    except ImportError:
-        return {"error": "StylePreset-Tabelle nicht in der Datenbank verfügbar."}
+
+        combo = pacing_tab.style_combo
+        index = combo.findText(preset_name)
+        if index < 0:
+            return {
+                "status": "error",
+                "action": "apply_style_preset",
+                "preset_name": preset_name,
+                "error": f"Style-Preset '{preset_name}' ist in der Oberfläche nicht auswählbar.",
+                "available_presets": [combo.itemText(i) for i in range(combo.count())],
+            }
+
+        combo.setCurrentIndex(index)
+        # Steht die Combo schon auf diesem Eintrag, feuert currentIndexChanged
+        # nicht. Der Handler wird deshalb direkt aufgerufen; er liest ohnehin
+        # nur die Combo aus und ist damit gefahrlos wiederholbar.
+        controller._apply_style_preset(index)
+
+        return {
+            "status": "ok",
+            "action": "apply_style_preset",
+            "preset_name": preset_name,
+            "cut_rate": pacing_tab.cut_rate_combo.currentText(),
+            "energy_reactivity": pacing_tab.reactivity_spin.value(),
+            "breakdown_behavior": pacing_tab.breakdown_combo.currentText(),
+            "message": (
+                f"Style-Preset '{preset_name}' angewendet: "
+                f"Cut-Rate={pacing_tab.cut_rate_combo.currentText()}, "
+                f"Reaktivität={pacing_tab.reactivity_spin.value()}%, "
+                f"Breakdown={pacing_tab.breakdown_combo.currentText()}."
+            ),
+        }
+
+    try:
+        return _run_on_main_thread(_apply)
     except Exception as e:
         _logger.exception("Fehler in apply_style_preset-Aktion")
         return {"error": f"Fehler beim Anwenden des Presets: {e}"}
