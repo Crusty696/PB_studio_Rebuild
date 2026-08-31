@@ -1,0 +1,10 @@
+{
+  "lesson_id": "727ef80d537f4b09a6de8d8c59b484f0",
+  "recorded_at": "2026-08-31T03:05:49+00:00",
+  "session_id": "028deaf0f2294f068361a9db65e0278b",
+  "head_at_start": "804832bcdb340b3d198ce0ac23fad24a83096767",
+  "problem": "Eine als nutzlos empfundene Funktion war weder kaputt noch Absicht, sondern hing an einem abgeschalteten Feature-Flag",
+  "cause": "Die Studio-Brain-UI wurde vor der Freischaltung des Datenpfads fertiggestellt; das Gate blieb per Entscheidung D-023 auf Default off, die zugehoerige Abnahme fand nie statt",
+  "rule": "Bei 'Feature wirkt nicht' zuerst nach einem Gate/Feature-Flag und dessen Default suchen (Env > Setting > Code-Default) und die Zeilenzahl der abhaengigen Tabellen pruefen, bevor Code als defekt eingestuft wird",
+  "applies_to": "Analyse wirkungsloser Funktionen"
+}
