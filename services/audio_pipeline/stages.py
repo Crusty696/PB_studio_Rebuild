@@ -520,6 +520,38 @@ class StemGenStage(Stage):
                 track.stem_other_path = to_project_relative(stem_paths["other"])
             sess.commit()
 
+        # B-931/B-494: Stem-SNR nachziehen. Der alte Pfad
+        # (ai_audio_service.separate_and_store) schrieb ihn hier; die
+        # V2-Stage ruft stattdessen StemSeparator.separate_to und liess
+        # ``acoustic_metadata`` deshalb NULL — die SNR-Anzeige im
+        # Stems-Workspace meldete dauerhaft "nicht verfuegbar".
+        #
+        # Genau dieser Punkt ist der richtige: die stem_*_path sind eben
+        # committed, ``compute_stem_snr`` liest sie frisch aus der DB.
+        # Format exakt wie die UI es erwartet. Fehler duerfen einen
+        # erfolgreichen StemGen nicht kippen -> best effort mit Log.
+        try:
+            from services.pacing_beat_grid import compute_stem_snr
+            snr = compute_stem_snr(track_id)
+            if snr is not None:
+                with nullpool_session() as sess:
+                    track = sess.get(AudioTrack, track_id)
+                    if track is not None:
+                        track.acoustic_metadata = {
+                            "stem_snr": {
+                                "drums": snr.drums,
+                                "bass": snr.bass,
+                                "vocals": snr.vocals,
+                                "other": snr.other,
+                            }
+                        }
+                        sess.commit()
+        except Exception as exc:  # noqa: BLE001 — best effort, StemGen bleibt gueltig
+            logger.warning(
+                "B-931: Stem-SNR-Persistenz fehlgeschlagen (track=%s): %s",
+                track_id, exc,
+            )
+
     @staticmethod
     def _record_stem_provenance(context: PipelineContext, stem_paths: dict[str, str]) -> None:
         """OTK-021/40: V2 stem stage writes analysis_jobs/artifacts."""
