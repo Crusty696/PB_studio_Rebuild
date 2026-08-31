@@ -795,7 +795,7 @@ class SoftDeleteTimelineBackup(Base):
 
 
 class ProjectNote(Base):
-    """SCHNITT-Redesign 2026-05-09: Markdown-Notes pro Projekt (Sub-Tab "RL & Notes").
+    """SCHNITT-Redesign 2026-05-09: Markdown-Notes pro Projekt (Sub-Tab "Notizen", frueher "RL & Notes").
 
     1:1-Beziehung zum Projekt — UNIQUE-Constraint auf ``project_id``
     erzwingt genau einen Note-Eintrag pro Projekt. Genutzt vom

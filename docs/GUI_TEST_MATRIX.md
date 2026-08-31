@@ -2,7 +2,7 @@
 
 > **Aktualisiert 2026-05-09** für 4-Tab-SCHNITT-Layout (Commit-Range `3476b33..bf7bb11`).
 > Neue Workflow-Rail: PROJEKT · MATERIAL & ANALYSE · SCHNITT · EXPORT.
-> SCHNITT vereint AUTO-SCHNITT + REVIEW und enthält Sub-Tabs: Schnitt / Pacing & Anker / Audio / RL & Notes.
+> SCHNITT vereint AUTO-SCHNITT + REVIEW und enthält Sub-Tabs: Schnitt / Pacing & Anker / Audio / Notizen.
 
 Diese Matrix beschreibt die User-Flows, die der `pb-gui-tester` Subagent durch die **echte GUI** klickt. Im Gegensatz zum alten Service-Layer-Test (der nur Python-Funktionen aufrief) wird hier die ganze App gestartet, Fenster per pywinauto/pyautogui bedient, nach jedem Schritt ein Screenshot gemacht, das Log gelesen und die DB inspiziert.
 
@@ -38,16 +38,16 @@ Diese Matrix beschreibt die User-Flows, die der `pb-gui-tester` Subagent durch d
 
 ## Flow 2 — Workflow-Navigation
 
-Die Workflow-Rail hat 4 Buttons: PROJEKT, MATERIAL & ANALYSE, SCHNITT, EXPORT (accessible_names vorhanden — pywinauto kann sie per Name finden). Der SCHNITT-Tab enthält zusätzlich die Sub-Tabs: Schnitt / Pacing & Anker / Audio / RL & Notes.
+Die Workflow-Rail hat 4 Buttons: PROJEKT, MATERIAL & ANALYSE, SCHNITT, EXPORT (accessible_names vorhanden — pywinauto kann sie per Name finden). Der SCHNITT-Tab enthält zusätzlich die Sub-Tabs: Schnitt / Pacing & Anker / Audio / Notizen.
 
 | # | Aktion | Erwartung |
 |---|--------|-----------|
 | 1 | Klick auf "PROJEKT Workflow" | Projekt-Dashboard mit Status, Next-Step und Systemstatus sichtbar |
 | 2 | Klick auf "MATERIAL & ANALYSE Workflow" | Material-Stage sichtbar: Import/Medienpool, Proxy/Convert, Audio-Komplettanalyse, Stems, Video-Pipeline |
-| 3 | Klick auf "SCHNITT Workflow" | SCHNITT-Editor mit Sub-Tabs (Schnitt / Pacing & Anker / Audio / RL & Notes); Empty-State mit Preset-Buttons (Techno/Cinematic/House/Festival) wenn Timeline noch nicht erzeugt; CTA ohne Analyse gesperrt |
+| 3 | Klick auf "SCHNITT Workflow" | SCHNITT-Editor mit Sub-Tabs (Schnitt / Pacing & Anker / Audio / Notizen); Empty-State mit Preset-Buttons (Techno/Cinematic/House/Festival) wenn Timeline noch nicht erzeugt; CTA ohne Analyse gesperrt |
 | 4 | Sub-Tab "Pacing & Anker" prüfen | Pacing-Controls + Anchor-Liste sichtbar |
 | 5 | Sub-Tab "Audio" prüfen | Audio/Stem-Controls sichtbar |
-| 6 | Sub-Tab "RL & Notes" prüfen | RL-Rules + Notizen sichtbar |
+| 6 | Sub-Tab "Notizen" prüfen | Notiz-Editor sichtbar, speichert automatisch (B-927: RL-Teil entfernt) |
 | 7 | Klick auf "EXPORT Workflow" | Export-Checkliste/Export-UI sichtbar; ohne Timeline gesperrt |
 
 **Log-Check nach jedem Schritt:** keine neuen ERROR/CRITICAL Zeilen.

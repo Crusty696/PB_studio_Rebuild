@@ -13,7 +13,9 @@ def test_editor_has_four_subtabs():
     _qapp()
     v = SchnittEditorView()
     titles = [v.sub_tabs.tabText(i) for i in range(v.sub_tabs.count())]
-    assert titles == ["Schnitt", "Pacing & Anker", "Audio", "RL & Notes"]
+    # B-927: der vierte Tab hiess "RL & Notes"; der wirkungslose RL-Teil ist
+    # entfallen, die Notizen sind geblieben.
+    assert titles == ["Schnitt", "Pacing & Anker", "Audio", "Notizen"]
 
 
 def test_editor_has_persistent_inspector():

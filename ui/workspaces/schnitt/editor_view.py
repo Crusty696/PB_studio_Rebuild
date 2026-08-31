@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
 from ui.workspaces.schnitt.tab_audio import SchnittTabAudio
-from ui.workspaces.schnitt.tab_rl_notes import SchnittTabRlNotes
+from ui.workspaces.schnitt.tab_notizen import SchnittTabNotizen
 
 
 class SchnittEditorView(QWidget):
@@ -44,9 +44,14 @@ class SchnittEditorView(QWidget):
         self.tab_audio = SchnittTabAudio(self)
         self.sub_tabs.addTab(self.tab_audio, "Audio")
         self.sub_tabs.setTabToolTip(2, "Waveform, LUFS, Tonart und Stems des aktiven Audio-Tracks pruefen.")
-        self.tab_rl_notes = SchnittTabRlNotes(self)
-        self.sub_tabs.addTab(self.tab_rl_notes, "RL & Notes")
-        self.sub_tabs.setTabToolTip(3, "Auto-Edit-Feedback, Lernereignisse und gespeicherte Notizen verwalten.")
+        # B-927 (Userentscheidung 2026-08-31): Der Tab hiess "RL & Notes" und
+        # trug links Daumen-hoch/runter plus die Liste "Letzte RL-Events". Die
+        # Liste hatte repo-weit keinen Schreibzugriff, das Feedback beeinflusste
+        # den Schnitt nicht. Beides ist entfallen; die funktionierenden
+        # Projekt-Notizen sind hierher umgezogen.
+        self.tab_notizen = SchnittTabNotizen(self)
+        self.sub_tabs.addTab(self.tab_notizen, "Notizen")
+        self.sub_tabs.setTabToolTip(3, "Projekt-Notizen fuer den Schnitt schreiben (speichert automatisch).")
         body.addWidget(self.sub_tabs, stretch=1)
 
         # Pro-Editor-Umbau 2026-07-10: Der CLIP INSPECTOR lebt jetzt im oberen

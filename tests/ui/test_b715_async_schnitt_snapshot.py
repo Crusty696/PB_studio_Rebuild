@@ -71,7 +71,7 @@ class _Workspace:
         self.notes = _Notes()
         self.cut_list = _CutList()
         self.editor_view = SimpleNamespace(
-            tab_rl_notes=self.notes,
+            tab_notizen=self.notes,
             tab_schnitt=SimpleNamespace(cut_list_panel=self.cut_list),
         )
 

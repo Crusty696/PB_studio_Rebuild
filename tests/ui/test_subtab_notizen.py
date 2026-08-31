@@ -1,4 +1,7 @@
-"""Layout + Auto-Save-Tests fuer Sub-Tab RL & Notes (Phase 08 / Task 8.1).
+"""Layout + Auto-Save-Tests fuer Sub-Tab Notizen (frueher "RL & Notes").
+
+B-927: die RL-Haelfte des Tabs ist entfallen (Userentscheidung 2026-08-31),
+die Notizen sind unveraendert geblieben.
 
 Pattern: test_engine-Fixture aus tests/conftest.py + monkeypatch auf
 `services.project_notes_service.engine` (analog test_project_notes_service.py).
@@ -13,7 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from database.models import Project
 from services.project_notes_service import get_notes
-from ui.workspaces.schnitt.tab_rl_notes import SchnittTabRlNotes
+from ui.workspaces.schnitt.tab_notizen import SchnittTabNotizen
 
 
 def _qapp():
@@ -25,7 +28,7 @@ def _patch_engine(monkeypatch, test_engine):
     monkeypatch.setattr(svc_mod, "engine", test_engine)
 
 
-def _project(test_engine, name="rl-notes-test"):
+def _project(test_engine, name="notizen-test"):
     with Session(test_engine) as s:
         p = Project(name=name, path=f"/tmp/{name}")
         s.add(p)
@@ -35,18 +38,24 @@ def _project(test_engine, name="rl-notes-test"):
 
 def test_widgets_present():
     _qapp()
-    t = SchnittTabRlNotes()
-    assert t.btn_thumbs_up is not None
-    assert t.btn_thumbs_down is not None
-    assert t.rl_event_list is not None
+    t = SchnittTabNotizen()
     assert t.notes_edit is not None
+    assert t.saved_label is not None
+
+
+def test_rl_widgets_sind_weg():
+    """B-927: Daumen-Knoepfe und Ereignisliste duerfen nicht zurueckkehren."""
+    _qapp()
+    t = SchnittTabNotizen()
+    for weg in ("btn_thumbs_up", "btn_thumbs_down", "rl_event_list"):
+        assert not hasattr(t, weg), f"{weg} ist wieder da"
 
 
 def test_typing_triggers_autosave_after_debounce(test_engine, monkeypatch):
     _patch_engine(monkeypatch, test_engine)
     app = _qapp()
     pid = _project(test_engine)
-    t = SchnittTabRlNotes()
+    t = SchnittTabNotizen()
     t.set_active_project(pid)
     t.notes_edit.setPlainText("# Mein Plan")
     # Debounce 1000 ms — verkuerze fuer Test ueber das interne Timer-Objekt

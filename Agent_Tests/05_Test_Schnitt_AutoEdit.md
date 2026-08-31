@@ -19,7 +19,7 @@ Danach Parameter prüfen und App sichtbar starten (Schritte B + C aus `01`).
 
 Teste ausschließlich den **SCHNITT-Tab**: Auto-Edit über ein Preset, die
 InteractiveTimeline mit Lock-Icons, die Sub-Tabs (Schnitt / Pacing & Anker /
-Audio / RL & Notes) und Re-Generate. Voraussetzung: Audio- und Video-Analyse
+Audio / Notizen) und Re-Generate. Voraussetzung: Audio- und Video-Analyse
 sind bereits gelaufen (Teile 2 + 3).
 
 ---
@@ -57,7 +57,7 @@ sind bereits gelaufen (Teile 2 + 3).
 4. Prüfe Sub-Tab **Audio**: Waveform + Beatgrid + Struktur-Marker, Stems-Mixer,
    LUFS + Tonart im Header sichtbar.
 
-5. Prüfe Sub-Tab **RL & Notes**: 👍/👎-Feedback klickbar; Notiz-Editor speichert
+5. Prüfe Sub-Tab **Notizen**: Notiz-Editor speichert
    automatisch (ca. 1 s Debounce).
    - Erwartet: Notiz bleibt nach Tab-Wechsel erhalten.
 

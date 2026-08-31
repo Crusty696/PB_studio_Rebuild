@@ -69,7 +69,7 @@ class _SchnittWs:
         self.refreshes = 0
         self.applied = []
         self.editor_view = SimpleNamespace(
-            tab_rl_notes=notes,
+            tab_notizen=notes,
             tab_schnitt=SimpleNamespace(cut_list_panel=cut_list),
         )
 

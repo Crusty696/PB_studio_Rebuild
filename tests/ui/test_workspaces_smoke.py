@@ -176,7 +176,7 @@ def test_schnitt_editor_subtabs_have_correct_titles(qapp):
             ws.editor_view.sub_tabs.tabText(i)
             for i in range(ws.editor_view.sub_tabs.count())
         ]
-        assert titles == ["Schnitt", "Pacing & Anker", "Audio", "RL & Notes"]
+        assert titles == ["Schnitt", "Pacing & Anker", "Audio", "Notizen"]  # B-927
     finally:
         ws.deleteLater()
 

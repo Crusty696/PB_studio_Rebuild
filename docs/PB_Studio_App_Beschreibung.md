@@ -69,7 +69,7 @@ Die Anwendung ist seit dem SCHNITT-Redesign (2026-05-09) in **vier** klar defini
     *   Startet die asynchronen Worker-Threads für Audio- und Videoanalyse.
     *   Zeigt detaillierten Status (AnalysisStatus) für jede Datei an.
 3.  **SCHNITT Tab (Timeline & Pacing & Review):**
-    *   Vier Sub-Tabs: **Schnitt** (Timeline), **Pacing & Anker**, **Audio**, **RL & Notes**.
+    *   Vier Sub-Tabs: **Schnitt** (Timeline), **Pacing & Anker**, **Audio**, **Notizen**. *(B-927, 2026-08-31: heisst jetzt **Notizen** — der wirkungslose RL-Teil ist entfallen)*
     *   Empty-State mit Preset-Buttons (Smooth / Energetic / Cinematic / Custom) bevor eine Timeline existiert.
     *   Eine interaktive, DaVinci-Resolve-artige Timeline (mit Waveform-Rendering, Drag & Drop, Zoom).
     *   **Auto-Edit-Button:** Generiert die gesamte Timeline in Sekunden basierend auf den DJ-Reglern (Energy Reactivity, Vibe).

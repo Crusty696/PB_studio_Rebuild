@@ -998,3 +998,19 @@ Export-Render, Vision-Caption, SigLIP-Embedding, Scene-Detection.
   `tests/qa_artifacts/a01_boot_20260827_055202.png`,
   `tests/qa_artifacts/a02_autoedit_click_20260827_055236.png`,
   `tests/qa_artifacts/a03_CONTAMINATION_check_20260827_055533.png`.
+
+### 2.29 SCHNITT-Sub-Tab "Notizen" (frueher "RL & Notes") — NEU 2026-08-31 (B-927)
+- **Ziel:** Projekt-Notizen schreiben und pruefen, dass sie automatisch gespeichert werden.
+- **Was sich geaendert hat:** Der vierte Sub-Tab hiess bis 2026-08-31 "RL & Notes" und
+  trug links die Knoepfe 👍/👎 plus die Liste "Letzte RL-Events". Beides ist auf
+  Userentscheidung entfallen (B-927): die Liste hatte repo-weit keinen Schreibzugriff.
+  Aeltere Testanleitungen, die dort klicken wollen, gehen ins Leere.
+- **Schritte:**
+  1. SCHNITT-Workspace oeffnen (`find-element --name-re "Workflow"`, siehe 2.27).
+  2. Sub-Tab `Notizen` waehlen (vierter Tab, Reihenfolge: Schnitt / Pacing & Anker /
+     Audio / Notizen).
+  3. Text ins Feld tippen, ~1,5 s warten (Debounce 1000 ms).
+- **Erwartet:** Label unter dem Editor wechselt von "Gespeicherten Stand geladen." auf
+  "Zuletzt gespeichert: HH:MM:SS". Nach Tab-Wechsel und Rueckkehr steht der Text noch da.
+- **Widget-Pfad:** `editor_view.tab_notizen.notes_edit` / `.saved_label`
+  (frueher `tab_rl_notes`).

@@ -1282,25 +1282,12 @@ class EditWorkspaceController(PBComponent):
         else:
             self.window.console_text.append("[KI-Gedaechtnis] Fehler beim Speichern der Regel.")
 
-    def _rl_feedback_positive(self):
-        self._save_rl_feedback("positive")
-
-    def _rl_feedback_negative(self):
-        self._save_rl_feedback("negative")
-
-    def _save_rl_feedback(self, sentiment: str):
-        from services.pacing_service import record_rl_feedback
-        audio_id = self.window.audio_combo.currentData()
-        if audio_id is None:
-            self.window.console_text.append(f"[RL-Feedback] {sentiment} - Kein Audio-Track gewaehlt.")
-            return
-        success = record_rl_feedback(audio_id, sentiment, get_active_project_id())
-        if success:
-            emoji = "\U0001f44d" if sentiment == "positive" else "\U0001f44e"
-            self.window.console_text.append(f"[RL-Feedback] {emoji} {sentiment.title()} gespeichert")
-            self.window.statusBar().showMessage(f"RL-Feedback: {sentiment.title()} gespeichert", 3000)
-        else:
-            self.window.console_text.append(f"[RL-Feedback] Fehler beim Speichern")
+    # B-927 (Userentscheidung 2026-08-31): _rl_feedback_positive/-negative
+    # und _save_rl_feedback sind mit dem RL-Teil des frueheren Tabs
+    # "RL & Notes" entfallen — nach dem Entfernen der Knoepfe hatten sie
+    # keinen Aufrufer mehr. Der Service ``record_rl_feedback`` und die
+    # Chat-Aktion in services/actions/edit/misc_actions.py bleiben
+    # unveraendert bestehen.
 
     def _apply_style_preset(self, index: int):
         """Tier-3-Sunset T3.8: Liest jetzt vom Pacing-&-Anker-Sub-Tab statt vom

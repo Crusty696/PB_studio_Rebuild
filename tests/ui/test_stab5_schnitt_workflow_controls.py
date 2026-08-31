@@ -5,7 +5,7 @@ Deckt folgende Controls ab:
   - SchnittEmptyView (#195-#196)
   - SchnittLoadingView (#197)
   - SchnittTabPacingAnker (#198-#210)
-  - SchnittTabRlNotes (#211-#212)
+  - (#211-#212 entfallen mit dem RL-Teil, siehe B-927)
   - SchnittTabSchnitt (#213-#214)
   - TimelineShell (#215-#219)
   - ProjectDashboard (#220-#222)
@@ -27,7 +27,6 @@ from ui.workspaces.schnitt.editor_view import SchnittEditorView
 from ui.workspaces.schnitt.empty_view import SchnittEmptyView
 from ui.workspaces.schnitt.loading_view import SchnittLoadingView
 from ui.workspaces.schnitt.tab_pacing_anker import SchnittTabPacingAnker
-from ui.workspaces.schnitt.tab_rl_notes import SchnittTabRlNotes
 from ui.workspaces.schnitt.tab_schnitt import SchnittTabSchnitt
 from ui.workspaces.schnitt.timeline_shell import TimelineShell
 from ui.workspaces.workflow_pages import ProjectDashboard
@@ -447,47 +446,11 @@ def test_control_210_btn_learn_ai_triggers_click() -> None:
         _cleanup(app, view)
 
 
-# ── SchnittTabRlNotes #211-#212 ───────────────────────────────────────────────
-
-
-def test_control_211_btn_thumbs_up_emits_signal() -> None:
-    """#211 tab_rl_notes.py:44 self.btn_thumbs_up: 👍 Gut Button sendet feedback_positive Signal."""
-    app = _qapp()
-    view = SchnittTabRlNotes()
-    try:
-        emitted = []
-        view.feedback_positive.connect(lambda: emitted.append(True))
-
-        btn = view.btn_thumbs_up
-        assert btn.isVisibleTo(view) is True
-        assert btn.isEnabled() is True
-
-        QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
-        app.processEvents()
-
-        assert len(emitted) == 1
-    finally:
-        _cleanup(app, view)
-
-
-def test_control_212_btn_thumbs_down_emits_signal() -> None:
-    """#212 tab_rl_notes.py:45 self.btn_thumbs_down: 👎 Schlecht Button sendet feedback_negative Signal."""
-    app = _qapp()
-    view = SchnittTabRlNotes()
-    try:
-        emitted = []
-        view.feedback_negative.connect(lambda: emitted.append(True))
-
-        btn = view.btn_thumbs_down
-        assert btn.isVisibleTo(view) is True
-        assert btn.isEnabled() is True
-
-        QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
-        app.processEvents()
-
-        assert len(emitted) == 1
-    finally:
-        _cleanup(app, view)
+# ── #211-#212 entfallen ──────────────────────────────────────────────────────
+# B-927 (Userentscheidung 2026-08-31): Die Kontrollen #211 btn_thumbs_up und
+# #212 btn_thumbs_down existieren nicht mehr. Der Tab "RL & Notes" hiess nach
+# dem Entfernen des wirkungslosen RL-Teils "Notizen"; die Notizen selbst sind
+# unveraendert und in tests/ui/test_subtab_notizen.py abgedeckt.
 
 
 # ── SchnittTabSchnitt #213-#214 ───────────────────────────────────────────────

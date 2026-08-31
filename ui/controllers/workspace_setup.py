@@ -440,7 +440,6 @@ class WorkspaceSetupController(PBComponent):
 
         _schnitt_tab_schnitt = self.window._schnitt_ws.editor_view.tab_schnitt
         _schnitt_tab_pacing = self.window._schnitt_ws.editor_view.tab_pacing_anker
-        _schnitt_tab_rl = self.window._schnitt_ws.editor_view.tab_rl_notes
 
         # Promote widgets owned by the visible Schnitt sub-tabs
         self.window.video_preview = _schnitt_tab_schnitt.video_preview
@@ -488,8 +487,7 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_keyframe_string.clicked.connect(self.window.edit_workspace._show_keyframe_strings)
         if hasattr(self.window.pacing_curve, 'curve_changed'):
             self.window.pacing_curve.curve_changed.connect(self.window.edit_workspace._generate_timeline)
-        # Tier-3-Sunset T3.6: thumbs-Wiring lebt jetzt auf
-        # _schnitt_tab_rl.feedback_positive/negative (siehe weiter unten).
+        # B-927: das fruehere thumbs-Wiring ist mit dem RL-Teil entfallen.
         # T3.7/T3.8: style_preset_combo wird auf den Pacing-Sub-Tab umgeleitet.
         _schnitt_tab_pacing.style_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
         self.window.timeline_view.clip_moved.connect(self.window.edit_workspace._on_timeline_clip_moved)
@@ -500,9 +498,6 @@ class WorkspaceSetupController(PBComponent):
         # B-286 Phase A — btn_regenerate gehoert jetzt SchnittController
         # (Plan A13: Confirm-Dialog mit Lock-Count + Diff-Preview vor
         # destruktivem Re-Generate). Direkter Connect waere Bypass des Dialogs.
-        _schnitt_tab_rl.feedback_positive.connect(self.window.edit_workspace._rl_feedback_positive)
-        _schnitt_tab_rl.feedback_negative.connect(self.window.edit_workspace._rl_feedback_negative)
-
         # Undo/Redo
         from PySide6.QtGui import QAction, QKeySequence
         undo_action = QAction("Undo", self.window)
@@ -755,7 +750,7 @@ class WorkspaceSetupController(PBComponent):
         )
         ws.apply_project_snapshot(snapshot.project_id, snapshot.timeline_entry_count)
 
-        notes = ws.editor_view.tab_rl_notes
+        notes = ws.editor_view.tab_notizen
         notes._project_id = snapshot.project_id
         notes._autosave_timer.stop()
         notes.notes_edit.blockSignals(True)
