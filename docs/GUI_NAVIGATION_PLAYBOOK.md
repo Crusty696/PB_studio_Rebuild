@@ -1014,3 +1014,36 @@ Export-Render, Vision-Caption, SigLIP-Embedding, Scene-Detection.
   "Zuletzt gespeichert: HH:MM:SS". Nach Tab-Wechsel und Rueckkehr steht der Text noch da.
 - **Widget-Pfad:** `editor_view.tab_notizen.notes_edit` / `.saved_label`
   (frueher `tab_rl_notes`).
+
+### 2.30 DELIVER: Vorschau rendern und abspielen — NEU 2026-08-31 (B-933/B-922/B-937)
+- **Ziel:** Quick-Preview erzeugen, im VORSCHAU-Tab ansehen, Statusleiste pruefen.
+- **Was sich geaendert hat:** Der DELIVER-Bereich zeigte bis 2026-08-31 nur den Tab
+  EXPORT; VORSCHAU und PROTOKOLL hingen in einem per `WA_DontShowOnScreen`
+  unsichtbaren Container. Jetzt sind es drei Tabs: `EXPORT | VORSCHAU | PROTOKOLL`.
+- **Schritte:**
+  1. `click-element --name "Export Workflow"` (Workflow-Rail, siehe 2.27).
+  2. `click-element --name "Quick-Preview rendern"` — **Achtung:** der Button heisst
+     so, NICHT "Quick-Preview (10s)" wie die Beschriftung im Screenshot vermuten
+     laesst. Liegt bei 3240x2160 auf x=134, y=1294.
+  3. ~12 s warten (Rendern), dann `click-element --name "VORSCHAU" --control-type TabItem`.
+  4. `click-element --name "Vorschau abspielen"` — der `accessibleName`, nicht "Play".
+     Stop heisst `Vorschau stoppen`.
+- **Erwartet:** Bild laeuft in der Flaeche, Zeitanzeige zaehlt bis `0:10 / 0:10`.
+  Die Statusleiste unten zeigt `Vorschau fertig: ...\exports\previews\preview_1.mp4`
+  (B-937; vorher stand dort dauerhaft "Export bereit, sobald eine Timeline vorhanden ist.").
+- **Widget-Pfade:** `_deliver_ws.preview_video_label` (seit B-922 ein
+  `VideoPreviewWidget`), `.btn_preview_play` / `.btn_preview_stop`,
+  `.preview_time_label`, `.deliver_status`.
+
+### 2.31 Chat: Aktion gezielt ausloesen — NEU 2026-08-31 (B-940)
+- **Ziel:** Eine registrierte Aktion ueber den Chat starten.
+- **Eingabefeld:** rechtes Kontextpanel, Tab `CHAT`, das kleine `Edit` unten
+  (bei 3240x2160 x=2854, y=2006). Das grosse Edit darueber ist die Ausgabe.
+- **Wichtig — Formulierung entscheidet:** "mach auto-ducking fuer audio track 1"
+  routete das LLM (gemma3:4b) auf `analyze_audio` und startete eine Audio-Analyse.
+  Erst `auto_ducking audio_track_id=1` — Aktionsname plus Parameter in
+  `name=wert`-Form — traf die richtige Aktion. Fuer Verifikationen deshalb immer
+  den exakten Aktionsnamen schreiben, nicht umschreiben.
+- **Beleg im Log:** `[CommandPattern] Main-Thread baut Worker: <action> -> <Task>`.
+  Fehlt die Zeile und steht stattdessen "Unbekannte Action", ist kein Worker
+  registriert (`workers/registry.py`).
