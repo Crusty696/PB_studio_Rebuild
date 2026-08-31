@@ -1127,8 +1127,23 @@ class AutoDucker:
 
             return result
         finally:
-            tmp_music.unlink(missing_ok=True)
-            tmp_voice.unlink(missing_ok=True)
+            # B-943: Das Aufraeumen lief ungeschuetzt im finally. Schlug ein
+            # unlink fehl, verliess die Ausnahme die Funktion NACH dem
+            # erfolgreichen Schreiben der Ausgabe — der Worker meldete einen
+            # Absturz, obwohl die fertige Datei im Ordner lag.
+            # Gemessen am 2026-08-31: "[WinError 5] Zugriff verweigert:
+            # _tmp_voice.wav", waehrend das Ergebnis mit 337.137 s vollstaendig
+            # vorlag. Unter Windows kann eine gerade gelesene Datei kurzzeitig
+            # gesperrt sein; das darf einen fertigen Lauf nicht entwerten.
+            for _tmp in (tmp_music, tmp_voice):
+                try:
+                    _tmp.unlink(missing_ok=True)
+                except OSError as _cleanup_exc:
+                    logger.warning(
+                        "[AutoDucker] Zwischendatei %s nicht loeschbar: %s "
+                        "(Ergebnis ist davon nicht betroffen)",
+                        _tmp.name, _cleanup_exc,
+                    )
 
     def create_ducked_audio_scipy(self, music_path: str, voice_path: str,
                                    output_path: str, progress_cb=None,

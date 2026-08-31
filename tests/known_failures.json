@@ -1,0 +1,27 @@
+{
+  "aufgenommen_am": "2026-08-31T10:29:13+00:00",
+  "head": "43a0b546d28c1eab417620f541b0ca8652c303f9",
+  "zusammenfassung": "19 failed, 4733 passed, 56 skipped, 41 warnings, 271 subtests passed in 1268.18s (0:21:08)",
+  "bekannte_rote_tests": [
+    "tests/audit/test_audit_runtime_evidence.py::GateContractTests::test_timeout_kills_child_and_grandchild",
+    "tests/audit/test_audit_runtime_evidence.py::GateContractTests::test_windows_timeout_job_kills_grandchild_after_intermediate_exit",
+    "tests/pacing/test_pacing_stages.py::test_brain_v3_rationale_uses_final_score_after_rerank",
+    "tests/test_agents/test_b411_chat_action_not_executable.py::TestProcessFallbackGuard::test_question_falls_through_to_chat",
+    "tests/test_agents/test_b782_learn_intent_priority.py::test_learn_intent_with_pacing_vocab_does_not_route_to_pacing",
+    "tests/test_agents/test_b782_learn_intent_priority.py::test_learn_intent_without_pacing_vocab_still_gateway",
+    "tests/test_agents/test_b788_recall_intent_routing.py::test_learn_intent_path_unchanged",
+    "tests/test_agents/test_b788_recall_intent_routing.py::test_recall_question_does_not_route_to_vision[Erinnerst du dich an Clip 42?]",
+    "tests/test_agents/test_b788_recall_intent_routing.py::test_recall_question_does_not_route_to_vision[Was hast du dir zu Clip 42 gemerkt?]",
+    "tests/test_agents/test_b788_recall_intent_routing.py::test_recall_question_does_not_route_to_vision[Was wei\\xdft du \\xfcber den Clip Nachtaufnahme_B738?]",
+    "tests/test_agents/test_b788_recall_intent_routing.py::test_recall_question_does_not_route_to_vision[Was weisst du ueber Clip X?]",
+    "tests/test_agents/test_orchestrator.py::TestToolUseLoop::test_single_read_tool_returns_tool_message_without_llm_rewrite",
+    "tests/test_docs/test_plan_governance.py::test_active_plan_is_single_or_blocked",
+    "tests/test_services/test_a1_crossfades_and_transition_settings.py::test_pacing_crossfade_transitions",
+    "tests/test_services/test_a1_crossfades_and_transition_settings.py::test_pacing_cut_transitions",
+    "tests/test_services/test_b1_siglip_degradation.py::test_siglip_degradation_fallback",
+    "tests/test_services/test_b2_beat_analysis_degradation.py::test_beat_analysis_degradation_fallback",
+    "tests/test_services/test_b570_shutdown_process.py::test_cancelled_live_qthread_does_not_keep_app_process_alive",
+    "tests/test_services/test_rl_v2_feedback_wiring_t14.py::test_minimal_schema_falls_back_to_section_only_context"
+  ],
+  "bereinigt_am": "2026-08-31: 4 Log-Zeilen entfernt, die kein Testknoten sind"
+}

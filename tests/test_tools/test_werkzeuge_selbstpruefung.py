@@ -231,6 +231,27 @@ def test_begruendung_wird_vom_testnamen_getrennt():
     assert _testname("tests/a.py::test_b") == "tests/a.py::test_b"
 
 
+def test_log_zeilen_werden_nicht_als_test_gelesen():
+    """Der zweite Defekt im Werkzeug.
+
+    pytest gibt auch Log-Zeilen mit ERROR am Zeilenanfang aus. Die zu weite
+    Fassung des Musters schrieb dadurch 23 Eintraege in die Baseline, obwohl
+    nur 19 Tests rot waren — vier davon waren Worker-Meldungen.
+    """
+    from tools.regression_baseline import _FAILED, _testname
+
+    ausgabe = "\n".join([
+        "ERROR [root] StemSeparationWorker[1] crashed: AudioTrack 1 nicht gefunden",
+        "ERROR [root] [TaskEngine] Worker-Fehler 'Export: output.mp4' (task_id=x)",
+        "FAILED tests/echt.py::test_wirklich_rot",
+        "",
+    ])
+
+    gefunden = {n for n in (_testname(t) for t in _FAILED.findall(ausgabe)) if n}
+
+    assert gefunden == {"tests/echt.py::test_wirklich_rot"}
+
+
 def test_zusammenfassungszeile_wird_nicht_als_test_gelesen():
     from tools.regression_baseline import _FAILED
 

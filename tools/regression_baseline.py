@@ -47,8 +47,20 @@ _FAILED = re.compile(r"^(?:FAILED|ERROR)\s+(.+)$", re.M)
 
 
 def _testname(zeile: str) -> str:
-    """'tests/a.py::test_b[Was ist X?] - AssertionError: ...' -> Testname."""
-    return zeile.split(" - ", 1)[0].strip()
+    """'tests/a.py::test_b[Was ist X?] - AssertionError: ...' -> Testname.
+
+    Leerer String, wenn die Zeile kein Testknoten ist. Das ist noetig, weil
+    pytest auch Log-Zeilen mit ``ERROR`` am Zeilenanfang ausgibt:
+
+        ERROR [root] StemSeparationWorker[1] crashed: AudioTrack 1 nicht gefunden
+
+    Im zweiten Baseline-Lauf standen dadurch 23 Eintraege in der Datei, obwohl
+    nur 19 Tests rot waren. Die erste Fassung des Musters war zu eng (verlor
+    parametrisierte Namen mit Leerzeichen), die zweite zu weit. Verlaesslich
+    ist nur: ein Testknoten enthaelt einen Dateipfad auf .py.
+    """
+    name = zeile.split(" - ", 1)[0].strip()
+    return name if ".py" in name else ""
 
 
 def _python() -> str:
@@ -63,6 +75,7 @@ def lauf(k_filter: str | None = None) -> tuple[set[str], str]:
     fertig = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
     ausgabe = fertig.stdout + fertig.stderr
     rot = {_testname(treffer) for treffer in _FAILED.findall(ausgabe)}
+    rot.discard("")
     letzte = [z for z in ausgabe.splitlines() if " passed" in z or " failed" in z]
     return rot, (letzte[-1].strip() if letzte else "keine Zusammenfassung")
 
