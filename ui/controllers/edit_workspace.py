@@ -100,6 +100,22 @@ def cut_rate_faktor_zu_beat_index(cut_rate: float | None) -> int:
         if wert >= schwelle:
             return index
     return _CUT_RATE_LANGSAMSTER_INDEX
+
+
+def _llm_pacing_console_status(settings: AdvancedPacingSettings) -> str | None:
+    """Ehrlicher UI-Status fuer LLM-Pacing vor Worker-Start."""
+    strategist_enabled = bool(getattr(settings, "use_llm_strategist", False))
+    edl_enabled = bool(getattr(settings, "use_llm_pacing", False))
+    if not strategist_enabled and not edl_enabled:
+        return None
+    if strategist_enabled and getattr(settings, "musikgetriebener_schnitt", False):
+        strategist_status = "uebersprungen (musikgetriebener Schnitt)"
+    else:
+        strategist_status = str(strategist_enabled)
+    return (
+        f"[Auto-Edit] LLM-Pacing: Strategist={strategist_status}, "
+        f"EDL-Pacing={edl_enabled} (Ollama)."
+    )
 task_manager = TaskManagerProxy()
 
 class EditWorkspaceController(PBComponent):
@@ -560,11 +576,9 @@ class EditWorkspaceController(PBComponent):
             use_llm_pacing=_llm_pacing,
             transition_type=transition_type,
         )
-        if _llm_strategist or _llm_pacing:
-            self.window.console_text.append(
-                f"[Auto-Edit] LLM-Pacing aktiv: Strategist={_llm_strategist}, "
-                f"EDL-Pacing={_llm_pacing} (Ollama)."
-            )
+        _llm_status = _llm_pacing_console_status(settings)
+        if _llm_status:
+            self.window.console_text.append(_llm_status)
 
         self.window.console_text.append(
             f"[Auto-Edit] Phase 3 DJ-Pacing starte "
