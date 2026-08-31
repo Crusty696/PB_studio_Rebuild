@@ -86,3 +86,50 @@ def test_kein_pool_liefert_je_eine_leere_auswahl(name):
         assert _clips_die_das_segment_tragen(clip_ids(pool), info, seg_dauer), (
             f"Pool {name} liefert bei {seg_dauer}s keine Kandidaten"
         )
+
+
+# ── B-948: Teilung darf die Preset-Untergrenze nicht unterlaufen ──────────
+
+def test_teilung_haelt_die_untergrenze_ein():
+    """Offener Punkt aus der Selbstpruefung, jetzt geschlossen.
+
+    Die Obergrenzen-Teilung laeuft NACH der Mindestabstands-Pruefung und schnitt
+    dabei unter die Preset-Vorgabe: im Ambient-Lauf am 2026-08-31 blieb ein
+    1.34-s-Segment stehen, obwohl das Preset 4 s verlangt.
+    """
+    from services.pacing_edit_helpers import _enforce_max_segment_duration
+
+    beats = [round(i * 0.25, 3) for i in range(80)]
+    cuts = [0.0, 9.0, 18.0]
+
+    geteilt = _enforce_max_segment_duration(cuts, beats, 7.0, min_segment_duration=4.0)
+    laengen = [b - a for a, b in zip(geteilt, geteilt[1:])]
+
+    assert min(laengen) >= 4.0 - 0.01, laengen
+
+
+def test_ungeteilt_statt_zu_kurz():
+    """Passt kein Schnitt, bleibt das Segment lieber lang als zerhackt."""
+    from services.pacing_edit_helpers import _enforce_max_segment_duration
+
+    beats = [round(i * 0.25, 3) for i in range(60)]
+    # 7.5 s bei Obergrenze 5 und Untergrenze 4: jede Teilung ergaebe < 4 s.
+    geteilt = _enforce_max_segment_duration([0.0, 7.5], beats,
+                                            5.0, min_segment_duration=4.0)
+
+    assert geteilt == [0.0, 7.5]
+
+
+def test_ohne_untergrenze_bleibt_das_alte_verhalten():
+    """Kein Preset -> die Funktion arbeitet wie vor B-948."""
+    from services.pacing_edit_helpers import _enforce_max_segment_duration
+
+    beats = [round(i * 0.25, 3) for i in range(80)]
+    cuts = [0.0, 9.0, 18.0]
+
+    mit = _enforce_max_segment_duration(cuts, beats, 7.0)
+    ohne = _enforce_max_segment_duration(cuts, beats, 7.0, min_segment_duration=None)
+
+    assert mit == ohne
+    laengen = [b - a for a, b in zip(mit, mit[1:])]
+    assert max(laengen) <= 7.05

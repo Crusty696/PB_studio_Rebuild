@@ -577,10 +577,21 @@ def _enforce_max_segment_duration(
     cuts: list[float],
     beats: list[float],
     max_segment_duration: float | None,
+    min_segment_duration: float | None = None,
 ) -> list[float]:
-    """Teilt nur Segmente, die kein vorhandener Source-Clip abdecken kann."""
+    """Teilt nur Segmente, die kein vorhandener Source-Clip abdecken kann.
+
+    B-948: ``min_segment_duration`` haelt die Untergrenze des Stil-Presets ein.
+    Ohne sie schnitt die Teilung Stuecke unter die Preset-Vorgabe — im
+    Ambient-Lauf am 2026-08-31 blieb ein 1.34-s-Segment stehen, obwohl das
+    Preset 4 s verlangt. Passt ein Segment in keine zwei Teile, die beide die
+    Untergrenze halten, bleibt es lieber ungeteilt: eine zu lange Einstellung
+    faellt weniger auf als ein Schnipsel, und die Quelle deckt sie ab (die
+    Cliplaenge begrenzt die Auswahl bereits, siehe B-944).
+    """
     if not max_segment_duration or max_segment_duration <= 1.0:
         return cuts
+    mindest = float(min_segment_duration or 0.0)
     beats_arr = np.asarray(beats, dtype=float)
     splitted: list[float] = []
     added_splits = 0
@@ -588,14 +599,22 @@ def _enforce_max_segment_duration(
         splitted.append(a)
         cur = a
         while (b - cur) > max_segment_duration + 0.05:
+            # B-948: Unter zwei Mindestlaengen laesst sich nicht teilen, ohne
+            # die Untergrenze zu verletzen — dann bleibt das Segment ganz.
+            if mindest and (b - cur) < 2.0 * mindest:
+                break
             target = cur + max_segment_duration
             cand = (
                 beats_arr[beats_arr <= target + 0.001]
                 if beats_arr.size else np.array([])
             )
-            cand = cand[cand > cur + 1.0] if cand.size else cand
+            untergrenze = max(cur + 1.0, cur + mindest)
+            cand = cand[cand > untergrenze] if cand.size else cand
+            # Der Rest hinter dem Schnitt muss die Untergrenze ebenfalls halten.
+            if mindest and cand.size:
+                cand = cand[cand <= b - mindest]
             nxt = float(cand[-1]) if cand.size else round(target, 4)
-            if (b - nxt) < 1.0:
+            if (b - nxt) < max(1.0, mindest):
                 nxt = round(cur + (b - cur) / 2.0, 4)
             splitted.append(round(nxt, 4))
             added_splits += 1

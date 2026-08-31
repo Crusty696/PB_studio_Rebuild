@@ -1248,11 +1248,14 @@ def _auto_edit_phase3_inner(
     # Die Obergrenze wird deshalb nach dem Ausduennen erneut angewandt. Das
     # Teilen kann die Mindestlaenge nicht unterlaufen: liegt der Rest unter
     # einer Sekunde, teilt die Funktion mittig statt am Limit.
-    if getattr(settings, "min_clip_duration", None) is not None:
+    _preset_min = getattr(settings, "min_clip_duration", None)
+    if _preset_min is not None:
         cut_beats = _enforce_max_segment_duration(
             cut_beats,
             beats,
             _max_clip_dur if _max_clip_dur > 1.0 else None,
+            # B-948: sonst schneidet die Teilung unter die Preset-Untergrenze.
+            min_segment_duration=_preset_min,
         )
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
