@@ -889,17 +889,28 @@ class WorkspaceSetupController(PBComponent):
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, lambda: _stack.setUpdatesEnabled(True))
         self._update_workflow_gates()
-        if index == 0:
-            self._switch_stack(0)
+        # B-956: Diese Zweige standen auf festen Zahlen. Beim Einbau von
+        # CONVERT (B-932) habe ich die Aufrufer umgestellt und genau diese
+        # Empfaengerseite uebersehen: Index 2 fuehrte weiter die SCHNITT-Logik
+        # aus, und fuer EXPORT (jetzt 4) gab es gar keinen Zweig mehr — ein
+        # Klick auf EXPORT markierte den Knopf und liess den Inhalt stehen.
+        # Live gesehen am 2026-08-31 21:50.
+        if index == WorkspaceNavBar.IDX_PROJEKT:
+            self._switch_stack(WorkspaceNavBar.IDX_PROJEKT)
             self._refresh_project_dashboard()
             return
-        if index == 1:
-            self._switch_stack(1)
+        if index == WorkspaceNavBar.IDX_MATERIAL:
+            self._switch_stack(WorkspaceNavBar.IDX_MATERIAL)
             if hasattr(self.window, 'convert'):
                 self.window.convert._refresh_effects_combos()
             return
-        if index == 2:
-            self._switch_stack(2)
+        if index == WorkspaceNavBar.IDX_CONVERT:
+            self._switch_stack(WorkspaceNavBar.IDX_CONVERT)
+            if hasattr(self.window, 'convert'):
+                self.window.convert._refresh_effects_combos()
+            return
+        if index == WorkspaceNavBar.IDX_SCHNITT:
+            self._switch_stack(WorkspaceNavBar.IDX_SCHNITT)
             # B-285 Phase B Hook-1: Tab-Wechsel zu SCHNITT.
             self._push_active_project_to_schnitt()
             manager = getattr(self.window, "_project_manager", None)
@@ -919,8 +930,8 @@ class WorkspaceSetupController(PBComponent):
                 except Exception as exc:
                     self.logger.debug("schnitt director combo refresh failed: %s", exc)
             return
-        if index == 3:
-            self._switch_stack(3)
+        if index == WorkspaceNavBar.IDX_EXPORT:
+            self._switch_stack(WorkspaceNavBar.IDX_EXPORT)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
             return

@@ -207,9 +207,12 @@ def test_b315_workspace_switch_to_schnitt_has_no_direct_duplicate_refresh(monkey
         ),
     )
 
-    controller._on_workspace_changed(2)
+    # B-932/B-956: SCHNITT ist seit dem Einbau von CONVERT Index 3, nicht 2.
+    from ui.widgets.nav_bar import WorkspaceNavBar
 
-    assert window.workspace_stack.indices == [2]
+    controller._on_workspace_changed(WorkspaceNavBar.IDX_SCHNITT)
+
+    assert window.workspace_stack.indices == [WorkspaceNavBar.IDX_SCHNITT]
     assert ws.applied == [(23, 0)]
     assert notes._project_id == 23
     assert cut_list._project_id == 23

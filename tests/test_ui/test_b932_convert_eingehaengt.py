@@ -112,3 +112,37 @@ def test_ohne_gespeicherten_wert_passiert_nichts():
 
     assert s.value("window/workflowStageIndex") is None
     assert s.value("window/workflowStageMigratedConvert", False, type=bool) is True
+
+
+# ── B-956: die Empfaengerseite muss mitwandern ───────────────────────────
+
+def test_jeder_rail_index_hat_einen_zweig():
+    """Der Fehler aus meinem eigenen B-932-Umbau.
+
+    ``_on_workspace_changed`` stand auf festen Zahlen. Nach dem Einbau von
+    CONVERT fuehrte Index 2 weiter die SCHNITT-Logik aus, und fuer EXPORT
+    (jetzt 4) gab es gar keinen Zweig — ein Klick markierte den Knopf und liess
+    den Inhalt stehen. Live gesehen am 2026-08-31 21:50.
+    """
+    import inspect
+
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+
+    src = inspect.getsource(WorkspaceSetupController._on_workspace_changed)
+
+    for name in ("IDX_PROJEKT", "IDX_MATERIAL", "IDX_CONVERT",
+                 "IDX_SCHNITT", "IDX_EXPORT"):
+        assert f"index == WorkspaceNavBar.{name}" in src, f"kein Zweig fuer {name}"
+
+
+def test_keine_nackten_zahlen_mehr_im_wechsel():
+    """Eine vergessene Zahl faellt sonst wieder erst im Live-Test auf."""
+    import inspect
+    import re
+
+    from ui.controllers.workspace_setup import WorkspaceSetupController
+
+    src = inspect.getsource(WorkspaceSetupController._on_workspace_changed)
+
+    assert not re.search(r"index == \d", src)
+    assert not re.search(r"_switch_stack\(\d\)", src)
