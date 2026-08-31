@@ -636,33 +636,113 @@ def _apply_drop_burst_cuts(cut_beats, drop_times, bpm_val, total_duration):
     return cut_beats
 
 
-def _apply_onset_snap_cuts(_bind, audio_id, cut_beats):
+def _gewichteter_onset_snap(zeit, onsets_je_typ, beat_weight, max_shift):
+    """B-941: waehlt den Onset, der Naehe UND Preset-Gewicht am besten vereint.
+
+    ``onsets_je_typ`` ist ``{gewicht: sortierte Zeiten}``. Punktzahl eines
+    Kandidaten ist ``gewicht / (1 + abstand/max_shift)`` — bei gleichem
+    Gewicht gewinnt also der naehere Onset, bei gleichem Abstand der
+    hoeher gewichtete.
+
+    Der unverschobene Cut tritt mit ``beat_weight / 2`` an, also mit dem Wert,
+    den ein gleich gewichteter Onset am aeussersten Rand des Fensters haette.
+    Damit gewinnt bei Gleichstand der Onset — genau das Verhalten vor B-941 —
+    und erst ein hoeher gewichtetes Raster laesst den Cut auf dem Beat stehen.
+    Ein direkter Vergleich mit ``beat_weight`` waere hier falsch: dann haette
+    schon das Standard-Preset (Beat 1.0, Kick 1.0) jedes Snappen unterbunden.
+
+    Ohne Kandidaten im Fenster bleibt die Zeit unveraendert.
+    """
+    bester_wert = float(beat_weight) / 2.0
+    beste_zeit = zeit
+    for gewicht, zeiten in onsets_je_typ.items():
+        if gewicht <= 0 or not zeiten:
+            continue
+        idx = bisect.bisect_left(zeiten, zeit)
+        for kandidat in zeiten[max(0, idx - 1):idx + 1]:
+            abstand = abs(kandidat - zeit)
+            if abstand > max_shift:
+                continue
+            wert = gewicht / (1.0 + abstand / max_shift)
+            if wert > bester_wert:
+                bester_wert = wert
+                beste_zeit = kandidat
+    return beste_zeit
+
+
+def _apply_onset_snap_cuts(_bind, audio_id, cut_beats, settings=None):
     """NEUBAU-VOLLINTEGRATION T2.5.1 (FR-S1-1): Onset-Feinsnap.
 
-    Verbatim ausgelagert. Cuts werden innerhalb +-50ms auf den naechsten
-    persistierten Kick/Snare-Onset geschoben (Beatgrid.onset_*_data).
-    Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben. ``_bind`` ist
-    die Auto-Edit-Engine (``_ae_eng``). Liefert ``cut_beats`` zurueck.
+    Cuts werden innerhalb +-50ms auf den naechsten persistierten Onset
+    geschoben (Beatgrid.onset_*_data). Start (0.0) und Ende (=Audio-Dauer)
+    werden nie verschoben. ``_bind`` ist die Auto-Edit-Engine (``_ae_eng``).
+    Liefert ``cut_beats`` zurueck.
+
+    B-941: Traegt das gewaehlte Stil-Preset Gewichte, entscheidet nicht mehr
+    allein die Naehe, sondern Naehe mal Gewicht — und Hihat-Onsets kommen
+    ueberhaupt erst dann ins Spiel. Ohne Preset bleibt der alte Pfad exakt
+    erhalten: Kick und Snare gleichberechtigt, naechster Onset gewinnt.
     """
     try:
         from services.pacing.cut_snapper import snap_to_onset
-        _onset_times: list[float] = []
+
+        def _zeiten(_data):
+            if not _data:
+                return []
+            return sorted(
+                float(p[0]) for p in _data
+                if isinstance(p, (list, tuple)) and p
+            )
+
         with Session(_bind) as _os_session:
             from database import Beatgrid as _Beatgrid
             _bg_row = (
                 _os_session.query(
                     _Beatgrid.onset_kick_data, _Beatgrid.onset_snare_data,
+                    _Beatgrid.onset_hihat_data,
                 )
                 .filter_by(audio_track_id=audio_id)
                 .first()
             )
-        if _bg_row:
-            for _data in _bg_row:
-                if _data:
-                    _onset_times.extend(
-                        float(p[0]) for p in _data
-                        if isinstance(p, (list, tuple)) and p
-                    )
+        _kick = _zeiten(_bg_row[0]) if _bg_row else []
+        _snare = _zeiten(_bg_row[1]) if _bg_row else []
+        _hihat = _zeiten(_bg_row[2]) if _bg_row else []
+
+        _kick_w = getattr(settings, "kick_weight", None) if settings else None
+        _snare_w = getattr(settings, "snare_weight", None) if settings else None
+        _hihat_w = getattr(settings, "hihat_weight", None) if settings else None
+        _beat_w = getattr(settings, "beat_weight", None) if settings else None
+        _gewichtet = any(w is not None for w in (_kick_w, _snare_w, _hihat_w, _beat_w))
+
+        if _gewichtet and len(cut_beats) > 2:
+            _onsets_je_typ = {
+                float(_kick_w if _kick_w is not None else 1.0): _kick,
+                float(_snare_w if _snare_w is not None else 1.0): _snare,
+                float(_hihat_w if _hihat_w is not None else 0.0): _hihat,
+            }
+            _beat_score = float(_beat_w if _beat_w is not None else 1.0)
+            _snapped_mid = [
+                round(_gewichteter_onset_snap(
+                    t, _onsets_je_typ, _beat_score, 0.05), 4)
+                for t in cut_beats[1:-1]
+            ]
+            _moved = sum(
+                1 for a, b in zip(cut_beats[1:-1], _snapped_mid) if a != b)
+            _mid_sorted = sorted(set(_snapped_mid))
+            cut_beats = [cut_beats[0]] + _mid_sorted + [cut_beats[-1]]
+            logger.info(
+                "B-941 gewichteter Onset-Snap: %d/%d Cuts verschoben "
+                "(Beat=%.2f Kick=%.2f Snare=%.2f Hihat=%.2f; "
+                "%d Kick-, %d Snare-, %d Hihat-Onsets)",
+                _moved, len(_snapped_mid), _beat_score,
+                float(_kick_w if _kick_w is not None else 1.0),
+                float(_snare_w if _snare_w is not None else 1.0),
+                float(_hihat_w if _hihat_w is not None else 0.0),
+                len(_kick), len(_snare), len(_hihat),
+            )
+            return cut_beats
+
+        _onset_times: list[float] = _kick + _snare
         if _onset_times and len(cut_beats) > 2:
             _onset_arr = sorted(_onset_times)
             _snapped_mid = [
@@ -687,15 +767,28 @@ def _apply_onset_snap_cuts(_bind, audio_id, cut_beats):
     return cut_beats
 
 
-def _enforce_min_cut_distance(cut_beats):
-    """B-613: erzwingt Cut-Mindestabstand 0.2s zwischen den inneren Cuts.
+def _enforce_min_cut_distance(cut_beats, min_clip_duration=None):
+    """B-613: erzwingt Cut-Mindestabstand zwischen den inneren Cuts.
 
-    Verbatim ausgelagert. Verhindert degenerierte Mini-Segmente +
-    Timeline-Luecken. Erster Cut (0.0) und letzter Cut (=Audio-Dauer)
-    bleiben EXAKT fix. Liefert das gefilterte ``cut_beats`` zurueck.
+    Verhindert degenerierte Mini-Segmente + Timeline-Luecken. Erster Cut
+    (0.0) und letzter Cut (=Audio-Dauer) bleiben EXAKT fix. Liefert das
+    gefilterte ``cut_beats`` zurueck.
+
+    B-941: ``min_clip_duration`` kommt aus dem Stil-Preset und hebt die
+    Untergrenze an — "Ambient" verlangt 4 s, "Drum & Bass" 0.5 s. Ohne
+    Preset bleibt es bei den 0.2 s aus B-613; die Untergrenze wird nie
+    unterschritten, sonst kehrten die Luecken zurueck.
     """
     if len(cut_beats) > 2:
         _MIN_SEG = 0.2
+        if min_clip_duration is not None:
+            try:
+                _MIN_SEG = max(_MIN_SEG, float(min_clip_duration))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "B-941: min_clip_duration %r unbrauchbar, bleibe bei %.2fs",
+                    min_clip_duration, _MIN_SEG,
+                )
         _kept = [cut_beats[0]]
         for _c in cut_beats[1:-1]:
             if _c - _kept[-1] >= _MIN_SEG:
@@ -1031,6 +1124,25 @@ def _auto_edit_phase3_inner(
     # Material-Kappung + gap-close-Kaskade in apply/repair).
     _max_clip_dur = max(
         (video_info[v].get("duration", 0.0) for v in video_info), default=0.0)
+    # B-941: Das Stil-Preset darf die Obergrenze weiter senken, aber nie
+    # anheben — laenger als der laengste vorhandene Clip geht kein Segment,
+    # sonst kaeme die gap-close-Kaskade in apply/repair zurueck.
+    _preset_max = getattr(settings, "max_clip_duration", None)
+    if _preset_max is not None:
+        try:
+            _preset_max = float(_preset_max)
+            if _preset_max > 0:
+                _max_clip_dur = (
+                    min(_max_clip_dur, _preset_max) if _max_clip_dur > 0
+                    else _preset_max
+                )
+                logger.info(
+                    "B-941: Segment-Obergrenze aus Stil-Preset -> %.2fs",
+                    _max_clip_dur,
+                )
+        except (TypeError, ValueError):
+            logger.warning(
+                "B-941: max_clip_duration %r unbrauchbar, ignoriert", _preset_max)
     cut_beats = finalize_cut_beats(
         cut_beats, beats, downbeats, sections, total_duration,
         max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
@@ -1051,7 +1163,7 @@ def _auto_edit_phase3_inner(
     # geschoben (Beatgrid.onset_*_data, Writer: onset_rhythm_service).
     # 50ms < 70ms-Beat-Sync-Toleranz -> SCHNITT-Garantie bleibt erhalten;
     # Start (0.0) und Ende (=Audio-Dauer) werden nie verschoben.
-    cut_beats = _apply_onset_snap_cuts(_ae_eng, audio_id, cut_beats)
+    cut_beats = _apply_onset_snap_cuts(_ae_eng, audio_id, cut_beats, settings)
 
     # B-912: Cut-Rate ist Nutzerwahl fuer Schnittruhe, nicht nur fruehe
     # Auswahlhilfe. Spaete Drop-/Onset-Stufen duerfen keine hektischen
@@ -1082,7 +1194,8 @@ def _auto_edit_phase3_inner(
     # (frueheren behalten) -> kein degeneriertes Segment, keine Luecke.
     # Erster Cut (0.0) und letzter Cut (=Audio-Dauer) bleiben EXAKT fix,
     # damit die SCHNITT-Garantie "Ende == Audio-Dauer" erhalten bleibt.
-    cut_beats = _enforce_min_cut_distance(cut_beats)
+    cut_beats = _enforce_min_cut_distance(
+        cut_beats, getattr(settings, "min_clip_duration", None))
 
     # Phase 3: Mood-Embeddings + Fitness-Matrix pre-compute
     if progress_cb:

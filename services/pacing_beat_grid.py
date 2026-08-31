@@ -175,6 +175,19 @@ class AdvancedPacingSettings:
     # Der rote Faden: gleiche Section-Typen bekommen dieselbe Bildwelt, und die
     # Auswahl folgt einem Spannungsbogen ueber die volle Laenge.
     roter_faden: bool = True
+    # B-941 (Userentscheidung 2026-08-31): die sechs Stil-Preset-Spalten, die
+    # bis dahin keinen Leser hatten. "Ambient" (4-15 s) und "Cinematic"
+    # (3-12 s) erzeugten deshalb identische Clip-Laengen.
+    #
+    # ``None`` heisst "kein Preset geladen" und laesst den bisherigen Pfad
+    # exakt unveraendert — nur ein wirklich gewaehltes Preset veraendert das
+    # Ergebnis. Das schuetzt Bestandslaeufe und Snapshot-Tests.
+    min_clip_duration: float | None = None   # Sekunden, Untergrenze je Segment
+    max_clip_duration: float | None = None   # Sekunden, Obergrenze je Segment
+    beat_weight: float | None = None         # Gewicht des reinen Beat-Rasters
+    kick_weight: float | None = None         # Gewicht der Kick-Onsets
+    snare_weight: float | None = None        # Gewicht der Snare-Onsets
+    hihat_weight: float | None = None        # Gewicht der Hihat-Onsets
 
 
 @dataclass

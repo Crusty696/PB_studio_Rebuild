@@ -564,6 +564,21 @@ class EditWorkspaceController(PBComponent):
         except Exception as db_exc:
             logger.warning("_auto_edit_to_beat: transition_type konnte nicht in DB persistiert werden: %s", db_exc)
 
+        # B-941 (Userentscheidung 2026-08-31): sechs Spalten der Stil-Presets
+        # hatten keinen Leser — min/max_clip_duration und die vier
+        # Beat-Gewichte. "Ambient" (4-15 s) und "Cinematic" (3-12 s) erzeugten
+        # deshalb identische Clip-Laengen. Fuer diese sechs gibt es kein
+        # Widget; sie werden hier direkt aus der Tabelle nachgeladen.
+        from services.pacing.style_preset_loader import lade_preset_felder
+        try:
+            _preset_name = (
+                self.window._schnitt_ws.editor_view.tab_pacing_anker
+                .style_combo.currentText()
+            )
+        except AttributeError:
+            _preset_name = ""
+        _preset_felder = lade_preset_felder(_preset_name)
+
         settings = AdvancedPacingSettings(
             base_cut_rate=base_cut_rate,
             energy_reactivity=self.window.energy_reactivity_spin.value(),
@@ -575,7 +590,19 @@ class EditWorkspaceController(PBComponent):
             use_llm_strategist=_llm_strategist,
             use_llm_pacing=_llm_pacing,
             transition_type=transition_type,
+            **_preset_felder,
         )
+        if _preset_felder:
+            self.window.console_text.append(
+                f"[Auto-Edit] Stil-Preset '{_preset_name}': "
+                f"Clip-Laenge {_preset_felder.get('min_clip_duration', '?')}-"
+                f"{_preset_felder.get('max_clip_duration', '?')}s, "
+                f"Gewichte Beat/Kick/Snare/Hihat "
+                f"{_preset_felder.get('beat_weight', '?')}/"
+                f"{_preset_felder.get('kick_weight', '?')}/"
+                f"{_preset_felder.get('snare_weight', '?')}/"
+                f"{_preset_felder.get('hihat_weight', '?')}."
+            )
         _llm_status = _llm_pacing_console_status(settings)
         if _llm_status:
             self.window.console_text.append(_llm_status)
