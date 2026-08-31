@@ -1,0 +1,10 @@
+{
+  "lesson_id": "a9cdac7966864ea98eb25192e839d852",
+  "recorded_at": "2026-08-31T05:38:10+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Eine Registry-Bereinigung galt als erledigt, obwohl die Werte noch wirkten",
+  "cause": "Die App migriert QSettings beim Start in settings.json; die Migration lief vor der Loeschung, die Kopie in der JSON ueberlebte und steuerte weiter das Verhalten",
+  "rule": "Nach dem Bereinigen einer Konfigurationsquelle pruefen, ob die Werte inzwischen in eine zweite Quelle kopiert wurden (Registry vs. JSON vs. DB) und dort ebenfalls nachsehen, bevor der Fix als vollstaendig gilt",
+  "applies_to": "Konfigurations- und Zustandsbereinigung"
+}
