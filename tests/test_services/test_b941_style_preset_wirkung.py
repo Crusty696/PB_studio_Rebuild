@@ -63,14 +63,19 @@ def test_rahmen_bleibt_exakt():
 # ── Gewichteter Onset-Snap ────────────────────────────────────────────────
 
 def test_bei_gleichem_gewicht_gewinnt_der_naehere_onset():
-    """Und bei Gleichstand mit dem Beat gewinnt der Onset — Verhalten vor B-941."""
-    assert _gewichteter_onset_snap(10.0, {1.0: [9.98, 10.04]}, 1.0, 0.05) == 9.98
+    """Und bei Gleichstand mit dem Beat gewinnt der Onset — Verhalten vor B-941.
+
+    B-944: Die Kandidaten kommen als ``(gewicht, zeiten)``-Paare statt als
+    Dict — als Dict verschluckte ein zweiter Typ mit gleichem Gewicht den
+    ersten.
+    """
+    assert _gewichteter_onset_snap(10.0, [(1.0, [9.98, 10.04])], 1.0, 0.05) == 9.98
 
 
 def test_hoeheres_gewicht_schlaegt_geringeren_abstand():
     """Kick 1.2 bei 30 ms gewinnt gegen Snare 0.5 bei 10 ms."""
     ergebnis = _gewichteter_onset_snap(
-        10.0, {1.2: [10.03], 0.5: [10.01]}, beat_weight=0.1, max_shift=0.05)
+        10.0, [(1.2, [10.03]), (0.5, [10.01])], beat_weight=0.1, max_shift=0.05)
 
     assert ergebnis == 10.03
 
@@ -78,14 +83,14 @@ def test_hoeheres_gewicht_schlaegt_geringeren_abstand():
 def test_hohes_beat_gewicht_laesst_den_cut_stehen():
     """Wer das Raster hoeher gewichtet als die Drums, bleibt auf dem Beat."""
     ergebnis = _gewichteter_onset_snap(
-        10.0, {1.0: [10.02]}, beat_weight=5.0, max_shift=0.05)
+        10.0, [(1.0, [10.02])], beat_weight=5.0, max_shift=0.05)
 
     assert ergebnis == 10.0
 
 
 def test_onsets_ausserhalb_des_fensters_werden_ignoriert():
     ergebnis = _gewichteter_onset_snap(
-        10.0, {9.9: [10.4]}, beat_weight=1.0, max_shift=0.05)
+        10.0, [(9.9, [10.4])], beat_weight=1.0, max_shift=0.05)
 
     assert ergebnis == 10.0
 
@@ -93,7 +98,7 @@ def test_onsets_ausserhalb_des_fensters_werden_ignoriert():
 def test_gewicht_null_schaltet_einen_typ_ab():
     """Hihat 0.0 heisst: Hihat-Onsets zaehlen nicht — wie vor B-941."""
     ergebnis = _gewichteter_onset_snap(
-        10.0, {0.0: [10.01], 1.0: [10.04]}, beat_weight=0.1, max_shift=0.05)
+        10.0, [(0.0, [10.01]), (1.0, [10.04])], beat_weight=0.1, max_shift=0.05)
 
     assert ergebnis == 10.04
 

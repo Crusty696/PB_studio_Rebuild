@@ -636,10 +636,38 @@ def _apply_drop_burst_cuts(cut_beats, drop_times, bpm_val, total_duration):
     return cut_beats
 
 
+def _clips_die_das_segment_tragen(available_ids, video_info, seg_duration):
+    """B-944: Clips, deren Quellmaterial das Segment ohne Kappung abdeckt.
+
+    ``source_end = min(source_start + seg_duration, vid_duration)`` kappt die
+    Quelle, wenn der gewaehlte Clip kuerzer ist als der Timeline-Slot. Der Slot
+    behaelt seine Laenge, es entsteht eine Luecke, und die Reparatur in
+    ``apply`` schliesst sie durch Verschieben der Nachbarn.
+
+    Deshalb wird vorher gefiltert. Traegt kein einziger Clip das Segment, wird
+    die volle Liste zurueckgegeben: dann ist eine gekappte Quelle immer noch
+    besser als gar kein Clip, und das Verhalten entspricht dem von vor B-944.
+    """
+    passend = [
+        vid for vid in available_ids
+        if float(video_info.get(vid, {}).get("duration", 0.0) or 0.0)
+        >= seg_duration - 0.05
+    ]
+    return passend or list(available_ids)
+
+
 def _gewichteter_onset_snap(zeit, onsets_je_typ, beat_weight, max_shift):
     """B-941: waehlt den Onset, der Naehe UND Preset-Gewicht am besten vereint.
 
-    ``onsets_je_typ`` ist ``{gewicht: sortierte Zeiten}``. Punktzahl eines
+    ``onsets_je_typ`` ist eine Folge von ``(gewicht, sortierte Zeiten)``.
+
+    B-944: Vorher war das ein Dict mit dem Gewicht als Schluessel. Trugen zwei
+    Trommeln dasselbe Gewicht — ``kick_weight == snare_weight`` ist die
+    naheliegendste Einstellung ueberhaupt — ueberschrieb der zweite Eintrag den
+    ersten und ein kompletter Onset-Typ verschwand lautlos aus der Auswahl.
+    Nachgestellt: aus drei Eintraegen wurden zwei, die Kick-Onsets waren weg.
+
+    Punktzahl eines
     Kandidaten ist ``gewicht / (1 + abstand/max_shift)`` — bei gleichem
     Gewicht gewinnt also der naehere Onset, bei gleichem Abstand der
     hoeher gewichtete.
@@ -655,7 +683,7 @@ def _gewichteter_onset_snap(zeit, onsets_je_typ, beat_weight, max_shift):
     """
     bester_wert = float(beat_weight) / 2.0
     beste_zeit = zeit
-    for gewicht, zeiten in onsets_je_typ.items():
+    for gewicht, zeiten in onsets_je_typ:
         if gewicht <= 0 or not zeiten:
             continue
         idx = bisect.bisect_left(zeiten, zeit)
@@ -715,11 +743,11 @@ def _apply_onset_snap_cuts(_bind, audio_id, cut_beats, settings=None):
         _gewichtet = any(w is not None for w in (_kick_w, _snare_w, _hihat_w, _beat_w))
 
         if _gewichtet and len(cut_beats) > 2:
-            _onsets_je_typ = {
-                float(_kick_w if _kick_w is not None else 1.0): _kick,
-                float(_snare_w if _snare_w is not None else 1.0): _snare,
-                float(_hihat_w if _hihat_w is not None else 0.0): _hihat,
-            }
+            _onsets_je_typ = [
+                (float(_kick_w if _kick_w is not None else 1.0), _kick),
+                (float(_snare_w if _snare_w is not None else 1.0), _snare),
+                (float(_hihat_w if _hihat_w is not None else 0.0), _hihat),
+            ]
             _beat_score = float(_beat_w if _beat_w is not None else 1.0)
             _snapped_mid = [
                 round(_gewichteter_onset_snap(
@@ -1144,32 +1172,19 @@ def _auto_edit_phase3_inner(
             logger.warning(
                 "B-941: max_clip_duration %r unbrauchbar, ignoriert", _preset_max)
 
-    # B-942: Die Obergrenze oben ist die Dauer des LAENGSTEN Clips. Zugewiesen
-    # wird aber irgendein Clip — ist der kuerzer als das Segment, kappt
-    # ``source_end = min(source_start + seg_duration, vid_duration)`` die
+    # B-942/B-944: Die Obergrenze oben ist die Dauer des LAENGSTEN Clips.
+    # Zugewiesen wird aber irgendein Clip — ist der kuerzer als das Segment,
+    # kappt ``source_end = min(source_start + seg_duration, vid_duration)`` die
     # Quelle, waehrend der Timeline-Slot seine volle Laenge behaelt. Es
-    # entsteht eine Luecke, die die Reparatur in apply hinterher schliesst.
+    # entsteht eine Luecke, die die Reparatur in apply hinterher schliesst
+    # (erster Ambient-Lauf 2026-08-31: 38 geschlossene Luecken, 6
+    # Ueberlappungen; vorher immer 0).
     #
-    # Solange die Segmente kurz waren (im Schnitt 4.3 s bei Clips ab 7.8 s),
-    # fiel das nie auf. Mit einer Preset-Untergrenze werden sie laenger und
-    # das Problem wird sichtbar: erster Ambient-Lauf 2026-08-31 09:40 ->
-    # 38 geschlossene Luecken und 6 Ueberlappungen, vorher immer 0.
-    #
-    # Sobald ein Preset die Laengen steuert, wird die Obergrenze deshalb auf
-    # den KUERZESTEN verfuegbaren Clip gesenkt. Damit passt jedes Segment in
-    # jeden Clip, egal welcher gewaehlt wird. Ohne Preset bleibt alles wie
-    # bisher — die alte Grenze ist unangetastet.
-    if getattr(settings, "min_clip_duration", None) is not None:
-        _kuerzester = min(
-            (video_info[v].get("duration", 0.0) for v in video_info), default=0.0)
-        if _kuerzester > 0 and (_max_clip_dur <= 0 or _kuerzester < _max_clip_dur):
-            logger.info(
-                "B-942: Segment-Obergrenze auf den kuerzesten Clip gesenkt "
-                "(%.2fs statt %.2fs) — verhindert gekappte Quellen und "
-                "geschlossene Luecken.",
-                _kuerzester, _max_clip_dur,
-            )
-            _max_clip_dur = _kuerzester
+    # B-942 hatte dafuer die Obergrenze global auf den KUERZESTEN Clip
+    # gesenkt. Das war zu grob: ein einziger 1.5-Sekunden-Schnipsel im Pool
+    # haette jedes Segment des ganzen Videos auf 1.5 s gedeckelt. Statt an der
+    # globalen Grenze zu drehen, wird jetzt pro Segment ein Clip gewaehlt, der
+    # lang genug ist — siehe ``_clips_die_das_segment_tragen`` weiter unten.
     cut_beats = finalize_cut_beats(
         cut_beats, beats, downbeats, sections, total_duration,
         max_segment_duration=_max_clip_dur if _max_clip_dur > 1.0 else None,
@@ -1971,6 +1986,24 @@ def _auto_edit_phase3_inner(
                         "auf Legacy zurück: %s", seg_start, _sb_loop_exc,
                     )
 
+            # B-944: Die Studio-Brain-Pipeline waehlt ihren Clip selbst und
+            # ging damit am Laengenfilter vorbei. Traegt ihre Wahl das Segment
+            # nicht, wird sie verworfen und der Legacy-Pfad uebernimmt — der
+            # filtert auf Clips, die das Segment abdecken.
+            # Gemessen am 2026-08-31: Brain waehlte fuer ein 9.58-s-Segment
+            # einen 8.00-s-Clip, die Quelle wurde gekappt und die Reparatur
+            # schloss das Loch. Das Flag ist in dieser Installation AN
+            # (settings.json: pacing.use_studio_brain = true).
+            if _sb_chosen_vid is not None and _sb_chosen_vid in video_info:
+                _sb_dur = float(video_info[_sb_chosen_vid].get("duration", 0.0) or 0.0)
+                if _sb_dur + 0.05 < seg_duration:
+                    logger.info(
+                        "B-944: Studio-Brain-Wahl (Clip %s, %.2fs) traegt das "
+                        "Segment %.2f-%.2f (%.2fs) nicht — Legacy-Auswahl.",
+                        _sb_chosen_vid, _sb_dur, seg_start, seg_end, seg_duration,
+                    )
+                    _sb_chosen_vid = None
+
             if _sb_chosen_vid is not None and _sb_chosen_vid in video_info:
                 vid = _sb_chosen_vid
                 source_start = clip_offsets.get(vid, 0.0)
@@ -2011,9 +2044,12 @@ def _auto_edit_phase3_inner(
                     ))
 
                 # Legacy-Pfad (default oder Studio-Brain-Fallback)
+                # B-944: nur Clips anbieten, die das Segment tragen koennen.
+                _tragende_ids = _clips_die_das_segment_tragen(
+                    available_ids, video_info, seg_duration)
                 vid, source_start, _clip_idx = _match_video_for_segment(
                     seg_start, seg_end, settings.vibe,
-                    video_info, available_ids, clip_offsets, used_recently,
+                    video_info, _tragende_ids, clip_offsets, used_recently,
                     energy_per_beat=energy_per_beat, beats=beats,
                     memory_bias=memory_bias,
                     section_type=seg_section_type,
