@@ -567,6 +567,13 @@ class AudioCard(MediaCard):
             meta.addWidget(self._meta_lbl(self._key, "#00e5ff"))
         if self._mood:
             meta.addWidget(self._meta_lbl(self._mood, "#4ade80"))
+        if self._genre:
+            # B-947: Das Genre wurde seit B-938 an die Karte gereicht, aber nie
+            # gezeichnet — dieselbe Sorte Attrappe, die der Bericht vom
+            # 2026-08-31 im ganzen Projekt aufgelistet hat. Gedaempftes Blau,
+            # damit BPM (gold), Tonart (cyan) und Stimmung (gruen) fuehrend
+            # bleiben.
+            meta.addWidget(self._meta_lbl(self._genre, "#7aa2f7"))
         meta.addStretch()
         vl.addLayout(meta)
 

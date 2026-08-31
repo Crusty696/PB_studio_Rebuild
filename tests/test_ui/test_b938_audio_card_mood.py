@@ -58,3 +58,32 @@ def test_mood_erzeugt_ein_sichtbares_label(qapp):
 
     assert "uplifting" in texte_mit
     assert "uplifting" not in texte_ohne
+
+
+# ── B-947: Genre wurde durchgereicht, aber nie gezeichnet ─────────────────
+
+def test_genre_erscheint_auf_der_karte(qapp):
+    """B-938 reichte das Genre durch, B-947 zeigt es an.
+
+    Die Selbstpruefung am 2026-08-31 fand, dass mein eigener B-938-Commit
+    ("Mood und Genre erreichen die Audio-Kachel") nur zur Haelfte stimmte:
+    ``_genre`` wurde gesetzt und nirgends gerendert.
+    """
+    from PySide6.QtWidgets import QLabel
+
+    mit = AudioCard(media_id=10, title="A", file_path="a.mp3", genre="techno")
+    ohne = AudioCard(media_id=11, title="A", file_path="a.mp3")
+
+    assert "techno" in {w.text() for w in mit.findChildren(QLabel)}
+    assert "techno" not in {w.text() for w in ohne.findChildren(QLabel)}
+
+
+def test_mood_und_genre_stehen_nebeneinander(qapp):
+    from PySide6.QtWidgets import QLabel
+
+    karte = AudioCard(media_id=12, title="A", file_path="a.mp3",
+                      bpm=128.0, key="Am", mood="dark", genre="techno")
+
+    texte = {w.text() for w in karte.findChildren(QLabel)}
+
+    assert {"128", "BPM", "Am", "dark", "techno"} <= texte
