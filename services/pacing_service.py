@@ -1451,12 +1451,27 @@ def _auto_edit_phase3_inner(
     if anchor_times:
         scene_ids = []
         for anchor_data in anchor_times.values():
-            sid = anchor_data.get("scene_id", "")
-            if sid:
+            sid = str(anchor_data.get("scene_id", "") or "").strip()
+            if not sid:
+                continue
+            # B-939: Der Anker-Dialog vergibt fuer Clips ohne erkannte Szenen
+            # die Form "clip_<VideoClip.id>" (ui/controllers/edit_workspace.py
+            # :1060). Hier lief bisher int("clip_7") auf einen ValueError, der
+            # Anker wurde mit einer reinen Log-Warnung verworfen — waehrend die
+            # Konsole vorher meldete, mit wie vielen Ankern gerechnet wird.
+            # Der Sync-Pfad kennt dieselbe Form und loest sie korrekt auf
+            # (services/anchor_sync_service.py:68-75).
+            if sid.startswith("clip_"):
                 try:
-                    scene_ids.append(int(sid))
-                except (ValueError, TypeError) as exc:
-                    logger.warning("Failed to parse scene_id in auto_edit_phase3: %s", exc)
+                    anchor_scene_map[sid] = int(sid[len("clip_"):])
+                except ValueError:
+                    logger.warning(
+                        "auto_edit_phase3: ungueltige clip-scene_id %r", sid)
+                continue
+            try:
+                scene_ids.append(int(sid))
+            except (ValueError, TypeError) as exc:
+                logger.warning("Failed to parse scene_id in auto_edit_phase3: %s", exc)
         if scene_ids:
             with Session(_ae_eng) as session:
                 # B-090: column-select statt Blob-eager-load (VideoClip.scenes -> Scene)
