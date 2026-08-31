@@ -84,6 +84,15 @@ if ($gateExit -eq 2) {
     }
 }
 
+Write-Section "Passende Lehren zum geaenderten Code"
+# Selbstpruefung 2026-08-31: Die Lehre zum Pruefen von Feature-Flags lag im
+# Bestand und wurde am selben Tag verletzt. "start" zeigt die acht juengsten
+# von 289 - das eigene Thema trifft das nur zufaellig. Hier werden die Lehren
+# gezeigt, die zu den tatsaechlich geaenderten Dateien passen.
+$lessonPython = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
+if (-not (Test-Path $lessonPython)) { $lessonPython = "python" }
+& $lessonPython "tools\session_learning.py" relevant --changed --limit 5
+
 Write-Section "Session Learning Check"
 $learningPython = Join-Path $env:USERPROFILE "miniconda3\envs\pb-studio\python.exe"
 if (-not (Test-Path $learningPython)) { $learningPython = "python" }

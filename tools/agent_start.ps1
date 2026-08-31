@@ -91,6 +91,13 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "BLOCKED: session learning initialization failed"
     exit 7
 }
+Write-Host ""
+Write-Host "Die Ausgabe oben zeigt die acht JUENGSTEN Lehren von aktuell ueber 289."
+Write-Host "Vor einer Aenderung die THEMATISCH passenden holen:"
+Write-Host '  python tools\session_learning.py relevant --for <stichworte>'
+Write-Host '  python tools\session_learning.py relevant --changed'
+Write-Host "Grund: Am 2026-08-31 lag die Lehre zum Pruefen von Feature-Flags im"
+Write-Host "Bestand und wurde am selben Tag verletzt, weil sie nicht sichtbar war."
 
 if ($Pull) {
     Write-Section "Remote Sync"

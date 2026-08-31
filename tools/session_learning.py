@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 import subprocess
 import uuid
@@ -49,6 +50,105 @@ def recent_lessons(*, lessons_path: Path, limit: int = 8) -> list[dict]:
     ]
     lessons.sort(key=lambda item: (item.get("recorded_at", ""), item.get("lesson_id", "")))
     return lessons[-limit:]
+
+
+# Themen-Schluessel: Muster im Lehrtext -> Muster in Dateipfaden.
+# Aus der Auswertung des Bestandes am 2026-08-31 (289 Lehren): die haeufigsten
+# Wiederholungen sind Verifikation (81), Pfade/Projektwechsel (102),
+# Threads/Qt (61), Timeline/Pacing (53), Feature-Flags (46).
+THEMEN: dict[str, tuple[str, str]] = {
+    "verifikation": (
+        r"verifizier|beleg|gemessen|nachweis|behaupt|live-?test|smoke",
+        r"",
+    ),
+    "feature_flag": (
+        r"flag|feature-?gate|settings\.json|settings_store|env-?var|default=",
+        r"bridge\.py|settings|config",
+    ),
+    "threads": (
+        r"thread|qthread|signal|slot|main-?thread|freeze|deadlock",
+        r"workers?/|ui/|_worker|task_manager",
+    ),
+    "pfade": (
+        r"pfad|path|projektwechsel|relativ|absolut|app_root|projektkopie",
+        r"session\.py|_router|storage|export",
+    ),
+    "pacing": (
+        r"pacing|segment|cut-?beat|timeline|schnitt|beat|onset",
+        r"pacing|timeline|edit",
+    ),
+    "tests": (
+        r"fixture|monkeypatch|test-?isolation|singleton|reale db|echte db",
+        r"tests?/|conftest",
+    ),
+    "gpu": (
+        r"gpu|vram|cuda|nvenc|siglip|demucs",
+        r"model_manager|video_analysis|convert|ffmpeg",
+    ),
+    "datenbank": (
+        r"sqlalchemy|session|commit|expire_on_commit|migration|alembic",
+        r"database|models\.py|migrations",
+    ),
+}
+
+
+def relevante_lessons(
+    *,
+    lessons_path: Path,
+    stichworte: list[str] | None = None,
+    dateien: list[str] | None = None,
+    limit: int = 6,
+) -> list[dict]:
+    """Lehren, die zum aktuellen Arbeitsgegenstand passen.
+
+    ``start`` gibt die acht juengsten Lehren aus. Bei 289 Eintraegen trifft das
+    das eigene Thema nur zufaellig — die Lehre zum Pruefen von Feature-Flags lag
+    am 2026-08-31 im Bestand und wurde am selben Tag trotzdem verletzt.
+
+    Hier wird stattdessen nach Thema gesucht: entweder ueber freie Stichworte
+    oder ueber die gerade geaenderten Dateien.
+    """
+    if not lessons_path.is_dir():
+        return []
+
+    heu = " ".join(stichworte or []).lower()
+    pfade = " ".join(dateien or []).lower().replace("\\", "/")
+
+    aktive: list[str] = []
+    for thema, (text_muster, pfad_muster) in THEMEN.items():
+        if heu and re.search(text_muster, heu):
+            aktive.append(text_muster)
+        elif pfade and pfad_muster and re.search(pfad_muster, pfade):
+            aktive.append(text_muster)
+
+    if not aktive and heu:
+        # Kein Thema erkannt: die Stichworte selbst als Muster nutzen.
+        aktive = [re.escape(w) for w in heu.split() if len(w) > 3]
+    if not aktive:
+        return []
+
+    treffer: list[tuple[int, str, dict]] = []
+    for pfad in lessons_path.glob("*.json"):
+        lesson = json.loads(pfad.read_text(encoding="utf-8"))
+        text = " ".join(str(lesson.get(k, "")) for k in
+                        ("problem", "cause", "rule", "applies_to")).lower()
+        punkte = sum(len(re.findall(muster, text)) for muster in aktive)
+        if punkte:
+            treffer.append((punkte, lesson.get("recorded_at", ""), lesson))
+
+    treffer.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return [lesson for _, _, lesson in treffer[:limit]]
+
+
+def geaenderte_dateien() -> list[str]:
+    """Dateien im aktuellen Arbeitsstand (uncommitted + letzter Commit)."""
+    namen: set[str] = set()
+    for befehl in (["git", "diff", "--name-only", "HEAD"],
+                   ["git", "diff", "--name-only", "--cached"]):
+        ergebnis = subprocess.run(befehl, cwd=REPO_ROOT,
+                                  capture_output=True, text=True)
+        namen.update(z.strip() for z in ergebnis.stdout.splitlines() if z.strip())
+    return sorted(namen)
 
 
 def record_lesson(
@@ -113,6 +213,13 @@ def main() -> int:
     record.add_argument("--rule", required=True)
     record.add_argument("--applies-to", required=True)
     sub.add_parser("verify")
+    rel = sub.add_parser(
+        "relevant", help="Lehren zum aktuellen Thema statt der juengsten acht")
+    rel.add_argument("--for", dest="stichworte", nargs="*", default=None,
+                     help="freie Stichworte, z.B. flag pacing")
+    rel.add_argument("--changed", action="store_true",
+                     help="Thema aus den gerade geaenderten Dateien ableiten")
+    rel.add_argument("--limit", type=int, default=6)
     args = parser.parse_args()
     state_path = _default_state_path()
 
@@ -131,6 +238,27 @@ def main() -> int:
         )
         print(json.dumps(entry, indent=2, ensure_ascii=False))
         return 0
+    if args.command == "relevant":
+        dateien = geaenderte_dateien() if args.changed else None
+        gefunden = relevante_lessons(
+            lessons_path=DEFAULT_LESSONS,
+            stichworte=args.stichworte,
+            dateien=dateien,
+            limit=args.limit,
+        )
+        if not gefunden:
+            print("Keine passende Lehre im Bestand.")
+            return 0
+        if dateien:
+            print(f"Thema aus {len(dateien)} geaenderten Datei(en) abgeleitet.")
+        for lesson in gefunden:
+            print("")
+            print("[%s] %s" % (lesson.get("recorded_at", "?")[:10],
+                               lesson.get("applies_to", "?")))
+            print(f"  Problem: {lesson.get('problem', '')}")
+            print(f"  REGEL  : {lesson.get('rule', '')}")
+        return 0
+
     result = verify_session(state_path=state_path, lessons_path=DEFAULT_LESSONS)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if result["ok"] else 2
