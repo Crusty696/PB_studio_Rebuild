@@ -980,8 +980,11 @@ class ModelManager:
             return
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
-            get_model_lifecycle_service().touch_last_used(model_id)
-            gesehen[model_id] = jetzt
+            # B-954: nur einen ERFOLGREICHEN Schreibvorgang merken. Ohne
+            # Registry-Zeile schreibt touch_last_used nichts; wer den Versuch
+            # trotzdem als erledigt vermerkt, sperrt sich fuer eine Stunde aus.
+            if get_model_lifecycle_service().touch_last_used(model_id):
+                gesehen[model_id] = jetzt
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning(
                 "Updating last_used_at in model registry for '%s': %s", model_id, e)

@@ -250,7 +250,14 @@ class ModelLifecycleService:
 
             existing.display_name = entry.display_name
             existing.size_mb = entry.size_mb
-            existing.last_used_at = last_used_dt
+            # B-954: Der Scan kennt keine Nutzungszeit — er liest Ollama und den
+            # HF-Cache. Ein leerer Wert von dort darf den in der DB stehenden
+            # Zeitstempel nicht loeschen, sonst zeigt "Zuletzt benutzt" nach
+            # jedem Klick auf "Aktualisieren" wieder "Nie".
+            # Live gesehen 2026-08-31: vor dem Klick stand
+            # 2026-08-31 15:30:15 in der Zeile, danach NULL.
+            if last_used_dt is not None:
+                existing.last_used_at = last_used_dt
             existing.status = entry.status
             existing.local_path = entry.local_path
             if entry.metadata:
@@ -304,20 +311,39 @@ class ModelLifecycleService:
                 session.rollback()
                 logger.error("ModelRegistry stale cleanup fehlgeschlagen: %s", e)
 
-    def touch_last_used(self, model_id: str) -> None:
-        """Aktualisiert last_used_at auf jetzt (bei Modell-Load)."""
+    def touch_last_used(self, model_id: str) -> bool:
+        """Aktualisiert last_used_at auf jetzt (bei Modell-Load).
+
+        B-954: Gibt jetzt zurueck, ob wirklich geschrieben wurde. Ohne
+        Registry-Zeile passiert naemlich nichts — die Zeilen entstehen erst
+        beim Oeffnen des Modell-Managers (``scan_all``). Der Aufrufer in
+        ``ModelManager`` drosselt auf einen Schreibvorgang pro Stunde und darf
+        sich einen wirkungslosen Versuch nicht als erledigt merken, sonst
+        bleibt die Spalte eine Stunde lang leer, obwohl die Zeile inzwischen
+        existiert.
+
+        Live gesehen am 2026-08-31: Die App hatte SigLIP siebenmal geladen, in
+        der Projekt-DB stand trotzdem NULL und der Modell-Manager zeigte "Nie".
+        """
         from database import nullpool_session
         from database import ModelRegistry
 
         with nullpool_session() as session:
             entry = session.query(ModelRegistry).filter_by(model_id=model_id).first()
-            if entry:
-                entry.last_used_at = datetime.datetime.utcnow()
-                try:
-                    session.commit()
-                except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
-                    session.rollback()
-                    logger.debug("touch_last_used fehlgeschlagen: %s", e)
+            if not entry:
+                logger.debug(
+                    "touch_last_used: keine Registry-Zeile fuer %s "
+                    "(entsteht erst beim Scan)", model_id,
+                )
+                return False
+            entry.last_used_at = datetime.datetime.utcnow()
+            try:
+                session.commit()
+                return True
+            except Exception as e:  # broad catch intentional — SQLAlchemy commit can raise many error types
+                session.rollback()
+                logger.debug("touch_last_used fehlgeschlagen: %s", e)
+                return False
 
     def get_registry_entries(self) -> list[ModelEntry]:
         """Lädt alle Registry-Einträge aus der DB."""
@@ -940,7 +966,43 @@ class ModelLifecycleService:
                 logger.warning("Loading offline Ollama models from registry: %s", e)
 
         entries.extend(self.scan_hf_cache())
+        self._nutzungszeiten_nachtragen(entries)
         return entries
+
+    def _nutzungszeiten_nachtragen(self, entries: list) -> None:
+        """Traegt last_used_at aus der Registry in die gescannten Eintraege.
+
+        B-954: Der Scan liest Ollama und den HF-Cache — beide kennen keine
+        Nutzungszeit, die Eintraege entstehen mit ``last_used_at=""``. Der
+        Modell-Manager zeigt genau diese Objekte an und meldete deshalb
+        dauerhaft "Nie", obwohl der Zeitstempel in der Datenbank stand.
+
+        Live gesehen am 2026-08-31: DB-Zeile
+        ``google/siglip-so400m-patch14-384 = 2026-08-31 15:31:32``, Anzeige
+        "Nie" fuer alle neun Modelle.
+        """
+        if not entries:
+            return
+        try:
+            from database import nullpool_session, ModelRegistry
+
+            with nullpool_session() as session:
+                zeiten = {
+                    row.model_id: row.last_used_at
+                    for row in session.query(
+                        ModelRegistry.model_id, ModelRegistry.last_used_at,
+                    ).all()
+                }
+        except Exception as e:  # noqa: BLE001 — Anzeige darf nie am DB-Zugriff scheitern
+            logger.warning("Nutzungszeiten nicht nachtragbar: %s", e)
+            return
+
+        for eintrag in entries:
+            if getattr(eintrag, "last_used_at", ""):
+                continue
+            wert = zeiten.get(getattr(eintrag, "model_id", None))
+            if wert:
+                eintrag.last_used_at = self._dt_to_iso(wert)
 
     def is_download_active(self, model_id: str) -> bool:
         """Prüft ob ein Download aktiv läuft."""
