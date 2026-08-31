@@ -14,7 +14,30 @@ branch: main
 
 ### Current Next Task
 
-`PRODUKT / Erstlauf-Befunde B-921 bis B-926 mit dem User priorisieren`.
+`B-928 / Falsche "Strategist aktiv"-Meldung abstellen` — vom User am
+2026-08-31 ausdruecklich fuer seine Rueckkehr vorgemerkt ("mach B-928 wenn ich
+wieder da bin"). Vorher nicht anfangen.
+
+Kern des Auftrags: NICHT den LLM-Strategisten reparieren, sondern die
+Falschaussage der Oberflaeche beseitigen. `ui/controllers/edit_workspace.py:564-568`
+schreibt bei jedem Lauf sichtbar `[Auto-Edit] LLM-Pacing aktiv: Strategist=True`,
+waehrend `services/pacing_service.py:857-866` den Strategisten immer
+ueberspringt (`musikgetriebener_schnitt` hat Default `True` in
+`pacing_beat_grid.py:174` und wird repo-weit nie auf `False` gesetzt).
+Im Log dieser Maschine mehrfach belegt: "LLM-Pacing-Strategist uebersprungen ...
+(spart ~85s)" am 2026-08-27 und 2026-08-28.
+
+Das Ueberspringen selbst bleibt — es ist begruendet und spart 85 s pro Lauf.
+Offene Teilentscheidung fuer den User: Checkbox ausgrauen mit Hinweis, oder nur
+die Konsolenmeldung an die Tatsache anpassen, oder
+`musikgetriebener_schnitt` schaltbar machen. Details und Belege:
+Vault `wiki/bugs/B-928-llm-strategist-checkbox-ohne-wirkung.md`.
+
+Danach weiterhin offen: Priorisierung der uebrigen Erstlauf-Befunde
+B-921 bis B-929 sowie die seit 2026-04-25 unerledigte Grundsatzentscheidung
+zum Studio-Brain-Schalter (`pacing.use_studio_brain`, Default off laut D-023).
+
+Vorheriger Stand:
 
 Stand 2026-08-31: Auf Userauftrag wurde der komplette App-Zustand geloescht
 (Projekte, AppData, Brain-DBs, ~12,4 GB) und danach ein autonomer
