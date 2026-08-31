@@ -1,0 +1,10 @@
+{
+  "lesson_id": "776d0174a5264cc4bfa8ac7e4372564c",
+  "recorded_at": "2026-08-31T09:39:54+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Ein Pacing-Umbau galt als verifiziert, obwohl er nur gegen einen homogenen Datensatz lief",
+  "cause": "Alle 121 Clips des Testprojekts liegen zwischen 7.79 und 10.00 s; die eingebaute Deckelung auf den kuerzesten Clip konnte dort nicht entgleisen, bei einem 1.5-s-Schnipsel im Pool haette sie jedes Segment des ganzen Videos gedeckelt",
+  "rule": "Vor dem Verifizieren einer laengen- oder groessenabhaengigen Aenderung die Verteilung des Testmaterials ausgeben (min/median/max) und pruefen, ob der Randfall darin ueberhaupt vorkommt; sonst zusaetzlich rechnerisch oder mit synthetischen Werten pruefen",
+  "applies_to": "Verifikation von Groessen- und Laengenlogik"
+}

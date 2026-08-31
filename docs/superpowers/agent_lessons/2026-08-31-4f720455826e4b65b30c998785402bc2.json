@@ -1,0 +1,10 @@
+{
+  "lesson_id": "4f720455826e4b65b30c998785402bc2",
+  "recorded_at": "2026-08-31T09:39:54+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Ein neuer Filter wurde eingebaut, den es an anderer Stelle laengst gab, und der eigentliche Leckpfad blieb offen",
+  "cause": "_match_video_for_segment prueft seit 2026-07-07 selbst auf ausreichende Cliplaenge; mein zusaetzlicher Filter war eine Dopplung, waehrend die Studio-Brain-Pipeline als dritter Auswahlpfad an beiden vorbeilief",
+  "rule": "Vor dem Einbau einer Pruefung nach vorhandenen Implementierungen derselben Regel greppen und alle Pfade aufzaehlen, die zum selben Ergebnis fuehren koennen, bevor einer davon abgesichert wird",
+  "applies_to": "Einbau von Validierungen in bestehende Auswahllogik"
+}

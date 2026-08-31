@@ -1,0 +1,10 @@
+{
+  "lesson_id": "d649d973b66d4edfbfa12b60125bd6b1",
+  "recorded_at": "2026-08-31T09:39:54+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Gefilterte Testlaeufe (-k) wurden als Regressionsbeleg verwendet, ohne den Gesamtstand zu kennen",
+  "cause": "Elf Fixes hintereinander jeweils mit -k geprueft; erst der erste volle Lauf zeigte 19 rote Tests, deren Herkunft dann einzeln gegen den Ausgangsstand geprueft werden musste",
+  "rule": "Den Stand der roten Tests einmal als Baseline festhalten und nach jedem Fix nur die Differenz dazu melden, statt gefilterte Teilmengen als 'Regression gruen' auszugeben",
+  "applies_to": "Regressionsnachweis"
+}

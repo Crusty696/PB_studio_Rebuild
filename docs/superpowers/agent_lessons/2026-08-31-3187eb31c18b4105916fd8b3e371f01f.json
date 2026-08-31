@@ -1,0 +1,10 @@
+{
+  "lesson_id": "3187eb31c18b4105916fd8b3e371f01f",
+  "recorded_at": "2026-08-31T09:39:54+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Zeitstempel in der Projektdokumentation waren geschaetzt statt gemessen und lagen mehrere Stunden daneben",
+  "cause": "Ich schrieb neun Vault-Eintraege mit fortlaufend erfundenen Uhrzeiten (10:05 bis 14:40), tatsaechlich lief die Arbeit zwischen 09:12 und 09:34",
+  "rule": "Vor jedem datierten Eintrag die Uhrzeit per date ausfuehren und uebernehmen; niemals eine Uhrzeit aus dem Gefuehl fuer verstrichene Zeit ableiten",
+  "applies_to": "Dokumentation mit Zeitbezug"
+}

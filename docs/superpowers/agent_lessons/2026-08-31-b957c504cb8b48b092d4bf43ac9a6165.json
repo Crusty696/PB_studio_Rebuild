@@ -1,0 +1,10 @@
+{
+  "lesson_id": "b957c504cb8b48b092d4bf43ac9a6165",
+  "recorded_at": "2026-08-31T09:39:53+00:00",
+  "session_id": "d6efa08992fe477c9e39d67726835cca",
+  "head_at_start": "b1eea27eedb1a239a686ef1f99f58cf1e4925eb0",
+  "problem": "Eine Tatsachenbehauptung ueber ein Feature-Flag stammte aus der Code-Default-Kette statt aus dem tatsaechlichen Setting",
+  "cause": "Ich las in bridge.py den Default False und schloss daraus 'Flag ist aus'; die Prioritaet Env > Setting > Code-Default habe ich nur bis zur letzten Stufe gelesen, settings.json stand auf true",
+  "rule": "Bei jeder Aussage ueber einen Flag-Zustand den tatsaechlichen Wert ausfuehren lassen (use_x_pipeline() aufrufen oder settings.json ausgeben), nie aus der Default-Zeile schliessen — die Regel dazu existierte schon seit demselben Tag und wurde trotzdem verletzt",
+  "applies_to": "Aussagen ueber Feature-Flags und Konfigurationszustaende"
+}
