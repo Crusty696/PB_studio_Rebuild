@@ -22,8 +22,15 @@ from workers.video import FrameExtractWorker
 
 logger = logging.getLogger(__name__)
 
-_PREVIEW_W = 320
-_PREVIEW_H = 180
+# B-953 (Userentscheidung 2026-08-31): "mach nur doppelt so gross wie jetzt".
+# Vorher 320x180 — das Bild lief klein in der Mitte der 960x540-Flaeche des
+# DELIVER-Bereichs. 640x360 fuellt sie nicht ganz, ist aber doppelt so gross.
+#
+# Der SCHNITT-Player nutzt dieselbe Klasse und ist hoechstens 560x315 gross
+# (tab_schnitt.py:39-40). Ein 640x360-Pixmap wuerde dort ohne Anpassung
+# abgeschnitten, deshalb skaliert _zeige_bild() beim Anzeigen herunter.
+_PREVIEW_W = 640
+_PREVIEW_H = 360
 _PREVIEW_FPS = 15.0
 
 
@@ -239,6 +246,25 @@ class VideoPreviewWidget(QLabel):
             else:
                 worker.deleteLater()
 
+    def _zeige_bild(self, pixmap: "QPixmap") -> None:
+        """Zeigt ein Bild und begrenzt es auf die Widget-Groesse.
+
+        B-953: Seit die Frames in 640x360 kommen, passen sie nicht mehr in
+        jeden Player. Im DELIVER-Bereich (960x540) bleibt das Bild unveraendert
+        gross, im SCHNITT-Tab (hoechstens 560x315) wird es
+        seitenverhaeltnistreu heruntergerechnet statt abgeschnitten.
+        """
+        groesse = self.size()
+        if (groesse.width() > 0 and groesse.height() > 0
+                and (pixmap.width() > groesse.width()
+                     or pixmap.height() > groesse.height())):
+            pixmap = pixmap.scaled(
+                groesse,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        self.setPixmap(pixmap)
+
     def _on_stream_frame(self, raw_data: bytes, generation: int):
         if generation != self._stream_generation:
             # B-710: Frame eines abgeloesten Streams (z.B. nach Seek) — darf
@@ -250,7 +276,7 @@ class VideoPreviewWidget(QLabel):
         self._current_time = self._stream_start_sec + self._stream_frames / _PREVIEW_FPS
         img = QImage(raw_data, _PREVIEW_W, _PREVIEW_H, _PREVIEW_W * 3,
                      QImage.Format.Format_RGB888).copy()
-        self.setPixmap(QPixmap.fromImage(img))
+        self._zeige_bild(QPixmap.fromImage(img))
         self.position_changed.emit(self._current_time, self._duration)
 
     def _on_stream_error(self, msg: str, generation: int):
@@ -317,7 +343,10 @@ class VideoPreviewWidget(QLabel):
             return
 
         self._active_request_path = self._current_path
-        worker = FrameExtractWorker(self._current_path, time_sec, 320, 180, vf_extra)
+        # B-953: Standbild in derselben Groesse wie die Stream-Frames, sonst
+        # springt die Anzeige beim Wechsel zwischen Standbild und Wiedergabe.
+        worker = FrameExtractWorker(
+            self._current_path, time_sec, _PREVIEW_W, _PREVIEW_H, vf_extra)
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -365,7 +394,7 @@ class VideoPreviewWidget(QLabel):
         if self._active_request_path != self._current_path:
             return
         img = QImage(raw_data, width, height, width * 3, QImage.Format.Format_RGB888).copy()
-        self.setPixmap(QPixmap.fromImage(img))
+        self._zeige_bild(QPixmap.fromImage(img))
 
     def _on_frame_error(self, msg: str):
         self.setText(msg)
