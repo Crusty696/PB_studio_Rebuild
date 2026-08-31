@@ -343,8 +343,12 @@ class ExportController(PBComponent):
             # waehrend hier "Vorschau geladen" und 0:00 / 0:00 stehen blieben.
             _ws.preview_video_label.load_video(preview_path, 10.0)
             self._verbinde_deliver_preview_signale()
-            if hasattr(self.window, 'video_preview'):
-                self.window.video_preview.load_video(preview_path, 10.0)
+            # B-945: Hier wurde dieselbe Datei zusaetzlich in
+            # ``window.video_preview`` geladen — den Player im SCHNITT-Tab.
+            # Das startete eine zweite ffmpeg-Extraktion und ersetzte dort die
+            # Timeline-Vorschau durch das Export-Video. Seit B-922 hat der
+            # DELIVER-Tab seinen eigenen Player; der Zweitaufruf ist damit
+            # doppelte Arbeit mit unerwuenschter Nebenwirkung.
             self.window.export_log.append("[Preview] Video-Player geladen — druecke Play")
         else:
             self.window.export_log.append("[Preview] Vorschau-Datei nicht gefunden")

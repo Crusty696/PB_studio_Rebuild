@@ -56,7 +56,8 @@ def test_touch_last_used_ruft_die_registry():
     alt = mls.get_model_lifecycle_service
     mls.get_model_lifecycle_service = lambda *a, **k: _FakeService()
     try:
-        ModelManager._touch_last_used(object(), "google/siglip-so400m-patch14-384")
+        ModelManager._touch_last_used(
+            ModelManager.__new__(ModelManager), "google/siglip-so400m-patch14-384")
     finally:
         mls.get_model_lifecycle_service = alt
 
@@ -74,7 +75,7 @@ def test_registry_fehler_sprengt_den_modell_load_nicht(fehler):
     mls.get_model_lifecycle_service = _boom
     try:
         # Darf nicht werfen: das Laden des Modells ist wichtiger als die Statistik.
-        ModelManager._touch_last_used(object(), "irgendwas")
+        ModelManager._touch_last_used(ModelManager.__new__(ModelManager), "irgendwas")
     finally:
         mls.get_model_lifecycle_service = alt
 
@@ -92,3 +93,72 @@ def test_frisch_geladen_traegt_die_nutzung_auch_ein():
     nach_log = src.split("SigLIP '%s' geladen.", 1)[1]
     vor_return = nach_log.split("return self._model", 1)[0]
     assert "_touch_last_used(model_id)" in vor_return
+
+
+# ── B-945: Drosselung ─────────────────────────────────────────────────────
+
+def test_wiederholte_cache_hits_schreiben_nur_einmal(monkeypatch):
+    """B-945: Der Cache-Hit-Pfad laeuft pro Clip.
+
+    Eine Analyse mit 121 Clips schrieb 121-mal in die Registry, jedes Mal ueber
+    eine eigene NullPool-Session auf derselben SQLite-Datei, auf die parallel
+    die Analyse-Worker schreiben. Fuer eine tagesgenaue Spalte reicht ein
+    Schreibvorgang pro Stunde und Modell.
+    """
+    aufrufe = []
+
+    class _FakeService:
+        def touch_last_used(self, model_id):
+            aufrufe.append(model_id)
+
+    import services.model_lifecycle_service as mls
+    monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
+
+    manager = ModelManager.__new__(ModelManager)
+    # ModelManager ist ein Singleton — __new__ liefert die geteilte Instanz.
+    # Ohne Reset traegt sie den Zeitstempel aus einem frueheren Test.
+    manager._last_used_geschrieben = {}
+    for _ in range(50):
+        ModelManager._touch_last_used(manager, "google/siglip-so400m-patch14-384")
+
+    assert len(aufrufe) == 1
+
+
+def test_verschiedene_modelle_werden_getrennt_gezaehlt(monkeypatch):
+    aufrufe = []
+
+    class _FakeService:
+        def touch_last_used(self, model_id):
+            aufrufe.append(model_id)
+
+    import services.model_lifecycle_service as mls
+    monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
+
+    manager = ModelManager.__new__(ModelManager)
+    manager._last_used_geschrieben = {}
+    ModelManager._touch_last_used(manager, "modell-a")
+    ModelManager._touch_last_used(manager, "modell-b")
+    ModelManager._touch_last_used(manager, "modell-a")
+
+    assert aufrufe == ["modell-a", "modell-b"]
+
+
+def test_abgelaufene_drosselung_schreibt_wieder(monkeypatch):
+    aufrufe = []
+
+    class _FakeService:
+        def touch_last_used(self, model_id):
+            aufrufe.append(model_id)
+
+    import services.model_lifecycle_service as mls
+    monkeypatch.setattr(mls, "get_model_lifecycle_service", lambda *a, **k: _FakeService())
+
+    manager = ModelManager.__new__(ModelManager)
+    manager._last_used_geschrieben = {}
+    ModelManager._touch_last_used(manager, "modell-a")
+    # Zeitstempel um mehr als eine Stunde zurueckdatieren
+    manager._last_used_geschrieben["modell-a"] = (
+        manager._last_used_geschrieben["modell-a"] - 3601.0)
+    ModelManager._touch_last_used(manager, "modell-a")
+
+    assert len(aufrufe) == 2

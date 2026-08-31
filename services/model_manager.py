@@ -961,9 +961,27 @@ class ModelManager:
         Spalte "Zuletzt benutzt" zeigte immer "Nie" und
         ``get_cleanup_candidates`` schlug jedes Modell zum Loeschen vor.
         """
+        # B-945: Der Cache-Hit-Pfad laeuft pro Clip. Eine Video-Analyse mit 121
+        # Clips schrieb damit 121-mal in die Registry, jedes Mal ueber eine
+        # eigene NullPool-Session — auf derselben SQLite-Datei, auf die
+        # gleichzeitig die Analyse-Worker schreiben. Fuer eine Spalte, die auf
+        # Tage genau ist, reicht ein Schreibvorgang pro Stunde und Modell.
+        import time as _time
+        # getattr statt Instanzfeld: ModelManager ist ein Singleton, dessen
+        # __init__ bei Zweitaufrufen frueh zurueckkehrt (B-122). Ein in
+        # __init__ gesetztes Feld waere nicht garantiert vorhanden.
+        gesehen = getattr(self, "_last_used_geschrieben", None)
+        if gesehen is None:
+            gesehen = {}
+            self._last_used_geschrieben = gesehen
+        jetzt = _time.monotonic()
+        letzter = gesehen.get(model_id)
+        if letzter is not None and jetzt - letzter < 3600.0:
+            return
         try:
             from services.model_lifecycle_service import get_model_lifecycle_service
             get_model_lifecycle_service().touch_last_used(model_id)
+            gesehen[model_id] = jetzt
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning(
                 "Updating last_used_at in model registry for '%s': %s", model_id, e)
