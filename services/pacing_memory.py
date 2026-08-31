@@ -149,6 +149,35 @@ def learn_from_anchor(
         return False
 
 
+RL_LABEL_PREFIX = "rl_feedback_"
+
+
+def _mittlere_energie(energy_curve) -> float | None:
+    """Mittelwert der Energiekurve, auf 0..1 begrenzt.
+
+    B-951: ``record_rl_feedback`` liess ``overall_energy`` leer. Der
+    Bias-Filter in ``_get_ai_memory_bias`` verlangt aber
+    ``overall_energy.between(...)`` — mit NULL fiel jeder RL-Eintrag durch und
+    wurde nie gelesen. In der Projekt-DB lagen am 2026-08-31 zwei solche
+    Eintraege (positive und negative), beide mit overall_energy = NULL.
+    """
+    if not energy_curve:
+        return None
+    try:
+        werte = [float(w) for w in energy_curve if w is not None]
+    except (TypeError, ValueError):
+        return None
+    if not werte:
+        return None
+    mittel = sum(werte) / len(werte)
+    hoechster = max(werte)
+    # Die Kurve aus B-931 ist nicht normiert — auf 0..1 skalieren, damit der
+    # Wert mit dem vergleichbar ist, den auto_edit_phase3 uebergibt.
+    if hoechster > 1.0:
+        mittel = mittel / hoechster
+    return max(0.0, min(1.0, mittel))
+
+
 def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1) -> bool:
     """Speichert RL-Feedback (thumbs up/down) als AIPacingMemory Eintrag."""
     from datetime import datetime
@@ -156,8 +185,10 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
         from database import nullpool_session
         with nullpool_session() as session:
             # B-090: column-select statt ORM-Voll-Laden (AudioTrack.beatgrid/waveform_data lazy='joined' Blobs); Folgecode nutzt nur track.bpm
+            # B-951: energy_curve kommt dazu — ohne overall_energy ist der
+            # Eintrag fuer den Bias-Filter unsichtbar.
             track = session.execute(
-                select(AudioTrack.bpm).where(
+                select(AudioTrack.bpm, AudioTrack.energy_curve).where(
                     AudioTrack.id == audio_track_id,
                     AudioTrack.deleted_at.is_(None),
                 )
@@ -176,7 +207,9 @@ def record_rl_feedback(audio_track_id: int, sentiment: str, project_id: int = 1)
                 created_at=datetime.now(),
                 audio_track_id=audio_track_id,
                 bpm=track.bpm if track else None,
-                label=f"rl_feedback_{sentiment}",
+                overall_energy=_mittlere_energie(
+                    getattr(track, "energy_curve", None)),
+                label=f"{RL_LABEL_PREFIX}{sentiment}",
                 mood=sentiment,
                 cut_type=f"feedback_{entry_count}_clips",
             )
@@ -206,6 +239,32 @@ def _get_ai_memory_bias(bpm: float, overall_energy: float) -> dict | None:
                 AIPacingMemory.bpm.between(bpm * 0.85, bpm * 1.15),
                 AIPacingMemory.overall_energy.between(overall_energy - 0.25, overall_energy + 0.25)
             ).limit(50).all()
+            if not memories:
+                return None
+
+            # B-951: RL-Eintraege sind keine Vorbilder. Sie tragen keine
+            # Pacing-Parameter (cut_type ist "feedback_78_clips", raft_motion
+            # leer) — als Vorbild gelesen kaeme mood="negative" als
+            # bevorzugte Stimmung zurueck und ein Daumen runter machte den
+            # Lauf zum Muster. Stattdessen: ein negativ bewerteter, aehnlicher
+            # Lauf unterdrueckt den Bias ganz, ein positiver bestaetigt ihn.
+            rl_negativ = [
+                m for m in memories
+                if (m.label or "").startswith(RL_LABEL_PREFIX)
+                and (m.mood or "") == "negative"
+            ]
+            if rl_negativ:
+                logger.info(
+                    "B-951: %d negative RL-Bewertung(en) fuer aehnliche Situation "
+                    "(bpm=%.1f, energie=%.2f) — Memory-Bias wird nicht angewandt.",
+                    len(rl_negativ), bpm, overall_energy,
+                )
+                return None
+
+            memories = [
+                m for m in memories
+                if not (m.label or "").startswith(RL_LABEL_PREFIX)
+            ]
             if not memories:
                 return None
 
