@@ -166,6 +166,21 @@ class SchnittTabPacingAnker(QWidget):
             "Wann: Fuer experimentell smartere Section-Strategien. "
             "Ergebnis: Cut-Dichte-Plan kommt vom LLM statt nur aus der Heuristik."
         )
+        # B-952 (Userentscheidung 2026-08-31): musikgetriebener Schnitt war im
+        # Code auf True voreingestellt und nirgends abschaltbar. Damit wurde der
+        # LLM-Strategist bei JEDEM Lauf uebersprungen (seine Section-Map wird in
+        # diesem Modus nicht gelesen, siehe pacing_service.py:857-866) — die
+        # Checkbox daneben versprach also etwas, das nie eintrat (B-928).
+        self.chk_musikgetrieben = QCheckBox("Musikgetriebener Schnitt")
+        self.chk_musikgetrieben.setToolTip(
+            "Wirkung: Geschnitten wird, wenn die Musik einen Grund liefert — "
+            "Section-Wechsel, Drops, Energiespruenge — statt nach festem "
+            "Beat-Raster. "
+            "Wann: AN fuer lange, ruhige Einstellungen; AUS fuer gleichmaessige "
+            "Raster-Schnitte. "
+            "Ergebnis: AUS macht ausserdem den LLM-Strategist wirksam, der im "
+            "musikgetriebenen Modus uebersprungen wird (kostet ~85 s pro Lauf)."
+        )
         self.chk_llm_pacing = QCheckBox("LLM-EDL-Pacing")
         self.chk_llm_pacing.setToolTip(
             "Wirkung: Ollama schlaegt die Schnittliste (EDL) direkt vor. "
@@ -189,6 +204,13 @@ class SchnittTabPacingAnker(QWidget):
                 "pacing", "use_llm_strategist", default=True)))
             self.chk_llm_pacing.setChecked(bool(_store.get_nested(
                 "pacing", "use_llm_pacing", default=False)))
+            # B-952: Default True — das bisherige Verhalten bleibt, solange
+            # niemand den Haken entfernt.
+            self.chk_musikgetrieben.setChecked(bool(_store.get_nested(
+                "pacing", "musikgetriebener_schnitt", default=True)))
+            self.chk_musikgetrieben.toggled.connect(
+                lambda on: get_settings_store().set_nested(
+                    "pacing", "musikgetriebener_schnitt", value=bool(on)))
             self.chk_llm_strategist.toggled.connect(
                 lambda on: get_settings_store().set_nested(
                     "pacing", "use_llm_strategist", value=bool(on)))
@@ -206,6 +228,7 @@ class SchnittTabPacingAnker(QWidget):
                     )
         except Exception:  # Settings duerfen den Tab-Aufbau nie brechen
             pass
+        row4.addWidget(self.chk_musikgetrieben)
         row4.addWidget(self.chk_studio_brain)
         row4.addWidget(self.chk_llm_strategist)
         row4.addWidget(self.chk_llm_pacing)

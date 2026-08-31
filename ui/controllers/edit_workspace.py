@@ -546,8 +546,13 @@ class EditWorkspaceController(PBComponent):
                 "pacing", "use_llm_strategist", default=True))
             _llm_pacing = bool(_pstore.get_nested(
                 "pacing", "use_llm_pacing", default=False))
+            # B-952: bis 2026-08-31 stand musikgetriebener_schnitt fest auf dem
+            # Code-Default True und war nirgends schaltbar.
+            _musikgetrieben = bool(_pstore.get_nested(
+                "pacing", "musikgetriebener_schnitt", default=True))
         except Exception as exc:
             logger.debug("LLM-Pacing-Settings nicht lesbar: %s", exc)
+            _musikgetrieben = True
 
         # AUDIT-FIXPLAN A1 (Merge 2026-07-08): transition_combo auslesen und
         # in DB persistieren
@@ -589,6 +594,7 @@ class EditWorkspaceController(PBComponent):
             anchors=anchors,
             use_llm_strategist=_llm_strategist,
             use_llm_pacing=_llm_pacing,
+            musikgetriebener_schnitt=_musikgetrieben,
             transition_type=transition_type,
             **_preset_felder,
         )
