@@ -197,18 +197,26 @@ def _map_convert_videos(kw: dict) -> dict:
     NVENC-Erkennung. GPU-Hartregel: nur h264_nvenc/hevc_nvenc, sonst CPU.
     """
     codec = str(kw.get("codec") or "h264").lower()
-    if codec == "h265":
-        vcodec, ext = "hevc_nvenc", ".mp4"
-    elif codec == "prores":
+    if codec == "prores":
         vcodec, ext = "prores_ks", ".mov"
     else:
+        # B-949: Der h265-Zweig setzte bis 2026-09-01 bedingungslos hevc_nvenc,
+        # waehrend h264 seit B-940 mit detect_nvenc prueft. Fehlt NVENC auf der
+        # Maschine, schlaegt der Encode fehl, statt auf die CPU auszuweichen.
+        # detect_nvenc liefert beide Schluessel getrennt — sie werden hier auch
+        # getrennt ausgewertet. GPU-Hartregel: nur h264_nvenc/hevc_nvenc, sonst
+        # CPU; kein fremdes GPU-Backend.
         try:
             from services.convert_service import detect_nvenc
-            has_nvenc = bool(detect_nvenc().get("h264_nvenc"))
+            nvenc = detect_nvenc()
         except Exception:  # noqa: BLE001 — Mapper darf den Qt-Slot nicht sprengen
             logging.exception("convert_videos-Mapper: NVENC-Erkennung fehlgeschlagen")
-            has_nvenc = False
-        vcodec, ext = ("h264_nvenc" if has_nvenc else "libx264"), ".mp4"
+            nvenc = {}
+        if codec == "h265":
+            vcodec = "hevc_nvenc" if nvenc.get("hevc_nvenc") else "libx265"
+        else:
+            vcodec = "h264_nvenc" if nvenc.get("h264_nvenc") else "libx264"
+        ext = ".mp4"
 
     try:
         from services.ingest_service import get_all_video

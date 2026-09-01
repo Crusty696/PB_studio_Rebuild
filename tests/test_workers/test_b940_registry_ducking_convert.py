@@ -78,6 +78,12 @@ def test_ducking_mapper_wirft_nie(monkeypatch):
     ("prores", "prores_ks", ".mov"),
 ])
 def test_convert_mapper_codec_zuordnung(codec, erwartet_vcodec, erwartet_ext, monkeypatch):
+    # B-949: Ohne diesen Patch haengt das Ergebnis von der Maschine ab — auf
+    # einem Rechner ohne NVENC waere hevc_nvenc die falsche Erwartung.
+    monkeypatch.setattr(
+        "services.convert_service.detect_nvenc",
+        lambda: {"h264_nvenc": True, "hevc_nvenc": True},
+    )
     monkeypatch.setattr("services.ingest_service.get_all_video", lambda: [])
 
     kwargs = _map_convert_videos({"codec": codec, "resolution": "3840x2160", "fps": "60"})
@@ -112,3 +118,55 @@ def test_convert_mapper_wirft_nie(monkeypatch):
     monkeypatch.setattr("services.convert_service.detect_nvenc", lambda: {"h264_nvenc": True})
 
     assert _map_convert_videos({})["videos"] == []
+
+
+# ── B-949: h265 muss NVENC genauso pruefen wie h264 ──────────────────────────
+#
+# Diese vier Faelle standen schon in der Commit-Nachricht von `bc19d9b` — sie
+# wurden dort aber nie eingecheckt. Der Commit enthielt ausschliesslich vier
+# geloeschte Importzeilen. Der h265-Zweig setzte weiterhin bedingungslos
+# hevc_nvenc, also genau der Zustand, den die Nachricht als behoben beschrieb.
+# Gefunden am 2026-09-01 durch eine Nachpruefung des eigenen Commits.
+
+def _nvenc(monkeypatch, **verfuegbar):
+    monkeypatch.setattr("services.convert_service.detect_nvenc", lambda: dict(verfuegbar))
+    monkeypatch.setattr("services.ingest_service.get_all_video", lambda: [])
+
+
+def test_h265_faellt_ohne_hevc_nvenc_auf_die_cpu(monkeypatch):
+    """Fehlt hevc_nvenc, muss libx265 gewaehlt werden statt eines Encodes, der scheitert."""
+    _nvenc(monkeypatch, h264_nvenc=True, hevc_nvenc=False)
+
+    kwargs = _map_convert_videos({"codec": "h265"})
+
+    assert kwargs["vcodec"] == "libx265"
+    assert kwargs["ext"] == ".mp4"
+
+
+def test_h264_darf_auf_die_gpu_auch_wenn_hevc_fehlt(monkeypatch):
+    """Die beiden Schluessel werden getrennt ausgewertet, nicht als ein Schalter."""
+    _nvenc(monkeypatch, h264_nvenc=True, hevc_nvenc=False)
+
+    kwargs = _map_convert_videos({"codec": "h264"})
+
+    assert kwargs["vcodec"] == "h264_nvenc"
+
+
+def test_h265_nutzt_die_gpu_wenn_hevc_nvenc_da_ist(monkeypatch):
+    _nvenc(monkeypatch, h264_nvenc=False, hevc_nvenc=True)
+
+    kwargs = _map_convert_videos({"codec": "h265"})
+
+    assert kwargs["vcodec"] == "hevc_nvenc"
+
+
+@pytest.mark.parametrize("codec", ["h264", "h265", "prores"])
+def test_kein_fremdes_gpu_backend(codec, monkeypatch):
+    """GPU-Hartregel: ausschliesslich NVENC oder CPU, nie qsv/amf/vaapi/videotoolbox."""
+    _nvenc(monkeypatch, h264_nvenc=False, hevc_nvenc=False)
+
+    vcodec = _map_convert_videos({"codec": codec})["vcodec"]
+
+    assert vcodec in {"libx264", "libx265", "prores_ks"}
+    for fremd in ("qsv", "amf", "vaapi", "videotoolbox"):
+        assert fremd not in vcodec
