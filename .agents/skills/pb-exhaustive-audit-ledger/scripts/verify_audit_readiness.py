@@ -395,8 +395,17 @@ def _run_materialized_reviewer(
 
 def _verify_attestation_bundle(
     root: Path, bundle: dict[str, Any], authority: dict[str, Any], *,
-    basis_sha256: str, roster_path: Path, tooling_commit: str,
+    basis_sha256: str, roster_bytes: bytes, tooling_commit: str,
 ) -> list[str]:
+    """B-862: Der Reviewer bekommt eine private Kopie, nicht den Livepfad.
+
+    Vorher wurde der Roster hier gehasht und danach derselbe Pfad an den
+    Reviewer weitergereicht, der ihn erneut las. Zwischen beiden Lesevorgaengen
+    liess sich die Datei austauschen: geprueft wurde die eine, verwendet die
+    andere. Jetzt werden die einmal gelesenen und gegen den Manifest-Hash
+    geprueften Bytes in das ohnehin vorhandene Temp-Verzeichnis geschrieben und
+    nur dieser Pfad weitergegeben.
+    """
     with tempfile.TemporaryDirectory(prefix="pb-audit-reviewer-") as temp:
         materialized = Path(temp) / "tree"
         errors = _materialize_bound_files(
@@ -404,9 +413,11 @@ def _verify_attestation_bundle(
         )
         if errors:
             return errors
+        privat = Path(temp) / "roster.json"
+        privat.write_bytes(roster_bytes)
         return _run_materialized_reviewer(
             materialized, root, bundle, basis_sha256=basis_sha256,
-            roster_path=roster_path, tooling_commit=tooling_commit,
+            roster_path=privat, tooling_commit=tooling_commit,
         )
 
 
@@ -490,15 +501,28 @@ def _verify_readiness_result(
         if row.get("bytes") != len(data) or row.get("sha256") != _sha(data):
             errors.append(f"{path}: bytes/sha256 weicht vom tooling_commit ab")
 
-    roster_path = Path(str(manifest.get("reviewer_roster_path", "")))
+    roster_roh = str(manifest.get("reviewer_roster_path", ""))
     roster_sha = str(manifest.get("reviewer_roster_sha256", ""))
-    if not roster_path.is_absolute():
-        errors.append("reviewer_roster_path muss absolut sein")
-    try:
-        if _sha(roster_path.read_bytes()) != roster_sha:
-            errors.append("reviewer_roster_sha256 falsch")
-    except OSError as exc:
-        errors.append(f"Reviewer-Roster unlesbar: {exc}")
+    roster_bytes = b""
+    # B-863: Ein NUL-Byte im Pfad laesst Path() bzw. read_bytes() mit
+    # `ValueError: embedded null character` auffliegen — ungefangen, weil hier
+    # nur OSError behandelt wurde. Ein manipuliertes Manifest brachte damit das
+    # ganze Readiness-Gate zum Absturz statt zu einem Fehlereintrag.
+    if "\x00" in roster_roh:
+        errors.append("reviewer_roster_path enthaelt ein NUL-Byte")
+        roster_path = None
+    else:
+        roster_path = Path(roster_roh)
+        if not roster_path.is_absolute():
+            errors.append("reviewer_roster_path muss absolut sein")
+        try:
+            # B-862: genau ein Lesevorgang. Diese Bytes werden geprueft und
+            # spaeter verwendet - der Pfad wird nicht erneut angefasst.
+            roster_bytes = roster_path.read_bytes()
+            if _sha(roster_bytes) != roster_sha:
+                errors.append("reviewer_roster_sha256 falsch")
+        except (OSError, ValueError) as exc:
+            errors.append(f"Reviewer-Roster unlesbar: {exc}")
 
     bundle_path = Path(str(manifest.get("attestation_bundle_path", "")))
     bundle_sha = str(manifest.get("attestation_bundle_sha256", ""))
@@ -515,7 +539,7 @@ def _verify_readiness_result(
     if verify_bundle:
         errors.extend(_verify_attestation_bundle(
             root, bundle, authority, basis_sha256=basis,
-            roster_path=roster_path, tooling_commit=commit,
+            roster_bytes=roster_bytes, tooling_commit=commit,
         ))
     if errors:
         return errors, None, None

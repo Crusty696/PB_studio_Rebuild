@@ -2908,7 +2908,12 @@ def main() -> int:
             scenario_id=args.scenario_id,
             runtime_run_id=args.runtime_run_id,
         )
-    except ContractError as exc:
+    # B-864: Bis 2026-09-01 fing der Handler ausschliesslich ContractError.
+    # OSError, UnicodeError und CalledProcessError traten roh aus der CLI aus —
+    # der Aufrufer bekam einen Traceback statt einer Fehlermeldung mit Exit 2.
+    # Dieselbe Behandlung wie in tools/audit_reviewer_roster.py (B-856).
+    except (ContractError, OSError, UnicodeError,
+            subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         print(f"FEHLER: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))

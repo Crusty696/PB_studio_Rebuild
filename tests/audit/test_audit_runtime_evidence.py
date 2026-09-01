@@ -1111,11 +1111,19 @@ class GateContractTests(unittest.TestCase):
                         cwd=root, timeout=5.0, environment=dict(os.environ), label="job-grandchild",
                     )
                 child_pid = int(pid_file.read_text(encoding="ascii"))
+                # Ohne encoding/errors scheitert das Dekodieren auf einem
+                # deutschen Windows: tasklist liefert cp850-Bytes, Python
+                # dekodiert nach cp1252 und wirft
+                # `UnicodeDecodeError: 'charmap' codec can't decode byte 0x81`.
+                # status.stdout ist dann None, und die Zusicherung darunter
+                # bricht mit `TypeError: argument of type 'NoneType'` ab —
+                # der Test scheiterte am Harness, nicht am Produktcode.
                 status = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {child_pid}", "/FO", "CSV", "/NH"],
                     capture_output=True, text=True, check=False,
+                    encoding="utf-8", errors="replace",
                 )
-                self.assertNotIn(str(child_pid), status.stdout)
+                self.assertNotIn(str(child_pid), status.stdout or "")
             finally:
                 if pid_file.exists():
                     subprocess.run(
@@ -1766,7 +1774,7 @@ class GateContractTests(unittest.TestCase):
             if self.pid_marker.exists(): break
             time.sleep(0.02)
         for pid in json.loads(self.pid_marker.read_text()):
-            output=subprocess.run(["tasklist","/FI",f"PID eq {pid}","/FO","CSV","/NH"],capture_output=True,text=True).stdout
+            output=subprocess.run(["tasklist","/FI",f"PID eq {pid}","/FO","CSV","/NH"],capture_output=True,text=True,encoding="utf-8",errors="replace").stdout or ""
             self.assertNotIn(f'"{pid}"',output)
 
 
