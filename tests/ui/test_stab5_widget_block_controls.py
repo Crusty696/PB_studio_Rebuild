@@ -273,6 +273,13 @@ def test_controls_116_to_119_learning_dialog_buttons(
     mock_brain = MagicMock()
     mock_brain.get_learning_candidates.return_value = []
     mock_brain._project_root = tmp_path
+    # B-957: the dialog builds a thread-local copy whenever the service has a
+    # _brain_store, and a bare MagicMock answers every attribute. That path ran
+    # WeightStore(brain.weights_path) on the mock's repr and created a real
+    # directory tree "MagicMock/mock._brain_store.weights_path/<id>/" in the
+    # repo root. None is what a stub without a store looks like, which is the
+    # case brain_v3_learning_dialog.py:71 means to skip.
+    mock_brain._brain_store = None
     dialog = BrainV3LearningSessionDialog(service=mock_brain)
     try:
         # Buttons fuer Interaktion aktivieren
