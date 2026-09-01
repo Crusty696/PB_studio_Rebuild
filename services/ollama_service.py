@@ -45,6 +45,12 @@ def _fehlertext(response, endpunkt: str, model: str) -> str:
         if isinstance(daten, dict):
             grund = str(daten.get("error") or daten.get("message") or "")
     except Exception:
+        pass
+    # B-839 Restluecke: Kam gueltiges JSON zurueck, das weder `error` noch
+    # `message` enthaelt, blieb `grund` leer und der Rumpf wurde nie befragt —
+    # der `except`-Zweig greift ja nur bei kaputtem JSON. Genau der Grund, den
+    # dieser Helfer retten soll, ging in dieser Form weiterhin verloren.
+    if not grund.strip():
         try:
             grund = (response.text or "")[:_FEHLER_BODY_MAX]
         except Exception:

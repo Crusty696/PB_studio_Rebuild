@@ -329,12 +329,25 @@ class MediaTableController(PBComponent):
     def _audio_item_has_analysis(item: dict) -> bool:
         return bool(item.get("bpm") or item.get("key") or item.get("lufs"))
 
+    # B-925: 200 ms fassten nur zusammen, was fast gleichzeitig kam. Die
+    # Proxy-Konvertierungen meldeten sich aber im Sekundentakt fertig, also lief
+    # pro Datei ein eigenes "Medien-DB laden" — bei 121 Videos 121 Ladevorgaenge.
+    # Zwei Aufrufer speisen dieselbe Stelle (`_on_proxy_finished` und die
+    # Completion-Bridge, die fuer Audio nach jeder Stufe meldet), deshalb sitzt
+    # die Bremse hier und nicht bei einem der beiden.
+    _REFRESH_FENSTER_MS = 1500
+
     def _refresh_media_table_debounced(self) -> None:
-        """Debounced media table refresh — coalesces rapid calls."""
+        """Sammelnder Refresh: hoechstens einer je Fenster, aber immer einer.
+
+        Jeder Aufruf innerhalb des laufenden Fensters wird verworfen — der
+        bereits gesetzte Timer holt ihn mit ab. Nach Ablauf laeuft genau ein
+        Refresh, der den Stand aller zwischenzeitlich gemeldeten Dateien zeigt.
+        """
         if self.window._refresh_pending:
             return
         self.window._refresh_pending = True
-        QTimer.singleShot(200, self._do_refresh_media_table)
+        QTimer.singleShot(self._REFRESH_FENSTER_MS, self._do_refresh_media_table)
 
     def _do_refresh_media_table(self) -> None:
         """Fuehrt die verzoegerte Aktualisierung der Media-Tabelle aus."""

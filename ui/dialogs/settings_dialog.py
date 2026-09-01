@@ -603,7 +603,31 @@ class SettingsDialog(QDialog):
             self._set_status(message, "error")
 
     def _on_refresh_clicked(self) -> None:
+        # B-918: Der Refresh-Knopf wird beim Test nicht mit deaktiviert —
+        # `_on_test_clicked` sperrt nur `_btn_test`. Ein Klick waehrend eines
+        # laufenden Tests ueberschrieb `_test_thread`/`_test_worker`, womit der
+        # erste Thread ohne Referenz weiterlief.
+        if self._test_laeuft():
+            self._set_status("Test laeuft bereits...", "info")
+            return
         self._on_test_clicked()
+
+    def _test_laeuft(self) -> bool:
+        """True, solange der Verbindungstest noch arbeitet."""
+        thread = getattr(self, "_test_thread", None)
+        if thread is None:
+            return False
+        try:
+            import shiboken6
+            if not shiboken6.isValid(thread):
+                return False
+        except ImportError:
+            pass
+        try:
+            return bool(thread.isRunning())
+        except RuntimeError:
+            # Qt hat das C++-Objekt schon abgeraeumt.
+            return False
 
     def _populate_models(self, models: list[str]) -> None:
         """Befüllt die Modell-ComboBox mit verfügbaren Ollama-Modellen."""
