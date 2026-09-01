@@ -70,6 +70,28 @@ class ExportController(PBComponent):
         if strip is not None:
             strip.set_status(text)
 
+    def _update_deliver_status_from_timeline(self) -> None:
+        """Setzt den Statusstreifen auf den tatsaechlichen Timeline-Stand.
+
+        B-964: B-937 hat den Setter mit Aufrufern versehen — aber nur fuer
+        Export-Vorgaenge. Beim Betreten des Bereichs blieb der Startwert aus
+        ``deliver_workspace.py`` stehen. Gemessen am 2026-09-01 in zwei
+        App-Sitzungen: der Streifen meldete "Export bereit, sobald eine
+        Timeline vorhanden ist.", waehrend das Projekt 161 Eintraege hatte.
+        """
+        try:
+            summary = get_timeline_summary(get_active_project_id())
+            anzahl = int(summary.get("total_entries", 0))
+        except Exception as e:  # noqa: BLE001 — Status darf den Wechsel nie kippen
+            logger.debug("Timeline-Stand fuer den Statusstreifen nicht lesbar: %s", e)
+            return
+        if anzahl == 0:
+            self._set_deliver_status("Export bereit, sobald eine Timeline vorhanden ist.")
+        else:
+            self._set_deliver_status(
+                f"Timeline mit {anzahl} Eintraegen bereit. Export kann gestartet werden."
+            )
+
     def _refresh_production_info(self):
         """Startet den async Refresh der Produktions-Infos (nicht-blockierend).
 

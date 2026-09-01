@@ -934,6 +934,9 @@ class WorkspaceSetupController(PBComponent):
             self._switch_stack(WorkspaceNavBar.IDX_EXPORT)
             if hasattr(self.window, 'export'):
                 self.window.export._refresh_production_info()
+                # B-964: sonst steht hier weiter der Startwert "Export bereit,
+                # sobald eine Timeline vorhanden ist." — auch bei 161 Eintraegen.
+                self.window.export._update_deliver_status_from_timeline()
             return
 
     def _switch_stack(self, index: int) -> None:
