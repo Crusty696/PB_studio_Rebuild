@@ -98,6 +98,17 @@ def main() -> int:
         "Aktionen mit Pflichtparametern (rohe Fehlermeldung)",
         ["tools/action_smoke.py"], timeout=300))
 
+    # Loop 4, 2026-09-01: zwei Pruefer gegen die Fehlerklasse, die nur Agenten
+    # gefunden haben - eine Commit-Nachricht, die mehr verspricht als ihr Diff
+    # enthaelt (B-949), und ein Fix ohne absichernden Test (B-963, B-964).
+    ergebnisse.append(_lauf(
+        "Commit-Nachrichten gegen ihre Diffs",
+        ["tools/commit_audit.py", "--anzahl", "40"], timeout=300))
+
+    ergebnisse.append(_lauf(
+        "Reparaturen ohne absichernden Test",
+        ["tools/fix_ohne_test.py", "--seit", "B-900"], timeout=300))
+
     ergebnisse.append(_lauf(
         "Passende Lehren zum geaenderten Code",
         ["tools/session_learning.py", "relevant", "--changed", "--limit", "5"],
