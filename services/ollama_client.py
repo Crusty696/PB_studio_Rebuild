@@ -1156,8 +1156,14 @@ def get_ollama_client(base_url: str = DEFAULT_OLLAMA_URL) -> OllamaClient:
     (User hat Settings geändert), wird ein neuer Client erstellt.
     """
     global _default_client
+    # B-963: Der Konstruktor legt die URL normalisiert ab (localhost -> 127.0.0.1,
+    # siehe _normalize_ollama_host für B-760). Der Vergleich hier lief gegen die
+    # ROHE URL und war damit immer ungleich — bei jedem Aufruf entstand ein neuer
+    # Client. Gemessen am 2026-09-01: 1403 "Singleton erstellt"-Zeilen im Log,
+    # 864 davon an einem Vormittag. Deshalb beide Seiten gleich normalisieren.
+    gewuenscht = _normalize_ollama_host(base_url.rstrip("/"))
     with _client_lock:
-        if _default_client is None or _default_client.base_url != base_url.rstrip("/"):
+        if _default_client is None or _default_client.base_url != gewuenscht:
             _default_client = OllamaClient(base_url=base_url)
             logger.info("OllamaClient: Singleton erstellt für %s", base_url)
         return _default_client
