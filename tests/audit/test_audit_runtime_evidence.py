@@ -1789,3 +1789,74 @@ def test_missing_or_tampered_artifact_rejected() -> unittest.TestCase: return _n
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class B861SymlinkWurzelnTests(unittest.TestCase):
+    """B-861 — runs/ und .staging/ gingen ungeprueft in mkdir und _create_lock.
+
+    Ist eine der beiden Wurzeln ein Symlink oder ein Reparse-Point, schreibt der
+    Lauf seine Evidence ausserhalb des Evidence-Baums, und der Lock, der
+    Doppellaeufe verhindern soll, liegt ebenfalls woanders. Beim Git-Executable
+    gab es diese Pruefung laengst (Zeile 169), hier fehlte sie.
+    """
+
+    def test_erkennt_ein_verzeichnis_symlink(self):
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from tools.audit_runtime_evidence import _is_reparse_point
+
+        with tempfile.TemporaryDirectory() as temp:
+            echt = Path(temp) / "echt"
+            echt.mkdir()
+            link = Path(temp) / "link"
+            try:
+                os.symlink(echt, link, target_is_directory=True)
+            except OSError as exc:  # Windows ohne Entwicklermodus
+                self.skipTest(f"Symlink nicht erstellbar: {exc}")
+
+            self.assertTrue(link.is_symlink() or _is_reparse_point(link))
+
+    def test_normales_verzeichnis_faellt_nicht_auf(self):
+        import tempfile
+        from pathlib import Path
+
+        from tools.audit_runtime_evidence import _is_reparse_point
+
+        with tempfile.TemporaryDirectory() as temp:
+            echt = Path(temp) / "runs"
+            echt.mkdir()
+
+            self.assertFalse(echt.is_symlink())
+            self.assertFalse(_is_reparse_point(echt))
+
+    def test_die_pruefung_steht_vor_dem_mkdir(self):
+        """Quellcode-Guard: nach dem mkdir waere sie wirkungslos."""
+        import inspect
+
+        from tools import audit_runtime_evidence as mod
+
+        src = inspect.getsource(mod)
+
+        # Die Konstruktion steht an zwei Stellen: im Export (liest aus runs/)
+        # und im Lauf (legt runs/ und .staging/ an). Beide brauchen den Schutz.
+        # Der zweite Fundort fiel erst durch genau diesen Guard auf.
+        teile = src.split('runs_root = evidence / "runs"')
+        self.assertGreaterEqual(len(teile) - 1, 2, "erwartet zwei Fundstellen")
+
+        for nr, block in enumerate(teile[1:], 1):
+            kopf = block[:1200]
+            self.assertIn(
+                "_is_reparse_point", kopf,
+                f"Fundstelle {nr}: keine Symlink-Pruefung",
+            )
+
+        # Im Lauf-Block muss die Pruefung vor dem mkdir stehen.
+        lauf = [b for b in teile[1:] if "runs_root.mkdir" in b[:1200]]
+        self.assertTrue(lauf, "Lauf-Block nicht gefunden")
+        block = lauf[0]
+        self.assertLess(
+            block.find("_is_reparse_point"), block.find("runs_root.mkdir"),
+            "Pruefung steht hinter dem mkdir",
+        )

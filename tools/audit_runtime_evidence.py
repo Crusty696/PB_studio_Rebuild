@@ -2062,6 +2062,12 @@ def _export_runtime_evidence_locked(
     ledger = evidence / "runtime_runs.jsonl"
     if not runs_root.is_dir() or not ledger.is_file():
         raise ContractError("Runtime-Export braucht runs/ und runtime_runs.jsonl")
+    # B-861: Der Export liest aus runs/ — zeigt das Verzeichnis per Symlink
+    # woandershin, exportiert er fremde Evidence als die eigene. Die zweite
+    # Fundstelle derselben Konstruktion; sie fiel erst durch den
+    # Quellcode-Guard des B-861-Tests auf.
+    if runs_root.is_symlink() or _is_reparse_point(runs_root):
+        raise ContractError("runs darf kein Symlink/Reparse-Point sein")
     ledger_bytes = ledger.read_bytes()
     ledger_rows = _parse_jsonl(ledger_bytes, "runtime_runs.jsonl")
     if ledger_bytes != b"".join(_canonical_bytes(row) + b"\n" for row in ledger_rows):
@@ -2451,6 +2457,16 @@ def _run_scenario(
 
     runs_root = evidence / "runs"
     staging_root = evidence / ".staging"
+    # B-861: Beide Wurzeln gingen bis 2026-09-01 ungeprueft in mkdir und
+    # _create_lock. Ist eine davon ein Symlink oder ein Reparse-Point, schreibt
+    # der Lauf seine Evidence ausserhalb des Evidence-Baums — und der Lock, der
+    # Doppellaeufe verhindern soll, liegt dann ebenfalls woanders. Dieselbe
+    # Pruefung wie beim Git-Executable (Zeile 169).
+    for wurzel in (runs_root, staging_root):
+        if wurzel.exists() and (wurzel.is_symlink() or _is_reparse_point(wurzel)):
+            raise ContractError(
+                f"{wurzel.name} darf kein Symlink/Reparse-Point sein"
+            )
     runs_root.mkdir(exist_ok=True)
     staging_root.mkdir(exist_ok=True)
     final_run = runs_root / runtime_run_id
