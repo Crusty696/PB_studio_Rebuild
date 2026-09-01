@@ -333,7 +333,16 @@ def pruefer_spalten() -> dict:
 # 3. Chat-Aktionen ohne Worker
 # ────────────────────────────────────────────────────────────────────────────
 
-_AKTION = re.compile(r'@action_registry\.register\(\s*\n?\s*name\s*=\s*["\'](\w+)["\']')
+# B-959: Der Dekorator ist nicht der einzige Weg in die Registry. Fuenf
+# Audio-Aktionen (detect_key, analyze_lufs, classify_audio, analyze_spectral,
+# detect_structure) entstehen in services/actions/audio_actions.py ueber die
+# Fabrik _make_enqueue_action(name=...). Wer nur den Dekorator sucht, zaehlt 57
+# statt der 62, die die laufende App ueber list_actions meldet - und kann fuer
+# die fuenf ungesehenen grundsaetzlich keinen Befund liefern.
+_AKTION = re.compile(
+    r'(?:@action_registry\.register|_make_enqueue_action)'
+    r'\(\s*\n?\s*name\s*=\s*["\'](\w+)["\']'
+)
 _WORKER = re.compile(r'register_worker\(\s*\n?\s*["\'](\w+)["\']')
 _SIGNAL = re.compile(r'agent_command_signal\.emit\(\s*["\'](\w+)["\']')
 
