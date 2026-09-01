@@ -86,6 +86,18 @@ def main() -> int:
         "Inventar (unerreichbare Knoepfe, tote Spalten)",
         ["tools/inventory_audit.py"], timeout=900))
 
+    # Die beiden folgenden Pruefer kamen am 2026-09-01 dazu. Grund: der
+    # Pruefstand fand in zwei vollen Laeufen keinen einzigen der sechs Funde
+    # dieses Tages. B-963 stand 1403x im App-Log, B-961 traf 25 Chat-Aktionen -
+    # das eine las kein Werkzeug, das andere loeste keines aus.
+    ergebnisse.append(_lauf(
+        "Log der laufenden App (Wiederholungen, Fehler, Takt)",
+        ["tools/log_audit.py"], timeout=300))
+
+    ergebnisse.append(_lauf(
+        "Aktionen mit Pflichtparametern (rohe Fehlermeldung)",
+        ["tools/action_smoke.py"], timeout=300))
+
     ergebnisse.append(_lauf(
         "Passende Lehren zum geaenderten Code",
         ["tools/session_learning.py", "relevant", "--changed", "--limit", "5"],
