@@ -1284,6 +1284,26 @@ class PBWindow(QMainWindow):
             scheduler_stopped = False  # Zustand unsicher -> Cleanup nicht erzwingen
             logger.warning("closeEvent: EmbeddingScheduler-Stop fehlgeschlagen: %s", exc)
 
+        # 8b. StemWorkspace endgueltig schliessen. `destroy_workspace()` setzt
+        # das Flag `_is_being_destroyed`, das in `closeEvent` den einzigen Zweig
+        # freischaltet, der die sechs Signale trennt und die PeakWorker-Threads
+        # per quit()/wait() beendet. Die Methode hatte im gesamten Produktivcode
+        # keinen Aufrufer — der Zweig lief also nie, und die Peak-Threads liefen
+        # beim Beenden weiter. Gefunden am 2026-09-02 mit tools/inventory_audit.py
+        # ("methoden ohne_aufrufer"), gleiche Klasse wie B-837 und B-937.
+        try:
+            # Das Widget haengt nicht am Fenster, sondern im Schnitt-Tab:
+            # workspace_setup.py:573 setzt `self._stems_ws` auf den Container
+            # `StemsWorkspace`, dessen `.stem_widget` die einzige
+            # `StemWorkspace`-Instanz ist (tab_audio.py:88/89).
+            _container = getattr(self, "_stems_ws", None)
+            _stems = getattr(_container, "stem_widget", None)
+            if _stems is not None and hasattr(_stems, "destroy_workspace"):
+                _stems.destroy_workspace()
+                logger.info("closeEvent: StemWorkspace endgueltig geschlossen")
+        except (RuntimeError, AttributeError) as exc:
+            logger.warning("closeEvent: StemWorkspace-Cleanup fehlgeschlagen: %s", exc)
+
         # 9. VRAM final freigeben — **SYNCHRON**. P8-CUDA-FIX: Vorher
         # `unload_in_background()` → startet Worker-Thread, dann sofort
         # event.accept() → Prozess stirbt mit aktivem CUDA-Context.
