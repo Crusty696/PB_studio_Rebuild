@@ -42,10 +42,19 @@ from services.errors import (
 logger = logging.getLogger(__name__)
 
 # Default-Modelle für NVIDIA CUDA GPU.
-# B-239: ``gemma4:e4b`` entfernt — existierte nirgends als Ollama-Tag.
-# Live-Default wird in ``OllamaService._resolve_default_model`` per
-# ``/api/tags``-Family-Match (gemma4) aufgeloest. Diese Liste ist
-# der harte Fallback wenn keine Gemma-4-Variante installiert ist.
+# B-239 (2026-04-28, Commit ``cdf0ce3``): ``gemma4:e4b`` war als *fester*
+# Default an vier Stellen hartcodiert und blockierte die gesamte KI-Pipeline,
+# weil es den Tag bei Ollama nicht gibt. Der Live-Default wird seitdem in
+# ``OllamaService._resolve_default_model`` per ``/api/tags``-Family-Match
+# (gemma4) aufgeloest. Diese Liste ist nur noch der harte Fallback.
+#
+# B-968 (2026-09-02): Der Kommentar stand hier bis heute als "``gemma4:e4b``
+# entfernt" — und direkt darunter stand der Eintrag wieder. Commit ``8a5c6a4``
+# (2026-05-21, "prefer installed Gemma4 with deterministic fallback") hat ihn
+# absichtlich zurueckgeholt, den Kommentar aber nicht mitgezogen. Der Eintrag
+# ist gewollt und harmlos: ``get_best_available_model`` und
+# ``_find_fallback_model`` pruefen ``if model in available``, ein nicht
+# installiertes Tag wird also uebersprungen. Falsch war nur der Kommentar.
 RECOMMENDED_MODELS = [
     "gemma4:e4b",                                                     # ~GTX 1060 Zielmodell, wenn lokal installiert
     "gemma4:latest",                                                  # Gemma-4-Family-Fallback

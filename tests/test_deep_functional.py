@@ -9,6 +9,9 @@ import sys
 import tempfile
 import traceback
 import shutil
+
+import pytest
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +32,41 @@ def record(service: str, function: str, status: str, detail: str = ""):
     })
     icon = "PASS" if status == "PASS" else "FAIL"
     print(f"  [{icon}] {service}.{function}" + (f" -- {detail[:200]}" if detail and status == "FAIL" else ""))
+
+
+@pytest.fixture(autouse=True)
+def _fails_sind_fehlschlaege():
+    """B-969: Unter pytest konnte diese Datei nicht rot werden.
+
+    Jede der 276 Behauptungen steht in einem ``try/except Exception``-Block,
+    der den ``AssertionError`` abfaengt und ihn per ``record(..., "FAIL", ...)``
+    in eine Liste schreibt. Ausgewertet wurde die Liste nur in ``print_report``,
+    und das laeuft ausschliesslich im ``__main__``-Zweig. Unter pytest wurden
+    die zehn Funktionen als Tests gesammelt und meldeten **immer** ``passed``.
+
+    Gemessen am 2026-09-02: ``pytest tests/test_deep_functional.py`` = 10 grune
+    Tests, derselbe Code als Skript = ``Total: 145 tests | PASS: 141 | FAIL: 4``.
+    Vier echte Abweichungen waren also seit Monaten unsichtbar, darunter ein
+    Aufruf auf eine Methode, die es nicht mehr gibt.
+
+    Diese Fixture aendert nichts am Skript-Modus: sie sieht nur nach, ob
+    waehrend eines Tests neue FAIL-Eintraege entstanden sind, und laesst den
+    Test dann fehlschlagen - mit den gesammelten Tracebacks im Klartext.
+
+    Genau protokolliert: weil die Pruefung im Teardown sitzt, meldet pytest den
+    Lauf als ``error``, nicht als ``failed``. Der Exit-Code ist 1 und die
+    Tracebacks stehen im Bericht - gegengeprueft am 2026-09-02 mit einer
+    absichtlich falschen Behauptung.
+    """
+    vorher = len(RESULTS)
+    yield
+    neue_fehler = [r for r in RESULTS[vorher:] if r["status"] == "FAIL"]
+    if neue_fehler:
+        text = "\n\n".join(
+            f"{r['service']}.{r['function']}:\n{r['detail']}" for r in neue_fehler
+        )
+        pytest.fail(f"{len(neue_fehler)} dokumentierte Fehlschlaege:\n\n{text}",
+                    pytrace=False)
 
 
 def print_report():
@@ -518,8 +556,13 @@ def test_ollama_service():
 
     # Constants check
     try:
-        assert OLLAMA_BASE == "http://localhost:11434"
-        assert isinstance(OLLAMA_MODEL, str) and len(OLLAMA_MODEL) > 0
+        # B-969: Die Erwartung lautete `http://localhost:11434` und ein nicht
+        # leerer OLLAMA_MODEL-String. Beides stimmt seit B-239 nicht mehr: der
+        # Host ist `127.0.0.1` (kein DNS-Umweg), und ein fester Default wurde
+        # bewusst abgeschafft — das Modell loest OllamaService live ueber
+        # /api/tags auf, OLLAMA_MODEL ist seitdem None.
+        assert OLLAMA_BASE in ("http://localhost:11434", "http://127.0.0.1:11434")
+        assert OLLAMA_MODEL is None or isinstance(OLLAMA_MODEL, str)
         record("OllamaService", "constants", "PASS")
     except Exception:
         record("OllamaService", "constants", "FAIL", traceback.format_exc())
@@ -618,7 +661,8 @@ def test_ollama_client(_blocked_urlopen):
     # Construction test
     try:
         client = OllamaClient()
-        assert client.base_url == "http://localhost:11434"
+        # B-969: siehe oben — der Standard-Host ist 127.0.0.1.
+        assert client.base_url in ("http://localhost:11434", "http://127.0.0.1:11434")
         assert client.timeout == 120
         assert client.is_paused is False
         record("OllamaClient", "__init__(default)", "PASS")
@@ -754,11 +798,16 @@ def test_ollama_client(_blocked_urlopen):
     # supports_tools
     try:
         client = OllamaClient()
-        assert client.supports_tools("gemma3:4b") is True
-        assert client.supports_tools("gemma3:4b") is True
+        # B-969: Die Erwartung stand doppelt da und war fuer zwei Modelle
+        # falsch. B-247 hat phi3, gemma2 und gemma3 bewusst auf eine harte
+        # Negativliste gesetzt — sie melden Tool-Support, koennen ihn aber
+        # nicht, was den Chat-Senden-Knopf in einer HTTP-400-Schleife
+        # blockierte. Gemessen am 2026-09-02: gemma3:4b -> False,
+        # phi3:mini -> False, qwen2.5:7b-instruct -> True, llama3.1:8b -> True.
+        assert client.supports_tools("gemma3:4b") is False
+        assert client.supports_tools("phi3:mini") is False
         assert client.supports_tools("qwen2.5:7b-instruct") is True
         assert client.supports_tools("llama3.1:8b") is True
-        assert client.supports_tools("phi3:mini") is True
         assert client.supports_tools("unknown-model:latest") is False
         # Small model exclusion
         assert client.supports_tools("qwen2.5:0.5b") is False
@@ -1139,11 +1188,13 @@ def test_vector_db_service():
         # search_by_text (wrapper)
         try:
             query = np.random.randn(EMBEDDING_DIM).astype(np.float32)
-            results = vdb.search_by_text(query, top_k=2)
+            # B-969: `search_by_text` wurde am Commit 89f76b3 als toter Code
+            # entfernt. `search` ist das verbliebene Gegenstueck.
+            results = vdb.search(query, top_k=2)
             assert isinstance(results, list)
-            record("VectorDBService", "search_by_text", "PASS")
+            record("VectorDBService", "search", "PASS")
         except Exception:
-            record("VectorDBService", "search_by_text", "FAIL", traceback.format_exc())
+            record("VectorDBService", "search", "FAIL", traceback.format_exc())
 
         # get_all_embeddings
         try:

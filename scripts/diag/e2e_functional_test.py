@@ -366,7 +366,11 @@ def test_semantic_search(query: str = "nature landscape"):
 
     from services.vector_db_service import VectorDBService
     vdb = VectorDBService()
-    results = vdb.search_by_text(embedding, top_k=5)
+    # B-969: hier stand `search_by_text`. Die Methode wurde am Commit 89f76b3
+    # als toter Code entfernt; dieser Aufruf blieb stehen und riss das
+    # Diagnoseskript seitdem mit einem AttributeError um. `search` ist das
+    # verbliebene Gegenstueck mit derselben Signatur.
+    results = vdb.search(embedding, top_k=5)
     return {"query": query, "results": len(results)}
 
 
