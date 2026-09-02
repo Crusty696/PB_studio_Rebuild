@@ -76,6 +76,50 @@ def _ids_in(dateien: list[Path]) -> dict[str, list[str]]:
     return treffer
 
 
+def _symbol_an_zeile(pfad: Path, zeile: int) -> str | None:
+    """Name der Funktion oder Methode, in der ``zeile`` steht.
+
+    Loop 6 hat gezeigt, dass die reine ID-Suche zu grob ist: 89 Bug-IDs standen
+    in keinem Test, aber ein Test kann die Reparatur sehr wohl absichern, ohne
+    die Nummer zu nennen. Deshalb wird zusaetzlich geprueft, ob das Symbol, in
+    dem der Fix sitzt, unter ``tests/`` ueberhaupt vorkommt.
+
+    Fehlt beides - ID und Symbol -, ist die Reparatur nachweislich ungedeckt.
+    Steht das Symbol in den Tests, ist es nur eine fehlende Beschriftung.
+    """
+    try:
+        import ast
+
+        baum = ast.parse(pfad.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError):
+        return None
+
+    treffer: tuple[int, str] | None = None
+    for knoten in ast.walk(baum):
+        if not isinstance(knoten, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        ende = getattr(knoten, "end_lineno", None) or knoten.lineno
+        if knoten.lineno <= zeile <= ende:
+            # Das engste umschliessende Symbol gewinnt: eine Methode ist
+            # aussagekraeftiger als ihre Klasse.
+            spanne = ende - knoten.lineno
+            if treffer is None or spanne < treffer[0]:
+                treffer = (spanne, knoten.name)
+    return treffer[1] if treffer else None
+
+
+def _symbol_in_tests(name: str, testquelle: str) -> bool:
+    """Kommt ``name`` unter ``tests/`` vor?
+
+    Sehr kurze und sehr allgemeine Namen (``run``, ``main``, ``setUp``) sagen
+    nichts aus - sie treffen in jeder Suite. Die werden nicht als Abdeckung
+    gewertet, sonst verschwaende die Trennung genau die Faelle, die zaehlen.
+    """
+    if not name or len(name) < 5 or name in {"setUp", "tearDown"}:
+        return False
+    return re.search(r"\b" + re.escape(name) + r"\b", testquelle) is not None
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -112,18 +156,53 @@ def main() -> int:
     if args.seit:
         print(f"Betrachtet ab             : {args.seit}")
     print()
+    # Zweite Stufe: sichert vielleicht doch ein Test die Stelle ab, ohne die
+    # Nummer zu nennen? Geprueft wird ueber das umschliessende Symbol.
+    testquelle = "\n".join(
+        p.read_text(encoding="utf-8", errors="replace")
+        for p in _dateien(REPO_ROOT / "tests")
+    )
+    hart: dict[str, list[str]] = {}
+    nur_beschriftung: dict[str, list[str]] = {}
+    for bug, stellen in ohne.items():
+        gedeckte: list[str] = []
+        for s in stellen:
+            rel, _, nr = s.rpartition(":")
+            symbol = _symbol_an_zeile(REPO_ROOT / rel, int(nr))
+            if symbol and _symbol_in_tests(symbol, testquelle):
+                gedeckte.append(f"{s} ({symbol})")
+        if len(gedeckte) == len(stellen):
+            nur_beschriftung[bug] = gedeckte
+        else:
+            hart[bug] = stellen
+
     print(f"=== Im Code markiert, in keinem Test genannt: {len(ohne)} ===")
+    print(f"    davon nachweislich ungedeckt (auch das Symbol fehlt in tests/): {len(hart)}")
+    print(f"    davon nur unbeschriftet (Symbol kommt in tests/ vor)         : "
+          f"{len(nur_beschriftung)}")
     print()
 
-    for bug in sorted(ohne, key=lambda b: -int(b.split("-")[1]))[:args.top]:
-        stellen = ohne[bug]
+    for bug in sorted(hart, key=lambda b: -int(b.split("-")[1]))[:args.top]:
+        stellen = hart[bug]
         print(f"  {bug}  ({len(stellen)} Stelle{'n' if len(stellen) != 1 else ''})")
         for s in stellen[:3]:
             print(f"          {s}")
         if len(stellen) > 3:
             print(f"          ... ({len(stellen) - 3} weitere)")
-    if len(ohne) > args.top:
-        print(f"\n  ... ({len(ohne) - args.top} weitere IDs)")
+    if len(hart) > args.top:
+        print(f"\n  ... ({len(hart) - args.top} weitere IDs)")
+
+    if nur_beschriftung:
+        print()
+        print(f"=== Nur unbeschriftet: {len(nur_beschriftung)} IDs ===")
+        print("    Das Symbol, in dem der Fix sitzt, kommt unter tests/ vor. Ein Test")
+        print("    kann die Sache also pruefen, ohne die Nummer zu nennen. Kein Befund,")
+        print("    aber eine Stelle, an der eine Beschriftung fehlt.")
+        print()
+        for bug in sorted(nur_beschriftung, key=lambda b: -int(b.split("-")[1]))[:10]:
+            print(f"  {bug}  {nur_beschriftung[bug][0]}")
+        if len(nur_beschriftung) > 10:
+            print(f"  ... ({len(nur_beschriftung) - 10} weitere)")
 
     if args.json:
         Path(args.json).write_text(
