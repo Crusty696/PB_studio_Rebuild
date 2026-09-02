@@ -71,6 +71,12 @@ skills-lock.json
 !.agents/skills/pb-release-readiness-team/SKILL.md
 !.agents/skills/pb-exhaustive-audit-ledger/
 !.agents/skills/pb-exhaustive-audit-ledger/**
+# Das `**` oben holt auch Python-Bytecode zurueck, den Zeile 1
+# (`__pycache__/`) eigentlich ausschliesst. Seit dem 2026-09-01 stand
+# `.agents/skills/pb-exhaustive-audit-ledger/scripts/__pycache__/` deshalb
+# in jedem `git status` — und ein unbekannter dirty state blockiert laut
+# Projektregel den Handoff.
+.agents/skills/**/__pycache__/
 
 # QA screenshots and recordings (binary assets)
 docs/qa_screenshots/**/*.png
