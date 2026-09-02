@@ -210,8 +210,11 @@ except Exception as e:
 print("\n--- TEST 2: get_available_presets() ---")
 t0 = time.perf_counter()
 try:
-    from services.convert_service import get_available_presets
-    presets = get_available_presets()
+    # B-970: `get_available_presets` wurde mit Commit d67b425 entfernt.
+    # PRESETS ist die verbliebene Quelle derselben Angaben.
+    from services.convert_service import PRESETS
+    presets = [{"key": k, "name": v.name, "codec": v.video_codec}
+               for k, v in PRESETS.items()]
     dt = time.perf_counter() - t0
     names = [p["name"] for p in presets]
     expected = ["Edit-Proxy (540p)", "Master (1080p)", "DaVinci-Proxy (720p)"]

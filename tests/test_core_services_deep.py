@@ -14,6 +14,29 @@ import tempfile
 import traceback
 from pathlib import Path
 
+# B-970: Diese Datei ist ein Skript, kein pytest-Test. Sie hat keinen
+# ``__main__``-Guard - der gesamte Code laeuft beim Import, legt ein
+# QApplication an und oeffnet ein Projekt. Unter pytest bedeutete das einen
+# Sammelfehler, seit der B-727-Testschutz den Zugriff auf die echte
+# ``pb_studio.db`` blockiert:
+#
+#   RuntimeError: TESTSCHUTZ (B-727): Zugriff auf geschuetzte reale DB wurde
+#   vor sqlite3/dbapi2.connect blockiert
+#
+# Der Fehler stand als Dauerposten in jeder Baseline, obwohl keine der 169
+# Behauptungen dieser Datei je unter pytest lief. Jetzt meldet der Lauf ein
+# ehrliches "skipped"; der Skript-Modus bleibt unveraendert:
+#
+#   python tests/test_core_services_deep.py
+if "pytest" in sys.modules and __name__ != "__main__":
+    import pytest
+
+    pytest.skip(
+        "Skript, kein pytest-Test (B-970) - direkt aufrufen: "
+        "python tests/test_core_services_deep.py",
+        allow_module_level=True,
+    )
+
 # Project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -881,15 +904,19 @@ print("=" * 70)
 def test_convert_service():
     # --- import ---
     def t_import():
+        # B-970: `get_available_presets` wurde mit Commit d67b425 als toter
+        # Code entfernt; der Import blieb stehen und riss dieses Skript ab
+        # Zeile 908 mit einem ImportError um - alle nachfolgenden Pruefungen
+        # liefen nie.
         from services.convert_service import (
-            convert, detect_nvenc, get_available_presets,
+            convert, detect_nvenc,
             PRESETS, PRESET_EDIT_PROXY, PRESET_MASTER_1080P, PRESET_DAVINCI_PROXY,
             ConvertPreset,
         )
     run_test("ConvertService", "import", t_import)
 
     from services.convert_service import (
-        convert, detect_nvenc, get_available_presets, PRESETS,
+        convert, detect_nvenc, PRESETS,
         _safe_stem, _sanitize_ffmpeg_error,
     )
 
@@ -910,16 +937,19 @@ def test_convert_service():
         assert "ffmpeg_version" in result
     run_test("ConvertService", "detect_nvenc", t_detect)
 
-    # --- get_available_presets ---
+    # --- Preset-Verfuegbarkeit ---
+    # B-970: Hier stand `get_available_presets()`. Die Funktion ist weg; sie
+    # las PRESETS und markierte NVENC-Presets als nicht verfuegbar, wenn die
+    # Hardware fehlt. Die Pruefung macht dasselbe direkt auf PRESETS.
     def t_avail():
-        presets = get_available_presets()
-        assert isinstance(presets, list)
-        assert len(presets) == 3
-        for p in presets:
-            assert "key" in p
-            assert "name" in p
-            assert "available" in p
-    run_test("ConvertService", "get_available_presets", t_avail)
+        nvenc = detect_nvenc()
+        assert len(PRESETS) == 3
+        for key, preset in PRESETS.items():
+            assert preset.name
+            assert preset.video_codec
+            if preset.video_codec == "h264_nvenc":
+                assert isinstance(nvenc["h264_nvenc"], bool)
+    run_test("ConvertService", "PRESETS_verfuegbarkeit", t_avail)
 
     # --- convert missing file ---
     def t_convert_missing():
