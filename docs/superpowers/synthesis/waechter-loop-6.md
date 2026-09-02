@@ -75,7 +75,9 @@ trotzdem der richtige, aber die Aussage war voreilig.
 
 - **89 Commits** ueber die volle Historie versprechen Tests, die ihr Diff nicht enthaelt. Fuer
   einen Teil kamen die Tests spaeter nach (B-963, B-964 nachweislich). Fuer welche **bis heute**
-  kein Test existiert, sagt `fix_ohne_test`: **64 Bug-IDs**. Das ist der groesste offene Posten.
+  kein Test existiert, sagt `fix_ohne_test`: **89 Bug-IDs**, davon **47 nachweislich ungedeckt** (auch das
+  umschliessende Symbol kommt in keinem Test vor) und 42 nur unbeschriftet. Das ist der
+  groesste offene Posten.
 - **B-961 / B-960** - 23 von 62 Aktionen scheitern mit `TypeError ... missing required
   positional argument`, weil die Registry Pflichtparameter nicht prueft. Alle 42 verbleibenden
   ERROR-Zeilen im Live-Log gehen darauf zurueck. Userentscheidung steht aus.
@@ -90,7 +92,7 @@ trotzdem der richtige, aber die Aussage war voreilig.
 
 | Schritt | Inhalt | Abbruchkriterium |
 |---|---|---|
-| 7.1 | Die 64 Bug-IDs aus `fix_ohne_test` durchgehen - je Bug: existiert der Test unter anderem Namen, oder fehlt er wirklich? | Jede der 64 IDs hat eine Entscheidung: Test vorhanden / Test nachgeliefert / begruendet ohne Test |
+| 7.1 | Die 47 nachweislich ungedeckten Bug-IDs aus `fix_ohne_test` durchgehen - je Bug: existiert der Test unter anderem Namen, oder fehlt er wirklich? | Jede der 47 IDs hat eine Entscheidung: Test vorhanden / Test nachgeliefert / begruendet ohne Test |
 | 7.2 | `set_project()` in alle Mess-Skripte aufnehmen, die Projektdaten lesen | Kein Messlauf mehr gegen die leere Repo-DB |
 | 7.3 | Jeden verbleibenden Pruefer nach derselben Frage durchsehen wie den Methoden-Pruefer: welche Trefferkategorie ist strukturell harmlos? | Jeder Pruefer trennt harte Befunde von Hinweisen |
 | 7.4 | Live-GUI-Lauf mit dem Projekt `Erstlauf_Test_2026-08-30` ueber alle Workspaces, Aufzeichnung als Logdatei | Jeder Workspace einmal geoeffnet, Log ohne unerklaerte ERROR-Zeile |
@@ -105,5 +107,5 @@ trotzdem der richtige, aber die Aussage war voreilig.
 | 3 von 4 Meldungen des Methoden-Pruefers waren harmlos | Jeder Pruefer muss harte Befunde von Hinweisen trennen (7.3) |
 | Messlauf las die leere Repo-DB statt der Projekt-DB | `set_project()` gehoert in jedes Mess-Skript (7.2) |
 | "Greift nicht" behauptet, bevor das Log vorlag | Erst messen, dann bewerten - gilt auch bei eindeutiger Quelltextlage |
-| `commit_audit` ueber 2000 Commits: 89 Befunde | Nicht die Commits nacharbeiten, sondern die 64 heute testlosen IDs (7.1) |
+| `commit_audit` ueber 2000 Commits: 89 Befunde | Nicht die Commits nacharbeiten, sondern die 47 nachweislich ungedeckten IDs (7.1) |
 | Der Live-Shutdown liess sich nur per `taskkill` ohne `/F` ausloesen (`focus` scheiterte am Titel) | WM_CLOSE per `taskkill` ist ab jetzt der Standardweg fuer Shutdown-Tests |
