@@ -947,7 +947,7 @@ class OrchestratorAgent(BaseAgent):
         4. Direktes Action-Registry (Fuzzy-Matching auf Aktionsnamen)
         5. Fallback: Weiterleitung an das Text-LLM
 
-        FIX B-1001: Alle Fehler werden geloggt und in der Error-Response zurückgegeben
+        Alle Fehler werden geloggt und in der Error-Response zurueckgegeben.
         """
         logger.info("Orchestrator empfängt: '%s'", user_text[:100])
 
@@ -1127,7 +1127,7 @@ class OrchestratorAgent(BaseAgent):
                 "error": None,
             }
         except Exception as e:  # broad catch intentional — top-level orchestrator safety net
-            # FIX B-1001: Fehler aus allen Agenten und Methoden loggen und zur UI schicken
+            # Fehler aus allen Agenten und Methoden loggen und zur UI schicken
             error_msg = f"Orchestrator-Fehler: {type(e).__name__}: {e}"
             logger.exception("Unerwarteter Fehler im Orchestrator-Agent")
             return {
