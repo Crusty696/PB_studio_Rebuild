@@ -64,6 +64,17 @@ def _commits(anzahl: int, einzeln: str | None) -> list[str]:
     return [z for z in _git("log", f"-{anzahl}", "--format=%H").splitlines() if z]
 
 
+# Betreffe, bei denen eine reine Loeschung genau die Reparatur ist.
+_LOESCH_ABSICHT = re.compile(
+    # Ohne Wortgrenzen: "removes", "entfernt" und "geloescht" sollen alle
+    # treffen. Ein erster Versuch mit \b scheiterte daran, dass die Sequenz
+    # beim Schreiben der Datei zu einem Backspace-Zeichen wurde - der Ausdruck
+    # suchte danach woertlich nach 0x08 und traf nie.
+    "remove|delete|drop|entfern|loesch|cleanup|dead code|toter code|toten code",
+    re.I,
+)
+
+
 def _pruefe(sha: str) -> tuple[list[str], list[str]]:
     nachricht = _git("log", "-1", "--format=%B", sha)
     dateien = [z for z in _git("show", "--name-only", "--format=", sha).splitlines() if z]
@@ -71,6 +82,12 @@ def _pruefe(sha: str) -> tuple[list[str], list[str]]:
 
     befunde: list[str] = []
     hinweise: list[str] = []
+
+    # Merge-Commits haben keinen eigenen Diff — `git show --name-only` liefert
+    # nichts, und jede Pruefung schlaegt dann falsch an. Gemessen ueber 400
+    # Commits war 22f96b86 genau so ein Fall.
+    if len(_git("log", "-1", "--format=%P", sha).split()) > 1:
+        return [], []
 
     genannt = {p for p in _PFAD.findall(nachricht)}
     # Nur Pfade werten, die es im Repo auch gibt - sonst schlagen Beispiele an.
@@ -93,7 +110,10 @@ def _pruefe(sha: str) -> tuple[list[str], list[str]]:
 
     if zahlen and "insertion" not in zahlen and "deletion" in zahlen:
         erste = nachricht.strip().splitlines()[0] if nachricht.strip() else ""
-        if erste.lower().startswith(("fix", "feat")):
+        # Ein Commit, der ausdruecklich Totes entfernt, DARF nur loeschen.
+        # 89f76b3e ("remove dead ...") war so ein Fall - die Loeschung ist die
+        # Reparatur, nicht ihr Fehlen.
+        if erste.lower().startswith(("fix", "feat")) and not _LOESCH_ABSICHT.search(erste):
             befunde.append(f"Nur Loeschungen ({zahlen}), aber Betreff lautet: {erste[:60]}")
 
     return befunde, hinweise
