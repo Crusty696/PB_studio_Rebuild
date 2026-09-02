@@ -1,10 +1,8 @@
 {
-  "aufgenommen_am": "2026-08-31T10:29:13+00:00",
-  "head": "43a0b546d28c1eab417620f541b0ca8652c303f9",
-  "zusammenfassung": "19 failed, 4733 passed, 56 skipped, 41 warnings, 271 subtests passed in 1268.18s (0:21:08)",
+  "aufgenommen_am": "2026-09-02T16:35:33+00:00",
+  "head": "054ec3ffc46a8325adbbdc155b9cda08f1fe5f78",
+  "zusammenfassung": "17 failed, 4870 passed, 56 skipped, 39 warnings, 271 subtests passed in 1566.00s (0:26:06)",
   "bekannte_rote_tests": [
-    "tests/audit/test_audit_runtime_evidence.py::GateContractTests::test_timeout_kills_child_and_grandchild",
-    "tests/audit/test_audit_runtime_evidence.py::GateContractTests::test_windows_timeout_job_kills_grandchild_after_intermediate_exit",
     "tests/pacing/test_pacing_stages.py::test_brain_v3_rationale_uses_final_score_after_rerank",
     "tests/test_agents/test_b411_chat_action_not_executable.py::TestProcessFallbackGuard::test_question_falls_through_to_chat",
     "tests/test_agents/test_b782_learn_intent_priority.py::test_learn_intent_with_pacing_vocab_does_not_route_to_pacing",
@@ -22,6 +20,5 @@
     "tests/test_services/test_b2_beat_analysis_degradation.py::test_beat_analysis_degradation_fallback",
     "tests/test_services/test_b570_shutdown_process.py::test_cancelled_live_qthread_does_not_keep_app_process_alive",
     "tests/test_services/test_rl_v2_feedback_wiring_t14.py::test_minimal_schema_falls_back_to_section_only_context"
-  ],
-  "bereinigt_am": "2026-08-31: 4 Log-Zeilen entfernt, die kein Testknoten sind"
+  ]
 }
