@@ -97,7 +97,7 @@ def test_b321_project_dashboard_completion_refresh_is_debounced():
 
 
 def test_b321_project_dashboard_burst_refresh_requests_coalesce_to_one_call():
-    from PySide6.QtCore import QEventLoop, QTimer
+    from PySide6.QtCore import QTimer  # noqa: F401 — von anderen Stellen genutzt
     from PySide6.QtWidgets import QApplication
 
     from ui.workspaces.workflow_pages import ProjectDashboard
@@ -114,9 +114,18 @@ def test_b321_project_dashboard_burst_refresh_requests_coalesce_to_one_call():
         for _ in range(5):
             dashboard.refresh_requested.emit()
 
-        loop = QEventLoop()
-        QTimer.singleShot(900, loop.quit)
-        loop.exec()
+        # B-958: Hier stand eine QEventLoop, die 900 ms warten sollte. Kehrt
+        # `exec()` sofort mit rc=-1 zurueck — was im vollen Testlauf messbar
+        # passiert —, verstreicht die Entprellzeit nie und der Test faellt aus
+        # einem Grund um, der nichts mit der Entprellung zu tun hat.
+        # `processEvents()` ist davon nicht betroffen und stellt die Signale
+        # genauso zu.
+        import time as _t
+
+        frist = _t.perf_counter() + 0.9
+        while _t.perf_counter() < frist:
+            app.processEvents()
+            _t.sleep(0.01)
         app.processEvents()
 
         assert calls == [None]

@@ -87,7 +87,7 @@ def run_chat_dock_init_test() -> dict:
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     from PySide6.QtWidgets import QApplication
-    from PySide6.QtCore import QTimer, QEventLoop
+    from PySide6.QtCore import QTimer
 
     # QApplication nur einmal erstellen
     app = QApplication.instance() or QApplication([])
