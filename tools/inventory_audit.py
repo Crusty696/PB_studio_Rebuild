@@ -235,12 +235,65 @@ def pruefer_widgets() -> dict:
     unerreichbar = [
         k for k in knoepfe if k["selbst_versteckt"] or k["hart_versteckte_vorfahren"]
     ]
-    inaktiv = [k for k in knoepfe if not k["aktiv"] and k not in unerreichbar]
+    inaktiv_roh = [k for k in knoepfe if not k["aktiv"] and k not in unerreichbar]
+
+    # 2026-09-02: Ein Knopf, der im Ruhezustand ausgegraut ist, ist nicht
+    # automatisch kaputt. Alle sechs Meldungen dieses Laufs hatten einen
+    # legitimen Grund: DeliverWorkspace.Play/Stop werden nach dem
+    # Quick-Preview-Render aktiviert (ui/controllers/export.py:360),
+    # btn_retry_errors folgt `setEnabled(error_count > 0)`, und "Verstanden"
+    # ist gar nicht deaktiviert - sein Banner ist versteckt.
+    #
+    # Sechs Meldungen ohne einen einzigen Fund uebertoenen die echten. Deshalb
+    # wird jetzt getrennt: Wer im Quelltext irgendwo anders als mit False
+    # aktiviert wird, ist kontextabhaengig - nur der Rest ist ein Befund.
+    ui_quelle = _quelltext_gesamt("ui")
+
+    # `objectName()` ist bei den meisten Knoepfen leer - der Code benutzt
+    # Python-Attribute (`self.btn_retry_errors`). Ueber den Syntaxbaum laesst
+    # sich der Attributname am Knopftext festmachen:
+    #     self.btn_retry_errors = QPushButton("Alle Fehler wiederholen")
+    text_zu_attribut: dict[str, set[str]] = defaultdict(set)
+    for pfad in _py_dateien("ui"):
+        try:
+            baum = ast.parse(pfad.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:
+            continue
+        for knoten in ast.walk(baum):
+            if not isinstance(knoten, ast.Assign) or not isinstance(knoten.value, ast.Call):
+                continue
+            ruf = knoten.value
+            if not isinstance(ruf.func, ast.Name) or "Button" not in ruf.func.id:
+                continue
+            beschriftung = next(
+                (a.value for a in ruf.args
+                 if isinstance(a, ast.Constant) and isinstance(a.value, str)),
+                None,
+            )
+            if beschriftung is None:
+                continue
+            for ziel in knoten.targets:
+                if isinstance(ziel, ast.Attribute):
+                    text_zu_attribut[beschriftung].add(ziel.attr)
+
+    def _hat_aktivierungspfad(k: dict) -> bool:
+        namen = {k.get("objektname") or ""} | text_zu_attribut.get(k.get("text") or "", set())
+        for name in {n for n in namen if n}:
+            for treffer in re.finditer(
+                re.escape(name) + r"\.setEnabled\(([^)]*)\)", ui_quelle
+            ):
+                if treffer.group(1).strip() != "False":
+                    return True
+        return False
+
+    kontextabhaengig = [k for k in inaktiv_roh if _hat_aktivierungspfad(k)]
+    inaktiv = [k for k in inaktiv_roh if k not in kontextabhaengig]
 
     return {
         "geprueft": len(knoepfe),
         "unerreichbar": len(unerreichbar),
         "dauerhaft_inaktiv": len(inaktiv),
+        "nur_kontextabhaengig_inaktiv": len(kontextabhaengig),
         "in_reiter_normal_versteckt": sum(1 for k in knoepfe if k["liegt_in_reiter"]),
         "waehrend_der_pruefung_abgeraeumt": verworfen,
         "qt_intern_uebersprungen": qt_intern,
