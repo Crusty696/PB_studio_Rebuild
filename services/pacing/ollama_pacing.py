@@ -168,6 +168,28 @@ class OllamaPacingService:
             logger.debug("OllamaPacingService: Brain-Gedaechtnis nicht ladbar: %s", e)
 
         # 3. Query local Ollama model
+        #
+        # B-967: `get_ollama_settings()` liefert `model` mit dem Vorgabewert
+        # "" (settings_store.py:193). Der Schluessel existiert also immer, und
+        # der eigene Vorgabewert in `cfg.get("model", "llama3.2")` greift nie.
+        # Solange der Nutzer im Einstellungsdialog kein Modell gewaehlt hat,
+        # ging hier ein leerer Modellname an Ollama: HTTP 400 "model is
+        # required", und das direkte EDL-Reasoning fiel jedes Mal aus.
+        # `services/pacing_strategist.py:354` loest denselben Bedarf ueber den
+        # Router; dieser Pfad tat es als einziger nicht.
+        if not str(self.model).strip():
+            try:
+                from services.model_router import resolve_model_for_task
+                self.model = resolve_model_for_task(self._client, "pacing") or ""
+            except (ImportError, RuntimeError, OSError) as e:
+                logger.warning("OllamaPacingService: Modellwahl fehlgeschlagen: %s", e)
+        if not str(self.model).strip():
+            logger.warning(
+                "OllamaPacingService: kein Ollama-Modell fuer Pacing verfuegbar "
+                "— direktes EDL-Reasoning uebersprungen."
+            )
+            return None
+
         logger.info("OllamaPacingService: Querying model '%s' for direct EDL reasoning...", self.model)
         try:
             raw_reply = self._client.chat(
