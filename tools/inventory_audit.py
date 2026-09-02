@@ -436,6 +436,53 @@ _NIE_TOT = {
 }
 
 
+def _diagquelltext() -> str:
+    """Alles unter scripts/ — Diagnose- und Verifikationsskripte.
+
+    Nicht Produktivcode, aber echte Aufrufer. ``StemWorkspace.current_track_id``
+    stand am 2026-09-02 nur deshalb als "tot" in der Liste, weil
+    ``scripts/diag/verify_otk021_...py`` nicht mitgelesen wurde.
+    """
+    wurzel = REPO_ROOT / "scripts"
+    if not wurzel.is_dir():
+        return ""
+    return "\n".join(
+        p.read_text(encoding="utf-8", errors="ignore")
+        for p in sorted(wurzel.rglob("*.py"))
+    )
+
+
+def _hat_nebenwirkung(element: ast.AST) -> bool:
+    """Aendert die Methode Zustand, oder liest sie nur?
+
+    Entscheidet, wie schwer ein fehlender Aufrufer wiegt. Am 2026-09-02 standen
+    vier Treffer gleichrangig in einer Liste:
+
+    * ``StemWorkspace.destroy_workspace`` — setzt ein Flag und ruft ``close()``,
+      dadurch bleibt der einzige Aufraeum-Zweig zu (B-965, echter Defekt).
+    * ``PacingCurveWidget.get_density_at``, ``StemTrackWidget.stem_name``,
+      ``StemWorkspace.current_track_id`` — reine Getter. Ein fehlender Aufrufer
+      heisst dort nur: ungenutzte Schnittstelle, kein kaputter Ablauf.
+
+    Nebenwirkung heisst: Zuweisung an ``self.…``, ``augmented assign``,
+    ``del``, ein ``await``, oder ein Aufruf, der nicht Teil des
+    Rueckgabe-Ausdrucks ist.
+    """
+    for knoten in ast.walk(element):
+        if isinstance(knoten, (ast.AugAssign, ast.Delete, ast.Await)):
+            return True
+        if isinstance(knoten, ast.Assign):
+            for ziel in knoten.targets:
+                if isinstance(ziel, ast.Attribute):
+                    return True
+        if isinstance(knoten, ast.Expr) and isinstance(knoten.value, ast.Call):
+            # Ein Aufruf als eigenstaendige Anweisung — sein Ergebnis wird
+            # verworfen, also zaehlt nur die Wirkung. Genau das Muster von
+            # `self.close()` in destroy_workspace.
+            return True
+    return False
+
+
 def pruefer_methoden() -> dict:
     """Oeffentliche Methoden in ui/widgets, die niemand ruft.
 
@@ -448,9 +495,12 @@ def pruefer_methoden() -> dict:
     # standen vier solche Faelle faelschlich in derselben Liste wie echter
     # toter Code.
     testquelle = _testquelltext()
+    diagquelle = _diagquelltext()
 
     ohne_aufrufer: list[str] = []
     nur_tests: list[str] = []
+    nur_diag: list[str] = []
+    nur_lesend: list[str] = []
     gesamt = 0
 
     for pfad in dateien:
@@ -491,6 +541,10 @@ def pruefer_methoden() -> dict:
                     eintrag = f"{pfad.relative_to(REPO_ROOT)}::{knoten.name}.{name}"
                     if re.search(muster, testquelle):
                         nur_tests.append(eintrag)
+                    elif re.search(muster, diagquelle):
+                        nur_diag.append(eintrag)
+                    elif not _hat_nebenwirkung(element):
+                        nur_lesend.append(eintrag)
                     else:
                         ohne_aufrufer.append(eintrag)
 
@@ -498,8 +552,12 @@ def pruefer_methoden() -> dict:
         "methoden_geprueft": gesamt,
         "ohne_aufrufer": len(ohne_aufrufer),
         "nur_von_tests_benutzt": len(nur_tests),
+        "nur_von_diagnoseskripten_benutzt": len(nur_diag),
+        "ohne_aufrufer_aber_nur_lesend": len(nur_lesend),
         "details": sorted(ohne_aufrufer),
         "details_nur_tests": sorted(nur_tests),
+        "details_nur_diag": sorted(nur_diag),
+        "details_nur_lesend": sorted(nur_lesend),
     }
 
 
