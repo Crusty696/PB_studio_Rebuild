@@ -77,14 +77,29 @@ def test_die_mutation_bleibt_syntaktisch_gueltig(probe):
     ast.parse(neu)  # darf nicht werfen
 
 
-def test_ein_einelementiger_schluessel_wird_nicht_angefasst(probe):
-    """Ohne Tie-Break gibt es nichts zu entfernen."""
+def test_ein_einelementiger_schluessel_faellt_auf_die_grobe_mutation(probe):
+    """Ohne Tie-Break gibt es nichts zu kürzen — dann greift der zweite Durchgang.
+
+    Früher gab die Funktion hier ``None`` zurück und die Stelle blieb
+    ungemessen. Seit der Erweiterung um mehrzeilige Anweisungen wird der
+    Sortieraufruf als Ganzes entfernt.
+
+    Das ist die grobe Variante: sie misst, ob überhaupt jemand die Reihenfolge
+    prüft — nicht, ob der Tie-Break geprüft wird. Für die Deckungsfrage reicht
+    das, aber der Unterschied gehört festgehalten: eine so gemessene „Deckung"
+    ist schwächer als eine, die den gekürzten Schlüssel überlebt.
+    """
     quelle = textwrap.dedent("""\
         def f(xs):
             xs.sort(key=lambda x: -x.score)
         """)
 
-    assert probe._mutiere_anweisung(quelle, 2) is None
+    ergebnis = probe._mutiere_anweisung(quelle, 2)
+
+    assert ergebnis is not None
+    neu, beschreibung = ergebnis
+    assert "pass" in neu
+    assert "mehrzeilig" in beschreibung
 
 
 def test_der_bedingte_sortierschluessel_wird_erkannt(probe):
@@ -184,3 +199,21 @@ def test_die_fundstelle_zeigt_auf_die_zeile_nach_dem_marker(probe):
 
 def test_eine_unbekannte_id_liefert_keine_stellen(probe):
     assert probe._stellen_fuer("B-9999") == []
+
+
+def test_ein_randkommentar_markiert_die_eigene_zeile(probe, tmp_path):
+    """``mark_cancelled(  # B-147/B-756`` — die Reparatur steht *in* der Zeile.
+
+    Ohne diese Unterscheidung zeigte die Fundstelle auf die Argumentzeile
+    darunter, die kein Anweisungsanfang ist. Sechs B-756-Stellen blieben
+    deshalb im ersten vollständigen Lauf ungemessen.
+    """
+    stellen = probe._stellen_fuer("B-756")
+
+    assert stellen, "keine B-756-Fundstelle gefunden"
+    for pfad, nr in stellen:
+        zeile = probe._lies(pfad).splitlines()[nr - 1]
+        vor_dem_kommentar = zeile.split("#", 1)[0].strip()
+        assert vor_dem_kommentar, (
+            f"die Fundstelle zeigt auf reinen Kommentar: {pfad}:{nr}"
+        )

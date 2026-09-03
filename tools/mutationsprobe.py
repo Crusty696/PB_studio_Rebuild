@@ -117,6 +117,57 @@ def _mutiere_anweisung(quelle: str, zeilennr: int) -> tuple[str, str] | None:
                 + "".join(zeilen[ende:])
             )
             return ersetzt, "Tie-Break im Sortierschluessel entfernt"
+
+    # ------------------------------------------------------------------
+    # Zweiter Durchgang: mehrzeilige Anweisungen generisch neutralisieren.
+    #
+    # Der erste vollstaendige Lauf am 2026-09-03 meldete fuer den Grossteil
+    # der Stellen "keine generische Mutation passt". Die Zeilen waren fast
+    # alle mehrzeilige Aufrufe (``analysis_status_service.mark_cancelled(``
+    # ueber vier Zeilen) oder Funktionskoepfe. Beides ist per Zeilen-Regex
+    # nicht fassbar, ueber den AST schon: Start- und Endzeile stehen im
+    # Knoten.
+    # ------------------------------------------------------------------
+    def _zeilenende(nr: int) -> str:
+        return "\r\n" if zeilen[nr - 1].endswith("\r\n") else "\n"
+
+    def _ersetze(knoten, ersatz: str, beschreibung: str) -> tuple[str, str]:
+        einzug = " " * knoten.col_offset
+        ende = getattr(knoten, "end_lineno", knoten.lineno)
+        return (
+            "".join(zeilen[: knoten.lineno - 1])
+            + einzug + ersatz + _zeilenende(knoten.lineno)
+            + "".join(zeilen[ende:])
+        ), beschreibung
+
+    for knoten in ast.walk(baum):
+        if getattr(knoten, "lineno", None) != zeilennr:
+            continue
+
+        # Ein Aufruf als eigene Anweisung: seine Wirkung faellt weg.
+        if isinstance(knoten, ast.Expr) and isinstance(knoten.value, ast.Call):
+            return _ersetze(knoten, "pass", "Aufruf entfernt (mehrzeilig)")
+
+        # Bedingung erzwingen - auch bei mehrzeiligem Test. Der Koerper bleibt
+        # stehen, nur der Test wird unerreichbar.
+        if isinstance(knoten, ast.If):
+            einzug = " " * knoten.col_offset
+            koerper_start = knoten.body[0].lineno
+            return (
+                "".join(zeilen[: knoten.lineno - 1])
+                + einzug + "if False:" + _zeilenende(knoten.lineno)
+                + "".join(zeilen[koerper_start - 1:])
+            ), "Bedingung auf False (mehrzeilig)"
+
+        # Zuweisung mit sorted(...) -> Eingangsreihenfolge.
+        if isinstance(knoten, ast.Assign) and isinstance(knoten.value, ast.Call):
+            f = knoten.value.func
+            if isinstance(f, ast.Name) and f.id == "sorted" and knoten.value.args:
+                kopie = ast.parse(ast.unparse(knoten)).body[0]
+                kopie.value = ast.parse(
+                    "list(" + ast.unparse(knoten.value.args[0]) + ")").body[0].value
+                return _ersetze(knoten, ast.unparse(kopie), "sorted entfernt")
+
     return None
 
 
@@ -233,7 +284,20 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
         for nr, z in enumerate(zeilen, 1):
             if bug not in z:
                 continue
-            # Der Marker steht im Kommentar; die Reparatur folgt darunter.
+            # Steht der Marker als Randkommentar hinter Code, ist DIESE Zeile
+            # die Reparatur - nicht die naechste. In
+            # ``services/video_analysis_service.py`` sieht das so aus:
+            #     analysis_status_service.mark_cancelled(  # B-147/B-756
+            # Ohne diese Unterscheidung zeigte die Fundstelle auf die
+            # Argumentzeile darunter, die kein Anweisungsanfang ist - sechs
+            # B-756-Stellen blieben deshalb ungemessen.
+            vor_dem_kommentar = z.split("#", 1)[0].strip()
+            if vor_dem_kommentar:
+                stellen.append((p, nr))
+                continue
+
+            # Sonst: der Marker steht in einer eigenen Kommentarzeile, die
+            # Reparatur folgt darunter.
             for versatz in range(1, 12):
                 if nr - 1 + versatz >= len(zeilen):
                     break
