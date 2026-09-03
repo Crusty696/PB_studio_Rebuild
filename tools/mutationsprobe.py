@@ -508,6 +508,17 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
 
 
 def _pytest(ziele: list[str]) -> tuple[int, str]:
+    """Testlauf mit Auswertung der **Zusammenfassung**, nicht des Exit-Codes.
+
+    Am 2026-09-03 meldete ein Lauf ``166 passed, 6 skipped`` und dazu
+    ``returncode 3221226505`` = ``0xC0000409`` - ein nativer Crash beim
+    Interpreter-Ende, wie er in diesem Projekt bei Qt-Tests vorkommt. Der
+    Exit-Code allein hat die Stelle damit als "gedeckt" gemeldet, obwohl kein
+    einziger Test fehlschlug.
+
+    Deshalb zaehlt jetzt die Textzusammenfassung. Ein Crash ohne Testfehler
+    gilt als **ungemessen**, nicht als gedeckt - Rueckgabecode 2.
+    """
     r = subprocess.run(
         [sys.executable, "-m", "pytest", *ziele, "-p", "no:randomly", "-q", "-x"],
         cwd=REPO_ROOT, capture_output=True, text=True,
@@ -515,7 +526,20 @@ def _pytest(ziele: list[str]) -> tuple[int, str]:
     )
     zeilen = [z for z in r.stdout.splitlines()
               if "passed" in z or "failed" in z or "error" in z]
-    return r.returncode, (zeilen[-1] if zeilen else f"exit={r.returncode}")
+    zusammenfassung = zeilen[-1] if zeilen else f"exit={r.returncode}"
+
+    echte_fehler = any(
+        wort in zusammenfassung for wort in ("failed", "error")
+    )
+    if echte_fehler:
+        return 1, zusammenfassung
+
+    if r.returncode not in (0, 1, 5):
+        # 5 = "keine Tests gesammelt". Alles andere ohne Testfehler ist ein
+        # Absturz der Laufzeit, kein Messergebnis.
+        return 2, f"{zusammenfassung} (Absturz, Exit {r.returncode})"
+
+    return 0, zusammenfassung
 
 
 def probe(bug: str, max_ziele: int = 6, nur_anzeigen: bool = False) -> list[dict]:
@@ -603,10 +627,14 @@ def probe(bug: str, max_ziele: int = 6, nur_anzeigen: bool = False) -> list[dict
 
         ergebnisse.append({
             "bug": bug, "stelle": f"{rel}:{zeilennr}",
-            "ergebnis": "gedeckt" if code != 0 else "UNGEDECKT",
+            # 1 = echter Testfehler -> gedeckt. 0 = alles gruen -> ungedeckt.
+            # 2 = Laufzeit-Absturz ohne Testfehler -> ungemessen, NICHT gedeckt.
+            "ergebnis": {1: "gedeckt", 0: "UNGEDECKT"}.get(code, "uebersprungen"),
             "mutation": beschreibung,
             "tests": ziele,
             "pytest": zusammenfassung,
+            "grund": ("Testlauf abgestuerzt, kein Messergebnis"
+                      if code == 2 else ""),
             "zeile": roh.strip()[:80],
         })
     return ergebnisse

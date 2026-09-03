@@ -401,3 +401,69 @@ def test_der_trockenlauf_schreibt_nichts(probe, monkeypatch):
     assert gestartet == [], f"trotz Trockenlauf Tests gestartet: {gestartet}"
     assert all(e["ergebnis"] in ("nur angezeigt", "uebersprungen")
                for e in eintraege)
+
+
+# ---------------------------------------------------------------------------
+# Absturz ist kein Messergebnis
+# ---------------------------------------------------------------------------
+
+def test_ein_absturz_ohne_testfehler_gilt_als_ungemessen(probe, monkeypatch):
+    """Der fünfte eigene Messfehler.
+
+    Am 2026-09-03 meldete ein Lauf `166 passed, 6 skipped` und dazu
+    `returncode 3221226505` = `0xC0000409` — ein nativer Crash beim
+    Interpreter-Ende, wie er in diesem Projekt bei Qt-Tests vorkommt. Der
+    Exit-Code allein hat die Stelle als „gedeckt" gemeldet, obwohl kein
+    einziger Test fehlschlug.
+    """
+    class _Ergebnis:
+        returncode = 3221226505
+        stdout = "166 passed, 6 skipped in 16.91s\n"
+        stderr = ""
+
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, zusammenfassung = probe._pytest(["tests/test_ui"])
+
+    assert code == 2, "ein Absturz darf nicht als Testfehler zaehlen"
+    assert "Absturz" in zusammenfassung
+
+
+def test_ein_echter_testfehler_zaehlt_als_gedeckt(probe, monkeypatch):
+    class _Ergebnis:
+        returncode = 1
+        stdout = "1 failed, 27 passed in 1.02s\n"
+        stderr = ""
+
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, _ = probe._pytest(["tests/x"])
+
+    assert code == 1
+
+
+def test_ein_gruener_lauf_zaehlt_als_ungedeckt(probe, monkeypatch):
+    class _Ergebnis:
+        returncode = 0
+        stdout = "28 passed in 0.91s\n"
+        stderr = ""
+
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, _ = probe._pytest(["tests/x"])
+
+    assert code == 0
+
+
+def test_keine_gesammelten_tests_ist_kein_absturz(probe, monkeypatch):
+    """Exit 5 heisst „nichts gesammelt" — auch das ist ungedeckt, kein Crash."""
+    class _Ergebnis:
+        returncode = 5
+        stdout = "no tests ran in 0.30s\n"
+        stderr = ""
+
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, _ = probe._pytest(["tests/x"])
+
+    assert code == 0
