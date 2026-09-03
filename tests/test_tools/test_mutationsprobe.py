@@ -280,3 +280,124 @@ def test_die_sicherung_wird_vor_der_mutation_geschrieben(probe):
     assert "_schreib(pfad" in danach, "nach dem Sichern wird nicht mutiert"
     assert quelle.index("_sicherung_anlegen(pfad, original)") < quelle.index(
         "if ganzer_text is not None:"), "gesichert wird erst nach der Mutation"
+
+
+# ---------------------------------------------------------------------------
+# Docstring-Ausschluss (Consulting-Team-Befund vom 2026-09-03)
+# ---------------------------------------------------------------------------
+
+def test_eine_id_im_docstring_ist_keine_fundstelle(probe, tmp_path):
+    """Dritter Fall derselben Klasse: Kommentar, Log-String, jetzt Docstring.
+
+    Eine AST-Stichprobe an sechs der 29 „ungemessenen" Stellen fand vier
+    Docstring-Treffer. Dort gibt es keine Reparatur zu mutieren.
+    """
+    quelle = (
+        'def f():\n'
+        '    """B-123: erklaerender Text im Docstring."""\n'
+        '    x = 1\n'
+        '    return x\n'
+    )
+
+    docstrings = probe._docstring_zeilen(quelle)
+
+    assert 2 in docstrings
+    assert 3 not in docstrings
+
+
+def test_ein_mehrzeiliger_docstring_wird_ganz_erfasst(probe):
+    quelle = (
+        'def f():\n'
+        '    """Zeile eins.\n'
+        '\n'
+        '    B-123: steht hier drin.\n'
+        '    """\n'
+        '    return 1\n'
+    )
+
+    docstrings = probe._docstring_zeilen(quelle)
+
+    assert {2, 3, 4, 5} <= docstrings
+    assert 6 not in docstrings
+
+
+def test_eine_kaputte_datei_liefert_keine_docstringzeilen(probe):
+    assert probe._docstring_zeilen("def (:\n") == set()
+
+
+# ---------------------------------------------------------------------------
+# Zuweisungs-Mutation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("zuweisung,erwartet", [
+    ("x = len(videos)", "0"),
+    ("x = sum(w for w in ws)", "0"),
+    ("x = self.verticalScrollBar().value()", "0"),
+    # `sorted(...)` hat eine eigene, praezisere Regel: Eingangsreihenfolge
+    # statt leerer Liste. Die greift vor der generischen Neutralisierung.
+    ("x = sorted(ys)", "list(ys)"),
+    ("x = []", "[]"),
+    ("x = {}", "{}"),
+    ("x = [a for a in b]", "[]"),
+    ("x = a > b", "False"),
+    ("x = a + b", "0"),
+    ("x = self.attribut", "None"),
+    ("x = True", "False"),
+    ("x = 5", "0"),
+    ('x = "text"', '""'),
+])
+def test_die_rechte_seite_wird_passend_neutralisiert(probe, zuweisung, erwartet):
+    """Ein pauschales ``None`` erzeugt oft nur einen TypeError weiter unten.
+
+    Das liest sich dann als „gedeckt", obwohl kein Test die eigentliche Logik
+    geprüft hat. Deshalb richtet sich der Ersatzwert nach der Form.
+    """
+    quelle = f"def f(a, b, ws, ys, videos):\n    {zuweisung}\n    return x\n"
+
+    ergebnis = probe._mutiere_anweisung(quelle, 2)
+
+    assert ergebnis is not None, f"keine Mutation fuer {zuweisung}"
+    neu, beschreibung = ergebnis
+    import ast as _ast
+    _ast.parse(neu)
+    assert f"= {erwartet}" in neu, f"{zuweisung} -> {neu.splitlines()[1]}"
+    assert "Zuweisung neutralisiert" in beschreibung or "sorted" in beschreibung
+
+
+def test_eine_none_zuweisung_wird_nicht_angefasst(probe):
+    """`x = None` zu neutralisieren ändert nichts — das wäre eine Scheinmessung."""
+    quelle = "def f():\n    x = None\n    return x\n"
+
+    assert probe._mutiere_anweisung(quelle, 2) is None
+
+
+def test_der_zuweisungstyp_steht_in_der_beschreibung(probe):
+    """Der Bericht muss zeigen, wie grob gemessen wurde."""
+    quelle = "def f(videos):\n    total = len(videos)\n    return total\n"
+
+    _neu, beschreibung = probe._mutiere_anweisung(quelle, 2)
+
+    assert "(0)" in beschreibung
+
+
+# ---------------------------------------------------------------------------
+# Trockenlauf
+# ---------------------------------------------------------------------------
+
+def test_der_trockenlauf_schreibt_nichts(probe, monkeypatch):
+    """`--nur-anzeigen` darf keine Datei anfassen und keine Tests starten."""
+    geschrieben: list[str] = []
+    gestartet: list[str] = []
+
+    monkeypatch.setattr(probe, "_schreib",
+                        lambda p, s: geschrieben.append(str(p)))
+    monkeypatch.setattr(probe, "_pytest",
+                        lambda ziele: gestartet.append(str(ziele)) or (0, ""))
+
+    eintraege = probe.probe("B-011", nur_anzeigen=True)
+
+    assert eintraege, "keine Fundstelle fuer B-011"
+    assert geschrieben == [], f"trotz Trockenlauf geschrieben: {geschrieben}"
+    assert gestartet == [], f"trotz Trockenlauf Tests gestartet: {gestartet}"
+    assert all(e["ergebnis"] in ("nur angezeigt", "uebersprungen")
+               for e in eintraege)

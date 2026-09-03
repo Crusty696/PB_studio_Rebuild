@@ -217,6 +217,89 @@ def _mutiere_anweisung(quelle: str, zeilennr: int) -> tuple[str, str] | None:
                     "list(" + ast.unparse(knoten.value.args[0]) + ")").body[0].value
                 return _ersetze(knoten, ast.unparse(kopie), "sorted entfernt")
 
+        # Jede andere Zuweisung: rechte Seite neutralisieren.
+        #
+        # Nach Docstring-Ausschluss blieben 32 Fundstellen, und die grosse
+        # Mehrheit sind Zuweisungen: `_video_total = len(videos)`,
+        # `vscroll = self.verticalScrollBar().value()`, `total_w = sum(...)`,
+        # `env['OLLAMA_VULKAN'] = '0'`, `rows = session.execute(...)`. Ohne
+        # diesen Fall meldete das Werkzeug fuer alle "keine generische Mutation
+        # passt" - also ungemessen, und ungemessen heisst nicht gedeckt.
+        #
+        # Der neutrale Wert richtet sich nach dem Ausdruck, damit die Mutation
+        # einen Testfehler und nicht bloss einen TypeError erzeugt.
+        if isinstance(knoten, (ast.Assign, ast.AnnAssign)) and knoten.value is not None:
+            ersatz = _neutraler_wert(knoten.value)
+            if ersatz is not None:
+                ziele = (
+                    knoten.targets if isinstance(knoten, ast.Assign)
+                    else [knoten.target]
+                )
+                try:
+                    links = " = ".join(ast.unparse(z) for z in ziele)
+                except Exception:
+                    return None
+                return _ersetze(knoten, f"{links} = {ersatz}",
+                                f"Zuweisung neutralisiert ({ersatz})")
+
+    return None
+
+
+def _neutraler_wert(ausdruck: ast.AST) -> str | None:
+    """Ein Ersatzwert, der zum Ausdruck passt - oder ``None``.
+
+    Ein pauschales ``None`` erzeugt oft nur einen ``TypeError`` weiter unten;
+    das liest sich dann als "gedeckt", obwohl kein Test die eigentliche Logik
+    geprueft hat. Deshalb wird nach Form unterschieden.
+    """
+    # Literal -> gegenteiliges Literal derselben Art.
+    if isinstance(ausdruck, ast.Constant):
+        wert = ausdruck.value
+        if isinstance(wert, bool):
+            return "False" if wert else "True"
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+            return "0" if wert != 0 else "1"
+        if isinstance(wert, str):
+            return '""' if wert else '"x"'
+        if wert is None:
+            return None  # `x = None` zu neutralisieren aendert nichts.
+
+    # len(...), sum(...), count() -> 0
+    if isinstance(ausdruck, ast.Call):
+        name = None
+        if isinstance(ausdruck.func, ast.Name):
+            name = ausdruck.func.id
+        elif isinstance(ausdruck.func, ast.Attribute):
+            name = ausdruck.func.attr
+        if name in {"len", "sum", "count", "value", "currentIndex", "size"}:
+            return "0"
+        if name in {"list", "sorted", "all", "values", "keys", "findall",
+                    "splitlines", "split", "fetchall"}:
+            return "[]"
+        if name in {"dict", "get_all", "items"}:
+            return "{}"
+        return "None"
+
+    # Vergleich/Bool -> umgekehrter Wahrheitswert.
+    if isinstance(ausdruck, (ast.Compare, ast.BoolOp)):
+        return "False"
+
+    # Liste/Dict/Menge/Comprehension -> leer.
+    if isinstance(ausdruck, (ast.List, ast.ListComp, ast.GeneratorExp)):
+        return "[]"
+    if isinstance(ausdruck, (ast.Dict, ast.DictComp)):
+        return "{}"
+    if isinstance(ausdruck, (ast.Set, ast.SetComp)):
+        return "set()"
+
+    # Arithmetik -> 0.
+    if isinstance(ausdruck, ast.BinOp):
+        return "0"
+
+    # Attribut/Name/Subscript -> None (haeufigster Fall bei Zwischenwerten).
+    if isinstance(ausdruck, (ast.Attribute, ast.Name, ast.Subscript)):
+        return "None"
+
     return None
 
 
@@ -310,6 +393,34 @@ def _testziele(datei: Path, bug: str | None = None) -> list[str]:
     return sorted(treffer, key=_rang)
 
 
+def _docstring_zeilen(quelle: str) -> set[int]:
+    """Zeilennummern, die innerhalb eines Docstrings liegen.
+
+    Eine Bug-ID im Docstring ist Text, keine Markierung einer Reparatur. Der
+    erste gueltige Lauf am 2026-09-03 fuehrte 29 Stellen als "ungemessen"; eine
+    AST-Stichprobe an sechs davon zeigte **vier** Docstring-Treffer
+    (``export_service.py:1376``, ``project_management.py:203``,
+    ``panel_setup.py:87``, ``model_manager.py:1092``). Dort gibt es nichts zu
+    mutieren - die Stellen gehoeren nicht in die Liste.
+
+    Dritter Fall derselben Klasse in diesem Loop: erst die ID im Kommentar,
+    dann im Log-String, jetzt im Docstring.
+    """
+    try:
+        baum = ast.parse(quelle)
+    except SyntaxError:
+        return set()
+
+    zeilen: set[int] = set()
+    for knoten in ast.walk(baum):
+        if (isinstance(knoten, ast.Expr)
+                and isinstance(knoten.value, ast.Constant)
+                and isinstance(knoten.value.value, str)):
+            ende = getattr(knoten, "end_lineno", knoten.lineno)
+            zeilen.update(range(knoten.lineno, ende + 1))
+    return zeilen
+
+
 def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
     """Fundstellen der ID im Produktivcode: die Zeile **nach** dem Marker."""
     ordner = ("services", "ui", "workers", "agents", "database")
@@ -330,8 +441,11 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
             zeilen = _lies(p).splitlines()
         except OSError:
             continue
+        docstrings = _docstring_zeilen("\n".join(zeilen))
         for nr, z in enumerate(zeilen, 1):
             if bug not in z:
+                continue
+            if nr in docstrings:
                 continue
             # Eine ID **in einem Zeichenketten-Literal** ist keine Markierung,
             # sondern Text: `logger.debug("B-797: Banner-Nachzug ... %s", exc)`.
@@ -404,8 +518,15 @@ def _pytest(ziele: list[str]) -> tuple[int, str]:
     return r.returncode, (zeilen[-1] if zeilen else f"exit={r.returncode}")
 
 
-def probe(bug: str, max_ziele: int = 6) -> list[dict]:
-    """Eine Bug-ID durchmessen. Gibt einen Eintrag pro Fundstelle zurueck."""
+def probe(bug: str, max_ziele: int = 6, nur_anzeigen: bool = False) -> list[dict]:
+    """Eine Bug-ID durchmessen. Gibt einen Eintrag pro Fundstelle zurueck.
+
+    ``nur_anzeigen`` schreibt keine Datei und laesst keine Tests laufen - es
+    zeigt nur, welche Stelle mit welcher Mutation angefasst wuerde. Gedacht
+    zum Pruefen einer neuen Mutationsart, bevor sie auf den Produktivcode
+    losgelassen wird. Angeregt vom Consulting-Team, nachdem ein Lauf zwei
+    Dateien mutiert liegen liess.
+    """
     ergebnisse: list[dict] = []
     for pfad, zeilennr in _stellen_fuer(bug):
         rel = pfad.relative_to(REPO_ROOT).as_posix()
@@ -435,6 +556,16 @@ def probe(bug: str, max_ziele: int = 6) -> list[dict]:
             continue
 
         _unbenutzt, beschreibung = mutation
+
+        if nur_anzeigen:
+            ergebnisse.append({
+                "bug": bug, "stelle": f"{rel}:{zeilennr}",
+                "ergebnis": "nur angezeigt",
+                "mutation": beschreibung,
+                "zeile": roh.strip()[:80],
+            })
+            continue
+
         ziele = _testziele(pfad, bug)[:max_ziele]
         if not ziele:
             ergebnisse.append({
@@ -514,6 +645,9 @@ def main() -> int:
     p.add_argument("--alle-unbeschrifteten", action="store_true",
                    help="alle IDs, die fix_ohne_test als 'nur unbeschriftet' fuehrt")
     p.add_argument("--json", default=None)
+    p.add_argument("--nur-anzeigen", action="store_true",
+                   help="zeigt Fundstelle und geplante Mutation, schreibt NICHTS "
+                        "und laesst keine Tests laufen")
     args = p.parse_args()
 
     if args.alle_unbeschrifteten:
@@ -527,12 +661,15 @@ def main() -> int:
 
     alle: list[dict] = []
     for bug in bugs:
-        eintraege = probe(bug)
+        eintraege = probe(bug, nur_anzeigen=args.nur_anzeigen)
         alle += eintraege
         for e in eintraege:
-            kennzeichen = {"UNGEDECKT": "UNGEDECKT", "gedeckt": "  gedeckt"}.get(
-                e["ergebnis"], "  uebersprungen")
-            zusatz = e.get("pytest") or e.get("grund", "")
+            kennzeichen = {
+                "UNGEDECKT": "UNGEDECKT",
+                "gedeckt": "  gedeckt",
+                "nur angezeigt": "  anzeige",
+            }.get(e["ergebnis"], "  uebersprungen")
+            zusatz = e.get("pytest") or e.get("mutation") or e.get("grund", "")
             print(f"{kennzeichen}  {e['bug']}  {e['stelle']}  [{zusatz}]")
         if not eintraege:
             print(f"  ohne Fundstelle  {bug}")
