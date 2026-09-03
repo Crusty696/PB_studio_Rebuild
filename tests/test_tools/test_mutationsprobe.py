@@ -432,14 +432,39 @@ def test_ein_absturz_ohne_testfehler_gilt_als_ungemessen(probe, monkeypatch):
 def test_ein_echter_testfehler_zaehlt_als_gedeckt(probe, monkeypatch):
     class _Ergebnis:
         returncode = 1
-        stdout = "1 failed, 27 passed in 1.02s\n"
+        # Die FAILED-Zeile ist nötig: seit dem Baseline-Abgleich wird der
+        # Testknoten gebraucht, um „neu rot" von „stand schon in der Baseline"
+        # zu unterscheiden. Eine Zusammenfassung allein reicht nicht.
+        stdout = ("FAILED tests/x/test_y.py::test_z - AssertionError\n"
+                  "1 failed, 27 passed in 1.02s\n")
         stderr = ""
 
+    monkeypatch.setattr(probe, "_bekannte_rote_tests", lambda: set())
     monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
 
     code, _ = probe._pytest(["tests/x"])
 
     assert code == 1
+
+
+def test_eine_zusammenfassung_ohne_testknoten_ist_ungemessen(probe, monkeypatch):
+    """Ohne Testknoten lässt sich nicht gegen die Baseline abgleichen.
+
+    Etwa bei einem Sammelfehler: pytest meldet `error`, nennt aber keinen
+    einzelnen Testknoten. Das ist kein Deckungsbeleg.
+    """
+    class _Ergebnis:
+        returncode = 1
+        stdout = "1 error in 0.40s\n"
+        stderr = ""
+
+    monkeypatch.setattr(probe, "_bekannte_rote_tests", lambda: set())
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, zusammenfassung = probe._pytest(["tests/x"])
+
+    assert code == 2
+    assert "kein Testknoten" in zusammenfassung
 
 
 def test_ein_gruener_lauf_zaehlt_als_ungedeckt(probe, monkeypatch):
@@ -467,3 +492,74 @@ def test_keine_gesammelten_tests_ist_kein_absturz(probe, monkeypatch):
     code, _ = probe._pytest(["tests/x"])
 
     assert code == 0
+
+
+# ---------------------------------------------------------------------------
+# Baseline-Abgleich (siebter Messfehler)
+# ---------------------------------------------------------------------------
+
+def test_baseline_fehlschlaege_zaehlen_nicht_als_deckung(probe, monkeypatch):
+    """Der siebte eigene Messfehler.
+
+    Die Handprobe zu B-891 meldete `15 failed, 2752 passed` und damit
+    „gedeckt". Die Gegenprobe **ohne** Mutation lieferte dieselben `15 failed`
+    — ausschließlich bekannte rote Tests der Baseline.
+    """
+    bekannt = {"tests/a.py::test_alt", "tests/b.py::test_auch_alt"}
+
+    class _Ergebnis:
+        returncode = 1
+        stdout = (
+            "FAILED tests/a.py::test_alt - AssertionError\n"
+            "FAILED tests/b.py::test_auch_alt - AssertionError\n"
+            "2 failed, 100 passed in 5.00s\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(probe, "_bekannte_rote_tests", lambda: bekannt)
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, zusammenfassung = probe._pytest(["tests/"])
+
+    assert code == 0, "Baseline-Fehlschlaege wurden als Deckung gewertet"
+    assert "Baseline" in zusammenfassung
+
+
+def test_ein_neuer_fehlschlag_zaehlt_als_deckung(probe, monkeypatch):
+    class _Ergebnis:
+        returncode = 1
+        stdout = (
+            "FAILED tests/a.py::test_alt - AssertionError\n"
+            "FAILED tests/neu.py::test_frisch - AssertionError\n"
+            "2 failed, 100 passed in 5.00s\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(probe, "_bekannte_rote_tests",
+                        lambda: {"tests/a.py::test_alt"})
+    monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: _Ergebnis())
+
+    code, zusammenfassung = probe._pytest(["tests/"])
+
+    assert code == 1
+    assert "neu rot: 1" in zusammenfassung
+
+
+def test_die_baseline_wird_wirklich_gelesen(probe):
+    """17 bekannte rote Tests laut tests/known_failures.json."""
+    bekannt = probe._bekannte_rote_tests()
+
+    assert len(bekannt) == 17, f"{len(bekannt)} statt 17 - Baseline veraltet?"
+    assert all("::" in name for name in bekannt)
+
+
+def test_log_zeilen_werden_nicht_als_testknoten_gelesen(probe):
+    """pytest schreibt auch Log-Zeilen mit ERROR am Zeilenanfang."""
+    ausgabe = (
+        "ERROR [root] StemSeparationWorker[1] crashed: AudioTrack 1 nicht gefunden\n"
+        "FAILED tests/echt.py::test_x - AssertionError\n"
+    )
+
+    namen = probe._testnamen_aus(ausgabe)
+
+    assert namen == {"tests/echt.py::test_x"}

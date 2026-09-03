@@ -507,6 +507,45 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
     return stellen
 
 
+def _bekannte_rote_tests() -> set[str]:
+    """Die Tests, die schon vor jeder Mutation rot sind.
+
+    Siebter Messfehler des Werkzeugs, gefunden am 2026-09-03: die Handprobe zu
+    B-891 meldete ``15 failed, 2752 passed`` und damit "gedeckt". Die
+    Gegenprobe **ohne** Mutation lieferte dieselben ``15 failed`` - es waren
+    ausschliesslich die bekannten roten Tests der Baseline. Als Deckungsbeleg
+    war das Ergebnis wertlos.
+
+    Quelle ist dieselbe Datei, die ``tools/regression_baseline.py`` fuehrt.
+    """
+    pfad = REPO_ROOT / "tests" / "known_failures.json"
+    if not pfad.is_file():
+        return set()
+    try:
+        daten = json.loads(pfad.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return set(daten.get("bekannte_rote_tests") or [])
+
+
+def _testnamen_aus(ausgabe: str) -> set[str]:
+    """Die Namen der fehlgeschlagenen Testknoten aus einer pytest-Ausgabe.
+
+    Nach demselben Muster wie ``tools/regression_baseline.py``: nur Zeilen, die
+    einen ``.py``-Pfad enthalten, sind Testknoten. pytest schreibt auch
+    Log-Zeilen mit ``ERROR`` am Zeilenanfang.
+    """
+    namen: set[str] = set()
+    for zeile in ausgabe.splitlines():
+        if not zeile.startswith(("FAILED", "ERROR")):
+            continue
+        rest = zeile.split(" ", 1)[1] if " " in zeile else ""
+        name = rest.split(" - ", 1)[0].strip()
+        if ".py" in name:
+            namen.add(name)
+    return namen
+
+
 def _pytest(ziele: list[str]) -> tuple[int, str]:
     """Testlauf mit Auswertung der **Zusammenfassung**, nicht des Exit-Codes.
 
@@ -528,11 +567,24 @@ def _pytest(ziele: list[str]) -> tuple[int, str]:
               if "passed" in z or "failed" in z or "error" in z]
     zusammenfassung = zeilen[-1] if zeilen else f"exit={r.returncode}"
 
+    # Nur Fehlschlaege zaehlen, die NICHT schon in der Baseline stehen.
+    gefallen = _testnamen_aus(r.stdout or "")
+    neu_gefallen = gefallen - _bekannte_rote_tests()
+
+    if gefallen and not neu_gefallen:
+        return 0, (f"{zusammenfassung} - alle Fehlschlaege stehen in der "
+                   f"Baseline, keiner durch die Mutation")
+
+    if neu_gefallen:
+        return 1, f"{zusammenfassung} (neu rot: {len(neu_gefallen)})"
+
     echte_fehler = any(
         wort in zusammenfassung for wort in ("failed", "error")
     )
     if echte_fehler:
-        return 1, zusammenfassung
+        # Zusammenfassung nennt Fehler, aber kein Testknoten war zuzuordnen -
+        # etwa ein Sammelfehler. Als Messergebnis nicht brauchbar.
+        return 2, f"{zusammenfassung} (kein Testknoten zuzuordnen)"
 
     if r.returncode not in (0, 1, 5):
         # 5 = "keine Tests gesammelt". Alles andere ohne Testfehler ist ein
