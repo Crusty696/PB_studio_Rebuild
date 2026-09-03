@@ -217,3 +217,66 @@ def test_ein_randkommentar_markiert_die_eigene_zeile(probe, tmp_path):
         assert vor_dem_kommentar, (
             f"die Fundstelle zeigt auf reinen Kommentar: {pfad}:{nr}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Wiederherstellung nach hartem Abbruch
+# ---------------------------------------------------------------------------
+
+def test_eine_offene_mutation_wird_beim_naechsten_start_zurueckgenommen(
+    probe, tmp_path, monkeypatch
+):
+    """Der gefährlichste eigene Fund.
+
+    Am 2026-09-03 starb ein Lauf mitten in der Arbeit — der nohup-Wrapper
+    meldete exit 0, der Prozess selbst verschwand ohne Bilanz. Das ``finally``
+    lief nie, und zwei Produktivdateien blieben mutiert im Arbeitsverzeichnis
+    liegen. Aufgefallen ist es nur, weil ``git status`` zufällig geprüft wurde.
+    """
+    ziel = tmp_path / "produktiv.py"
+    original = "x = 1\n"
+    probe._schreib(ziel, original)
+
+    monkeypatch.setattr(probe, "_SICHERUNG", tmp_path / "offen.json")
+    probe._sicherung_anlegen(ziel, original)
+    probe._schreib(ziel, "x = 2  # mutiert\n")
+
+    zurueck = probe._offene_mutation_zuruecknehmen()
+
+    assert zurueck == str(ziel)
+    assert probe._lies(ziel) == original
+    assert not (tmp_path / "offen.json").exists()
+
+
+def test_ohne_offene_mutation_passiert_nichts(probe, tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "_SICHERUNG", tmp_path / "offen.json")
+
+    assert probe._offene_mutation_zuruecknehmen() is None
+
+
+def test_eine_bereits_saubere_datei_wird_nicht_ueberschrieben(
+    probe, tmp_path, monkeypatch
+):
+    """Wurde von Hand zurückgesetzt, darf die Sicherung nichts zerstören."""
+    ziel = tmp_path / "produktiv.py"
+    original = "x = 1\n"
+    probe._schreib(ziel, original)
+
+    monkeypatch.setattr(probe, "_SICHERUNG", tmp_path / "offen.json")
+    probe._sicherung_anlegen(ziel, original)
+
+    assert probe._offene_mutation_zuruecknehmen() is None
+    assert probe._lies(ziel) == original
+    assert not (tmp_path / "offen.json").exists()
+
+
+def test_die_sicherung_wird_vor_der_mutation_geschrieben(probe):
+    """Quellcode-Guard: die Reihenfolge ist der ganze Schutz."""
+    quelle = probe._lies(REPO_ROOT / "tools" / "mutationsprobe.py")
+
+    ab = quelle.index("_sicherung_anlegen(pfad, original)")
+    danach = quelle[ab:ab + 400]
+
+    assert "_schreib(pfad" in danach, "nach dem Sichern wird nicht mutiert"
+    assert quelle.index("_sicherung_anlegen(pfad, original)") < quelle.index(
+        "if ganzer_text is not None:"), "gesichert wird erst nach der Mutation"

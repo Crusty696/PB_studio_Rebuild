@@ -42,6 +42,55 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _BUG_ID = re.compile(r"\bB-(\d{3,4})\b")
 
 
+# Wo der Originalinhalt liegt, solange eine Mutation aktiv ist.
+#
+# Am 2026-09-03 starb ein Lauf mitten in der Arbeit - der nohup-Wrapper meldete
+# exit 0, der Prozess selbst verschwand ohne Bilanz (er hatte zuletzt 8 GB
+# belegt). Das ``finally`` lief dadurch nie, und ZWEI Produktivdateien blieben
+# mutiert im Arbeitsverzeichnis liegen:
+#
+#   services/ai_audio_service.py      gc.collect()  ->  pass
+#   ui/controllers/video_analysis.py  Warteschlange -> direkter Worker-Start
+#
+# Aufgefallen ist es nur, weil ``git status`` danach zufaellig geprueft wurde.
+# Ein Werkzeug, das Produktivcode anfasst, darf sich darauf nicht verlassen.
+# Deshalb: der Originalinhalt wird VOR der Mutation auf Platte gesichert und
+# beim naechsten Start zurueckgespielt, falls die Sicherung noch existiert.
+_SICHERUNG = REPO_ROOT / "test-report" / ".mutationsprobe-offen.json"
+
+
+def _sicherung_anlegen(pfad: Path, inhalt: str) -> None:
+    _SICHERUNG.parent.mkdir(parents=True, exist_ok=True)
+    _SICHERUNG.write_text(
+        json.dumps({"pfad": str(pfad), "inhalt": inhalt}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _sicherung_loeschen() -> None:
+    _SICHERUNG.unlink(missing_ok=True)
+
+
+def _offene_mutation_zuruecknehmen() -> str | None:
+    """Beim Start: haengt noch eine Mutation vom letzten Lauf in der Datei?
+
+    Gibt den zurueckgesetzten Pfad zurueck, oder ``None``.
+    """
+    if not _SICHERUNG.exists():
+        return None
+    try:
+        daten = json.loads(_SICHERUNG.read_text(encoding="utf-8"))
+        pfad = Path(daten["pfad"])
+        if pfad.exists() and _lies(pfad) != daten["inhalt"]:
+            _schreib(pfad, daten["inhalt"])
+            _sicherung_loeschen()
+            return str(pfad)
+        _sicherung_loeschen()
+    except (OSError, ValueError, KeyError):
+        return None
+    return None
+
+
 def _lies(pfad: Path) -> str:
     """Zeilenenden erhalten.
 
@@ -284,6 +333,29 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
         for nr, z in enumerate(zeilen, 1):
             if bug not in z:
                 continue
+            # Eine ID **in einem Zeichenketten-Literal** ist keine Markierung,
+            # sondern Text: `logger.debug("B-797: Banner-Nachzug ... %s", exc)`.
+            # Am 2026-09-03 wurde genau diese Zeile mutiert statt der Reparatur
+            # ein paar Zeilen darueber - das Ergebnis las sich als "UNGEDECKT",
+            # gemessen wurde aber die Logmeldung im except-Zweig.
+            ohne_kommentar = z.split("#", 1)[0]
+            nur_in_zeichenkette = False
+            if bug in ohne_kommentar:
+                rest = ohne_kommentar
+                for anfuehrung in ('"', "'"):
+                    teile = rest.split(anfuehrung)
+                    # Ungerade Indizes liegen innerhalb der Anfuehrungszeichen.
+                    if len(teile) > 2 and any(
+                        bug in teil for i, teil in enumerate(teile) if i % 2 == 1
+                    ) and not any(
+                        bug in teil for i, teil in enumerate(teile) if i % 2 == 0
+                    ):
+                        nur_in_zeichenkette = True
+                        break
+            kommentarteil = z.split("#", 1)[1] if "#" in z else ""
+            if nur_in_zeichenkette and bug not in kommentarteil:
+                continue
+
             # Steht der Marker als Randkommentar hinter Code, ist DIESE Zeile
             # die Reparatur - nicht die naechste. In
             # ``services/video_analysis_service.py`` sieht das so aus:
@@ -297,14 +369,27 @@ def _stellen_fuer(bug: str) -> list[tuple[Path, int]]:
                 continue
 
             # Sonst: der Marker steht in einer eigenen Kommentarzeile, die
-            # Reparatur folgt darunter.
-            for versatz in range(1, 12):
+            # Reparatur folgt darunter. Die Spanne war zuerst 11 Zeilen - zu
+            # knapp: der B-797-Block in ui/controllers/media_table.py:285
+            # erklaert den Fall ueber 14 Kommentarzeilen, und die Stelle fiel
+            # deshalb ganz aus der Messung.
+            for versatz in range(1, 30):
                 if nr - 1 + versatz >= len(zeilen):
                     break
                 kandidat = zeilen[nr - 1 + versatz]
-                if kandidat.strip() and not kandidat.strip().startswith("#"):
-                    stellen.append((p, nr + versatz))
-                    break
+                kern = kandidat.strip()
+                if not kern or kern.startswith("#"):
+                    continue
+                # Strukturschluesselwoerter sind keine Reparatur - hinter
+                # ``try:`` steht sie erst eine Zeile weiter. Ohne diesen
+                # Schritt zeigte die B-797-Fundstelle auf ``try:``, und dafuer
+                # gibt es keine sinnvolle Mutation.
+                if kern in ("try:", "else:", "finally:") or kern.startswith(
+                    ("with ", "for ", "while ", "elif ", "except")
+                ):
+                    continue
+                stellen.append((p, nr + versatz))
+                break
     return stellen
 
 
@@ -361,6 +446,9 @@ def probe(bug: str, max_ziele: int = 6) -> list[dict]:
             continue
 
         try:
+            # Erst sichern, dann mutieren. Stirbt der Prozess dazwischen,
+            # findet der naechste Start die Sicherung und spielt sie zurueck.
+            _sicherung_anlegen(pfad, original)
             if ganzer_text is not None:
                 _schreib(pfad, ganzer_text)
             else:
@@ -380,6 +468,7 @@ def probe(bug: str, max_ziele: int = 6) -> list[dict]:
             code, zusammenfassung = _pytest(ziele)
         finally:
             _schreib(pfad, original)
+            _sicherung_loeschen()
 
         ergebnisse.append({
             "bug": bug, "stelle": f"{rel}:{zeilennr}",
@@ -412,6 +501,13 @@ def _unbeschriftete_ids() -> list[str]:
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    zurueckgesetzt = _offene_mutation_zuruecknehmen()
+    if zurueckgesetzt:
+        print(f"ACHTUNG: offene Mutation aus einem abgebrochenen Lauf "
+              f"zurueckgenommen: {zurueckgesetzt}")
+        print()
+
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--bug", action="append", default=None,
                    help="Bug-ID, mehrfach angebbar")
