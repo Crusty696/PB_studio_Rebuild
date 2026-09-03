@@ -61,6 +61,30 @@ def _dateien(wurzel: Path) -> list[Path]:
     ]
 
 
+def _ids_in_dateinamen(dateien: list[Path]) -> dict[str, list[str]]:
+    """Bug-IDs, die nur im Dateinamen stehen: ``test_b907_...py`` -> ``B-907``.
+
+    Am 2026-09-03 bei der Mutationsprobe aufgefallen: ``fix_ohne_test`` fuehrte
+    B-907 und B-878 als ungedeckt, obwohl
+    ``tests/test_ui/test_b907_version_checker_shutdown.py`` und
+    ``tests/test_services/test_b878_missing_media_candidates.py`` existieren.
+    Beide nennen die ID **nur** im Dateinamen, nie im Inhalt - und das Werkzeug
+    las ausschliesslich Inhalte. 345 Testdateien tragen die ID so.
+    """
+    muster = re.compile(r"^test_b(\d{3,4})_", re.I)
+    treffer: dict[str, list[str]] = defaultdict(list)
+    for p in dateien:
+        m = muster.match(p.name)
+        if m:
+            try:
+                pfad = p.relative_to(REPO_ROOT).as_posix()
+            except ValueError:
+                # Datei ausserhalb des Repos (z.B. ein tmp_path im Test).
+                pfad = p.as_posix()
+            treffer[f"B-{int(m.group(1)):03d}"].append(pfad)
+    return treffer
+
+
 def _ids_in(dateien: list[Path]) -> dict[str, list[str]]:
     """Bug-ID -> Liste der Fundstellen als 'pfad:zeile'."""
     treffer: dict[str, list[str]] = defaultdict(list)
@@ -136,7 +160,12 @@ def main() -> int:
         produktiv.append(fuer_main)
 
     im_code = _ids_in(produktiv)
-    in_tests = _ids_in(_dateien(REPO_ROOT / "tests"))
+    testdateien = _dateien(REPO_ROOT / "tests")
+    in_tests = _ids_in(testdateien)
+    # Eine Testdatei, die die ID im Namen traegt, zaehlt genauso.
+    im_dateinamen = _ids_in_dateinamen(testdateien)
+    for bug, pfade in im_dateinamen.items():
+        in_tests.setdefault(bug, []).extend(pfade)
 
     untergrenze = 0
     if args.seit:

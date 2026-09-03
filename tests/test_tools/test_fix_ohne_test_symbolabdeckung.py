@@ -104,3 +104,39 @@ def test_teiltreffer_zaehlen_nicht(werkzeug):
     """``\\b``-Grenze: ``setze_lautstaerke_neu`` deckt nicht ``setze_lautstaerke``."""
     assert werkzeug._symbol_in_tests(
         "setze_lautstaerke", "obj.setze_lautstaerke_neu()") is False
+
+
+def test_die_id_im_dateinamen_zaehlt_als_abdeckung(werkzeug, tmp_path):
+    """Am 2026-09-03 bei der Mutationsprobe gefunden.
+
+    ``fix_ohne_test`` fuehrte B-907 und B-878 als ungedeckt, obwohl
+    ``tests/test_ui/test_b907_version_checker_shutdown.py`` und
+    ``tests/test_services/test_b878_missing_media_candidates.py`` existieren.
+    Beide nennen die ID **nur** im Dateinamen. 345 Testdateien tun das.
+    """
+    for name in ("test_b907_version_checker_shutdown.py",
+                 "test_b878_missing_media_candidates.py",
+                 "test_b12_kurze_nummer.py"):
+        (tmp_path / name).write_text("def test_x(): pass\n", encoding="utf-8")
+
+    treffer = werkzeug._ids_in_dateinamen(sorted(tmp_path.glob("*.py")))
+
+    assert "B-907" in treffer
+    assert "B-878" in treffer
+
+
+def test_dateien_ohne_id_im_namen_zaehlen_nicht(werkzeug, tmp_path):
+    for name in ("test_export_service.py", "conftest.py", "test_bugs.py"):
+        (tmp_path / name).write_text("def test_x(): pass\n", encoding="utf-8")
+
+    assert werkzeug._ids_in_dateinamen(sorted(tmp_path.glob("*.py"))) == {}
+
+
+def test_b907_und_b878_stehen_nicht_mehr_als_ungedeckt(werkzeug):
+    """Messbares Ergebnis der Korrektur am echten Repo."""
+    quelle = (REPO_ROOT / "tools" / "fix_ohne_test.py").read_text(
+        encoding="utf-8", errors="replace")
+
+    assert "_ids_in_dateinamen(testdateien)" in quelle, (
+        "die Dateinamen-Auswertung ist nicht verdrahtet"
+    )
