@@ -1075,6 +1075,28 @@ class StructureEnrichmentWorker(QObject):
                 )
             session.execute(text(_sql_tags), params)
 
+        # B-973: member_count aus der tatsaechlichen Zuordnung nachziehen.
+        #
+        # Beim Insert oben wird der Zaehler aus ``labels`` berechnet - das ist
+        # die Beschriftung ueber ``fit_matrix``, also ueber ALLE Embeddings der
+        # Library. Zugeordnet werden aber nur die ``enrichable_scenes`` dieses
+        # Laufs. Danach korrigierte den Wert niemand.
+        #
+        # Live gemessen am 2026-09-03 im Projekt Erstlauf_Test_2026-08-30:
+        #   Bucket 127: gespeichert 105, tatsaechlich  66   (+39)
+        #   Bucket 128: gespeichert  11, tatsaechlich  11   ( +0)
+        #   Bucket 129: gespeichert  29, tatsaechlich  22   ( +7)
+        # Der Struktur-Tab zeigt diesen Wert direkt an
+        # (``ui/studio_brain/structure_tab.py:329``), er war also um 46 zu hoch.
+        session.execute(
+            text(
+                "UPDATE struct_style_bucket SET member_count = ("
+                "  SELECT COUNT(*) FROM struct_clip_tags t"
+                "  WHERE t.style_bucket_id = struct_style_bucket.id"
+                ") WHERE active = 1"
+            )
+        )
+
         # Commit everything atomically
         session.commit()
 
