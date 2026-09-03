@@ -228,10 +228,14 @@ def main() -> int:
         print("    kann die Sache also pruefen, ohne die Nummer zu nennen. Kein Befund,")
         print("    aber eine Stelle, an der eine Beschriftung fehlt.")
         print()
-        for bug in sorted(nur_beschriftung, key=lambda b: -int(b.split("-")[1]))[:10]:
+        # Die Grenze folgt --top wie bei den harten Befunden. Vorher stand
+        # hier fest 10: die Mutationsprobe las diese Ausgabe und mass deshalb
+        # am 2026-09-03 nur 10 von 33 IDs, ohne dass es auffiel.
+        _sortiert = sorted(nur_beschriftung, key=lambda b: -int(b.split("-")[1]))
+        for bug in _sortiert[:args.top]:
             print(f"  {bug}  {nur_beschriftung[bug][0]}")
-        if len(nur_beschriftung) > 10:
-            print(f"  ... ({len(nur_beschriftung) - 10} weitere)")
+        if len(nur_beschriftung) > args.top:
+            print(f"  ... ({len(nur_beschriftung) - args.top} weitere)")
 
     if args.json:
         Path(args.json).write_text(

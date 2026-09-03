@@ -140,3 +140,22 @@ def test_b907_und_b878_stehen_nicht_mehr_als_ungedeckt(werkzeug):
     assert "_ids_in_dateinamen(testdateien)" in quelle, (
         "die Dateinamen-Auswertung ist nicht verdrahtet"
     )
+
+
+def test_die_unbeschrifteten_folgen_der_top_grenze():
+    """Die Sektion druckte fest zehn Zeilen, egal was --top sagte.
+
+    Die Mutationsprobe liest genau diese Ausgabe. Am 2026-09-03 mass sie
+    deshalb nur 10 von 33 IDs — ohne dass es im Bericht auffiel, weil dort
+    „Von fix_ohne_test uebernommen: 10 IDs" stand und niemand die Zahl gegen
+    die Gesamtzahl hielt.
+    """
+    quelle = (REPO_ROOT / "tools" / "fix_ohne_test.py").read_text(
+        encoding="utf-8", errors="replace")
+
+    block = quelle.split("=== Nur unbeschriftet", 1)
+    assert len(block) == 2, "die Sektion wurde umbenannt"
+    danach = block[1]
+
+    assert "[:args.top]" in danach, "die Grenze haengt nicht an --top"
+    assert "[:10]" not in danach, "die feste Zehnergrenze steht noch da"
