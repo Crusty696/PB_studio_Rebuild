@@ -2,7 +2,7 @@
 title: Waechter - Bilanz Loop 6 (gemessen) und Konfiguration Loop 7
 status: laufend
 created: 2026-09-03 10:30
-updated: 2026-09-03 17:20
+updated: 2026-09-03 17:45
 ---
 
 # Waechter - Loop 7
@@ -86,13 +86,69 @@ zementieren).
 (`edit_workspace.py:943`), B-335 (`brain/scorer.py:52`, per Handprobe **ungedeckt**), B-371
 (`pacing_service.py:1621`, `= None` nicht sinnvoll mutierbar).
 
+## 3b. Bilanz Loop 7.1 — Live-GUI-Rundgang, gemessen
+
+Aufzeichnung: `test-report/loop7/gui_rundgang.log`, Screenshots unter
+`tests/qa_artifacts/loop7_*`.
+
+| Geprueft | Log-Zeilen | ERROR | WARNING |
+|---|---|---|---|
+| 5 Workspaces (PROJEKT/MATERIAL ANALYSE/CONVERT/SCHNITT/EXPORT) | 84 | 0 | 0 |
+| 4 SCHNITT-Sub-Tabs (Schnitt/Pacing Anker/Audio/Notizen) | 0 (loggt nicht) | 0 | 0 |
+| 4 Panel-Tabs (CHAT/TASKS/LOG/Brain V3) | 3 | 0 | 0 |
+| Einstellungen-Dialog + 3 Tabs + Verbindungstest 2x | 2 | 0 | 0 |
+| 6 Studio-Brain-Tabs | 21 | 0 | 0 |
+| Timeline generieren | 5 | 0 | 0 |
+
+**Timeline-Lauf:** 161 Eintraege (160 Video + 1 Audio), 185 Beat-Marker,
+185 Cut-Points, 337 s, Thumbnails geladen. Graph-Cockpit: 147 Knoten,
+4402 Kanten.
+
+### Zwei echte Funde
+
+| Bug | Was | Stand |
+|---|---|---|
+| B-973 | `member_count` der Stil-Cluster um 46 zu hoch (105/66, 11/11, 29/22) | repariert, 12 Tests, Commit `e11fe45` |
+| B-974 | 48 von 147 Szenen zeigen auf abgeschaltete Cluster | dokumentiert, Userentscheidung |
+
+### Vier Kandidaten geprueft und aufgeloest — keine Bugs
+
+| Kandidat | Aufloesung |
+|---|---|
+| `registered_paths=0` bei 161 Records | Lazy-Thumbnails vor der Anforderung; Screenshot zeigt geladene Thumbnails |
+| Drei Zahlen fuer "Cuts": 185 / 161 / 160 | 185 Cut-Points, 161 Eintraege inkl. Audio, 160 Video-Clips. Zwei Schreiber des Labels (`edit_workspace.py:434` und `:836`) |
+| `5x get_active_project_id(): Kein aktives Projekt` | kam VOR dem Auto-Resume, App lief noch auf der leeren Boot-DB. Danach keine mehr |
+| B-053-Fallback auf `project_id=1` | Boot-DB nachgemessen: 0 Projekte, 0 Tracks, 0 Clips, 0 Timeline-Eintraege. Nichts geschrieben |
+
+### Eine Beobachtung ohne Reparatur
+
+Das Wort "Cuts" bezeichnet in zwei Labels zwei verschiedene Dinge: 185
+Schnittkandidaten gegen 160 Clips. Fuer den Nutzer irreführend. Umbenennen ist
+per Userauftrag untersagt, deshalb nur notiert.
+
+### Eigene Fehlschluesse in diesem Lauf, korrigiert
+
+1. "0 neue Zeilen" nach den Sub-Tab-Klicks als "keine Wirkung" gelesen — ein
+   Sub-Tab-Wechsel loggt einfach nichts, der Screenshot belegt den Wechsel.
+2. Im verkleinerten Screenshot dreimal "Fertig" im Notizen-Bereich vermutet.
+   Der Regionsausschnitt zeigt dort nichts; die Labels stehen im rechten
+   TASKS-Panel, ich hatte die x-Positionen falsch zugeordnet.
+3. "Verbindung testen" fuer ungeschuetzt gehalten. Der Handler sperrt den Knopf
+   sofort (`setEnabled(False)`); die zwei Log-Zeilen kamen aus zwei
+   nacheinander fertigen Tests.
+
+*Konsequenz:* Bei jeder Auffaelligkeit aus einem verkleinerten Screenshot erst
+einen Regionsausschnitt oder die UIA-Koordinaten pruefen, bevor sie als Fund
+benannt wird.
+
 ## 4. Wie der Waechter praeziser geworden ist
 
 | Beobachtung aus Loop 6 | Konsequenz fuer Loop 7 |
 |---|---|
 | Sieben Messfehler in einem Werkzeug, jeder erst nach einem Lauf sichtbar | Werkzeug einfrieren. Ein Messwerkzeug, das siebenmal falsch gemessen hat, verdient keine achte Runde vor dem naechsten echten Fund |
 | Viermal dieselbe Fehlerklasse (ID in Kommentar / Log-String / Docstring / Kommentar ueber der Reparatur) | Jeder Quellcode-Guard prueft ab jetzt **nur Code** — Kommentare und Docstrings werden vorher entfernt |
-| Live-Laeufe fanden die schwersten Bugs (B-965, B-967) | 7.1 und 7.2 sind der Kern des Loops, nicht die statische Analyse |
+| Live-Laeufe fanden die schwersten Bugs (B-965, B-967) | bestaetigt in 7.1: B-973 und B-974 kamen aus einem Widerspruch im Screenshot, nicht aus dem Log |
+| Vier von sechs Auffaelligkeiten in 7.1 loesten sich als Fehlschluss auf | Erst Regionsausschnitt oder UIA-Koordinaten, dann Fund benennen |
 | "Gedeckt" per grober Mutation ist schwaecher als per feiner | Im Bericht steht die Mutationsart; im Wächter wird zwischen stark und schwach gedeckt getrennt |
 | Baseline-Fehlschlaege verfaelschten die Messung | Jede Messung, die Testfehler zaehlt, gleicht gegen `tests/known_failures.json` ab |
 | Eine eigene Ableitung ("erst fehlerfreies Werkzeug") lenkte den Loop | Ableitungen aus dem Auftrag gehoeren offengelegt und vom User bestaetigt, nicht stillschweigend umgesetzt |
