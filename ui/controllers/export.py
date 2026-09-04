@@ -262,6 +262,10 @@ class ExportController(PBComponent):
                 task_manager.finish_task(task_id, "error", "Leerer Export-Pfad")
             self._set_deliver_status("Export fehlgeschlagen: leerer Ausgabepfad.")
             return
+        # B-980: Abschluss gehoert ins Logfile, nicht nur in die GUI-Widgets —
+        # sonst ist ein fertiger Export von einem noch laufenden nicht zu
+        # unterscheiden, sobald die App geschlossen wurde.
+        logger.info("[Export] fertig: %s", output_path)
         self.window.export_log.append(f"[Export] FERTIG: {output_path}")
         self.window.console_text.append(f"[Export] Video exportiert: {output_path}")
         # B-580: "fertig" darf einen Materialverlust nicht ueberdecken.
@@ -290,6 +294,8 @@ class ExportController(PBComponent):
         self.window.btn_export.setEnabled(True)
         self.window.btn_export.setText("Video exportieren")
         self.window.export_progress.setVisible(False)
+        # B-980: ein fehlgeschlagener Export hinterliess im Logfile keine Spur.
+        logger.error("[Export] fehlgeschlagen: %s", error_msg)
         self.window.export_log.append(f"[FEHLER] Export fehlgeschlagen: {error_msg}")
         self._set_deliver_status(f"Export fehlgeschlagen: {error_msg}")
         self.window.console_text.append(f"[Fehler] Export: {error_msg}")
@@ -345,6 +351,8 @@ class ExportController(PBComponent):
             self._set_deliver_status("Vorschau fehlgeschlagen: leerer Ausgabepfad.")
             return
 
+        # B-980: siehe _on_export_finished.
+        logger.info("[Preview] fertig: %s", preview_path)
         self.window.export_log.append(f"[Preview] Vorschau fertig: {preview_path}")
         self.window.console_text.append(f"[Preview] Vorschau gerendert: {preview_path}")
         self._set_deliver_status(f"Vorschau fertig: {preview_path}")
@@ -380,6 +388,8 @@ class ExportController(PBComponent):
         self.window.btn_preview.setEnabled(True)
         self.window.btn_preview.setText("Quick-Preview (10s)")
         self.window.export_progress.setVisible(False)
+        # B-980: siehe _on_export_error.
+        logger.error("[Preview] fehlgeschlagen: %s", error_msg)
         self.window.export_log.append(f"[FEHLER] Vorschau fehlgeschlagen: {error_msg}")
         self._set_deliver_status(f"Vorschau fehlgeschlagen: {error_msg}")
         self.window.console_text.append(f"[Fehler] Preview: {error_msg}")
