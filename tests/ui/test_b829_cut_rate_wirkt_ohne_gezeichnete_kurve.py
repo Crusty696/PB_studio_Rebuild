@@ -45,9 +45,9 @@ def _step(base: int, kurve):
 
 def test_b829_unberuehrtes_widget_liefert_keinen_override(qtbot):
     """Der Kern: ohne Zeichnung gibt es keine manuelle Kurve."""
-    from ui.widgets.pacing_curve import PacingCurveWidget
+    from ui.widgets.pacing_ramp import PacingRampWidget
 
-    widget = PacingCurveWidget()
+    widget = PacingRampWidget()
     qtbot.addWidget(widget)
 
     assert widget.get_manual_override() is None, (
@@ -58,13 +58,11 @@ def test_b829_unberuehrtes_widget_liefert_keinen_override(qtbot):
 
 def test_b829_gezeichnete_kurve_wird_als_override_geliefert(qtbot):
     """Gegenprobe: wer zeichnet, soll die Kurve auch bekommen."""
-    from PySide6.QtCore import QPointF
-    from ui.widgets.pacing_curve import PacingCurveWidget
+    from ui.widgets.pacing_ramp import PacingRampWidget
 
-    widget = PacingCurveWidget()
+    widget = PacingRampWidget()
     qtbot.addWidget(widget)
-    widget.resize(200, 100)
-    widget._paint_at(QPointF(100.0, 10.0))  # weit oben = hohe Dichte
+    widget.set_ramp(0.9, 0.9)  # hohe Dichte, frueher: Strich weit oben
 
     override = widget.get_manual_override()
     assert override is not None, "gezeichnete Kurve muss als Override gelten"
@@ -73,13 +71,11 @@ def test_b829_gezeichnete_kurve_wird_als_override_geliefert(qtbot):
 
 
 def test_b829_reset_macht_die_kurve_wieder_unberuehrt(qtbot):
-    from PySide6.QtCore import QPointF
-    from ui.widgets.pacing_curve import PacingCurveWidget
+    from ui.widgets.pacing_ramp import PacingRampWidget
 
-    widget = PacingCurveWidget()
+    widget = PacingRampWidget()
     qtbot.addWidget(widget)
-    widget.resize(200, 100)
-    widget._paint_at(QPointF(100.0, 10.0))
+    widget.set_ramp(0.9, 0.9)
     assert widget.get_manual_override() is not None
 
     widget.reset_curve()

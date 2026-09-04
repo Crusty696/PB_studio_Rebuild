@@ -31,17 +31,23 @@ pytest.importorskip("PySide6")
 
 @pytest.fixture
 def kurve(qtbot):
-    from ui.widgets.pacing_curve import PacingCurveWidget
+    # B-976: das gezeichnete Kurven-Widget ist durch zwei Zahlen ersetzt.
+    # Die Regel bleibt dieselbe - nach dem Zuruecksetzen darf keine
+    # Nutzervorgabe mehr gemeldet werden.
+    from ui.widgets.pacing_ramp import PacingRampWidget
 
-    widget = PacingCurveWidget()
+    widget = PacingRampWidget()
     qtbot.addWidget(widget)
     return widget
 
 
 def _als_gezeichnet_markieren(widget) -> None:
-    """Den Zustand herstellen, den ein echter Mausstrich hinterlaesst."""
-    widget._density = [0.9] * widget._num_samples
-    widget._user_edited = True
+    """Den Zustand herstellen, den eine echte Eingabe hinterlaesst.
+
+    Frueher war das ein Mausstrich auf der Zeichenflaeche, seit B-976 sind es
+    zwei Zahlen.
+    """
+    widget.set_ramp(0.9, 0.9)
 
 
 class TestZuruecksetzen:
@@ -59,7 +65,8 @@ class TestZuruecksetzen:
     def test_reset_stellt_den_ruhezustand_her(self, kurve):
         _als_gezeichnet_markieren(kurve)
         kurve.reset_curve()
-        assert kurve.get_all_densities() == [0.5] * kurve._num_samples
+        from ui.widgets.pacing_ramp import NEUTRAL, STUETZSTELLEN
+        assert kurve.get_all_densities() == [NEUTRAL] * STUETZSTELLEN
 
 
 class TestProjektwechsel:
