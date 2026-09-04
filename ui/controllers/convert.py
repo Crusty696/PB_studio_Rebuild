@@ -314,9 +314,14 @@ class ConvertController(PBComponent):
     def _on_batch_convert_finished(self, converted: int, total: int, task_id: str):
         self.window.convert_progress.setVisible(False)
         task_manager.finish_task(task_id, message=f"{converted}/{total} konvertiert")
+        # B-981 (gleiche Klasse wie B-980): 121 Videos in 3:49 hinterliessen im
+        # Logfile nur zwei GPU-Lock-Zeilen. Ergebnis und Fehler standen
+        # ausschliesslich im GUI-Widget und waren nach dem Schliessen weg.
+        logger.info("[Convert] fertig: %d/%d Videos konvertiert", converted, total)
         self.window.convert_log.append(f"[Convert] Fertig: {converted}/{total} Videos konvertiert.")
 
     def _on_batch_convert_error(self, error_msg: str, task_id: str):
         self.window.convert_progress.setVisible(False)
+        logger.error("[Convert] fehlgeschlagen: %s", error_msg)
         self.window.convert_log.append(f"[Convert-Fehler] {error_msg}")
         task_manager.finish_task(task_id, "error", error_msg)
