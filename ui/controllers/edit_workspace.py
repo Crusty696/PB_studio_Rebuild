@@ -1501,6 +1501,14 @@ class EditWorkspaceController(PBComponent):
         if binder.refresh_current_project():
             return True
         reason = binder.block_reason()
+        # B-975: Die Blockade stand bisher NUR in der GUI-Konsole. Im Logfile
+        # war ein abgewiesener Auto-Edit-Klick nicht von einem Klick zu
+        # unterscheiden, der den Knopf gar nicht erreicht hat - beide Male
+        # blieb das Log stumm. Genau daran hing am 2026-09-04 eine mehrstuendige
+        # Fehlersuche: der User meldete "seit Wochen dieselbe Timeline", und
+        # ohne Logzeile liess sich nicht sagen, ob der Klick ankam und
+        # abgewiesen wurde oder ob er nie ankam.
+        logger.warning("[SCHNITT] %s blockiert: %s", feature, reason)
         self.window.console_text.append(f"[SCHNITT] {feature} blockiert: {reason}")
         ws = getattr(self.window, "_schnitt_ws", None)
         if ws is not None:
