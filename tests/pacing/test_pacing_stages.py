@@ -50,20 +50,54 @@ def _drop_context(ts: float = 60.0) -> AudioContext:
 
 
 def test_hard_rule_drops_wrong_role() -> None:
-    """Section=drop allows {hero, action}; an establishing-role clip is rejected at stage 1."""
+    """Section=drop allows {hero, action, establishing}; a detail clip is rejected at stage 1.
+
+    B-977 (Loop 7, user decision "matrix erweitern") added ``establishing`` to
+    ``drop``: it is 52 % of the material, and without it the emergency path ran
+    for every segment. The previous version of this test used ``establishing``
+    as the rejected role, which now contradicts the configuration.
+
+    ``detail`` is not among the allowed roles for ``drop``. It is used here
+    instead of ``filler`` because B-768 loads exactly ``filler``/``unknown``
+    as its fallback, so filler cannot demonstrate a hard rejection.
+    """
     pipe = PacingPipeline()
     ctx = _drop_context()
-    hero = _make_clip(1, role="hero")
-    establishing = _make_clip(2, role="establishing")
-    res = pipe.select_best([hero, establishing], ctx)
+    # Mindestens 8 rollenkonforme Kandidaten, sonst softet B-768 die
+    # Rollenmenge und JEDE Rolle kommt durch — gemessen: "Rollenmatrix liess
+    # nur 1 nutzbare Kandidaten (< 8) ... Rollenmenge gesoftet".
+    heroes = [_make_clip(i, role="hero") for i in range(1, 9)]
+    detail = _make_clip(99, role="detail")
+    res = pipe.select_best(heroes + [detail], ctx)
     assert res.chosen is not None
-    # establishing should NOT have been the chosen clip; also its stage_result should be passed_stage1=False
+    detail_result = next(
+        sr
+        for sr in res.rationale["stage_results"]
+        if sr["clip_id"] == detail.clip_id
+    )
+    assert detail_result["passed_stage1"] is False
+
+
+def test_hard_rule_laesst_establishing_im_drop_zu() -> None:
+    """Gegenprobe zu B-977: ``establishing`` MUSS in ``drop`` durchkommen.
+
+    Schlaegt dieser Test fehl, ist die Matrix-Erweiterung aus Loop 7 verloren
+    gegangen — dann sperrt die Konfiguration wieder 60 % des Materials aus.
+    """
+    pipe = PacingPipeline()
+    ctx = _drop_context()
+    # Auch hier genug hero-Kandidaten, damit die Weitung aus B-768 das
+    # Ergebnis nicht erklaert — establishing muss REGULAER durchkommen.
+    heroes = [_make_clip(i, role="hero") for i in range(1, 9)]
+    establishing = _make_clip(98, role="establishing")
+    res = pipe.select_best(heroes + [establishing], ctx)
+    assert res.chosen is not None
     est_result = next(
         sr
         for sr in res.rationale["stage_results"]
         if sr["clip_id"] == establishing.clip_id
     )
-    assert est_result["passed_stage1"] is False
+    assert est_result["passed_stage1"] is True
 
 
 def test_budget_disqualifies_over_limit() -> None:

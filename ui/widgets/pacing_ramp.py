@@ -83,16 +83,27 @@ class PacingRampWidget(QWidget):
 
         zeile.addWidget(self._beschriftung("Anfang"))
         self.spin_anfang = self._spinbox()
+        # Der Tooltip-Audit prueft auch das interne Eingabefeld einer SpinBox,
+        # deshalb wird es mitgesetzt (Regression aus Loop 8).
+        self._mit_tooltip(
+            self.spin_anfang,
+            "Tempo am Anfang des Songs. 0.0 = ruhig, 1.0 = schnell, 0.5 = neutral.",
+        )
         zeile.addWidget(self.spin_anfang)
 
         zeile.addSpacing(12)
         zeile.addWidget(self._beschriftung("Ende"))
         self.spin_ende = self._spinbox()
+        self._mit_tooltip(
+            self.spin_ende,
+            "Tempo am Ende des Songs. Dazwischen wird linear ueberblendet.",
+        )
         zeile.addWidget(self.spin_ende)
 
         zeile.addStretch(1)
 
         self.btn_zuruecksetzen = QPushButton("Zurücksetzen")
+        self.btn_zuruecksetzen.setAccessibleName("Pacing-Verlauf zurücksetzen")
         self.btn_zuruecksetzen.setToolTip(
             "Verlauf abschalten — dann entscheidet allein die Cut Rate."
         )
@@ -114,6 +125,14 @@ class PacingRampWidget(QWidget):
         lbl = QLabel(text)
         lbl.setStyleSheet("color:#9ca3af; font-size:11px;")
         return lbl
+
+    @staticmethod
+    def _mit_tooltip(spin, text: str) -> None:
+        """Setzt den Tooltip auf die SpinBox und ihr internes Eingabefeld."""
+        spin.setToolTip(text)
+        eingabe = spin.lineEdit()
+        if eingabe is not None:
+            eingabe.setToolTip(text)
 
     def _spinbox(self) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
