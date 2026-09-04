@@ -3,15 +3,32 @@
 # Consumed by PacingPipeline Stage 1 (Hard Rules) — cuts that don't match the
 # allowed roles for the current section are rejected (or softened; see below).
 
+# B-977 (Userentscheidung 2026-09-04): ``establishing`` ist in buildup, drop,
+# verse und chorus ergaenzt.
+#
+# Gemessen im Projekt Erstlauf_Test_2026-08-30 (147 Szenen, 121 Videos):
+#   Material je Rolle: establishing 76, hero 36, action 13, filler 12,
+#                      detail 7, transition 3
+#   Sektionen im Song: chorus 10, buildup 7, drop 6, verse 4
+#
+# ``establishing`` stand nur in intro/warmup/breakdown/outro — vier Sektionen,
+# die in diesem Track nicht vorkommen. Damit waren 88 von 147 Szenen (60 %)
+# gesperrt, davon allein 76 establishing. Nutzbar blieben je Sektion hoechstens
+# 52 Szenen, gebraucht wurden 79 verschiedene (max_uses=1) — rechnerisch
+# unmoeglich. Folge: der Notfallpfad (B-768 soften, B-776 Pool weiten) griff in
+# einem einzigen Lauf 82 Mal bei 79 Segmenten, die Rollenlogik war praktisch
+# ausser Kraft.
+#
+# ``filler`` bleibt bewusst draussen: B-768 laedt es ohnehin als Notfall nach.
 section_role_matrix:
   intro:      [establishing, ambient, detail]
   warmup:     [establishing, hero_low_motion, detail]
-  buildup:    [hero, action, transition]
-  drop:       [hero, action]
+  buildup:    [hero, action, transition, establishing]
+  drop:       [hero, action, establishing]
   breakdown:  [detail, ambient, establishing]
   outro:      [establishing, detail, ambient]
-  verse:      [hero, detail]
-  chorus:     [hero, action]
+  verse:      [hero, detail, establishing]
+  chorus:     [hero, action, establishing]
   bridge:     [transition, detail]
   transition: [transition, action, hero]
 
