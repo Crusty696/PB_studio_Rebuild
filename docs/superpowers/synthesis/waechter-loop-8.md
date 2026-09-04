@@ -92,6 +92,73 @@ B-974, B-978 (Userentscheidung steht aus).
 (`pacing_service.py:1621`), B-795 und B-865 (in der Abnahme nicht gemessen —
 die Tests existieren, ihre Wirksamkeit unter Mutation ist offen).
 
+## 3b. Bilanz Loop 8 — die Endstrecke, gemessen
+
+Alle sechs Schritte erfuellt. Zwei neue Funde, beide gefixt und **live**
+verifiziert.
+
+| Schritt | Ergebnis |
+|---|---|
+| 8.1 Quick-Preview | 10,006 s, h264 1920x1080 @30fps, aac 48 kHz stereo, 22,9 MB |
+| 8.2 Voller Export | 337,131 s (Timeline 337,1 s), 10105 Videoframes, 15804 Audioframes, 722 MB, Lauf 2:46 |
+| 8.3 GPU-Hartregel im Lauf | `TAG:encoder=Lavc60.31.102 h264_nvenc` in der Ausgabedatei; `GPU_EXECUTION_LOCK reason=batch_convert_nvenc` im Log |
+| 8.4 CONVERT | 121/121 Dateien, **alle** per ffprobe geprueft: 121x `('h264',1920,1080,'30/1','h264_nvenc')`, 0 Abweichungen |
+| 8.5 log_audit | **0 ERROR/CRITICAL**, 0 Muster unter 60 s Takt, alle fuenf Wiederholungsgruppen zugeordnet |
+| 8.6 A/V | beide Spuren ab 0,000; 337,131 s gegen 337,130 s — 1,3 ms, kein Versatz |
+
+### Zwei neue Funde — dieselbe Klasse
+
+| Bug | Was | Live-Beleg |
+|---|---|---|
+| B-980 | Der Export-Controller definiert einen Logger und ruft ihn **nie** auf — 36 GUI-Ausgaben, 0 Logzeilen. Auch beide Fehlerpfade | `ui.controllers.export: [Export] fertig: ...` nach dem Fix |
+| B-981 | Dieselbe Luecke im Convert-Controller: 121 Videos in 3:49, im Logfile zwei GPU-Lock-Zeilen | `ui.controllers.convert: [Convert] fertig: 121/121 Videos konvertiert` |
+
+Zusammen mit B-975 (Schnitt-Gate) sind das **drei Stellen derselben Klasse**:
+der Zustand steht am Bildschirm und ist nach dem Schliessen der App weg.
+
+### Der Fund kam aus einem eigenen Irrtum
+
+B-980 wurde sichtbar, weil ich den Preview-Lauf **zwoelf Minuten lang fuer
+haengengeblieben hielt**: das Logfile endete nach `Concat-Export`, kein
+ffmpeg-Prozess lief mehr. Tatsaechlich war die Vorschau nach rund 10 Sekunden
+fertig — die Meldung stand nur in der GUI. Genau die Verwechslung, die der Bug
+erzeugt, ist mir selbst passiert.
+
+### Drei Regressionen aus Loop 7, gefunden und behoben
+
+Der Regressionslauf ergab `20 failed, 5131 passed, 57 skipped in 3906.94s
+(1:05:06)` gegen 17 in der Baseline. Der Abgleich mit
+`tests/known_failures.json` zeigte drei neue — **alle drei aus meinen eigenen
+Aenderungen**:
+
+1. `test_schnitt_tooltip_audit` — die zwei neuen SpinBoxen aus B-976 hatten
+   keinen Tooltip, der Zuruecksetzen-Knopf keinen accessibleName.
+2. `test_hard_rule_drops_wrong_role` — kodierte die alte Rollenmatrix als Soll,
+   die Userentscheidung B-977 hat sie geaendert.
+3. `test_golden_run_snapshot` — Drift 8 -> 10 und 11 -> 13 passierte
+   Kandidaten, exakt die gewollte Wirkung.
+
+Beim Nachziehen von (2) **gemessen statt angenommen**: mit nur zwei Kandidaten
+softet B-768 die Rollenmenge und laedt gerade `filler`/`unknown` nach — mit
+`filler` liesse sich die harte Regel gar nicht zeigen. Der Test stellt jetzt
+8 konforme Kandidaten bereit, dazu eine Gegenprobe, die fehlschlaegt, falls die
+Matrix-Erweiterung verloren geht.
+
+### Ein eigener Werkzeugfehler, wiederholt
+
+Der erste Regressionslauf wurde per `nohup &` gestartet und starb mit der
+Shell — die Ausgabedatei enthielt nur Migrationszeilen. Der Exitcode war
+trotzdem 0, weil er vom `echo` kam. **Konsequenz: nach jedem langen Lauf erst
+die Dateigroesse pruefen, nie den Exitcode allein.**
+
+### Nicht erreicht
+
+* B-975 bleibt ohne Ursache — der Zustand trat in diesem Loop nicht auf.
+* Die Encoder-Wahl selbst steht in **keiner** Logzeile; belegt ist sie nur
+  ueber das Metadatum der Ausgabedatei. Der B-980-Fix wurde bewusst auf die
+  vier Abschluss-/Fehlerhandler begrenzt.
+* 8.6 ist eine Container-Messung, **kein** inhaltlicher Bild-/Beat-Abgleich.
+
 ## 4. Wie der Waechter praeziser geworden ist
 
 | Beobachtung aus Loop 7 | Konsequenz fuer Loop 8 |
@@ -103,3 +170,7 @@ die Tests existieren, ihre Wirksamkeit unter Mutation ist offen).
 | Drei widerlegte Hypothesen zu einem nicht reproduzierbaren Zustand | Ohne Repro keine Hypothesenkette. Erst Messbarkeit herstellen (hier: das Log), dann warten |
 | Fuer B-335/B-354/B-244 passte keine generische Mutation | "Ungemessen" wird nicht zu "gedeckt" aufgerundet, sondern per Handprobe entschieden — drei Handproben kosteten zusammen unter einer Minute |
 | Die Endstrecke war nach sieben Loops noch nie gefahren | Ein Loop gilt erst als vollstaendig, wenn jeder Workspace nicht nur **geoeffnet**, sondern **ausgefuehrt** wurde |
+| Der schwerste Fund kam aus einem eigenen Irrtum ueber ein schweigendes Logfile | Wenn ein Lauf still steht, zuerst pruefen, ob die Stille selbst der Bug ist — vor jeder Annahme ueber den Prozess |
+| Drei Stellen derselben Klasse (B-975, B-980, B-981) | Bei einem Fund dieser Art gezielt nach Geschwistern suchen: welcher Controller definiert einen Logger und ruft ihn nicht auf? |
+| Der Regressionslauf fand drei selbst verursachte Regressionen | Ein Loop endet erst nach einem Regressionslauf **mit Baseline-Abgleich**. "Meine Tests sind gruen" ist kein Ersatz |
+| Eine Stichprobe von 1 Datei haette 8.4 auch "belegt" | Wo eine vollstaendige Pruefung Sekunden kostet (121x ffprobe = 25 s), wird nicht gestichprobt |
