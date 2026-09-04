@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QComboBox, QSlider, QSpinBox, QLineEdit, QPushButton, QTreeWidget,
     QCheckBox,
 )
-from ui.widgets.pacing_curve import PacingCurveWidget
+from ui.widgets.pacing_ramp import PacingRampWidget
 
 
 class SchnittTabPacingAnker(QWidget):
@@ -30,10 +30,13 @@ class SchnittTabPacingAnker(QWidget):
         v.setContentsMargins(8, 6, 8, 6)
         v.setSpacing(6)
 
-        v.addWidget(self._small_label("MANUAL PACING"))
-        self.pacing_curve = PacingCurveWidget()
-        self.pacing_curve.setMinimumHeight(280)
-        v.addWidget(self.pacing_curve, stretch=1)
+        v.addWidget(self._small_label("SCHNITTDICHTE"))
+        # Userauftrag 2026-09-04: das gezeichnete Kurvenfenster ist ersetzt
+        # durch zwei Zahlen. Die Messung davor zeigte, dass der praktische
+        # Nutzen der Kurve vollstaendig im Verlauf von A nach B lag - feine
+        # Muster mittelten sich weg (Welle mit vier Bergen: 85/85/86/82 Cuts).
+        self.pacing_curve = PacingRampWidget()
+        v.addWidget(self.pacing_curve)
 
         # Settings-Grid
         row1 = QHBoxLayout()

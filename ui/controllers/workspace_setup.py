@@ -512,8 +512,15 @@ class WorkspaceSetupController(PBComponent):
         self.window.btn_sync_anchors.clicked.connect(self.window.edit_workspace._sync_anchors)
         self.window.btn_learn_ai.clicked.connect(self.window.edit_workspace._learn_anchor_as_ai_rule)
         self.window.btn_keyframe_string.clicked.connect(self.window.edit_workspace._show_keyframe_strings)
-        if hasattr(self.window.pacing_curve, 'curve_changed'):
-            self.window.pacing_curve.curve_changed.connect(self.window.edit_workspace._generate_timeline)
+        # Userauftrag 2026-09-04: aus der gezeichneten Kurve wurden zwei
+        # Zahlen (PacingRampWidget). Das Signal heisst jetzt ramp_changed;
+        # curve_changed bleibt in der Abfrage, damit ein alteres Widget
+        # weiterhin verdrahtet wuerde.
+        for _signalname in ("ramp_changed", "curve_changed"):
+            _signal = getattr(self.window.pacing_curve, _signalname, None)
+            if _signal is not None:
+                _signal.connect(self.window.edit_workspace._generate_timeline)
+                break
         # B-927: das fruehere thumbs-Wiring ist mit dem RL-Teil entfallen.
         # T3.7/T3.8: style_preset_combo wird auf den Pacing-Sub-Tab umgeleitet.
         _schnitt_tab_pacing.style_combo.currentIndexChanged.connect(self.window.edit_workspace._apply_style_preset)
