@@ -278,6 +278,11 @@ class SchnittTabPacingAnker(QWidget):
         action_row.addWidget(self.btn_regenerate)
         v.addLayout(action_row)
 
+        # Der Platz, den frueher die 280 px hohe Zeichenflaeche einnahm, sammelt
+        # sich jetzt unten statt zwischen den Bedienzeilen (Userhinweis
+        # 2026-09-04: "den leerraum schliessen").
+        v.addStretch(1)
+
         return col
 
     def _open_ab_compare(self) -> None:

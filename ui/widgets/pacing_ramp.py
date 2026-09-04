@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +53,12 @@ class PacingRampWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._aktiv = False
+        # Nur so hoch wie noetig. Das Kurven-Widget davor hatte
+        # setMinimumHeight(280) und fuellte den Rest der Spalte; ohne diese
+        # Vorgabe dehnte sich der Ersatz genauso und hinterliess denselben
+        # Leerraum ueber den Zahlen (Userhinweis 2026-09-04).
+        self.setSizePolicy(QSizePolicy.Policy.Preferred,
+                           QSizePolicy.Policy.Maximum)
         self._build_ui()
 
     # ------------------------------------------------------------------
